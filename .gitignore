@@ -1,0 +1,145 @@
+# ============================================================
+# 학내 데이터 — 절대 커밋 금지
+#   경로 무관 차단이므로 core/ api/ web/ 어디에 있어도 적용된다.
+# ============================================================
+
+# 학칙 / 규정 원문 (학교 저작물)
+*.hwp
+*.hwpx
+*.pdf
+*.doc
+*.docx
+*.xls
+*.xlsx
+
+# 데이터 파이프라인 산출물 (디렉토리가 아닌 '내용물'을 무시해야 .gitkeep 예외가 동작)
+core/data/raw/*
+core/data/interim/*
+core/data/processed/*
+!core/data/raw/.gitkeep
+!core/data/interim/.gitkeep
+!core/data/processed/.gitkeep
+
+# 학적 데이터 — 어떤 경로에 있든 차단 (테스트 픽스처 포함)
+**/student*.csv
+**/student*.json
+**/academic_record*
+**/*_personal.*
+
+# 평가 질문셋 — 예시 파일만 추적
+core/data/eval/*.jsonl
+!core/data/eval/sample_questions.example.jsonl
+
+# Vector DB 인덱스 (용량 + 임베딩에서 원문 부분 복원 가능)
+*.faiss
+*.index
+chroma/
+chroma_db/
+.chroma/
+
+# 대화 로그 (학적 정보가 섞일 수 있음)
+conversations/
+
+# ============================================================
+# Secrets
+# ============================================================
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+credentials*.json
+secrets/
+
+# ============================================================
+# 모델 가중치 (sLLM 로컬 구동 시)
+#   주의: 'models/' 로 쓰면 api/app/models/ (DB 모델 코드)까지 차단된다.
+#   루트 기준 경로로 한정한다.
+# ============================================================
+/models/
+/core/models/
+/api/models/
+*.gguf
+*.safetensors
+*.bin
+*.pt
+*.pth
+
+# ============================================================
+# Python  (core/, api/)
+# ============================================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+.venv/
+venv/
+ENV/
+env/
+
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.tox/
+.ipynb_checkpoints/
+
+# ============================================================
+# Node  (web/)
+# ============================================================
+node_modules/
+dist-ssr/
+.cache/
+*.local
+.vite/
+.next/
+.turbo/
+.eslintcache
+coverage/
+.nyc_output/
+
+# ============================================================
+# 로그 / 로컬 DB
+# ============================================================
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+*.db
+*.sqlite
+*.sqlite3
+
+# ============================================================
+# OS / IDE
+# ============================================================
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/
+!.vscode/extensions.json
+*.swp
+
+# ============================================================
+# 로컬 전용 문서 (커밋 금지)
+# ============================================================
+/PROJECT_OVERVIEW.md
+/PUSH_GUIDE.md
