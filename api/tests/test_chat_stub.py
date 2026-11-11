@@ -312,6 +312,13 @@ class ChatValidationErrorTest(unittest.TestCase):
 
         self.assert_fixed_400(_post_chat({"message": 123}))
 
+    def test_academic_data_flag_rejects_non_booleans(self):
+        for invalid in ("yes", "false", 1, 0, None):
+            with self.subTest(invalid=invalid):
+                self.assert_fixed_400(
+                    _post_chat({"message": "가상 질문", "use_academic_data": invalid})
+                )
+
     def test_invalid_session_id_is_400(self):
         """UUID가 아닌 문자열, 빈 문자열, 숫자 모두 거부."""
 

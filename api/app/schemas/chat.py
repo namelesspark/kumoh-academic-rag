@@ -36,6 +36,7 @@ class ChatRequest(BaseModel):
 
     use_academic_data: bool = Field(
         default=False,
+        strict=True,
         description="학적 연동 동의 여부. 요청마다 받는다.",
     )
 

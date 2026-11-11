@@ -22,9 +22,9 @@ Base URL: `/api/v1`
 
 | 필드 | 타입 | 설명 |
 |---|---|---|
-| `session_id` | string | 대화 세션 ID. 없으면 서버가 발급 |
+| `session_id` | string | 대화를 구분하는 값. 생략하거나 `null`을 보내면 서버가 발급 |
 | `message` | string | 사용자 질문 |
-| `use_academic_data` | bool | 학적 연동 동의 여부. `false`면 일반 답변만 |
+| `use_academic_data` | bool | 학적 연동 동의 여부. `true`와 `false`만 받으며 생략 시 `false` |
 
 `use_academic_data`를 요청마다 받는 이유 — 개인정보 조회는 사용자가 매번 통제할 수 있어야 한다.
 
