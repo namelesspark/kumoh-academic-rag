@@ -1,0 +1,14 @@
+# api 의존성
+#
+# 이 브랜치의 스텁은 FastAPI 와 Pydantic v2 만 쓴다. core 는 import 하지 않는다.
+# 전제: Python 3.10 이상 (str | None, list[...] 문법).
+#
+# 버전 기록
+# - 검증 환경은 Windows + uv 가 설치한 CPython 3.14 였다.
+#   Python 3.14 지원은 FastAPI 0.119 이상, Pydantic 2.12 이상에서 공식화됐으므로 하한을 그에 맞췄다.
+# - 공개 저장소 기본 브랜치 기준 FastAPI 는 0.162.4, Pydantic 은 2.15 개발판이다.
+#   FastAPI 는 Python 3.10 이상·Pydantic 2.9 이상·Starlette 0.46 이상을 요구한다.
+# - 이 브랜치 작성 세션에서는 패키지 버전을 직접 조회할 수 없었다.
+#   테스트를 통과시킨 환경에서 `pip freeze` 로 확인한 정확한 버전으로 아래 두 줄을 고정(==)할 것.
+fastapi>=0.119,<1.0
+pydantic>=2.12,<3.0
