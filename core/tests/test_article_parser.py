@@ -71,5 +71,28 @@ class ArticleParserTests(unittest.TestCase):
                 self.assert_span(text, second, next_article)
                 self.assertEqual(second.children, [])
 
+    def test_article_reference_at_start_of_line_stays_in_body(self):
+        first_article = (
+            "제1조(별빛 관리) 상자를 점검한다.\r\n"
+            "제5조(별빛 반납)에 따라 상자를 닫는다."
+        )
+        second_article = "제2조(종이 별)\r\n① 종이 별을 접는다."
+        text = f"{first_article}\r\n{second_article}"
+
+        first, second = parse_articles(text)
+
+        self.assertEqual(first.label, "제1조(별빛 관리)")
+        self.assertEqual(second.label, "제2조(종이 별)")
+        self.assert_span(text, first, first_article)
+        self.assert_span(text, second, second_article)
+
+    def test_decimal_and_four_digit_number_stay_in_body(self):
+        text = "제1조(가상 비율)\n1.5배를 적용한다.\n1000. 가상 번호다.\n2. 별을 접는다."
+        (article,) = parse_articles(text)
+        (item,) = article.children
+
+        self.assert_span(text, article, text)
+        self.assert_span(text, item, "2. 별을 접는다.")
+
     def test_empty_input(self):
         self.assertEqual(parse_articles(""), [])

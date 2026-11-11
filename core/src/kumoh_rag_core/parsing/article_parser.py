@@ -17,9 +17,9 @@ class ArticleNode:
 _MARKER = re.compile(
     r"^[^\S\r\n]*(?:"
     r"(?P<heading>제[0-9]+[장절](?=\s|\(|$))"
-    r"|(?P<article>제[0-9]+조(?:의[0-9]+)?\([^()\r\n]+\))"
+    r"|(?P<article>제[0-9]+조(?:의[0-9]+)?\([^()\r\n]+\))(?=\s|$)"
     r"|(?P<paragraph>[①-⑳])"
-    r"|(?P<item>[1-9][0-9]{0,2}\.)"
+    r"|(?P<item>[1-9][0-9]{0,2}\.)(?![0-9])"
     r")",
     re.MULTILINE,
 )
