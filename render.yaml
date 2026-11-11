@@ -1,0 +1,19 @@
+# Render Blueprint. 대시보드에서 "New → Blueprint"로 이 저장소를 연결하면
+# 아래 설정대로 Web Service가 만들어진다. 수동 입력 없이 설정이 저장소에 남는다.
+# 참고: https://render.com/docs/blueprint-spec
+
+services:
+  - type: web
+    name: kumoh-academic-rag-api
+    runtime: python
+    plan: free                      # 가상 응답 확인 단계. 무료 플랜은 유휴 시 잠들어 첫 요청이 느리다.
+    region: singapore               # 한국에서 가장 가까운 리전
+    branch: main
+    rootDir: api                    # 이 아래에서 빌드·시작 명령을 실행한다
+    buildCommand: pip install -r requirements.txt
+    startCommand: python -m uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/v1/health
+    autoDeployTrigger: commit       # main에 커밋이 추가되면 자동 재배포
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.7               # requirements.txt의 버전들이 검증된 범위 안의 안정 버전

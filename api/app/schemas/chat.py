@@ -1,133 +1,127 @@
-"""
-POST /api/v1/chat 요청·응답 스키마.
+"""POST /chat 주소로 오가는 요청과 응답이 어떤 필드를 갖는지 정한 틀(모델).
 
-API_SPEC.md 의 필드 이름과 1:1 로 맞춘다.
-여기서 검증에 실패하면 FastAPI 가 RequestValidationError 를 올리고,
-main.py 의 핸들러가 400 + 고정 문구로 바꿔 준다.
+명세 문서(API_SPEC.md)에 있는 예시는 중괄호와 따옴표로 값을 적는 텍스트 형식(JSON,
+JavaScript Object Notation)이다. 이 파일은 그 예시를 값 검사 라이브러리(pydantic) v2
+모델로 옮긴 것이다. 필드 이름과 타입은 명세와 1:1로 맞춘다. 명세에 글로만 적힌 규칙은
+값 검사 함수(validator)로 강제한다. 규칙은 두 가지다. 공백만 있는 메시지는 거부한다.
+대화 한 묶음을 가리키는 식별값(세션 ID)은 세계 어디서나 겹치지 않게 만든 128비트
+식별자 형식(UUID, Universally Unique Identifier)이어야 한다.
 """
+
+from __future__ import annotations
 
 import uuid
+from datetime import date
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 
-# ------------------------------------------------------------
+# ---------------------------------------------------------------------------
 # 요청
-# ------------------------------------------------------------
+# ---------------------------------------------------------------------------
 
 
 class ChatRequest(BaseModel):
-    """
-    사용자 질문 요청.
+    """요청을 보내는 쪽(클라이언트)이 담아 보내는 본문."""
 
-    - session_id        : 대화 세션 ID 문자열. 없으면 서버가 발급한다.
-    - message           : 사용자 질문. 공백만 있으면 거절한다.
-    - use_academic_data : 학적 연동 동의 여부. 기본 false.
-    """
+    message: str = Field(
+        ...,
+        description="사용자 질문. 공백만으로는 받지 않는다.",
+    )
 
-    # 문자열로 받는다. UUID 타입으로 받으면 표기(대소문자 등)가 바뀌어 버리기 때문.
-    session_id: str | None = None
+    session_id: str | None = Field(
+        default=None,
+        description="대화 세션 ID(UUID 문자열). 없으면 서버가 발급한다.",
+    )
 
-    message: str
-
-    use_academic_data: bool = False
-
-    # --- 검증 규칙 ---
-    # 검증기에서 ValueError 를 올리면 pydantic 이 검증 실패로 바꾸고,
-    # FastAPI 가 RequestValidationError 로 감싸 main.py 핸들러로 보낸다.
-
-    @field_validator("session_id")
-    @classmethod
-    def check_session_id_format(cls, value: str | None) -> str | None:
-        """
-        session_id 가 UUID 형식인지만 확인한다.
-
-        형식 검사만 하고 값은 그대로 돌려준다.
-        그래야 응답에서 입력 표기를 바꾸지 않고 되돌려 줄 수 있다.
-        """
-
-        # 안 보낸 경우는 통과. 서비스가 새로 발급한다.
-        if value is None:
-            return None
-
-        # 형식이 틀리면 uuid.UUID 가 ValueError 를 낸다.
-        # pydantic 은 ValueError 를 검증 실패로 처리한다.
-        uuid.UUID(value)
-
-        return value
+    use_academic_data: bool = Field(
+        default=False,
+        description="학적 연동 동의 여부. 요청마다 받는다.",
+    )
 
     @field_validator("message")
     @classmethod
-    def reject_blank_message(cls, value: str) -> str:
-        """
-        공백만 있는 질문은 거절한다.
+    def _message_not_blank(cls, value: str) -> str:
+        """빈 문자열이나 공백·개행만 있는 문자열을 거부한다.
 
-        원문은 자르지 않고 그대로 둔다. 비교가 필요하면 서비스에서 strip 한다.
+        타입은 str로 이미 맞았으므로 여기서는 내용만 본다. 실패하면 pydantic이
+        RequestValidationError를 올리고, main.py의 예외 처리 함수(핸들러)가 그것을
+        400 응답으로 바꾼다.
         """
 
-        if value.strip() == "":
-            raise ValueError("message 가 비어 있음")
+        if not value.strip():
+            raise ValueError("message must not be blank")
+
+        return value
+
+    @field_validator("session_id")
+    @classmethod
+    def _session_id_is_uuid(cls, value: str | None) -> str | None:
+        """UUID 형식인지 검사만 하고, 문자열은 받은 그대로 돌려준다.
+
+        타입을 `uuid.UUID`로 두지 않은 이유: 그렇게 두면 pydantic이 값을 소문자·하이픈
+        표기로 통일해 버린다(정규화). 그러면 클라이언트가 보낸 표기(예: 대문자)가 응답에서
+        바뀐다. 명세의 약속(계약)은 "제공하면 그대로 반환"이므로 str로 받고 검증만 한다.
+        """
+
+        if value is None:
+            return None
+
+        try:
+            uuid.UUID(value)
+        except (ValueError, AttributeError, TypeError) as exc:
+            raise ValueError("session_id must be a UUID string") from exc
 
         return value
 
 
-# ------------------------------------------------------------
+# ---------------------------------------------------------------------------
 # 응답
-# ------------------------------------------------------------
+# ---------------------------------------------------------------------------
 
 
 class Citation(BaseModel):
-    """
-    답변의 근거가 된 조문 1건.
+    """답변 근거 하나. 명세의 citations 배열 원소."""
 
-    - article_path   : "제30조(전과) ①" 같은 조문 경로
-    - document       : 규정 문서 이름
-    - effective_date : 시행일 (YYYY-MM-DD 문자열)
-    - snippet        : 근거 원문 일부
-    - source_url     : 원문 링크. 없으면 null
-    """
-
+    # 조·항·목 경로. 규정 원문을 조문 단위로 쪼개 읽는 코드(core의 파서)가 만드는
+    # article_path 형식과 같다. 예: "제30조(전과) ①"
     article_path: str
 
+    # 규정 문서 이름. 예: "학사운영규정"
     document: str
 
-    effective_date: str
+    # 시행일. JSON에서는 "YYYY-MM-DD" 문자열로 나간다.
+    effective_date: date
 
+    # 인용한 원문 일부.
     snippet: str
 
+    # 원문 링크. 아직 공개 웹 주소(URL, Uniform Resource Locator)가 없는 문서도 있어 null을 허용한다.
     source_url: str | None = None
 
 
 class LatencyMs(BaseModel):
+    """단계별로 걸린 시간을 1000분의 1초 단위(ms, 밀리초)로 적는다.
+
+    평가 지표 수집용이다. 지금의 임시 구현(스텁)에서는 전부 0이다.
     """
-    단계별 지연 시간(밀리초). 평가 지표 수집용.
-    """
 
-    retrieval: int
-
-    generation: int
-
-    total: int
+    retrieval: int = 0
+    generation: int = 0
+    total: int = 0
 
 
 class ChatResponse(BaseModel):
-    """
-    답변 응답.
+    """서버가 돌려주는 본문.
 
-    답변 가능 여부와 관계없이 모든 필드를 항상 채운다.
-    프런트가 분기 없이 같은 모양으로 받을 수 있게 하기 위함.
+    성공이든 답변 불가든 여섯 필드를 항상 모두 포함한다. 기본값을 두지 않아
+    주소와 처리 함수를 이어 주는 코드(라우터)가 하나라도 빼먹으면 서버 쪽에서 바로
+    오류가 난다.
     """
 
     session_id: str
-
     answer: str
-
-    # 비어 있으면 answered 는 반드시 false 여야 한다.
     citations: list[Citation]
-
     answered: bool
-
-    # 학적 데이터를 실제로 썼는지. 스텁은 항상 false.
     personalized: bool
-
     latency_ms: LatencyMs
