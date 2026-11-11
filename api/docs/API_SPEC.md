@@ -22,9 +22,9 @@ Base URL: `/api/v1`
 
 | 필드 | 타입 | 설명 |
 |---|---|---|
-| `session_id` | string | 대화 세션 ID. 없으면 서버가 발급 |
+| `session_id` | string | 대화를 구분하는 값. 생략하거나 `null`을 보내면 서버가 발급 |
 | `message` | string | 사용자 질문 |
-| `use_academic_data` | bool | 학적 연동 동의 여부. `false`면 일반 답변만 |
+| `use_academic_data` | bool | 학적 연동 동의 여부. `true`와 `false`만 받으며 생략 시 `false` |
 
 `use_academic_data`를 요청마다 받는 이유 — 개인정보 조회는 사용자가 매번 통제할 수 있어야 한다.
 
@@ -66,6 +66,8 @@ Base URL: `/api/v1`
 }
 ```
 
+답변 불가 응답도 성공 응답과 같은 모든 필드(`session_id`, `answer`, `citations`, `answered`, `personalized`, `latency_ms`)를 항상 포함한다. 위 예시는 달라지는 값만 보인 것이다.
+
 **설계 원칙: 근거가 없으면 답을 만들지 않는다.** 이 경로가 정상 동작해야 시스템을 신뢰할 수 있다.
 
 ---
@@ -105,6 +107,8 @@ Base URL: `/api/v1`
 | 503 | 인덱스 미로드 / LLM 응답 없음 |
 
 에러 메시지에 내부 예외 문자열을 그대로 노출하지 않는다.
+
+400 응답은 `{"detail": "요청 형식이 올바르지 않습니다."}`로 통일한다. 필드 누락, 잘못된 값, 읽을 수 없는 본문에도 같은 문구를 돌려준다.
 
 ---
 
