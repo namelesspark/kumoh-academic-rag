@@ -1,0 +1,7 @@
+fastapi>=0.110
+pydantic>=2.0
+
+# 선택 항목(수동 기동용). 자동 테스트는 서버를 띄우지 않으므로 필요 없다.
+#   pip install uvicorn
+#   uvicorn app.main:app --app-dir api --reload
+# uvicorn
