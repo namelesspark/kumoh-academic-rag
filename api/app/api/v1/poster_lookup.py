@@ -1,5 +1,6 @@
 """JPEG 또는 PNG 한 장을 받아 공식 행사 정보를 찾는다."""
 
+from asyncio import Lock
 from datetime import datetime
 from io import BytesIO
 
@@ -56,12 +57,17 @@ async def post_poster_lookup(request: Request) -> PosterLookupResponse:
         len(length_digits) > len(str(MAX_BYTES)) or int(length_digits) > MAX_BYTES
     ):
         raise HTTPException(413, "사진은 5MB 이하여야 합니다.")
-    body = bytearray()
-    try:
-        async for chunk in request.stream():
-            if len(body) + len(chunk) > MAX_BYTES:
-                raise HTTPException(413, "사진은 5MB 이하여야 합니다.")
-            body.extend(chunk)
-    except ClientDisconnect:
-        raise HTTPException(422, "사진을 끝까지 받지 못했습니다.") from None
-    return await run_in_threadpool(_read_poster, body, expected_format)
+    # 사진 본문과 디코딩한 이미지가 동시에 여러 장 메모리에 쌓이지 않게 한다.
+    state = request.app.state
+    if not hasattr(state, "poster_upload_lock"):
+        state.poster_upload_lock = Lock()
+    async with state.poster_upload_lock:
+        body = bytearray()
+        try:
+            async for chunk in request.stream():
+                if len(body) + len(chunk) > MAX_BYTES:
+                    raise HTTPException(413, "사진은 5MB 이하여야 합니다.")
+                body.extend(chunk)
+        except ClientDisconnect:
+            raise HTTPException(422, "사진을 끝까지 받지 못했습니다.") from None
+        return await run_in_threadpool(_read_poster, body, expected_format)

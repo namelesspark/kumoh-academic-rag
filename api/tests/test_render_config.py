@@ -163,6 +163,8 @@ class RenderYamlTests(unittest.TestCase):
                 self.assertEqual(words[3], ENTRY_POINT)
                 # 앱을 만드는 함수를 넘기는 방식(--factory)이면 진입점이 달라진다.
                 self.assertNotIn("--factory", words)
+                self.assertIn("--workers", words)
+                self.assertEqual(words[words.index("--workers") + 1], "1")
 
     def test_manifest_setting_is_not_declared_in_blueprint(self):
         # 이름만 있고 값이 비면 서버가 뜨지 않는다. 필요한 서비스의 대시보드에만 넣는다.

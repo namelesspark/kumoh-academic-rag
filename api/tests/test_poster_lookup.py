@@ -1,5 +1,7 @@
 """서버를 띄우지 않고 사진 요청과 공식 행사 판정을 확인한다."""
 
+import asyncio
+import selectors
 import sys
 import unittest
 from datetime import date, datetime
@@ -29,6 +31,24 @@ def photo(image_format="PNG", size=(8, 8), color=0):
     with Image.new("L", size, color) as image:
         image.save(output, format=image_format)
     return output.getvalue()
+
+
+class InMemorySelector(selectors.SelectSelector):
+    def select(self, timeout=None):
+        return []
+
+
+class InMemoryLoop(asyncio.SelectorEventLoop):
+    """요청과 작업 완료 신호를 메모리로 전달하므로 소켓을 만들지 않는다."""
+
+    def __init__(self):
+        super().__init__(InMemorySelector())
+
+    def _make_self_pipe(self):
+        pass
+
+    def _close_self_pipe(self):
+        pass
 
 
 class PosterLookupTests(unittest.TestCase):
@@ -135,6 +155,71 @@ class PosterLookupTests(unittest.TestCase):
         self.assertEqual(result["event_match"], "needs_check")
         self.assertIn("text_reader_unavailable", result["reasons"])
         self.assertIsNone(result["event"])
+
+    def test_photo_requests_wait_before_reading_body_without_blocking_chat_or_health(self):
+        async def check_requests():
+            first_reading = asyncio.Event()
+            finish_first_read = asyncio.Event()
+            first_processing = asyncio.Event()
+            finish_first_processing = asyncio.Event()
+            second_started = asyncio.Event()
+            bodies_read = []
+            responses = {}
+
+            async def upload(name):
+                if name == "second":
+                    second_started.set()
+
+                async def receive():
+                    bodies_read.append(name)
+                    if name == "first":
+                        first_reading.set()
+                        await finish_first_read.wait()
+                    return {"type": "http.request", "body": self.image}
+
+                async def send(message):
+                    if message["type"] == "http.response.start":
+                        responses[name] = message["status"]
+
+                await self.app({
+                    "type": "http", "method": "POST", "path": "/api/v1/poster-lookup",
+                    "headers": [(b"content-type", b"image/png")], "query_string": b"",
+                }, receive, send)
+
+            async def pause_first_worker(function, *args):
+                if not first_processing.is_set():
+                    first_processing.set()
+                    await finish_first_processing.wait()
+                return function(*args)
+
+            with (
+                patch("app.api.v1.poster_lookup.run_in_threadpool", new=pause_first_worker),
+                patch("app.api.v1.poster_lookup.recognize", return_value=Recognition(EVENT_TEXT, (), True)),
+            ):
+                first = asyncio.create_task(upload("first"))
+                await first_reading.wait()
+                second = asyncio.create_task(upload("second"))
+                await second_started.wait()
+                self.assertEqual(bodies_read, ["first"])
+
+                finish_first_read.set()
+                await first_processing.wait()
+                self.assertEqual(bodies_read, ["first"])
+                health = call_app(self.app, "GET", "/api/v1/health")
+                chat = call_app(
+                    self.app, "POST", "/api/v1/chat", json_body={"message": "가상의 날씨"},
+                )
+                self.assertEqual(health.status, 200)
+                self.assertEqual(chat.status, 200)
+                self.assertFalse(chat.json()["answered"])
+
+                finish_first_processing.set()
+                await asyncio.gather(first, second)
+                self.assertEqual(bodies_read, ["first", "second"])
+                self.assertEqual(responses, {"first": 200, "second": 200})
+
+        with asyncio.Runner(loop_factory=InMemoryLoop) as runner:
+            runner.run(asyncio.wait_for(check_requests(), timeout=2))
 
     def test_upload_limits_return_existing_error_shape(self):
         cases = (

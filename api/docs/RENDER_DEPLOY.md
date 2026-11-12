@@ -9,7 +9,7 @@ Render 대시보드에서 **New → Blueprint**를 고르고 `namelesspark/kumoh
 | Runtime | Python 3.12.7 |
 | Root Directory | 빈칸 (저장소 루트) |
 | Build Command | `pip install -r api/requirements.txt && python -B api/scripts/prepare_poster_ocr.py` |
-| Start Command | `python -m uvicorn api.serve:app --host 0.0.0.0 --port $PORT` |
+| Start Command | `python -m uvicorn api.serve:app --host 0.0.0.0 --port $PORT --workers 1` |
 | Health Check Path | `/api/v1/health` |
 
 Web Service를 직접 설정할 때도 같은 값을 입력한다. 저장소 루트에서 시작해야 `api/`의 웹 앱과 `core/`의 검색 모듈을 함께 불러올 수 있다. [Render 서비스 루트 설정](https://render.com/docs/monorepo-support#setting-a-root-directory)
@@ -44,6 +44,8 @@ foreach ($question in "달빛열람증을 누가 내주나요", "가상의 날�
 [Render의 FastAPI 배포 가이드](https://render.com/docs/deploy-fastapi) · [HTTP 상태 확인 설정](https://render.com/docs/health-checks)
 
 ## 현수막 글자 인식 준비
+
+두 서비스는 서버 프로세스를 한 개씩 띄운다. 사진 요청은 본문을 읽기 전부터 판독을 마칠 때까지 한 건씩 처리한다. 채팅과 상태 확인은 사진 처리를 기다리지 않는다.
 
 Render의 두 서비스는 패키지를 설치한 뒤 한글과 영어 글자 인식 모델을 준비한다. 스크립트는 파일 지문(SHA-256)이 일치하는 모델을 재사용한다. 새로 받은 파일은 지문이 맞을 때만 `api/.poster-ocr/`에 넣는다. 지문이 다르면 빌드가 실패해 이전 배포가 계속 응답한다. [Render 배포 순서](https://render.com/docs/deploys#sequence-of-events)
 
