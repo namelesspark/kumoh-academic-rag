@@ -71,6 +71,17 @@ REQUIRED_PLACES = {
     "print-copy": ("facility", "인쇄·복사"),
 }
 
+# 이슈가 가이드에서 먼저 다루기로 한 일곱 장소의 이름.
+SEVEN_GUIDE_PLACE_NAMES = (
+    "글로벌관",
+    "테크노관",
+    "디지털관",
+    "산학협력관",
+    "본관",
+    "학생회관",
+    "학생식당",
+)
+
 FICTIONAL_SOURCE = {
     "title": "가상 달 기지 캠퍼스 안내",
     "url": "https://example.invalid/moon-base/campus-map?building=7&mode=view",
@@ -320,6 +331,27 @@ class CampusGuideEndpointTest(CampusGuideTestCase):
                     self.assertRegex(place["map_number"] or "", r"^\d+$")
                 else:
                     self.assertIsNone(place["map_number"])
+
+    def test_shipped_list_names_the_seven_guide_places(self):
+        """이슈가 먼저 다루기로 한 일곱 장소가 기본 응답에 그 이름으로 하나씩 있어야 한다.
+
+        고정 이름(id)만 맞고 `name`이 다른 장소로 바뀌는 일을 막는다. 공식 표기가
+        "본관(대학본부 및 강당)"처럼 괄호 설명을 달고 있으면 괄호 앞까지를 이름으로 본다.
+        """
+
+        places = call_app(app, "GET", CAMPUS_GUIDE).json()["places"]
+        names = [place["name"].split("(")[0].strip() for place in places]
+
+        for label in SEVEN_GUIDE_PLACE_NAMES:
+            with self.subTest(place=label):
+                self.assertEqual(names.count(label), 1, f"기본 응답에 {label} 항목이 정확히 하나 있어야 합니다")
+
+        # 고정 이름과 이름이 서로 어긋나지 않는지도 본다.
+        by_id = {place["id"]: place["name"].split("(")[0].strip() for place in places}
+
+        for place_id, (_category, label) in REQUIRED_PLACES.items():
+            with self.subTest(place_id=place_id):
+                self.assertEqual(by_id.get(place_id), label)
 
     def test_shipped_list_classifies_by_official_map_number(self):
         """분류 기준을 고정한다: 공식 지도에 자기 번호가 있으면 건물, 건물 안에 있으면 시설.
