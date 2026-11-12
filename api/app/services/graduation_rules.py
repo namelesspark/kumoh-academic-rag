@@ -1,6 +1,7 @@
 """가상 이수 기록을 졸업 기준과 비교한다."""
 
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Literal, Mapping, TypeVar
 
 from app.schemas.graduation_demo import (
@@ -10,6 +11,7 @@ from app.schemas.graduation_demo import (
     GraduationItem,
     GraduationProfile,
 )
+from app.services.biskit_recommendations import KST, recommend_biskit
 
 
 GROUPS = (
@@ -79,6 +81,7 @@ class CompletionRecord:
     counseling_years: tuple[int, ...] | None = None
     mileage: int | None = None  # 이미 승인된 점수
     remaining_semesters_2025_03_01: int | None = None
+    enrollment_status: str | None = None
 
 
 def _passing_courses(
@@ -98,17 +101,24 @@ def _passing_courses(
 
 
 def _count(current: int | None, required: int | None, unit: str) -> dict:
+    return _count_with_shortfall(current, required, unit)[0]
+
+
+def _count_with_shortfall(
+    current: int | None, required: int | None, unit: str,
+) -> tuple[dict, int | None]:
     display = {
         "current": None if current is None else f"{current}{unit}",
         "required": None if required is None else f"{required}{unit}",
     }
     if required is None:
-        return dict(display, status="needs_check", reason="적용 기준 확인이 필요합니다.")
+        return dict(display, status="needs_check", reason="적용 기준 확인이 필요합니다."), None
     if current is None:
-        return dict(display, status="needs_check", reason="이수 기록 확인이 필요합니다.")
+        return dict(display, status="needs_check", reason="이수 기록 확인이 필요합니다."), None
     if current < required:
-        return dict(display, status="short", shortfall=f"{required - current}{unit} 부족")
-    return dict(display, status="met")
+        shortfall = required - current
+        return dict(display, status="short", shortfall=f"{shortfall}{unit} 부족"), shortfall
+    return dict(display, status="met"), 0
 
 
 def _course_result(passing: dict[str, int] | None, required: Mapping[str, str] | None) -> dict:
@@ -141,15 +151,15 @@ def _periods(completed: tuple[Period, ...] | None, required: frozenset[Period] |
     return _count(len(required.intersection(completed)), len(required), "회")
 
 
-def _mileage(rules: GraduationRules, record: CompletionRecord) -> dict:
+def _mileage(rules: GraduationRules, record: CompletionRecord) -> tuple[dict, int | None]:
     semesters = record.remaining_semesters_2025_03_01
     rate = rules.mileage_per_semester
     if semesters is None:
-        return dict(_count(record.mileage, None, "점"), reason="2025-03-01 기준 잔여 학기 기록 확인이 필요합니다.")
+        return dict(_count(record.mileage, None, "점"), reason="2025-03-01 기준 잔여 학기 기록 확인이 필요합니다."), None
     if semesters >= 8:
-        return dict(_count(record.mileage, None, "점"), reason="잔여 8학기 이상에 적용할 기준 확인이 필요합니다.")
+        return dict(_count(record.mileage, None, "점"), reason="잔여 8학기 이상에 적용할 기준 확인이 필요합니다."), None
     required = rate * semesters if rate is not None and semesters >= 0 else None
-    return _count(record.mileage, required, "점")
+    return _count_with_shortfall(record.mileage, required, "점")
 
 
 def _evaluate_details(rules: GraduationRules, record: CompletionRecord) -> dict[str, dict]:
@@ -169,7 +179,6 @@ def _evaluate_details(rules: GraduationRules, record: CompletionRecord) -> dict[
         thesis=_thesis_result(record.thesis_passed, rules.thesis_required),
         career_education=_periods(record.education_semesters, rules.education_semesters),
         counseling=_periods(record.counseling_years, rules.counseling_years),
-        mileage=_mileage(rules, record),
     )
     return results
 
@@ -184,11 +193,19 @@ def _summarize(details: list[GraduationDetail]) -> dict:
     return dict(status="met")
 
 
-def evaluate_graduation(rules: GraduationRules, record: CompletionRecord) -> GraduationDemoResponse:
-    """같은 기준과 기록에 같은 판정을 돌려준다."""
+def evaluate_graduation(
+    rules: GraduationRules, record: CompletionRecord, *, evaluated_at: datetime | None = None,
+) -> GraduationDemoResponse:
+    """같은 기준과 기록, 판정 시각에 같은 결과를 돌려준다."""
     basis = GraduationBasis(applied_rule=rules.cohort.label)
     out_of_scope = dict(status="needs_check", reason="적용 대상 전공·입학연도·입학 유형·트랙을 확인해 주세요.")
-    results = _evaluate_details(rules, record) if record.cohort == rules.cohort else {}
+    results = {}
+    recommendations = None
+    if record.cohort == rules.cohort:
+        results = _evaluate_details(rules, record)
+        results["mileage"], shortfall_points = _mileage(rules, record)
+        if evaluated_at is not None:
+            recommendations = recommend_biskit(shortfall_points, record.enrollment_status, evaluated_at)
     items = []
     for group_id, label, entries in GROUPS:
         details = [
@@ -209,6 +226,7 @@ def evaluate_graduation(rules: GraduationRules, record: CompletionRecord) -> Gra
             admission_type=cohort.admission_type, track=cohort.track, is_fictional=True,
         ),
         items=items,
+        biskit_recommendations=recommendations,
     )
 
 
@@ -249,15 +267,18 @@ DEMO_RULES = GraduationRules(
     },
 )
 DEMO_RECORD = CompletionRecord(
-    label="가상 학생 홍길동",
+    label="가상 학생 D02",
     cohort=DEMO_COHORT,
-    credits={"credits_total": 122, "general_required": 4, "general_elective": 14, "msc": 16, "major": 70},
+    credits={"credits_total": 130, "general_required": 4, "general_elective": 16, "msc": 16, "major": 75},
     major_attempts=(),
-    thesis_passed=False,
-    mileage=375,
+    thesis_passed=True,
+    education_semesters=tuple(sorted(DEMO_RULES.education_semesters)),
+    counseling_years=(1, 2, 3),
+    mileage=480,
     remaining_semesters_2025_03_01=4,
+    enrollment_status="undergraduate",
 )
 
 
 async def get_graduation_demo() -> GraduationDemoResponse:
-    return evaluate_graduation(DEMO_RULES, DEMO_RECORD)
+    return evaluate_graduation(DEMO_RULES, DEMO_RECORD, evaluated_at=datetime.now(KST))

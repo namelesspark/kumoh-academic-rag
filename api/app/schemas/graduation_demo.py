@@ -1,9 +1,9 @@
 """졸업 체크 화면에 건네는 응답 형식."""
 
-from datetime import date
+from datetime import date, datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, PositiveInt
 
 
 class ResponseModel(BaseModel):
@@ -41,6 +41,29 @@ class GraduationItem(GraduationDetail):
     details: list[GraduationDetail]
 
 
+class BiskitProgram(ResponseModel):
+    title: str
+    audience: str
+    eligibility: Literal["eligible", "needs_check"]
+    apply_until: date
+    deadline_status: Literal["open", "needs_check"]
+    event_on: date | None
+    mileage_status: Literal["published", "announced", "undisclosed"]
+    mileage_points: int | None
+    notice_url: str | None
+    application_url: str | None
+    login_required: bool
+
+
+class BiskitRecommendations(ResponseModel):
+    shortfall_points: PositiveInt
+    listed_on: date
+    evaluated_at: datetime
+    portal_url: str
+    programs: list[BiskitProgram]
+
+
 class GraduationDemoResponse(ResponseModel):
     profile: GraduationProfile
     items: list[GraduationItem]
+    biskit_recommendations: BiskitRecommendations | None = None
