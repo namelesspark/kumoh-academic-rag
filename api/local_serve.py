@@ -13,6 +13,7 @@ import re
 from collections.abc import Callable, Mapping
 from datetime import date
 from importlib import import_module
+from ipaddress import IPv4Address, IPv6Address
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -27,11 +28,42 @@ BUILDER_MODULE = "api.regulation_app"
 # 그래서 모양을 먼저 확인한다.
 _DATE_SHAPE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
 
-# 호스트 이름은 영문 소문자·숫자·하이픈으로 된 마디를 점으로 이은 모양만 받는다.
-# urlsplit이 호스트를 소문자로 바꿔 주므로 대문자 입력도 통과한다. 한글 주소는
-# 변환 표기(퓨니코드, xn--로 시작)로 적는다.
-_HOST_LABEL = r"[a-z0-9](?:[a-z0-9-]*[a-z0-9])?"
-_HOST_SHAPE = re.compile(rf"{_HOST_LABEL}(?:\.{_HOST_LABEL})*")
+# 브라우저가 주소를 읽는 규칙(WHATWG URL 표준)이 호스트 이름에서 금지하는 글자.
+# urlsplit은 역슬래시 같은 글자도 호스트로 돌려주므로 따로 막는다. 퍼센트 표기(%65 등)
+# 호스트는 브라우저가 풀어서 읽지만, 여기서는 풀지 않고 거부한다.
+_FORBIDDEN_HOST_CHARACTER = re.compile(r"[\x00-\x20#/:<>?@\[\\\]^|%\x7f]")
+# 마지막 마디가 숫자면 브라우저는 호스트 전체를 숫자 주소(IPv4)로 읽는다.
+_NUMERIC_LABEL = re.compile(r"[0-9]+|0x[0-9a-f]*")
+
+
+def _is_usable_host(netloc: str, host: str | None) -> bool:
+    """브라우저가 열 수 있는 호스트인지 모양으로 판단한다. 이름을 조회하지는 않는다."""
+
+    if not host:
+        return False
+
+    if netloc.startswith("["):
+        # 대괄호 안에는 IPv6 주소만 온다. urlsplit은 [v1.a] 같은 표기도 통과시킨다.
+        # 구역 표시(%eth0 등)는 브라우저가 받지 않는다.
+        if "%" in host:
+            return False
+        try:
+            IPv6Address(host)
+        except ValueError:
+            return False
+        return True
+
+    # 끝에 붙은 점 하나는 '여기가 이름의 끝'이라는 표시로, 올바른 표기다.
+    name = host.removesuffix(".")
+    if not name or _FORBIDDEN_HOST_CHARACTER.search(name):
+        return False
+    if _NUMERIC_LABEL.fullmatch(name.rsplit(".", 1)[-1]):
+        # 256.256.256.256처럼 범위를 벗어난 값을 막는다. 점 넷으로 나눈 십진 표기만 받는다.
+        try:
+            IPv4Address(name)
+        except ValueError:
+            return False
+    return True
 
 
 def _fail(name: str, reason: str) -> ValueError:
@@ -73,9 +105,8 @@ def _check_source_url(value: str) -> str:
         raise _fail(SOURCE_URL_ENV, "https 주소가 아닙니다.")
     if "@" in parts.netloc:
         raise _fail(SOURCE_URL_ENV, "아이디나 비밀번호가 들어 있습니다.")
-    # urlsplit은 역슬래시 같은 글자도 호스트로 돌려주므로 이름 모양을 따로 본다.
-    if not parts.hostname or _HOST_SHAPE.fullmatch(parts.hostname) is None:
-        raise _fail(SOURCE_URL_ENV, "호스트가 없거나 호스트 이름으로 쓸 수 없는 글자가 있습니다.")
+    if not _is_usable_host(parts.netloc, parts.hostname):
+        raise _fail(SOURCE_URL_ENV, "호스트가 없거나 브라우저가 열 수 없는 호스트입니다.")
     return value
 
 

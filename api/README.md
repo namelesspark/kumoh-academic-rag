@@ -103,7 +103,7 @@ api/
 | `KUMOH_REGULATION_PATH` | 규정 텍스트 파일 경로 | 읽을 수 있고 UTF-8(Unicode Transformation Format, 8-bit)로 저장한 파일 |
 | `KUMOH_REGULATION_TITLE` | 인용에 표시할 문서명 | 공백뿐이면 거부 |
 | `KUMOH_REGULATION_EFFECTIVE_DATE` | 시행일 | `YYYY-MM-DD` 모양이고 달력에 있는 날 |
-| `KUMOH_REGULATION_SOURCE_URL` | 공식 링크 | `https`, 영문·숫자·하이픈·점으로 된 호스트 있음, 아이디·비밀번호 없음, 공백·제어 문자 없음 |
+| `KUMOH_REGULATION_SOURCE_URL` | 공식 링크 | `https`, 브라우저가 열 수 있는 호스트 있음, 아이디·비밀번호 없음, 공백·제어 문자 없음 |
 
 저장소 루트에서 PowerShell로 실행하는 예시다. 값은 모두 가상이다.
 

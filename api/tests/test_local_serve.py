@@ -299,15 +299,45 @@ class SettingTests(unittest.TestCase):
             "https://" + chr(92),
             "https://" + chr(92) + "/regulations",
             "https://example.invalid" + chr(92) + "regulations",
-            "https://exa_mple.invalid/regulations",
-            "https://-example.invalid/regulations",
-            "https://example..invalid/regulations",
             "https://%65xample.invalid/regulations",
+            "https://./regulations",
+            # 대괄호 안에는 IPv6 주소만 받는다.
+            "https://[v1.a]/regulations",
+            "https://[2001:db8::zz]/regulations",
+            "https://[fe80::1%25eth0]/regulations",
+            # 마지막 마디가 숫자면 숫자 주소(IPv4)로 읽으므로 범위와 모양이 맞아야 한다.
+            "https://256.256.256.256/regulations",
+            "https://192.0.2/regulations",
+            "https://example.123/regulations",
             "​https://example.invalid/regulations",
         )
         for value in values:
             with self.subTest(value=value):
                 self.assert_rejected(local_serve.SOURCE_URL_ENV, value)
+
+    def test_valid_source_urls_reach_builder_unchanged(self):
+        values = (
+            "https://[2001:db8::1]/regulations",
+            "https://[2001:DB8::1]:8443/regulations",
+            "https://example.invalid./regulations",
+            "https://example.invalid.:8443/regulations",
+            "https://192.0.2.7/regulations",
+            "https://192.0.2.7./regulations",
+            "https://sub-domain.example.invalid/regulations",
+            "https://가상.invalid/regulations",
+        )
+        for value in values:
+            with self.subTest(value=value):
+                build = mock.Mock(return_value="가상 앱")
+                environ = settings(**{local_serve.SOURCE_URL_ENV: value})
+                with fake_read(ARTICLE_1.encode("utf-8")):
+                    create_local_app(environ, build)
+                build.assert_called_once_with(
+                    ARTICLE_1,
+                    document_title=TITLE,
+                    effective_date=date(2099, 3, 4),
+                    source_url=value,
+                )
 
     def test_valid_settings_reach_builder_unchanged(self):
         build = mock.Mock(return_value="가상 앱")
