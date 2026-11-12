@@ -33,6 +33,15 @@
       </div>
       <noscript><p class="status">채팅을 사용하려면 브라우저에서 JavaScript를 켜 주세요.</p></noscript>
       <p class="status" id="status" role="status"></p>
+      <form id="poster-form" class="poster-form">
+        <div class="poster-row">
+          <label for="poster-file">현수막으로 행사 찾기</label>
+          <input type="file" id="poster-file" accept="image/jpeg,image/png" aria-describedby="poster-hint">
+          <button type="submit" class="check" id="poster-submit" disabled>행사 찾기</button>
+        </div>
+        <p id="poster-hint">JPEG·PNG 한 장, 5MB 이하. 서버는 사진을 저장하지 않아요. 얼굴이나 개인정보가 찍힌 사진은 올리지 마세요.</p>
+        <p class="poster-note" id="poster-note" role="status"></p>
+      </form>
       <form id="composer" class="composer">
         <label for="question" class="sr-only">질문</label>
         <div class="composer-row">
