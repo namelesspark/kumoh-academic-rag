@@ -142,6 +142,80 @@ Base URL: `/api/v1`
 
 ---
 
+## GET /academic-calendar/{year}/{term}
+
+학년도와 학기를 주소에 적어 그 학기의 학사 일정을 읽는다. 로그인과 요청 본문이 필요 없다.
+전체 주소는 `/api/v1/academic-calendar/2027/1`처럼 쓴다. `year`는 네 자리 학년도, `term`은 학기 `1` 또는 `2`다.
+
+지금 담긴 일정은 2027학년도 1학기 학부 수강신청 네 건이다. 응답은 벽에 붙은 학사 달력에서 해당 학기 칸만 오려 낸 쪽지와 같다. 쪽지마다 어느 공식 페이지를 언제 보고 적었는지 함께 적는다.
+
+### Response
+
+`events`는 시작일이 빠른 순서다.
+
+```json
+{
+  "events": [
+    {
+      "audience": "1·4학년",
+      "starts_on": "2027-02-11",
+      "ends_on": "2027-02-12",
+      "sources": [
+        { "title": "학사일정", "url": "https://www.kumoh.ac.kr/ko/schedule_reg.do", "checked_on": "2026-11-13" }
+      ]
+    },
+    {
+      "audience": "2·3학년",
+      "starts_on": "2027-02-15",
+      "ends_on": "2027-02-16",
+      "sources": [
+        { "title": "학사일정", "url": "https://www.kumoh.ac.kr/ko/schedule_reg.do", "checked_on": "2026-11-13" }
+      ]
+    },
+    {
+      "audience": "신입생·편입생",
+      "starts_on": "2027-02-17",
+      "ends_on": "2027-02-17",
+      "sources": [
+        { "title": "학사일정", "url": "https://www.kumoh.ac.kr/ko/schedule_reg.do", "checked_on": "2026-11-13" }
+      ]
+    },
+    {
+      "audience": "전체 학년 (타학부·타학년 수강신청)",
+      "starts_on": "2027-02-18",
+      "ends_on": "2027-02-18",
+      "sources": [
+        { "title": "학사일정", "url": "https://www.kumoh.ac.kr/ko/schedule_reg.do", "checked_on": "2026-11-13" }
+      ]
+    }
+  ]
+}
+```
+
+| 필드 | 값 |
+|---|---|
+| `audience` | 수강신청 대상. 공식 학사일정의 구분을 따른다 |
+| `starts_on`, `ends_on` | 신청 시작일과 종료일. 두 날 모두 신청 기간에 포함된다 |
+| `sources` | 날짜를 확인한 공식 페이지. 하나 이상이며 `title`, `url`, `checked_on`(확인일)을 담는다 |
+
+공식 목록에 시각이 없어 응답에도 시각을 넣지 않는다.
+
+### 일정이 없는 학기
+
+학년도와 학기가 모두 맞아야 일정이 나온다. 형식은 맞지만 담긴 일정이 없는 학기는 `200`과 빈 목록을 돌려준다. 예: `2027/2`, `2026/1`.
+
+```json
+{ "events": [] }
+```
+
+### 잘못된 요청
+
+학년도가 네 자리 숫자가 아니거나 학기가 `1`·`2`가 아니면 `400`과 아래 [에러](#에러) 구역의 고정 문구를 돌려준다. 예: `abcd/1`, `20270/1`, `2027/0`, `2027/3`.
+
+이 주소는 읽기 전용이다. 데이터를 보내는 요청(POST)은 `405`다.
+
+---
+
 ## POST /feedback
 
 답변 품질 피드백. 평가셋 보강과 오답 수집에 쓴다.
