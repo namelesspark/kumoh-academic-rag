@@ -48,8 +48,16 @@ class ExampleParser(HTMLParser):
         self._topics_tag = None  # id="topics"인 요소의 태그 이름
         self._topics_depth = 0  # 그 태그가 겹쳐 열린 횟수
         self._example_tag = None  # 이름을 모으고 있는 예시 요소의 태그 이름
+        self._template_depth = 0  # 열려 있는 <template> 수
 
     def handle_starttag(self, tag, attrs):
+        # 브라우저는 <template> 내용을 문서 트리에 넣지 않아 querySelectorAll이
+        # 찾지 못한다. 그래서 닫는 태그까지 안쪽을 통째로 건너뛴다.
+        if tag == "template":
+            self._template_depth += 1
+        if self._template_depth:
+            return
+
         attributes = dict(attrs)
         if self._topics_tag is None:
             if attributes.get("id") == TOPICS_ID:
@@ -66,10 +74,17 @@ class ExampleParser(HTMLParser):
             self._example_tag = tag
 
     def handle_data(self, data):
+        if self._template_depth:
+            return
         if self._example_tag is not None:
             self.labels[-1] += data
 
     def handle_endtag(self, tag):
+        if self._template_depth:
+            if tag == "template":
+                self._template_depth -= 1
+            return
+
         if tag == self._example_tag:
             self._example_tag = None
         if tag == self._topics_tag:
@@ -141,6 +156,37 @@ class DemoQuestionTests(unittest.TestCase):
         parsed = parse_examples(html.replace(marker, marker + extra))
 
         self.assertEqual(parsed.questions, [PARTICLE_CASE.query, MISMATCH_QUERY])
+
+    def test_examples_wrapped_in_template_are_not_counted(self):
+        # <template> 안의 버튼은 화면에 없으므로 예시가 0개로 잡혀야 한다.
+        html = INDEX_HTML.read_text(encoding="utf-8")
+        first = '<button type="button" data-question='
+        marker = "</details>"
+        self.assertEqual(html.count(first), 2)
+        self.assertEqual(html.count(marker), 1)
+
+        wrapped = html.replace(first, "<template>" + first, 1).replace(
+            marker, "</template>" + marker
+        )
+        parsed = parse_examples(wrapped)
+
+        self.assertEqual(wrapped.count("<template>"), 1)
+        self.assertEqual(parsed.questions, [])
+        self.assertEqual(parsed.labels, [])
+
+    def test_example_after_template_is_still_counted(self):
+        # 건너뛰기는 닫는 태그에서 끝나고, 그 뒤 예시는 다시 센다.
+        html = INDEX_HTML.read_text(encoding="utf-8")
+        marker = "</details>"
+        hidden = '<template><a href="#" data-question="가상 숨은 질문">숨은 예시</a></template>'
+        shown = '<a href="#" data-question="가상 질문">셋째 예시</a>'
+
+        parsed = parse_examples(html.replace(marker, hidden + shown + marker))
+
+        self.assertEqual(
+            parsed.questions,
+            [PARTICLE_CASE.query, MISMATCH_QUERY, "가상 질문"],
+        )
 
     def test_button_names_and_order_are_kept(self):
         self.assertEqual(self.buttons.tags, ["button", "button"])
