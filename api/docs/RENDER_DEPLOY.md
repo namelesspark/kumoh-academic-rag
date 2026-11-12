@@ -20,13 +20,26 @@ Web Service를 직접 설정할 때도 같은 값을 입력한다. 저장소 루
 $renderUrl = "https://<서비스이름>.onrender.com"
 Invoke-RestMethod "$renderUrl/api/v1/health"
 
-$body = @{ message = "달빛열람증을 누가 내주나요" } | ConvertTo-Json
-Invoke-RestMethod "$renderUrl/api/v1/chat" -Method Post `
-    -ContentType "application/json; charset=utf-8" `
-    -Body ([Text.Encoding]::UTF8.GetBytes($body))
+foreach ($question in "달빛열람증을 누가 내주나요", "가상의 날씨", "얼룩말 풍금") {
+    $body = @{ message = $question } | ConvertTo-Json
+    Invoke-RestMethod "$renderUrl/api/v1/chat" -Method Post `
+        -ContentType "application/json; charset=utf-8" `
+        -Body ([Text.Encoding]::UTF8.GetBytes($body)) |
+        ConvertTo-Json -Depth 5
+}
 ```
 
-상태 응답에서 `status=ok`, `index_loaded=true`, `chunk_count=9`를 확인한다. 채팅 응답은 `answered=true`와 제3조(달빛 열람) 원문 인용 한 건을 돌려준다. 질문을 `얼룩말 풍금`으로 바꾸면 `answered=false`와 빈 인용 목록을 돌려준다.
+상태 응답에서 `status=ok`, `index_loaded=true`, `chunk_count=9`를 확인한다. 채팅 응답은 질문마다 아래와 같아야 한다.
+
+| 질문 | `answered` | `citations` |
+| --- | --- | --- |
+| `달빛열람증을 누가 내주나요` | `true` | 제3조(달빛 열람) 원문 인용 한 건 |
+| `가상의 날씨` | `false` | 빈 목록 |
+| `얼룩말 풍금` | `false` | 빈 목록 |
+
+- **`가상의 날씨`** — `가상의`는 데모의 조각 아홉 개 모두에 있는 낱말이고 `날씨`는 어디에도 없다. 모든 조각에 공통인 낱말만 겹치는 질문은 근거가 될 수 없으므로 답변을 보류한다. 여기서 인용이 나오면 배포된 코드가 그 수정보다 오래된 것이다.
+- **`얼룩말 풍금`** — 어느 조각과도 낱말이 겹치지 않는 질문이다.
+- **데모 인용의 `source_url`** — 가상 규정에는 공식 주소가 없어 `null`이다. 그래서 채팅 화면의 인용 카드에 `공식 원문 보기` 링크가 없다.
 
 [Render의 FastAPI 배포 가이드](https://render.com/docs/deploy-fastapi) · [HTTP 상태 확인 설정](https://render.com/docs/health-checks)
 
@@ -58,7 +71,34 @@ Invoke-RestMethod "$renderUrl/api/v1/chat" -Method Post `
 Invoke-RestMethod "$renderUrl/api/v1/health"
 ```
 
-상태 응답에서 `status=ok`, `index_loaded=true`, `chunk_count=3`을 확인한다. 가상 달무리 천문대 규정의 두 조각과 가상 은여울 목공방 규정의 한 조각을 더한 수다. 채팅 화면의 예시 질문은 가상 구름 도서관 질문이라 이 설정에서는 답이 나오지 않는다.
+상태 응답에서 `status=ok`, `index_loaded=true`, `chunk_count=3`을 확인한다. 가상 달무리 천문대 규정의 두 조각과 가상 은여울 목공방 규정의 한 조각을 더한 수다. 채팅 화면의 예시 질문은 가상 구름 도서관 질문이라 이 설정에서는 답이 나오지 않는다. 아래 질문을 직접 입력한다.
+
+| 질문 | 문서명 | 시행일 | `source_url` |
+| --- | --- | --- | --- |
+| `제1조 망원경` | 가상 달무리 천문대 규정 | 2099-03-04 | `https://example.invalid/regulations/observatory` |
+| `제1조 대패` | 가상 은여울 목공방 규정 | 2098-11-20 | `https://example.invalid/regulations/woodshop` |
+
+두 질문 모두 `answered=true`와 그 문서의 제1조 원문 인용 한 건을 돌려준다. 인용의 문서명·시행일·`source_url`은 목록 파일에 적은 글자 그대로다. `가상의 날씨`는 이 설정에서도 `answered=false`와 빈 인용 목록을 돌려준다.
+
+### 브라우저에서 출처 링크 확인하기
+
+채팅 화면은 인용의 `source_url`이 안전한 HTTPS 주소일 때만 인용 카드에 `공식 원문 보기` 링크를 붙인다. 가상 데모에는 주소가 없어 링크를 볼 수 없으므로, 주소가 적힌 가상 목록을 자기 컴퓨터에서 띄워 확인한다. 저장소 루트에서 PowerShell로 실행한다.
+
+```powershell
+$env:KUMOH_REGULATION_MANIFEST_PATH = "api/tests/fixtures/fictional_manifest.json"
+python -m uvicorn api.serve:app --host 127.0.0.1 --port 8000
+```
+
+브라우저에서 `http://127.0.0.1:8000/`을 열고 위 표의 `제1조 망원경`을 보낸 뒤 차례로 본다.
+
+1. **링크 표시** — 인용 카드에 `공식 원문 보기` 링크가 하나 보인다. 문서명·조문·시행일·인용문은 링크가 없을 때와 같다.
+2. **Tab 초점** — Tab이나 Shift+Tab으로 옮겨 가면 초점이 링크에 닿고 초점 테두리가 보인다.
+3. **Enter로 새 탭** — 초점이 링크에 있을 때 Enter를 누르면 새 탭이 열리고, 주소 표시줄의 글자가 표의 `source_url`과 같다. `example.invalid`는 일부러 없는 주소라 새 탭에는 연결 오류가 나온다. 그 오류는 정상이다.
+4. **대화 보존** — 원래 탭으로 돌아오면 질문과 답변이 그대로 남아 있다.
+
+확인을 마치면 서버를 Ctrl+C로 끄고 `Remove-Item Env:KUMOH_REGULATION_MANIFEST_PATH`로 설정을 지운다. `javascript:`나 `http://` 같은 위험한 주소는 서버가 시작할 때 막아 브라우저까지 오지 않는다. 화면이 그런 값을 받았을 때 링크를 만들지 않는지는 `api/tests/web/citation_link.test.mjs`가 확인한다.
+
+실제 문서에 넣을 공식 주소는 `api/docs/OFFICIAL_SOURCES.md`에 적힌 것만 쓴다.
 
 ### 서버가 뜨지 않을 때
 
