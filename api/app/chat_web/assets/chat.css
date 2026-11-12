@@ -86,7 +86,26 @@ h1, h2, h3, p { margin-top: 0; }
 }
 
 .chat-header, .transcript, .composer, .status { padding-inline: 28px; }
-.chat-header { border-bottom: 1px solid var(--line); padding-block: 22px; }
+.chat-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 18px;
+  border-bottom: 1px solid var(--line);
+  padding-block: 22px;
+}
+.check {
+  min-height: 44px;
+  padding-inline: 14px;
+  border: 1px solid var(--blue);
+  border-radius: 6px;
+  background: white;
+  color: var(--blue);
+  font-weight: 700;
+  white-space: nowrap;
+}
+.check:not(:disabled):hover { background: var(--light-blue); }
 .chat-header h2 { margin-bottom: 5px; font-size: 1.23rem; letter-spacing: -.03em; }
 .chat-header p, .empty { color: var(--muted); font-size: .9rem; line-height: 1.6; }
 .chat-header p { margin-bottom: 0; }
@@ -129,13 +148,45 @@ h1, h2, h3, p { margin-top: 0; }
 .evidence p, .evidence blockquote { margin: 0; }
 .evidence .date { color: var(--muted); font-size: .83rem; }
 .evidence blockquote { margin-top: 9px; }
-.evidence .source-link {
+.evidence .source-link, .graduation .source-link {
   display: inline-block;
   margin-top: 9px;
   color: var(--blue);
   text-decoration: underline;
   text-underline-offset: 3px;
 }
+
+.reply.graduation { max-width: none; }
+.table-scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 6px; }
+.graduation table { width: 100%; min-width: 620px; border-collapse: collapse; font-size: .88rem; line-height: 1.5; }
+.graduation caption { padding: 10px 12px; text-align: left; font-weight: 700; color: var(--navy); }
+.graduation th, .graduation td {
+  padding: 8px 12px;
+  border-top: 1px solid var(--line);
+  text-align: left;
+  vertical-align: top;
+}
+.graduation thead th { color: var(--muted); font-size: .8rem; background: #f8fafd; white-space: nowrap; }
+.graduation .item th, .graduation .item td { background: var(--light-blue); border-top-color: #b9c8de; }
+.graduation .detail th { padding-left: 26px; font-weight: 400; }
+.graduation td p { margin: 0; }
+.graduation .amount { white-space: nowrap; }
+.graduation .shortfall { color: #842d28; font-weight: 700; }
+.graduation .source { color: var(--muted); font-size: .8rem; }
+.graduation .source-link { margin-top: 3px; }
+.graduation .notice { margin: 8px 0 0; color: var(--muted); font-size: .8rem; }
+.badge {
+  display: inline-block;
+  padding: 1px 8px;
+  border: 1px solid;
+  border-radius: 999px;
+  font-size: .8rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.badge.met { color: #1d5f35; background: #eaf6ee; }
+.badge.short { color: #842d28; background: #fff5f4; }
+.badge.needs-check { color: #6b4700; background: #fff7e0; }
 .fallback, .error {
   padding: 10px 13px;
   border: 1px solid var(--line);
