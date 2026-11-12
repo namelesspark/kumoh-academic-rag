@@ -1,0 +1,16 @@
+{
+  "documents": [
+    {
+      "path": "fictional_manifest_first.txt",
+      "document_title": "가상 달무리 천문대 규정",
+      "effective_date": "2099-03-04",
+      "source_url": "https://example.invalid/regulations/observatory"
+    },
+    {
+      "path": "fictional_manifest_second.txt",
+      "document_title": "가상 은여울 목공방 규정",
+      "effective_date": "2098-11-20",
+      "source_url": "https://example.invalid/regulations/woodshop"
+    }
+  ]
+}
