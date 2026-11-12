@@ -2,17 +2,22 @@
 
 import sys
 import unittest
+from dataclasses import replace
+from datetime import datetime
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from api.tests.asgi_harness import call_app
 from app.main import create_app
 from app.schemas.graduation_demo import GraduationDemoResponse
+from app.services import graduation_rules
 from app.services.graduation_rules import get_graduation_demo
 
 
 ENDPOINT = "/api/v1/graduation-demo"
+EVALUATED_AT = datetime.fromisoformat("2026-11-13T09:00:00+09:00")
 DETAIL_IDS = {
     "total_credits": ("credits_total", "general_required", "general_elective", "msc", "major"),
     "major_required": ("required_courses", "thesis"),
@@ -62,6 +67,7 @@ class GraduationDemoTest(unittest.TestCase):
                 }
                 for item_id, detail_ids in DETAIL_IDS.items()
             ],
+            "biskit_recommendations": None,
         }
 
         async def provide_fictional_demo():
@@ -72,7 +78,7 @@ class GraduationDemoTest(unittest.TestCase):
 
         self.assertEqual(response.status, 200)
         body = response.json()
-        self.assertEqual(set(body), {"profile", "items"})
+        self.assertEqual(set(body), {"profile", "items", "biskit_recommendations"})
         self.assertEqual(body["profile"], PROFILE)
         self.assertEqual([item["id"] for item in body["items"]], list(DETAIL_IDS))
         for item in body["items"]:
@@ -89,11 +95,14 @@ class GraduationDemoTest(unittest.TestCase):
         self.assertEqual(body, payload)
 
     def test_default_fictional_student_has_a_shortfall(self):
-        response = call_app(self.app, "GET", ENDPOINT)
+        with patch.object(graduation_rules, "datetime", wraps=datetime) as clock:
+            clock.now.return_value = EVALUATED_AT
+            response = call_app(self.app, "GET", ENDPOINT)
 
         self.assertEqual(response.status, 200)
         body = response.json()
         self.assertIs(body["profile"]["is_fictional"], True)
+        self.assertEqual(body["profile"]["label"], "가상 학생 D02")
         self.assertEqual(
             {item["id"]: tuple(detail["id"] for detail in item["details"]) for item in body["items"]},
             DETAIL_IDS,
@@ -112,6 +121,45 @@ class GraduationDemoTest(unittest.TestCase):
                 self.assertTrue(details[key]["basis"]["source_url"].endswith("#page=6"))
         self.assertEqual(details["required_courses"]["status"], "needs_check")
         self.assertTrue(details["required_courses"]["reason"])
+        self.assertEqual(details["credits_total"]["current"], "130학점")
+        self.assertEqual(details["mileage"]["current"], "480점")
+        self.assertEqual(details["mileage"]["required"], "500점")
+        self.assertEqual(details["mileage"]["shortfall"], "20점 부족")
+        self.assertEqual(details["counseling"]["shortfall"], "1회 부족")
+
+        recommendations = body["biskit_recommendations"]
+        self.assertEqual(set(recommendations), {
+            "shortfall_points", "listed_on", "evaluated_at", "portal_url", "programs",
+        })
+        self.assertEqual(recommendations["shortfall_points"], 20)
+        self.assertEqual(recommendations["evaluated_at"], EVALUATED_AT.isoformat())
+        self.assertEqual(recommendations["listed_on"], "2026-11-13")
+        self.assertEqual(recommendations["portal_url"], "https://biskit.kumoh.ac.kr/")
+        self.assertEqual(len(recommendations["programs"]), 3)
+        self.assertEqual(set(recommendations["programs"][0]), {
+            "title", "audience", "eligibility", "apply_until", "deadline_status", "event_on",
+            "mileage_status", "mileage_points", "notice_url", "application_url", "login_required",
+        })
+
+    def test_recommendations_are_null_when_mileage_is_met_or_unknown(self):
+        for mileage, remaining_semesters, expected_status in (
+            (500, 4, "met"),
+            (None, 4, "needs_check"),
+            (480, None, "needs_check"),
+        ):
+            with self.subTest(mileage=mileage, remaining_semesters=remaining_semesters):
+                record = replace(
+                    graduation_rules.DEMO_RECORD,
+                    mileage=mileage,
+                    remaining_semesters_2025_03_01=remaining_semesters,
+                )
+                with patch.object(graduation_rules, "DEMO_RECORD", record):
+                    response = call_app(self.app, "GET", ENDPOINT)
+                self.assertEqual(response.status, 200)
+                body = response.json()
+                details = {detail["id"]: detail for item in body["items"] for detail in item["details"]}
+                self.assertEqual(details["mileage"]["status"], expected_status)
+                self.assertIsNone(body["biskit_recommendations"])
 
     def test_rejects_post(self):
         response = call_app(self.app, "POST", ENDPOINT)

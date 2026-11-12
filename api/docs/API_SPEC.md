@@ -96,6 +96,33 @@ Base URL: `/api/v1`
 - 상위 행은 부족, 확인 필요, 충족 순으로 세부 상태를 반영한다. 상위 부족량은 부족한 세부 행의 수다.
 - 근거에는 `applied_rule`, `source_title`, `source_url`, `checked_on`이 있다. 적용 기준 문구는 항상 있고, 출처 정보는 확인한 값만 채운다.
 
+### 비교과 프로그램 추천
+
+`biskit_recommendations`는 졸업 체크에서 교내 비교과 시스템(BISKIT) 마일리지 부족량을 확인했을 때 채운다. 마일리지가 충족됐거나 부족량을 모르면 `null`이다.
+
+| 필드 | 값 |
+|---|---|
+| `shortfall_points` | 졸업 체크 표와 같은 부족량. 1 이상 정수 |
+| `listed_on` | 공개 목록 확인일 (`2026-11-13`) |
+| `evaluated_at` | 한국 표준시 기준 판정 시각. 예: `2026-11-13T09:00:00+09:00` |
+| `portal_url` | `https://biskit.kumoh.ac.kr/` |
+| `programs` | 신청 마감일이 빠른 순서의 배열. 후보가 없으면 빈 배열 |
+
+| 프로그램 필드 | 값 |
+|---|---|
+| `title`, `audience` | 공지 제목과 신청 대상 |
+| `eligibility` | `eligible`(대상에 해당) 또는 `needs_check`(재학 상태 확인 필요) |
+| `apply_until` | 신청 마감일 |
+| `deadline_status` | `open`(모집 기간 중) 또는 `needs_check`(마감 시각이 공개되지 않은 마감일 당일) |
+| `event_on` | 행사일 또는 `null` |
+| `mileage_status` | `published`(점수 공개), `announced`(지급만 공지), `undisclosed`(미공개) |
+| `mileage_points` | 점수가 공개됐으면 정수, 그 외에는 `null` |
+| `notice_url` | 학교 도메인의 공식 HTTPS 공지 주소 또는 `null` |
+| `application_url` | 해당 프로그램과 대조해 확인한 학교 도메인의 HTTPS 신청 주소 또는 `null` |
+| `login_required` | 신청에 BISKIT 로그인이 필요하면 `true` |
+
+신청 대상이 다르거나 모집 기간 밖인 프로그램은 제외한다. 접수 상태와 정원은 공식 페이지에서 확인한다.
+
 ---
 
 ## POST /feedback
