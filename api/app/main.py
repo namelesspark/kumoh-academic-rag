@@ -38,11 +38,14 @@ CHAT_WEB_DIR = Path(__file__).with_name("chat_web")
 CHAT_WEB_MEDIA_TYPES = {"chat.css": "text/css", "chat.js": "text/javascript"}
 
 
-def create_app(chat_retrieval: ChatRetrieval | None = None) -> FastAPI:
+def create_app(
+    chat_retrieval: ChatRetrieval | None = None, *, chunk_count: int = 0
+) -> FastAPI:
     """앱 객체를 만들어 돌려준다."""
 
     application = FastAPI(title="kumoh-rag API", version="0.1.0")
     application.state.chat_retrieval = chat_retrieval
+    application.state.chunk_count = chunk_count
 
     # /api/v1 접두사는 라우터 쪽(app/api/v1/__init__.py)에서 붙인다.
     application.include_router(api_v1_router)
