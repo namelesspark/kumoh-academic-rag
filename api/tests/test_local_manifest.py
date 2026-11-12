@@ -432,6 +432,44 @@ class ManifestEntryTests(RejectionMixin, unittest.TestCase):
         # 윈도우가 아닌 곳에서는 D:fictional.txt가 평범한 파일 이름이다.
         self.assertFalse(check(PurePosixPath("D:fictional.txt")))
 
+    def test_root_without_drive_is_recognized(self):
+        # 윈도우의 /파일 모양은 목록 폴더와 합치면 폴더가 버려지고 드라이브 맨 위를 가리킨다.
+        check = local_serve._has_root_without_drive
+        for value in ("/fictional.txt", chr(92) + "fictional.txt", "/아래/fictional.txt"):
+            with self.subTest(value=value):
+                self.assertTrue(check(PureWindowsPath(value)))
+                joined = PureWindowsPath("C:/example") / value
+                self.assertNotIn("example", joined.parts)
+        for value in (
+            "fictional.txt",
+            "아래/fictional.txt",
+            "D:/fictional.txt",
+            "D:fictional.txt",
+            "//server/share/fictional.txt",
+        ):
+            with self.subTest(value=value):
+                self.assertFalse(check(PureWindowsPath(value)))
+        # 드라이브가 없는 운영 체제에서는 /fictional.txt가 온전한 절대 경로다.
+        self.assertFalse(check(PurePosixPath("/fictional.txt")))
+
+    def test_root_without_drive_fails_where_paths_have_drives(self):
+        value = "/fictional.txt"
+        data = manifest_bytes([entry(path=value)])
+        if not PurePath(value).is_absolute():
+            self.assert_manifest_rejected(
+                data,
+                "documents[0].path",
+                "드라이브 글자 없이 맨 위 폴더에서 시작하는 경로입니다.",
+                secrets=("fictional",),
+            )
+            return
+        files = {FAKE_MANIFEST: data, Path(value): FIRST_ARTICLE_1.encode("utf-8")}
+        build = mock.Mock()
+        with fake_files(files) as requested:
+            create_local_manifest_app(FAKE_ENVIRON, build)
+        self.assertEqual(requested, list(files))
+        build.assert_called_once()
+
     def test_drive_without_root_fails_where_paths_have_drives(self):
         value = "D:fictional.txt"
         data = manifest_bytes([entry(path=value)])

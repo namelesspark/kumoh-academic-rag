@@ -196,6 +196,16 @@ def _has_drive_without_root(path: PurePath) -> bool:
     return bool(path.drive) and not path.root
 
 
+def _has_root_without_drive(path: PurePath) -> bool:
+    """윈도우의 `/파일` 모양인지 본다.
+
+    목록 폴더와 합치면 폴더는 버려지고 그 드라이브의 맨 위 폴더를 가리킨다. 드라이브가
+    없는 운영 체제에서는 `/파일`이 온전한 절대 경로라 해당하지 않는다.
+    """
+
+    return bool(path.root) and not path.drive and not path.is_absolute()
+
+
 def _read_manifest(path: Path) -> list[dict]:
     """목록 파일을 읽어 모양만 확인한 항목들을 돌려준다. 규정 파일은 아직 읽지 않는다."""
 
@@ -300,6 +310,8 @@ def create_local_manifest_app(
         entry_path = Path(entry["path"])
         if _has_drive_without_root(entry_path):
             raise _fail(f"{name}.path", "드라이브 글자 뒤에 폴더 구분이 없는 경로입니다.")
+        if _has_root_without_drive(entry_path):
+            raise _fail(f"{name}.path", "드라이브 글자 없이 맨 위 폴더에서 시작하는 경로입니다.")
         fields = {
             "document_title": entry["document_title"],
             "effective_date": _parse_effective_date(
