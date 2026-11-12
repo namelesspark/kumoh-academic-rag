@@ -12,7 +12,7 @@ Render는 저장소의 `render.yaml`을 읽어 서버를 시작한다. 사람은
 
 import re
 import unittest
-from pathlib import Path, PurePosixPath, PureWindowsPath
+from pathlib import Path, PurePosixPath
 
 from api.local_serve import MANIFEST_ENV, create_local_manifest_app
 from api.tests.asgi_harness import call_app
@@ -35,7 +35,8 @@ _SETTING_NAME = re.compile(r"KUMOH_[A-Z0-9_]+")
 _DOC_MANIFEST_VALUE = re.compile(
     r"^\| `" + re.escape(MANIFEST_ENV) + r"` \| `([^`]+)` \|$", re.MULTILINE
 )
-FIXTURES = REPO_ROOT / "api" / "tests" / "fixtures"
+# 가상 파일 폴더를 저장소 루트에서 본 위치. Render가 쓰는 리눅스 방식으로 적는다.
+FIXTURES_FROM_ROOT = PurePosixPath("api/tests/fixtures")
 _CHUNK_COUNT = re.compile(r"chunk_count=([0-9]+)")
 _SECTION_START = re.compile(r"^## ", re.MULTILINE)
 # 문서가 `설정 이름: 사유` 모양으로 적은 오류 문구.
@@ -150,17 +151,18 @@ class DocumentedExampleTests(unittest.TestCase):
 
         # 배포 서버는 저장소 루트에서 시작한다. 테스트는 실행한 폴더에 기대지 않도록
         # 표의 값 전체를 같은 기준으로 직접 푼다.
-        # 예시는 상대 경로여야 한다. 맨 앞에 `/`나 드라이브 글자가 붙으면 배포 앱은
-        # 저장소가 아니라 맨 위 폴더에서 파일을 찾는다. Render는 리눅스에서 돌지만
-        # 윈도우에서 따라 하는 사람도 있어 두 방식 모두로 본다.
-        self.assertFalse(PurePosixPath(relative).is_absolute(), relative)
-        windows_form = PureWindowsPath(relative)
-        self.assertFalse(windows_form.drive or windows_form.root, relative)
-        # 배포 앱은 값을 고치지 않고 시작 폴더에 이어 붙여 읽는다. 여기서도 글자를
-        # 쪼개거나 다듬지 않고 그대로 이어 붙인다.
-        manifest = REPO_ROOT / relative
+        #
+        # Render는 리눅스에서 돈다. 리눅스는 `/`만 폴더 구분으로 읽고 역슬래시와
+        # 드라이브 글자는 파일 이름의 일부로 읽는다. 테스트를 윈도우에서 돌려도 같은
+        # 결과가 나오도록, 실행한 컴퓨터의 규칙이 아니라 리눅스 규칙으로 값을 나눈다.
+        documented_path = PurePosixPath(relative)
         # 문서의 예시는 저장소가 추적하는 가상 파일 폴더 바로 아래를 가리킨다.
-        self.assertEqual(manifest.parent, FIXTURES, relative)
+        # 맨 앞의 `/`, 앞에 붙은 다른 폴더, `..`, 역슬래시로 적은 경로는 여기서 걸린다.
+        self.assertEqual(documented_path.parent, FIXTURES_FROM_ROOT, relative)
+        # 파일 이름에 윈도우가 폴더나 드라이브로 읽는 글자가 있으면 두 운영 체제가
+        # 서로 다른 파일을 가리킨다.
+        self.assertNotRegex(documented_path.name, r"[\\:]", relative)
+        manifest = REPO_ROOT.joinpath(*documented_path.parts)
         self.assertTrue(manifest.is_file(), relative)
         app = create_local_manifest_app({MANIFEST_ENV: str(manifest)})
 
