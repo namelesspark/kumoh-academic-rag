@@ -10,6 +10,7 @@ import sys
 import types
 import unittest
 from datetime import date
+from importlib.util import find_spec
 from pathlib import Path
 from unittest import mock
 
@@ -46,6 +47,9 @@ ARTICLE_2_QUESTION = "물뿌리개는 며칠 동안 빌리나요"
 MISMATCH_QUESTION = "얼룩말 풍금"
 
 NO_CHUNKS_MESSAGE = "검색할 조각을 찾지 못했습니다"
+
+# 앱 조립 모듈은 다른 PR이 만든다. 그 모듈이 있는 체크아웃에서만 실제 기본 경로를 확인한다.
+HAS_BUILDER_MODULE = find_spec("api.regulation_app") is not None
 
 
 def settings(**overrides):
@@ -186,6 +190,18 @@ class SourceBytesTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "^" + local_serve.PATH_ENV):
             create_local_app(settings(**{local_serve.PATH_ENV: str(missing)}), build_from_main)
 
+    def test_path_with_null_character_fails_with_setting_name(self):
+        # 널 문자(코드 0)가 든 경로는 파일을 열기 전에 ValueError가 난다. 가짜 없이 확인한다.
+        path = "fictional" + chr(0) + ".txt"
+        with self.assertRaises(ValueError) as caught:
+            create_local_app(settings(**{local_serve.PATH_ENV: path}), build_from_main)
+        message = str(caught.exception)
+        self.assertTrue(message.startswith(local_serve.PATH_ENV + ":"), message)
+        self.assertNotIn(chr(0), message)
+        self.assertNotIn("fictional", message)
+        self.assertIsNone(caught.exception.__cause__)
+        self.assertTrue(caught.exception.__suppress_context__)
+
     def test_broken_utf8_fails_without_leaking_content(self):
         data = "제1조(비밀 씨앗) 가상의 비밀 문장.".encode("utf-8") + b"\xff"
         with fake_read(data):
@@ -275,6 +291,11 @@ class SettingTests(unittest.TestCase):
             "https://example.invalid/가상 규정",
             "https://example.invalid/regulations\n",
             "https://example.invalid:port/regulations",
+            # urlsplit은 맨 앞의 제어 문자를 지우고 나누므로 따로 막아야 한다.
+            "\x01https://example.invalid/regulations",
+            "https://example.invalid/regulations\x00",
+            "https://example.invalid/\x7fregulations",
+            "​https://example.invalid/regulations",
         )
         for value in values:
             with self.subTest(value=value):
@@ -316,6 +337,37 @@ class DefaultBuilderTests(unittest.TestCase):
             effective_date=date(2099, 3, 4),
             source_url=SOURCE_URL,
         )
+
+    def test_missing_builder_module_fails_with_module_name(self):
+        # sys.modules에 None을 넣으면 그 이름을 불러올 때 ModuleNotFoundError가 난다.
+        with mock.patch.dict(sys.modules, {"api.regulation_app": None}):
+            with self.assertRaises(ValueError) as caught:
+                create_local_app(settings())
+        message = str(caught.exception)
+        self.assertTrue(message.startswith("api.regulation_app:"), message)
+        self.assertNotIn(ARTICLE_1, message)
+
+    def test_missing_dependency_inside_builder_module_is_not_hidden(self):
+        failure = ModuleNotFoundError("가상 모듈 없음", name="fictional_dependency")
+        with mock.patch.object(local_serve, "import_module", side_effect=failure):
+            with self.assertRaises(ModuleNotFoundError) as caught:
+                create_local_app(settings())
+        self.assertIs(caught.exception, failure)
+
+    @unittest.skipUnless(
+        HAS_BUILDER_MODULE, "api.regulation_app이 이 체크아웃에 아직 없어 건너뜀"
+    )
+    def test_documented_startup_answers_from_tracked_file(self):
+        # README의 실행 방법 그대로, 조립 함수를 주지 않고 실제 모듈로 앱을 만든다.
+        app = create_local_app(settings())
+
+        self.assertEqual(
+            call_app(app, "GET", HEALTH).json(),
+            {"status": "ok", "index_loaded": True, "chunk_count": 2},
+        )
+        body = post_chat(self, app, ARTICLE_2_QUESTION)
+        self.assertEqual(body["answer"], ARTICLE_2)
+        self.assertEqual(body["citations"], [citation(ARTICLE_2_PATH, ARTICLE_2)])
 
 
 if __name__ == "__main__":

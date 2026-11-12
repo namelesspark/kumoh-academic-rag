@@ -116,7 +116,10 @@ python -m uvicorn api.local_serve:create_local_app --factory
 ```
 
 `--factory`는 웹 서버(uvicorn)가 시작할 때 `create_local_app()`을 불러 앱을 만들게 하는 옵션이다.
-이 명령은 앱 조립 함수 `api.regulation_app.create_regulation_app`이 있어야 뜬다.
+
+**먼저 확인할 것** — 이 명령은 앱 조립 모듈 `api/regulation_app.py`가 있는 체크아웃에서만 뜬다.
+그 파일이 없으면 `create_local_app`이 `api.regulation_app: 앱 조립 모듈이 없습니다`라는 오류를 내고
+멈춘다. 이때는 그 모듈이 들어 있는 main을 받아 온 뒤 다시 실행한다.
 
 지켜야 할 점:
 

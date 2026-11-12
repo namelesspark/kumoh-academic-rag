@@ -21,6 +21,7 @@ PATH_ENV = "KUMOH_REGULATION_PATH"
 TITLE_ENV = "KUMOH_REGULATION_TITLE"
 EFFECTIVE_DATE_ENV = "KUMOH_REGULATION_EFFECTIVE_DATE"
 SOURCE_URL_ENV = "KUMOH_REGULATION_SOURCE_URL"
+BUILDER_MODULE = "api.regulation_app"
 
 # Python 3.11부터 date.fromisoformat은 20990203과 주 표기 2099-W05-2도 받는다.
 # 그래서 모양을 먼저 확인한다.
@@ -53,9 +54,10 @@ def _parse_effective_date(value: str) -> date:
 def _check_source_url(value: str) -> str:
     """주소의 모양만 본다. 기동 중에 링크를 열지 않으며, 공식 여부는 입력한 사람이 책임진다."""
 
-    # urlsplit은 탭과 줄바꿈을 말없이 지우므로 나누기 전에 본다.
-    if any(character.isspace() for character in value):
-        raise _fail(SOURCE_URL_ENV, "공백이 들어 있습니다.")
+    # urlsplit은 탭·줄바꿈과 맨 앞의 제어 문자를 말없이 지우고 나눈다. 그대로 두면
+    # 검사한 값과 넘기는 값이 달라지므로 나누기 전에 본다.
+    if any(character.isspace() or not character.isprintable() for character in value):
+        raise _fail(SOURCE_URL_ENV, "공백이나 제어 문자가 들어 있습니다.")
     try:
         parts = urlsplit(value)
         parts.port  # 숫자가 아닌 포트는 여기서 ValueError가 난다.
@@ -79,13 +81,34 @@ def _read_source(path: str) -> str:
 
     try:
         data = Path(path).read_bytes()
-    except OSError as error:
+    except (OSError, ValueError) as error:
+        # 경로에 널 문자(코드 0)가 있으면 OSError가 아니라 ValueError가 난다.
         reason = f"파일을 읽을 수 없습니다 ({type(error).__name__})."
         raise _fail(PATH_ENV, reason) from None
     try:
         return data.decode("utf-8")
     except UnicodeDecodeError:
         raise _fail(PATH_ENV, "UTF-8로 읽을 수 없는 파일입니다.") from None
+
+
+def _load_default_builder() -> Callable:
+    """앱 조립 함수를 필요할 때만 불러온다.
+
+    이 모듈을 불러오는 것만으로 앱 모듈이 따라오지 않게 하려는 것이다. 조립 모듈이
+    아직 없는 체크아웃에서는 무엇이 빠졌는지 알려 주고 멈춘다.
+    """
+
+    try:
+        module = import_module(BUILDER_MODULE)
+    except ModuleNotFoundError as error:
+        # 조립 모듈 안에서 다른 모듈을 못 찾은 경우는 원래 오류를 그대로 보여 준다.
+        if error.name != BUILDER_MODULE:
+            raise
+        raise ValueError(
+            f"{BUILDER_MODULE}: 앱 조립 모듈이 없습니다. "
+            "이 모듈이 들어 있는 main을 받아 온 뒤 다시 실행하세요."
+        ) from None
+    return module.create_regulation_app
 
 
 def create_local_app(
@@ -108,8 +131,7 @@ def create_local_app(
     source = _read_source(path)
 
     if build_app is None:
-        # 필요할 때만 불러와, 이 모듈을 불러오는 것만으로 앱 모듈이 따라오지 않게 한다.
-        build_app = import_module("api.regulation_app").create_regulation_app
+        build_app = _load_default_builder()
 
     return build_app(
         source,
