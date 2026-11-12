@@ -1,4 +1,4 @@
-"""운영자 컴퓨터에 있는 규정 텍스트를 읽어 채팅 검색에 연결한다.
+"""코드 밖에 둔 규정 텍스트를 읽어 채팅 검색에 연결한다.
 
 공개 데모는 코드에 적어 둔 가상 규정만 검색한다. 이 모듈은 저장소 밖에 둔 파일을
 받는 문이다. 문은 두 개다. `create_local_app`은 설정 네 개로 파일 한 건을 받고,
@@ -6,7 +6,12 @@
 파일을 읽어 앱을 조립하는 함수에 넘긴다. 모듈을 불러오는 것만으로는 설정도 파일도
 읽지 않는다.
 
-실행 방법(로컬 전용):
+목록을 받는 문은 배포 진입점(`api.serve`)도 쓴다. 진입점은 설정
+`KUMOH_REGULATION_MANIFEST_PATH`가 있을 때만 `create_local_manifest_app`을 부르고,
+없으면 가상 데모를 띄운다. 값이 비었거나 목록이 틀리면 이 모듈이 낸 ValueError가
+그대로 올라가 서버가 뜨지 않는다. 배포 쪽 설명은 `api/docs/RENDER_DEPLOY.md`에 있다.
+
+로컬에서 바로 실행하는 방법:
     python -m uvicorn api.local_serve:create_local_app --factory
     python -m uvicorn api.local_serve:create_local_manifest_app --factory
 """
