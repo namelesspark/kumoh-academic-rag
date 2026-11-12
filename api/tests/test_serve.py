@@ -13,7 +13,13 @@ from api.demo_regulation import DOCUMENT_TITLE, EFFECTIVE_DATE, SOURCE
 from api.local_serve import MANIFEST_ENV
 from api.regulation_app import chunk_articles
 from api.tests.asgi_harness import call_app
-from core.tests.retrieval_cases import CASES, CHUNK_PATHS, MISMATCH_QUERY, SOURCE as CASE_SOURCE
+from core.tests.retrieval_cases import (
+    CASES,
+    CHUNK_PATHS,
+    MISMATCH_QUERY,
+    PARTICLE_CASE,
+    SOURCE as CASE_SOURCE,
+)
 
 from app.main import app as default_app
 from app.services.chat_stub import UNANSWERABLE_TEXT
@@ -22,6 +28,10 @@ from app.services.chat_stub import UNANSWERABLE_TEXT
 MANIFEST = Path(__file__).parent / "fixtures" / "fictional_manifest.json"
 MANIFEST_ENVIRON = {MANIFEST_ENV: str(MANIFEST)}
 SERVE_MODULE = "api.serve"
+
+# 두 조문 모두에 '가상의'가 있고, 나머지 낱말은 한쪽에만 있다.
+LANTERN_ARTICLE = "제1조(반딧불 등대) 가상의 반딧불등은 등대지기가 켠다."
+FERRY_ARTICLE = "제2조(조약돌 나루) 가상의 조약돌배는 나루지기가 띄운다."
 
 
 def import_serve(environ):
@@ -83,6 +93,65 @@ class ServeTests(unittest.TestCase):
         self.assertIs(body["answered"], False)
         self.assertEqual(body["answer"], UNANSWERABLE_TEXT)
         self.assertEqual(body["citations"], [])
+
+    def assert_cites(self, application, question, citation):
+        response = call_app(
+            application, "POST", "/api/v1/chat", json_body={"message": question}
+        )
+        self.assertEqual(response.status, 200)
+        body = response.json()
+        self.assertIs(body["answered"], True)
+        self.assertEqual(body["answer"], citation["snippet"])
+        self.assertEqual(body["citations"], [citation])
+
+    def demo_citation(self, article_path, snippet):
+        return {
+            "article_path": article_path,
+            "document": DOCUMENT_TITLE,
+            "effective_date": EFFECTIVE_DATE.isoformat(),
+            "snippet": snippet,
+            "source_url": None,
+        }
+
+    def test_single_chunk_index_keeps_answering(self):
+        application = self.serve.create_demo_app(LANTERN_ARTICLE)
+        self.assert_health(application, 1)
+        self.assert_cites(
+            application,
+            "반딧불등",
+            self.demo_citation("제1조(반딧불 등대)", LANTERN_ARTICLE),
+        )
+
+    def test_two_chunk_index_cites_article_holding_the_distinct_word(self):
+        application = self.serve.create_demo_app(f"{LANTERN_ARTICLE}\n{FERRY_ARTICLE}\n")
+        self.assert_health(application, 2)
+        cases = (
+            ("반딧불등", "제1조(반딧불 등대)", LANTERN_ARTICLE),
+            ("조약돌배", "제2조(조약돌 나루)", FERRY_ARTICLE),
+        )
+        for question, article_path, snippet in cases:
+            with self.subTest(question=question):
+                self.assert_cites(
+                    application, question, self.demo_citation(article_path, snippet)
+                )
+
+    def test_shared_word_beside_distinct_word_keeps_demo_answer(self):
+        # '가상의'는 데모 조각 9개 모두에 있고 '달빛열람증'은 제3조에만 있다.
+        self.assert_cites(
+            self.serve.create_app({}),
+            "가상의 달빛열람증",
+            self.demo_citation(PARTICLE_CASE.article_path, PARTICLE_CASE.quote),
+        )
+
+    def test_shared_word_beside_distinct_word_keeps_manifest_answer(self):
+        # '가상의'는 가상 목록의 조각 3개 모두에 있고 '대패'는 목공방 규정에만 있다.
+        self.assert_cites(self.serve.create_app(MANIFEST_ENVIRON), "가상의 대패", {
+            "article_path": "제1조(대패 사용)",
+            "document": "가상 은여울 목공방 규정",
+            "effective_date": "2098-11-20",
+            "snippet": "제1조(대패 사용) 가상의 은여울 대패는 목공지기가 내어 준다.",
+            "source_url": "https://example.invalid/regulations/woodshop",
+        })
 
     def test_health_reports_each_apps_chunk_count(self):
         for application, expected_count in ((self.serve.create_app({}), 9), (default_app, 0)):
