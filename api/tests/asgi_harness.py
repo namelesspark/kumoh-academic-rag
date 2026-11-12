@@ -23,6 +23,7 @@
     assert resp.json()["status"] == "ok"
 """
 
+import asyncio
 import json
 from dataclasses import dataclass, field
 
@@ -50,12 +51,14 @@ def call_app(
     json_body=None,
     raw_body: bytes | None = None,
     headers: dict | None = None,
+    allow_wait: bool = False,
 ) -> AsgiResponse:
     """ASGI 앱을 한 번 호출해 응답을 돌려준다.
 
     `json_body`가 있으면 중괄호와 따옴표로 값을 적는 텍스트 형식(JSON, JavaScript
     Object Notation)으로 바꿔 보낸다. 파이썬 dict를 그 문자열로 바꾸는 일을 직렬화라
     한다. `raw_body`가 있으면 그대로 보낸다(깨진 JSON 테스트용). 둘 다 없으면 빈 본문이다.
+    파일 응답처럼 대기가 필요한 테스트는 `allow_wait=True`로 앱을 실행할 수 있다.
     """
 
     # 1. 본문 만들기 --------------------------------------------------------
@@ -104,29 +107,41 @@ def call_app(
     #    send:    앱이 보내는 메시지를 순서대로 모은다.
     pending = [{"type": "http.request", "body": body, "more_body": False}]
     sent = []
+    response_complete = asyncio.Event() if allow_wait else None
 
     async def receive():
         if pending:
             return pending.pop(0)
+        if response_complete is not None:
+            await response_complete.wait()
         return {"type": "http.disconnect"}
 
     async def send(message):
         sent.append(message)
+        if (
+            response_complete is not None
+            and message["type"] == "http.response.body"
+            and not message.get("more_body", False)
+        ):
+            response_complete.set()
 
     # 5. 앱 코루틴을 비동기 실행기(이벤트 루프) 없이 한 번 진행 ----------------
     #    대기 없이 끝나면 StopIteration. 무언가를 내놓으면 중간에 멈춘 것이다.
     coro = app(scope, receive, send)
 
-    try:
-        yielded = coro.send(None)
-    except StopIteration:
-        pass
+    if allow_wait:
+        asyncio.run(coro)
     else:
-        coro.close()
-        raise AssertionError(
-            "ASGI 코루틴이 한 번에 완료되지 않고 대기했습니다: "
-            f"{yielded!r}. 동기 I/O나 이벤트 루프 의존 코드가 있는지 확인하세요."
-        )
+        try:
+            yielded = coro.send(None)
+        except StopIteration:
+            pass
+        else:
+            coro.close()
+            raise AssertionError(
+                "ASGI 코루틴이 한 번에 완료되지 않고 대기했습니다: "
+                f"{yielded!r}. 동기 I/O나 이벤트 루프 의존 코드가 있는지 확인하세요."
+            )
 
     # 6. 모은 메시지를 응답 객체로 합치기 ----------------------------------
     #    http.response.start 에 상태·헤더, http.response.body 에 본문 조각이 있다.
