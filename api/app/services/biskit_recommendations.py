@@ -50,6 +50,7 @@ PROGRAMS = (
         mileage_status="undisclosed",
         mileage_points=None,
         notice_url="https://www.kumoh.ac.kr/ko/sub06_01_01_02.do?articleNo=581126&mode=view",
+        application_url="https://biskit.kumoh.ac.kr/common/user/login.do?rtnUrl=%2Fptfol%2Fimng%2FicmpNsbjtPgm%2FfindIcmpNsbjtPgmInfo.do%3FencSddpbSeq%3D31303034313830",
     ),
     Program(
         title="SJA세진아메리카 2027년 미국 인턴 채용설명회",
@@ -61,6 +62,7 @@ PROGRAMS = (
         mileage_status="undisclosed",
         mileage_points=None,
         notice_url="https://www.kumoh.ac.kr/ko/sub06_01_01_02.do?articleNo=582099&mode=view",
+        application_url="https://biskit.kumoh.ac.kr/common/user/login.do?rtnUrl=%2Fptfol%2Fimng%2FicmpNsbjtPgm%2FfindIcmpNsbjtPgmInfo.do%3FencSddpbSeq%3D31303034313732",
     ),
     Program(
         title="2026학년도 제2차 공학교육 맞춤형 학습법 특강(온라인 특강)",

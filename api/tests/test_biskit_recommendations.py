@@ -36,10 +36,15 @@ class BiskitRecommendationsTest(unittest.TestCase):
         programs = recommendations.programs
 
         self.assertEqual(len(programs), 3)
-        for program, title_part, deadline in zip(
+        for program, title_part, deadline, application_url in zip(
             programs,
             ("병역진로설계", "SJA", "학습법 특강"),
             (date(2026, 11, 20), date(2026, 11, 22), date(2026, 11, 26)),
+            (
+                "https://biskit.kumoh.ac.kr/common/user/login.do?rtnUrl=%2Fptfol%2Fimng%2FicmpNsbjtPgm%2FfindIcmpNsbjtPgmInfo.do%3FencSddpbSeq%3D31303034313830",
+                "https://biskit.kumoh.ac.kr/common/user/login.do?rtnUrl=%2Fptfol%2Fimng%2FicmpNsbjtPgm%2FfindIcmpNsbjtPgmInfo.do%3FencSddpbSeq%3D31303034313732",
+                None,
+            ),
         ):
             with self.subTest(title=program.title):
                 self.assertIn(title_part, program.title)
@@ -47,7 +52,7 @@ class BiskitRecommendationsTest(unittest.TestCase):
                 self.assertEqual(program.eligibility, "eligible")
                 self.assertEqual(program.deadline_status, "open")
                 self.assertIsNotNone(program.notice_url)
-                self.assertIsNone(program.application_url)
+                self.assertEqual(program.application_url, application_url)
                 self.assertTrue(program.login_required)
                 self.assertIsNone(program.mileage_points)
         self.assertEqual(programs[1].event_on, date(2026, 11, 23))
