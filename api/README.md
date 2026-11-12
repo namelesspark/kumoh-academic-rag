@@ -139,6 +139,76 @@ python -B -m unittest api.tests.test_local_serve -v
 
 ---
 
+## 로컬에서 규정 파일 여러 건으로 실행하기
+
+규정이 여러 문서면 `create_local_manifest_app`에 목록 파일 하나를 준다. 도서관에 책이 여러 권
+들어와도 찾아보기 카드함은 하나만 두는 것과 같다. 카드마다 어느 책인지 적혀 있어, 같은 `제1조`가
+여러 문서에 있어도 답변은 그 조문이 속한 문서의 이름·시행일·링크를 붙인다.
+
+목록 파일은 중괄호와 따옴표로 값을 적는 텍스트 형식(JSON, JavaScript Object Notation)이다.
+아래 값은 모두 가상이다.
+
+```json
+{
+  "documents": [
+    {
+      "path": "fictional_manifest_first.txt",
+      "document_title": "가상 달무리 천문대 규정",
+      "effective_date": "2099-03-04",
+      "source_url": "https://example.invalid/regulations/observatory"
+    },
+    {
+      "path": "fictional_manifest_second.txt",
+      "document_title": "가상 은여울 목공방 규정",
+      "effective_date": "2098-11-20",
+      "source_url": "https://example.invalid/regulations/woodshop"
+    }
+  ]
+}
+```
+
+| 필드 | 넣는 값 | 검사 |
+|---|---|---|
+| `path` | 규정 텍스트 파일 경로. 상대 경로는 목록 파일이 있는 폴더 기준 | 읽을 수 있고 UTF-8로 저장한 파일 |
+| `document_title` | 인용에 표시할 문서명 | 공백뿐이면 거부 |
+| `effective_date` | 시행일 | `YYYY-MM-DD` 모양이고 달력에 있는 날 |
+| `source_url` | 공식 링크 | 한 건 실행의 `KUMOH_REGULATION_SOURCE_URL`과 같은 검사 |
+
+목록 규칙:
+
+- 목록 파일도 UTF-8로 저장한다. 윈도우 편집기가 맨 앞에 붙이는 표식(BOM)은 목록 파일에서만 떼고 읽는다.
+  규정 파일의 표식과 줄바꿈은 한 건 실행과 같이 그대로 둔다.
+- 최상위는 `documents` 하나만 가진 객체이고, `documents`는 비어 있지 않은 배열이다.
+- 항목은 위 네 필드를 모두 문자열로 적는다. 모르는 필드나 두 번 적은 필드가 있으면 거부한다.
+  필드 이름의 오타를 드러내기 위해서다.
+- 목록에 적은 순서대로 문서를 넘긴다.
+
+환경 변수는 `KUMOH_REGULATION_MANIFEST_PATH` 하나다. 저장소 루트에서 PowerShell로 실행하는 예시다.
+
+```powershell
+$env:KUMOH_REGULATION_MANIFEST_PATH = "api/tests/fixtures/fictional_manifest.json"
+python -m uvicorn api.local_serve:create_local_manifest_app --factory
+```
+
+항목 하나라도 틀리거나 파일 하나라도 읽지 못하면 서버가 뜨지 않는다. 오류 문구는
+`documents[1].effective_date: 달력에 없는 날짜입니다.`처럼 0부터 센 항목 번호, 필드명, 이유만 담는다.
+경로, 입력값, 파일 내용은 나오지 않는다. 조문을 하나도 찾지 못한 문서가 있을 때도
+`documents[1]: 검색할 조각을 찾지 못했습니다.`로 멈춘다.
+
+**먼저 확인할 것** — 이 명령은 `api/regulation_app.py`에 여러 문서를 받는 조립 함수
+`create_regulations_app`이 있는 체크아웃에서만 뜬다. 없으면
+`api.regulation_app: create_regulations_app 함수가 없습니다`라는 오류를 내고 멈춘다.
+
+한 건 실행의 지켜야 할 점은 여기서도 같다. 실제 규정 원문과 그 경로를 적은 목록 파일은 저장소 밖에 둔다.
+
+확인 명령:
+
+```
+python -B -m unittest api.tests.test_local_manifest -v
+```
+
+---
+
 ## 데이터 취급
 
 학적 데이터는 **저장하지 않고 통과만 시킨다.** 응답 생성에 쓴 뒤 세션 종료 시 폐기한다.
