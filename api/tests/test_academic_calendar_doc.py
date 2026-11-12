@@ -47,6 +47,8 @@ EXPECTED_EVENTS = [
 EMPTY_TERMS = ("2027/2", "2026/1")
 BAD_PATHS = ("abcd/1", "20270/1", "2027/0", "2027/3")
 BAD_REQUEST_TEXT = "요청 형식이 올바르지 않습니다."
+# 시각에 대해 명세가 말하는 유일한 문장.
+NO_TIME_SENTENCE = "공식 목록에 시각이 없어 응답에도 시각을 넣지 않는다."
 
 SOURCE_COLUMNS = ("문서명", "발행·적용 학년도", "입학연도별 판정 범위", "주소", "확인일", "응답 확인", "내용 확인")
 
@@ -143,7 +145,10 @@ class SpecExampleTests(unittest.TestCase):
 
     def test_section_states_the_path_and_that_times_are_left_out(self):
         self.assertIn("`/api/v1/academic-calendar/2027/1`", self.section)
-        self.assertIn("시각", self.section)
+        self.assertIn(NO_TIME_SENTENCE, self.section)
+        # 공식 목록에는 날짜만 있다. 출처에서 시각을 확인하라는 식의 안내가 덧붙으면
+        # '시각'이 이 문장 밖에도 나오므로 여기서 걸린다.
+        self.assertEqual(self.section.count("시각"), NO_TIME_SENTENCE.count("시각"))
         # 예시에 시각이 섞여 들어가지 않았다.
         self.assertIsNone(re.search(r"[0-9]{2}:[0-9]{2}", self.section))
 
