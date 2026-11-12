@@ -741,18 +741,26 @@ for (const [label, url] of [
   });
 }
 
-test("확인된 신청 주소가 오면 공지 링크 옆에 신청 링크를 붙이고 로그인 안내는 적지 않는다", async () => {
+test("확인된 신청 주소가 오면 주소 그대로 신청 링크를 붙이고, 로그인이 필요하면 눈에 보이게 적는다", async () => {
+  const loginPath = "https://apply.example.invalid/login?next=%2Fprograms%2F1";
   const page = await shown(d02(recommending([
-    program("가상 신청 가능", { application_url: "https://apply.example.invalid/programs/1" }),
+    program("가상 로그인 경로", { application_url: loginPath, login_required: true }),
+    program("가상 바로 신청", { application_url: "https://apply.example.invalid/programs/2", login_required: false }),
+    program("가상 값 누락", { application_url: "https://apply.example.invalid/programs/3", login_required: undefined }),
   ])));
-  const [card] = readBiskit(page).cards;
+  const [login, open, missing] = readBiskit(page).cards;
 
-  assert.deepEqual(card.links.map(link => link.attributes.get("href")), [
+  assert.deepEqual(login.links.map(link => link.attributes.get("href")), [
     "https://notice.example.invalid/view?articleNo=1",
-    "https://apply.example.invalid/programs/1",
+    loginPath,
   ]);
-  assert.equal(text(card.links[1]), "신청 페이지 열기 (가상 신청 가능, 새 탭에서 열림)");
-  assert.deepEqual(card.hints, []);
+  assert.equal(text(login.links[1]), "신청 페이지 열기 (가상 로그인 경로, 새 탭에서 열림)");
+  assert.deepEqual(login.hints, ["BISKIT 로그인 필요"]);
+
+  assert.equal(open.links.length, 2);
+  assert.deepEqual(open.hints, []);
+  assert.equal(missing.links.length, 2);
+  assert.deepEqual(missing.hints, []);
 });
 
 test("추천 목록이 비면 안내 문구와 BISKIT 링크를 보여 준다", async () => {
@@ -782,6 +790,8 @@ for (const [label, recommendations] of [
   ["객체가 아닌 프로그램", recommending([d02Programs[0], null])],
   ["배열인 프로그램", recommending([[]])],
   ["제목 없는 프로그램", recommending([program(null)])],
+  ["제목이 숫자인 프로그램", recommending([program(123)])],
+  ["제목이 빈 글자인 프로그램", recommending([d02Programs[0], program("  ")])],
 ]) {
   test(`biskit_recommendations가 ${label}이면 추천 영역만 빼고 표는 그대로 그린다`, async () => {
     assertTableWithoutBiskit(await shown(d02(recommendations)));

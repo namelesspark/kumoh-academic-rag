@@ -208,7 +208,8 @@ function biskitProgram(program) {
   if (program === null || typeof program !== "object" || Array.isArray(program)) {
     throw new TypeError("Malformed BISKIT program");
   }
-  const title = shownText(program.title);
+  // 제목은 글자여야 한다. 숫자 같은 다른 값은 형식 오류로 보고 추천 영역을 그리지 않는다.
+  const title = typeof program.title === "string" ? shownText(program.title) : null;
   if (!title) throw new TypeError("Malformed BISKIT program");
 
   const when = element("p", "when");
@@ -242,9 +243,10 @@ function biskitProgram(program) {
     sourceLink(program.notice_url, "공식 공지 보기", title) ?? element("span", "hint", "공식 공지 확인 필요"),
   );
   const application = sourceLink(program.application_url, "신청 페이지 열기", title);
+  // 신청 주소가 로그인 화면을 거치는 경로일 수 있으므로, 링크가 있어도 로그인 필요를 눈에 보이게 적는다.
   if (application) links.append(application);
-  else if (program.login_required === true) {
-    links.append(element("span", "hint", "BISKIT 로그인 후 프로그램명으로 검색"));
+  if (program.login_required === true) {
+    links.append(element("span", "hint", application ? "BISKIT 로그인 필요" : "BISKIT 로그인 후 프로그램명으로 검색"));
   }
   card.append(links);
   return card;
