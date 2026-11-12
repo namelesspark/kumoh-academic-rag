@@ -82,6 +82,22 @@ Base URL: `/api/v1`
 
 ---
 
+## GET /graduation-demo
+
+가상 학생의 컴퓨터공학전공 2023학년도 졸업 체크 결과를 읽는다. 요청 본문과 검색 조건은 받지 않는다.
+전체 주소는 `/api/v1/graduation-demo`이다. [졸업 체크 기준표](GRADUATION_RULES.md)
+
+- `profile`은 `label`, `department`, `admission_year`, `admission_type`, `track`, `is_fictional`을 담는다.
+- `items`는 `total_credits`(학점), `major_required`(전공필수), `extracurricular`(비교과) 순서다.
+- 학점의 `details`는 `credits_total`, `general_required`, `general_elective`, `msc`, `major` 순서다.
+- 전공필수의 `details`는 `required_courses`, `thesis` 순서다. 비교과는 `career_education`, `counseling`, `mileage` 순서다.
+- 상위와 세부 행은 `id`, `label`, `status`, `current`, `required`, `shortfall`, `reason`, `basis`를 담는다. `details`는 상위 행에만 있다.
+- 상태는 `met`(충족), `short`(부족), `needs_check`(확인 필요) 중 하나다. 부족이면 `shortfall`을, 확인 필요면 `reason`을 채운다. 표시할 값이 없으면 `null`로 돌려준다.
+- 상위 행은 부족, 확인 필요, 충족 순으로 세부 상태를 반영한다. 상위 부족량은 부족한 세부 행의 수다.
+- 근거에는 `applied_rule`, `source_title`, `source_url`, `checked_on`이 있다. 적용 기준 문구는 항상 있고, 출처 정보는 확인한 값만 채운다.
+
+---
+
 ## POST /feedback
 
 답변 품질 피드백. 평가셋 보강과 오답 수집에 쓴다.
