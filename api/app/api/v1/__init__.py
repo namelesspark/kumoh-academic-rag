@@ -7,7 +7,7 @@ chat.py, campus_guide.py)은 각자 접두사 없는 APIRouter를 만들고, 이
 
 from fastapi import APIRouter
 
-from app.api.v1 import campus_guide, chat, health
+from app.api.v1 import campus_guide, chat, graduation_demo, health
 
 
 # 접두사는 여기서만 붙인다. 각 모듈의 경로는 "/health", "/chat"처럼 짧게 둔다.
@@ -18,6 +18,7 @@ router = APIRouter(prefix="/api/v1")
 router.include_router(health.router, tags=["health"])
 router.include_router(chat.router, tags=["chat"])
 router.include_router(campus_guide.router, tags=["campus-guide"])
+router.include_router(graduation_demo.router, tags=["graduation-demo"])
 
 
 __all__ = ["router"]
