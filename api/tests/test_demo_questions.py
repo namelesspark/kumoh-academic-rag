@@ -30,36 +30,64 @@ DOCUMENT = "가상 구름 도서관 규정"
 EFFECTIVE_DATE = date(2099, 2, 3)
 
 
-class ExampleButtonParser(HTMLParser):
-    """`data-question` 속성이 있는 버튼의 질문 값과 버튼 이름을 문서 순서대로 모은다."""
+TOPICS_ID = "topics"
+
+
+class ExampleParser(HTMLParser):
+    """화면이 예시로 연결하는 요소를 문서 순서대로 모은다.
+
+    `chat.js`는 `#topics` 안에서 `data-question` 속성이 있는 요소를 태그 종류와
+    관계없이 모두 예시로 연결한다. 그래서 여기서도 버튼만 세지 않고 같은 범위를 센다.
+    """
 
     def __init__(self):
         super().__init__(convert_charrefs=True)
         self.questions = []
         self.labels = []
-        self._in_example = False
+        self.tags = []
+        self._topics_tag = None  # id="topics"인 요소의 태그 이름
+        self._topics_depth = 0  # 그 태그가 겹쳐 열린 횟수
+        self._example_tag = None  # 이름을 모으고 있는 예시 요소의 태그 이름
 
     def handle_starttag(self, tag, attrs):
-        question = dict(attrs).get("data-question")
-        if tag == "button" and question is not None:
-            self.questions.append(question)
+        attributes = dict(attrs)
+        if self._topics_tag is None:
+            if attributes.get("id") == TOPICS_ID:
+                self._topics_tag = tag
+                self._topics_depth = 1
+            return
+
+        if tag == self._topics_tag:
+            self._topics_depth += 1
+        if "data-question" in attributes:
+            self.questions.append(attributes["data-question"])
             self.labels.append("")
-            self._in_example = True
+            self.tags.append(tag)
+            self._example_tag = tag
 
     def handle_data(self, data):
-        if self._in_example:
+        if self._example_tag is not None:
             self.labels[-1] += data
 
     def handle_endtag(self, tag):
-        if tag == "button":
-            self._in_example = False
+        if tag == self._example_tag:
+            self._example_tag = None
+        if tag == self._topics_tag:
+            self._topics_depth -= 1
+            if self._topics_depth == 0:
+                self._topics_tag = None
+                self._example_tag = None
+
+
+def parse_examples(html):
+    parser = ExampleParser()
+    parser.feed(html)
+    parser.close()
+    return parser
 
 
 def read_example_buttons():
-    parser = ExampleButtonParser()
-    parser.feed(INDEX_HTML.read_text(encoding="utf-8"))
-    parser.close()
-    return parser
+    return parse_examples(INDEX_HTML.read_text(encoding="utf-8"))
 
 
 class DemoQuestionTests(unittest.TestCase):
@@ -89,7 +117,33 @@ class DemoQuestionTests(unittest.TestCase):
             [PARTICLE_CASE.query, MISMATCH_QUERY],
         )
 
+    def test_non_button_example_inside_topics_is_counted(self):
+        # 버튼이 아닌 요소도 화면에서는 예시로 연결되므로 개수에 잡혀야 한다.
+        html = INDEX_HTML.read_text(encoding="utf-8")
+        marker = "</details>"
+        self.assertEqual(html.count(marker), 1)
+        extra = '<a href="#" data-question="가상 질문">셋째 예시</a>'
+
+        parsed = parse_examples(html.replace(marker, extra + marker))
+
+        self.assertEqual(
+            parsed.questions,
+            [PARTICLE_CASE.query, MISMATCH_QUERY, "가상 질문"],
+        )
+        self.assertEqual(parsed.tags, ["button", "button", "a"])
+
+    def test_example_outside_topics_is_not_counted(self):
+        # `#topics` 밖의 요소는 화면이 연결하지 않으므로 세지 않는다.
+        html = INDEX_HTML.read_text(encoding="utf-8")
+        marker = "</details>"
+        extra = '<button type="button" data-question="가상 질문">범위 밖</button>'
+
+        parsed = parse_examples(html.replace(marker, marker + extra))
+
+        self.assertEqual(parsed.questions, [PARTICLE_CASE.query, MISMATCH_QUERY])
+
     def test_button_names_and_order_are_kept(self):
+        self.assertEqual(self.buttons.tags, ["button", "button"])
         self.assertEqual(
             [label.strip() for label in self.buttons.labels],
             ["답변과 근거 조문", "근거를 찾지 못한 경우"],
