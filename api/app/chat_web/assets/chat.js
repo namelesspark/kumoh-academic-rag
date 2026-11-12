@@ -211,6 +211,8 @@ function biskitProgram(program) {
   // 제목은 글자여야 한다. 숫자 같은 다른 값은 형식 오류로 보고 추천 영역을 그리지 않는다.
   const title = typeof program.title === "string" ? shownText(program.title) : null;
   if (!title) throw new TypeError("Malformed BISKIT program");
+  // 로그인 여부는 참·거짓 값이어야 한다. "true" 같은 글자를 어림잡아 읽으면 로그인 안내가 조용히 빠진다.
+  if (typeof program.login_required !== "boolean") throw new TypeError("Malformed BISKIT program");
 
   const when = element("p", "when");
   const audience = shownText(program.audience);
@@ -245,7 +247,7 @@ function biskitProgram(program) {
   const application = sourceLink(program.application_url, "신청 페이지 열기", title);
   // 신청 주소가 로그인 화면을 거치는 경로일 수 있으므로, 링크가 있어도 로그인 필요를 눈에 보이게 적는다.
   if (application) links.append(application);
-  if (program.login_required === true) {
+  if (program.login_required) {
     links.append(element("span", "hint", application ? "BISKIT 로그인 필요" : "BISKIT 로그인 후 프로그램명으로 검색"));
   }
   card.append(links);

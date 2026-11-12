@@ -746,9 +746,8 @@ test("확인된 신청 주소가 오면 주소 그대로 신청 링크를 붙이
   const page = await shown(d02(recommending([
     program("가상 로그인 경로", { application_url: loginPath, login_required: true }),
     program("가상 바로 신청", { application_url: "https://apply.example.invalid/programs/2", login_required: false }),
-    program("가상 값 누락", { application_url: "https://apply.example.invalid/programs/3", login_required: undefined }),
   ])));
-  const [login, open, missing] = readBiskit(page).cards;
+  const [login, open] = readBiskit(page).cards;
 
   assert.deepEqual(login.links.map(link => link.attributes.get("href")), [
     "https://notice.example.invalid/view?articleNo=1",
@@ -759,8 +758,6 @@ test("확인된 신청 주소가 오면 주소 그대로 신청 링크를 붙이
 
   assert.equal(open.links.length, 2);
   assert.deepEqual(open.hints, []);
-  assert.equal(missing.links.length, 2);
-  assert.deepEqual(missing.hints, []);
 });
 
 test("추천 목록이 비면 안내 문구와 BISKIT 링크를 보여 준다", async () => {
@@ -791,6 +788,13 @@ for (const [label, recommendations] of [
   ["배열인 프로그램", recommending([[]])],
   ["제목 없는 프로그램", recommending([program(null)])],
   ["제목이 숫자인 프로그램", recommending([program(123)])],
+  [
+    "로그인 여부가 글자인 프로그램",
+    recommending([program("가상 글자 값", { application_url: "https://apply.example.invalid/login", login_required: "true" })]),
+  ],
+  ["로그인 여부가 숫자인 프로그램", recommending([d02Programs[0], program("가상 숫자 값", { login_required: 1 })])],
+  ["로그인 여부가 null인 프로그램", recommending([program("가상 null 값", { login_required: null })])],
+  ["로그인 여부가 없는 프로그램", recommending([program("가상 값 누락", { login_required: undefined })])],
   ["제목이 빈 글자인 프로그램", recommending([d02Programs[0], program("  ")])],
 ]) {
   test(`biskit_recommendations가 ${label}이면 추천 영역만 빼고 표는 그대로 그린다`, async () => {
