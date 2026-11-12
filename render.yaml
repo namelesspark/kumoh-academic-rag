@@ -9,7 +9,7 @@ services:
     plan: free                      # 가상 응답 확인 단계. 무료 플랜은 유휴 시 잠들어 첫 요청이 느리다.
     region: singapore               # 한국에서 가장 가까운 리전
     branch: main
-    buildCommand: pip install -r api/requirements.txt
+    buildCommand: pip install -r api/requirements.txt && python -B api/scripts/prepare_poster_ocr.py
     startCommand: python -m uvicorn api.serve:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /api/v1/health
     autoDeployTrigger: commit       # main에 커밋이 추가되면 자동 재배포
@@ -22,7 +22,7 @@ services:
     plan: 0.5c-512mb
     region: singapore               # 한국에서 가장 가까운 리전
     branch: main
-    buildCommand: pip install -r api/requirements.txt
+    buildCommand: pip install -r api/requirements.txt && python -B api/scripts/prepare_poster_ocr.py
     startCommand: python -m uvicorn api.serve:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /api/v1/health
     autoDeployTrigger: commit       # main에 커밋이 추가되면 자동 재배포

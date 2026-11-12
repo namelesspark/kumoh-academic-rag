@@ -125,6 +125,23 @@ Base URL: `/api/v1`
 
 ---
 
+## POST /poster-lookup
+
+현수막 사진 한 장의 바이트를 그대로 보낸다. `Content-Type`은 `image/jpeg` 또는 `image/png`를 쓴다. 서버는 파일명을 받지 않고 사진이나 판독한 글자를 저장하지 않는다.
+
+| 필드 | 의미 |
+|---|---|
+| `event_match` | 행사 확인 `confirmed` 또는 확인 필요 `needs_check` |
+| `identified_by` | 행사 일치에 사용한 단서. 사진 글자 `text`, 공지 QR `qr_notice`, 프로그램 QR `qr_program` |
+| `reasons` | 단서 부족 `no_readable_clue`, 후보 충돌 `ambiguous_event`, 마감 불일치 `deadline_mismatch`, 마감 당일 `deadline_day`, 글자 판독 불가 `text_reader_unavailable` |
+| `event` | 확인된 행사 정보. 행사 확인이 필요하면 `null` |
+
+행사 정보는 `title`, `event_date`, `official_deadline`, `poster_deadline`, `application_state`, `mileage`, `notice_url`, `application_url`, `login_required`, `checked_on`을 담는다. 현수막 마감은 월-일만 표시한다. 접수 상태는 한국 날짜 기준으로 `open`, `closed`, `needs_check`를 돌려준다. 확인한 날짜, 점수 또는 주소가 없으면 해당 값을 `null`로 표시한다. 마감이 다르면 학교 공지의 날짜를 공식 마감으로 표시한다.
+
+요청 본문이 5MB를 넘으면 413, 사진 형식이 다르면 415, 사진을 열 수 없거나 1,200만 화소를 넘으면 422를 반환한다. 오류 본문은 `{"detail": "안내 문구"}` 형태다.
+
+---
+
 ## POST /feedback
 
 답변 품질 피드백. 평가셋 보강과 오답 수집에 쓴다.
