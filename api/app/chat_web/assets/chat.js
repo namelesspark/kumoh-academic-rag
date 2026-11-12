@@ -478,6 +478,8 @@ async function findPosterEvent(photo, type, reply) {
 
   let failure = null;
   let retryable = true;
+  const disconnected = "서버에 연결하지 못했어요. 네트워크를 확인한 뒤 다시 시도해 주세요.";
+  const unprocessed = "서버가 사진을 처리하지 못했어요.";
   try {
     let response = null;
     try {
@@ -488,20 +490,32 @@ async function findPosterEvent(photo, type, reply) {
         signal: AbortSignal.timeout(60_000),
       });
     } catch {
-      failure = "서버에 연결하지 못했어요. 네트워크를 확인한 뒤 다시 시도해 주세요.";
+      failure = disconnected;
     }
 
     if (response?.ok) {
+      // 응답 줄(상태 코드)은 받았어도 본문을 받는 중에 연결이 끊길 수 있다.
+      // 다 받은 본문을 해석하지 못한 경우(SyntaxError)만 서버 오류로 보고, 나머지는 통신 실패로 본다.
+      let result;
+      let received = false;
       try {
-        const [card, summary] = posterResult(await response.json());
-        reply.append(card);
-        posterNote.textContent = summary;
-      } catch {
-        failure = "서버가 사진을 처리하지 못했어요.";
+        result = await response.json();
+        received = true;
+      } catch (error) {
+        failure = error?.name === "SyntaxError" ? unprocessed : disconnected;
+      }
+      if (received) {
+        try {
+          const [card, summary] = posterResult(result);
+          reply.append(card);
+          posterNote.textContent = summary;
+        } catch {
+          failure = unprocessed;
+        }
       }
     } else if (response) {
       retryable = !Object.hasOwn(posterRejections, response.status);
-      failure = retryable ? "서버가 사진을 처리하지 못했어요." : posterRejections[response.status];
+      failure = retryable ? unprocessed : posterRejections[response.status];
     }
 
     if (failure) {

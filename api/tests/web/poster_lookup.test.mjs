@@ -693,6 +693,45 @@ test("본문을 JSON으로 읽지 못해도 서버 오류 문구를 보여 준�
   assert.equal(page.submit.disabled, false);
 });
 
+// 상태 코드 200은 받았지만 본문을 받는 중에 연결이 끊긴 경우다. 브라우저는 이때 SyntaxError가 아닌 오류를 낸다.
+for (const [label, failure] of [
+  ["연결 끊김", () => new TypeError("fictional connection lost while reading the body")],
+  ["시간 초과", () => new DOMException("fictional timeout", "TimeoutError")],
+  ["중단", () => new DOMException("fictional abort", "AbortError")],
+]) {
+  test(`응답 본문을 받는 중 ${label}이면 통신 실패 문구를 보여 주고, 다시 시도하면 같은 바이트를 보낸다`, async () => {
+    const bodies = [];
+    let broken = true;
+    const page = await lookup(async (_path, options) => {
+      bodies.push(options.body);
+      return {
+        ok: true,
+        status: 200,
+        json: async () => {
+          if (broken) throw failure();
+          return confirmed();
+        },
+      };
+    });
+    const { message, retries } = readError(page);
+
+    assert.equal(message, failureMessages.network);
+    assert.equal(page.note.textContent, failureMessages.network);
+    assert.equal(retries.length, 1);
+    assert.equal(page.submit.disabled, false);
+    assert.equal(page.status.textContent, "");
+
+    broken = false;
+    retries[0].listeners.get("click")({});
+    await setImmediate();
+
+    assert.equal(bodies.length, 2);
+    assert.equal(bodies[1], bodies[0]);
+    assert.equal(page.transcript.querySelectorAll(".error").length, 0);
+    assert.equal(readCard(page).lines[0], "가상 해외 취업 설명회");
+  });
+}
+
 test("서버 값은 글자 그대로 넣고 HTML로 해석하지 않는다", async () => {
   const markup = "<img src=x onerror=alert(1)>";
   const page = await shown(confirmed(
