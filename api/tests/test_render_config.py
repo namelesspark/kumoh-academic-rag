@@ -10,9 +10,10 @@ Render는 저장소의 `render.yaml`을 읽어 서버를 시작한다. 사람은
 읽는 파일은 저장소가 추적하는 가상 파일뿐이고 실제 학칙과 관계가 없다.
 """
 
+import json
 import re
 import unittest
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 
 from api.local_serve import MANIFEST_ENV, create_local_manifest_app
 from api.tests.asgi_harness import call_app
@@ -36,11 +37,35 @@ _DOC_MANIFEST_VALUE = re.compile(
     r"^\| `" + re.escape(MANIFEST_ENV) + r"` \| `([^`]+)` \|$", re.MULTILINE
 )
 # 가상 파일 폴더를 저장소 루트에서 본 위치. Render가 쓰는 리눅스 방식으로 적는다.
-FIXTURES_FROM_ROOT = PurePosixPath("api/tests/fixtures")
+FIXTURE_FOLDERS = ("api", "tests", "fixtures")
+FIXTURES_FROM_ROOT = "/".join(FIXTURE_FOLDERS)
+FIXTURES_DIR = REPO_ROOT.joinpath(*FIXTURE_FOLDERS)
 _CHUNK_COUNT = re.compile(r"chunk_count=([0-9]+)")
 _SECTION_START = re.compile(r"^## ", re.MULTILINE)
 # 문서가 `설정 이름: 사유` 모양으로 적은 오류 문구.
 _DOC_ERROR = re.compile(r"`(" + re.escape(MANIFEST_ENV) + r": [^`]+)`")
+
+
+def entry_names(folder: Path) -> set[str]:
+    """폴더에 실제로 저장된 이름들. 운영 체제가 돌려주는 글자 그대로다."""
+
+    return {entry.name for entry in folder.iterdir()}
+
+
+def tracked_fixture_paths() -> dict[str, Path]:
+    """가상 파일마다 Render에 넣을 수 있는 값 하나와 그 파일의 위치를 짝짓는다.
+
+    문서의 값을 이 컴퓨터의 파일 시스템에 물어 확인하면 안 된다. 윈도우는 대소문자가
+    다른 이름, 역슬래시, 이름 끝의 점과 공백을 같은 파일로 받아 주지만 Render의
+    리눅스는 글자가 하나라도 다르면 찾지 못한다. 그래서 거꾸로 한다. 폴더에 실제로
+    저장된 이름으로 올바른 값을 만들고, 문서의 값은 그 글자와 똑같은지만 본다.
+    """
+
+    return {
+        f"{FIXTURES_FROM_ROOT}/{entry.name}": entry
+        for entry in FIXTURES_DIR.iterdir()
+        if entry.is_file()
+    }
 
 
 def read_text(path: Path) -> str:
@@ -149,22 +174,10 @@ class DocumentedExampleTests(unittest.TestCase):
         )
         documented = int(only_value(self, _CHUNK_COUNT, self.section, "목록의 조각 수"))
 
-        # 배포 서버는 저장소 루트에서 시작한다. 테스트는 실행한 폴더에 기대지 않도록
-        # 표의 값 전체를 같은 기준으로 직접 푼다.
-        #
-        # Render는 리눅스에서 돈다. 리눅스는 `/`만 폴더 구분으로 읽고 역슬래시와
-        # 드라이브 글자는 파일 이름의 일부로 읽는다. 테스트를 윈도우에서 돌려도 같은
-        # 결과가 나오도록, 실행한 컴퓨터의 규칙이 아니라 리눅스 규칙으로 값을 나눈다.
-        documented_path = PurePosixPath(relative)
-        # 문서의 예시는 저장소가 추적하는 가상 파일 폴더 바로 아래를 가리킨다.
-        # 맨 앞의 `/`, 앞에 붙은 다른 폴더, `..`, 역슬래시로 적은 경로는 여기서 걸린다.
-        self.assertEqual(documented_path.parent, FIXTURES_FROM_ROOT, relative)
-        # 파일 이름에 윈도우가 폴더나 드라이브로 읽는 글자가 있으면 두 운영 체제가
-        # 서로 다른 파일을 가리킨다.
-        self.assertNotRegex(documented_path.name, r"[\\:]", relative)
-        manifest = REPO_ROOT.joinpath(*documented_path.parts)
-        self.assertTrue(manifest.is_file(), relative)
-        app = create_local_manifest_app({MANIFEST_ENV: str(manifest)})
+        # 표의 값은 실제 가상 파일로 만든 값 가운데 하나와 글자까지 같아야 한다.
+        tracked = tracked_fixture_paths()
+        self.assertIn(relative, tracked)
+        app = create_local_manifest_app({MANIFEST_ENV: str(tracked[relative])})
 
         # 서버를 띄우지 않고 앱을 파이썬 함수처럼 바로 부른다 (ASGI 직접 호출).
         response = call_app(app, "GET", HEALTH)
@@ -173,6 +186,54 @@ class DocumentedExampleTests(unittest.TestCase):
             response.json(),
             {"status": "ok", "index_loaded": True, "chunk_count": documented},
         )
+
+    def test_values_linux_would_not_find_are_not_accepted(self):
+        # 검토에서 나온 사례들이다. 모두 윈도우의 파일 시스템에 물으면 원래 파일을
+        # 찾거나 찾을 수 있지만, Render의 리눅스에서는 서버가 뜨지 않는다.
+        good = only_value(
+            self, _DOC_MANIFEST_VALUE, self.section, "표에 적힌 가상 목록 경로"
+        )
+        folder, _, name = good.rpartition("/")
+        tracked = tracked_fixture_paths()
+        self.assertIn(good, tracked)
+        wrong_values = (
+            "missing-folder/" + good,
+            "/" + good,
+            good.replace("/", "\\"),
+            f"{folder}/{name.upper()}",
+            f"{folder.upper()}/{name}",
+            "./" + good,
+            good.replace("/", "//", 1),
+            f"{folder}/../fixtures/{name}",
+            good + ".",
+            good + " ",
+            " " + good,
+        )
+        for value in wrong_values:
+            with self.subTest(value=value):
+                self.assertNotEqual(value, good)
+                self.assertNotIn(value, tracked)
+
+    def test_fixture_folders_are_stored_in_documented_case(self):
+        # 폴더 이름의 대소문자도 리눅스에서는 다른 이름이다.
+        parent = REPO_ROOT
+        for name in FIXTURE_FOLDERS:
+            with self.subTest(name=name):
+                self.assertIn(name, entry_names(parent))
+            parent = parent / name
+
+    def test_manifest_lists_files_by_their_stored_names(self):
+        # 목록 안의 `path`도 같은 이유로 저장된 이름과 글자까지 같아야 한다.
+        good = only_value(
+            self, _DOC_MANIFEST_VALUE, self.section, "표에 적힌 가상 목록 경로"
+        )
+        tracked = tracked_fixture_paths()
+        self.assertIn(good, tracked)
+        manifest = json.loads(read_text(tracked[good]))
+        stored = entry_names(FIXTURES_DIR)
+        for index, document in enumerate(manifest["documents"]):
+            with self.subTest(index=index):
+                self.assertIn(document["path"], stored)
 
     def test_blank_value_fails_with_documented_message(self):
         documented = set(_DOC_ERROR.findall(self.section))
