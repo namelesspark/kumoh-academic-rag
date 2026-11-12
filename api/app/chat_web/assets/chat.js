@@ -8,7 +8,31 @@ const send = document.querySelector("#send");
 const reset = document.querySelector("#reset");
 const statusLine = document.querySelector("#status");
 const graduationCheck = document.querySelector("#graduation-check");
+const posterForm = document.querySelector("#poster-form");
+const posterFile = document.querySelector("#poster-file");
+const posterSubmit = document.querySelector("#poster-submit");
+const posterNote = document.querySelector("#poster-note");
 const compact = window.matchMedia("(max-width: 680px)");
+
+// 현수막 사진 제한. 서버도 같은 제한으로 다시 검사하므로, 여기서는 보내기 전에 알려 주는 역할만 한다.
+const posterTypes = ["image/jpeg", "image/png"];
+const posterMaxBytes = 5 * 1024 * 1024;
+const posterRejections = {
+  413: "사진이 5MB를 넘어요. 더 작은 사진으로 다시 올려 주세요.",
+  415: "JPEG나 PNG 사진만 읽을 수 있어요.",
+  422: "사진을 열 수 없거나 화소 수가 1,200만을 넘어요. 다른 사진으로 다시 올려 주세요.",
+};
+const posterClues = { text: "사진 글자", qr_notice: "공지 QR", qr_program: "BISKIT 프로그램 QR" };
+const posterNeedsCheck = {
+  no_readable_clue: "사진에서 읽을 수 있는 글자나 QR을 찾지 못했어요. 행사 제목과 날짜가 보이게 다시 찍어 주세요.",
+  ambiguous_event: "사진만으로는 어느 행사인지 하나로 정하지 못했어요. 제목과 날짜가 함께 보이거나 QR이 보이는 사진으로 다시 시도해 주세요.",
+  text_reader_unavailable: "지금은 서버가 사진 속 글자를 읽을 수 없어요. QR이 보이는 사진으로 다시 시도해 주세요.",
+};
+const posterStates = {
+  open: { label: "신청 접수 중", className: "badge met" },
+  closed: { label: "신청 마감", className: "badge short" },
+  needs_check: { label: "신청 상태 확인 필요", className: "badge needs-check" },
+};
 
 // 서버가 보낸 status 값은 이 표에 있는 것만 인정하고, 나머지는 확인 필요로 보여 준다.
 const graduationStatuses = {
@@ -35,6 +59,10 @@ function updateSend() {
   send.disabled = busy || !input.value.trim();
 }
 
+function updatePosterSubmit() {
+  posterSubmit.disabled = busy || !posterFile.files?.length;
+}
+
 function setBusy(pending, message = "서버에 질문을 보내는 중…") {
   busy = pending;
   statusLine.textContent = pending ? message : "";
@@ -42,6 +70,7 @@ function setBusy(pending, message = "서버에 질문을 보내는 중…") {
   graduationCheck.disabled = pending;
   for (const retry of transcript.querySelectorAll(".retry")) retry.disabled = pending;
   updateSend();
+  updatePosterSubmit();
 }
 
 function scrollToLatest() {
@@ -325,6 +354,198 @@ async function checkGraduation() {
   }
 }
 
+// 사진에서 읽은 마감(11-20)은 연도가 없다. 월·일만 읽기 쉽게 바꾸고, 꼴이 다르면 받은 글자를 그대로 쓴다.
+function posterDeadlineText(value) {
+  if (typeof value !== "string" || !value.trim()) return null;
+  const match = /^(\d{1,2})-(\d{1,2})$/.exec(value);
+  return match ? `${Number(match[1])}월 ${Number(match[2])}일` : value;
+}
+
+function posterDateLine(label, value) {
+  const line = element("p", "when", `${label} `);
+  const shown = typeof value === "string" ? shownText(value) : null;
+  line.append(shown ? dateNode(shown, true) : document.createTextNode("확인 필요"));
+  return line;
+}
+
+// 확정된 행사 카드. 날짜는 행사일, 공식 마감, 사진 마감 순서로 놓아 공식 값이 먼저 읽히게 한다.
+function posterEventCard(event, reasons, identifiedBy) {
+  if (event === null || typeof event !== "object" || Array.isArray(event)) {
+    throw new TypeError("Malformed poster event");
+  }
+  const title = typeof event.title === "string" ? shownText(event.title) : null;
+  if (!title) throw new TypeError("Malformed poster event");
+  // 로그인 여부를 어림잡아 읽으면 로그인 안내가 조용히 빠지므로, 참·거짓 값이 아니면 카드를 그리지 않는다.
+  if (typeof event.login_required !== "boolean") throw new TypeError("Malformed poster event");
+
+  const card = element("section", "poster-result");
+  card.append(element("h3", null, title));
+
+  const clues = identifiedBy.filter(clue => typeof clue === "string" && Object.hasOwn(posterClues, clue));
+  if (clues.length) {
+    card.append(element("p", "source", `확인 단서 · ${clues.map(clue => posterClues[clue]).join(", ")}`));
+  }
+
+  card.append(posterDateLine("행사일", event.event_date), posterDateLine("공식 신청 마감", event.official_deadline));
+  if (reasons.includes("deadline_mismatch")) {
+    const onPoster = posterDeadlineText(event.poster_deadline);
+    const mismatch = element("p", "mismatch");
+    mismatch.append(
+      element("span", "badge needs-check", "확인 필요"),
+      document.createTextNode(
+        onPoster
+          ? ` 사진에는 마감이 ${onPoster}로 적혀 있어요. 공식 공지의 마감을 따르세요.`
+          : " 사진에 적힌 마감이 공식 공지와 달라요. 공식 공지의 마감을 따르세요.",
+      ),
+    );
+    card.append(mismatch);
+  }
+
+  // 서버가 접수 중이나 마감이라고 밝힌 값이 아니면 모두 확인 필요로 보여 준다.
+  const known = typeof event.application_state === "string" && Object.hasOwn(posterStates, event.application_state);
+  const state = posterStates[known ? event.application_state : "needs_check"];
+  const stateLine = element("p", "state");
+  stateLine.append(element("span", state.className, state.label));
+  if (reasons.includes("deadline_day")) {
+    stateLine.append(document.createTextNode(" 오늘이 마감일이에요. 공지에 마감 시각이 없어 공식 공지에서 확인해야 해요."));
+  }
+  card.append(stateLine);
+
+  const points = event.mileage;
+  card.append(element(
+    "p",
+    "mileage",
+    Number.isInteger(points) && points > 0 ? `마일리지 ${points}점` : "마일리지 미공개 · 공식 공지에서 확인",
+  ));
+
+  const links = element("div", "links");
+  links.append(
+    sourceLink(event.notice_url, "공식 공지 보기", title) ?? element("span", "hint", "공식 공지 확인 필요"),
+  );
+  const application = sourceLink(event.application_url, "신청 페이지 열기", title);
+  if (application) links.append(application);
+  if (event.login_required) {
+    links.append(element("span", "hint", application ? "BISKIT 로그인 필요" : "BISKIT 로그인 후 프로그램명으로 검색"));
+  }
+  card.append(links);
+
+  const checked = element("p", "source");
+  const checkedOn = typeof event.checked_on === "string" ? shownText(event.checked_on) : null;
+  if (checkedOn) checked.append(document.createTextNode("확인일 "), dateNode(checkedOn, true), document.createTextNode(" · "));
+  checked.append(document.createTextNode("현재 정원과 접수 상태는 공식 링크에서 다시 확인"));
+  card.append(checked);
+  return card;
+}
+
+// 사진 대조는 서버가 끝냈다. 화면은 확정(confirmed)일 때만 행사와 링크를 그리고,
+// 그 밖의 값은 모두 확인 필요로 보아 서버가 행사 정보를 함께 보냈더라도 링크를 만들지 않는다.
+// 돌려주는 값은 [그릴 요소, 알림 영역에 쓸 한 줄]이다.
+function posterResult(result) {
+  if (result === null || typeof result !== "object" || Array.isArray(result)) {
+    throw new TypeError("Malformed poster result");
+  }
+  const reasons = Array.isArray(result.reasons) ? result.reasons : [];
+  if (result.event_match === "confirmed") {
+    const identifiedBy = Array.isArray(result.identified_by) ? result.identified_by : [];
+    const card = posterEventCard(result.event, reasons, identifiedBy);
+    return [card, `행사를 찾았어요. ${result.event.title}`];
+  }
+
+  const card = element("section", "poster-result unconfirmed");
+  const heading = element("h3");
+  heading.append(element("span", "badge needs-check", "확인 필요"));
+  card.append(heading);
+  const explained = reasons.filter(reason => typeof reason === "string" && Object.hasOwn(posterNeedsCheck, reason));
+  if (explained.length) {
+    for (const reason of explained) card.append(element("p", null, posterNeedsCheck[reason]));
+  } else {
+    card.append(element("p", null, "사진 속 행사를 공식 공지에서 확인하지 못했어요."));
+  }
+  card.append(element("p", "source", "확인하지 못한 행사는 링크를 보여 주지 않아요. 학교 공지에서 직접 찾아 주세요."));
+  return [card, "행사를 확인하지 못했어요. 링크는 보여 주지 않아요."];
+}
+
+// photo는 파일에서 바이트만 잘라 낸 값이라 파일명이 없다. 본문에 그대로 싣고 형식은 Content-Type으로 알린다.
+async function findPosterEvent(photo, type, reply) {
+  setBusy(true, "사진에서 행사를 찾는 중…");
+  posterNote.textContent = "";
+  reply.replaceChildren();
+
+  let failure = null;
+  let retryable = true;
+  try {
+    let response = null;
+    try {
+      response = await fetch("/api/v1/poster-lookup", {
+        method: "POST",
+        headers: { "Content-Type": type, Accept: "application/json" },
+        body: photo,
+        signal: AbortSignal.timeout(60_000),
+      });
+    } catch {
+      failure = "서버에 연결하지 못했어요. 네트워크를 확인한 뒤 다시 시도해 주세요.";
+    }
+
+    if (response?.ok) {
+      try {
+        const [card, summary] = posterResult(await response.json());
+        reply.append(card);
+        posterNote.textContent = summary;
+      } catch {
+        failure = "서버가 사진을 처리하지 못했어요.";
+      }
+    } else if (response) {
+      retryable = !Object.hasOwn(posterRejections, response.status);
+      failure = retryable ? "서버가 사진을 처리하지 못했어요." : posterRejections[response.status];
+    }
+
+    if (failure) {
+      const error = element("div", "error");
+      error.append(element("p", null, failure));
+      // 사진 자체가 거절된 경우(413·415·422)는 같은 사진을 다시 보내도 결과가 같아 다시 시도 버튼을 두지 않는다.
+      if (retryable) {
+        const retry = element("button", "retry", "다시 시도");
+        retry.type = "button";
+        retry.addEventListener("click", () => {
+          if (!busy) void findPosterEvent(photo, type, reply);
+        });
+        error.append(retry);
+      }
+      reply.replaceChildren(error);
+      posterNote.textContent = failure;
+    }
+  } finally {
+    setBusy(false);
+    scrollToLatest();
+  }
+}
+
+function submitPoster() {
+  if (busy) return;
+  const file = posterFile.files?.[0];
+  if (!file) {
+    posterNote.textContent = "현수막 사진을 먼저 골라 주세요.";
+    return;
+  }
+  if (!posterTypes.includes(file.type)) {
+    posterNote.textContent = posterRejections[415];
+    return;
+  }
+  if (file.size > posterMaxBytes) {
+    posterNote.textContent = posterRejections[413];
+    return;
+  }
+
+  empty.remove();
+  const turn = element("div", "turn");
+  const prompt = element("p", "question");
+  prompt.append(element("span", "sr-only", "내 요청: "), document.createTextNode("현수막 사진으로 행사 찾기"));
+  const reply = element("div", "reply poster");
+  turn.append(prompt, reply);
+  transcript.append(turn);
+  void findPosterEvent(file.slice(0, file.size, file.type), file.type, reply);
+}
+
 async function ask(question, reply) {
   setBusy(true);
   reply.replaceChildren();
@@ -400,14 +621,25 @@ composer.addEventListener("submit", event => {
 
 graduationCheck.addEventListener("click", () => void checkGraduation());
 
+posterFile.addEventListener("change", () => {
+  posterNote.textContent = "";
+  updatePosterSubmit();
+});
+posterForm.addEventListener("submit", event => {
+  event.preventDefault();
+  submitPoster();
+});
+
 reset.addEventListener("click", () => {
   if (busy) return;
   sessionId = null;
   graduationTurn = null;
   transcript.replaceChildren(empty);
+  posterNote.textContent = "";
   input.value = "";
   updateSend();
   input.focus();
 });
 
 updateSend();
+updatePosterSubmit();
