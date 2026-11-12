@@ -20,10 +20,12 @@
     uvicorn app.main:app --app-dir api --reload
 """
 
+from pathlib import Path
+
 from fastapi import FastAPI, Request
 from fastapi.exception_handlers import http_exception_handler
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response
 from starlette.exceptions import HTTPException
 
 from app.api.v1 import router as api_v1_router
@@ -31,6 +33,8 @@ from app.api.v1 import router as api_v1_router
 
 # 400 응답에 담는 유일한 문구. 테스트도 이 상수를 import해서 비교한다.
 VALIDATION_ERROR_MESSAGE = "요청 형식이 올바르지 않습니다."
+CHAT_WEB_DIR = Path(__file__).with_name("chat_web")
+CHAT_WEB_MEDIA_TYPES = {"chat.css": "text/css", "chat.js": "text/javascript"}
 
 
 def create_app() -> FastAPI:
@@ -40,6 +44,26 @@ def create_app() -> FastAPI:
 
     # /api/v1 접두사는 라우터 쪽(app/api/v1/__init__.py)에서 붙인다.
     application.include_router(api_v1_router)
+
+    @application.get("/", include_in_schema=False)
+    async def chat_page() -> FileResponse:
+        return FileResponse(
+            CHAT_WEB_DIR / "index.html",
+            headers={
+                "Content-Security-Policy": (
+                    "default-src 'self'; object-src 'none'; base-uri 'none'; "
+                    "frame-ancestors 'none'; form-action 'self'"
+                ),
+                "X-Content-Type-Options": "nosniff",
+            },
+        )
+
+    @application.get("/chat-assets/{name}", include_in_schema=False)
+    async def chat_asset(name: str) -> FileResponse:
+        media_type = CHAT_WEB_MEDIA_TYPES.get(name)
+        if media_type is None:
+            raise HTTPException(status_code=404)
+        return FileResponse(CHAT_WEB_DIR / "assets" / name, media_type=media_type)
 
     # --- 400 통일 ------------------------------------------------------------
 

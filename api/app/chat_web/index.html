@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+  <title>금오공대 학사 안내 · 시연</title>
+  <link rel="stylesheet" href="/chat-assets/chat.css">
+  <script src="/chat-assets/chat.js" defer></script>
+</head>
+<body>
+  <header class="masthead">
+    <div class="masthead-inner">
+      <h1>금오공대 학사 안내</h1>
+      <button type="button" class="reset" id="reset">새 대화</button>
+    </div>
+  </header>
+  <main class="layout">
+    <details class="topics" id="topics" open>
+      <summary>예시 질문</summary>
+      <button type="button" data-question="가상 우주정거장의 달 기지 정리는 누가 언제 해?">답변과 근거 조문</button>
+      <button type="button" data-question="가상 행성 간 텔레포트 수수료는 얼마야?">근거를 찾지 못한 경우</button>
+    </details>
+    <section class="chat" aria-labelledby="chat-title">
+      <header class="chat-header">
+        <h2 id="chat-title">학사 규정에 질문하기</h2>
+        <p>가상 규정으로 답변과 인용 표시를 확인하는 화면이에요.</p>
+      </header>
+      <div id="transcript" class="transcript" role="log" aria-label="대화 내용" tabindex="0">
+        <p id="empty" class="empty">예시 질문을 고르거나 직접 입력해 보세요.</p>
+      </div>
+      <noscript><p class="status">채팅을 사용하려면 브라우저에서 JavaScript를 켜 주세요.</p></noscript>
+      <p class="status" id="status" role="status"></p>
+      <form id="composer" class="composer">
+        <label for="question" class="sr-only">질문</label>
+        <div class="composer-row">
+          <textarea id="question" rows="1" enterkeyhint="send" placeholder="질문 입력" required></textarea>
+          <button type="submit" class="primary" id="send" disabled>보내기</button>
+        </div>
+        <p>학번, 이름 같은 개인정보는 입력하지 마세요.</p>
+      </form>
+    </section>
+  </main>
+</body>
+</html>
