@@ -1,4 +1,4 @@
-"""JPEG 또는 PNG 한 장을 받아 공식 행사 정보를 찾는다."""
+"""사진 한 장에서 글자를 읽고 공식 행사 정보와 대조한다."""
 
 from asyncio import Lock
 from datetime import datetime
@@ -9,20 +9,22 @@ from PIL import Image, UnidentifiedImageError
 from starlette.concurrency import run_in_threadpool
 from starlette.requests import ClientDisconnect
 
+from app.api.v1.photo_input import router as photo_question_router
 from app.schemas.error import ErrorResponse
-from app.schemas.poster_lookup import PosterLookupResponse
+from app.schemas.photo_input import PhotoInputResponse
 from app.services.biskit_recommendations import KST
 from app.services.poster_lookup import match_poster
 from app.services.poster_recognition import recognize
 
 
 router = APIRouter()
+router.include_router(photo_question_router)
 MAX_BYTES = 5_000_000
 MAX_PIXELS = 12_000_000
 IMAGE_FORMATS = {"image/jpeg": "JPEG", "image/png": "PNG"}
 
 
-def _read_poster(body: bytearray, expected_format: str) -> PosterLookupResponse:
+def _read_poster(body: bytearray, expected_format: str) -> PhotoInputResponse:
     try:
         with Image.open(BytesIO(body)) as image:
             if image.format != expected_format:
@@ -37,15 +39,25 @@ def _read_poster(body: bytearray, expected_format: str) -> PosterLookupResponse:
         raise HTTPException(422, "사진은 1,200만 화소 이하여야 합니다.") from None
     except (UnidentifiedImageError, OSError, SyntaxError, ValueError):
         raise HTTPException(422, "사진을 열 수 없습니다.") from None
-    return match_poster(recognition, datetime.now(KST).date())
+    result = match_poster(recognition, datetime.now(KST).date())
+    text = recognition.text
+    for code in recognition.qr_codes:
+        if code.lower().startswith(("https://", "http://")):
+            text = text.replace(code, "")
+    return PhotoInputResponse(**result.model_dump(), recognized_text=text)
 
 
 @router.post(
-    "/poster-lookup",
-    response_model=PosterLookupResponse,
+    "/photo-input",
+    response_model=PhotoInputResponse,
     responses={code: {"model": ErrorResponse} for code in (413, 415, 422)},
 )
-async def post_poster_lookup(request: Request) -> PosterLookupResponse:
+@router.post(
+    "/poster-lookup",
+    response_model=PhotoInputResponse,
+    responses={code: {"model": ErrorResponse} for code in (413, 415, 422)},
+)
+async def post_poster_lookup(request: Request) -> PhotoInputResponse:
     media_type = request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
     expected_format = IMAGE_FORMATS.get(media_type)
     if expected_format is None:

@@ -8,6 +8,7 @@ from datetime import date, datetime
 from io import BytesIO
 from pathlib import Path
 from unittest.mock import patch
+from urllib.parse import quote
 
 from PIL import Image
 
@@ -15,15 +16,31 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from api.tests.asgi_harness import call_app
 from app.main import create_app
-from app.services.biskit_recommendations import KST, PROGRAMS
+from app.services.biskit_recommendations import KST, Program
 from app.services.poster_recognition import Recognition
 
 
-NOTICE = "https://www.kumoh.ac.kr/ko/sub06_01_01_02.do?articleNo=582099&mode=view"
-ALIAS = "https://mx.kumoh.ac.kr/md/sub0201.do?articleNo=582275&mode=view"
-DETAIL = "https://biskit.kumoh.ac.kr/ptfol/imng/icmpNsbjtPgm/findIcmpNsbjtPgmInfo.do?encSddpbSeq=31303034313732"
-TITLE = "SJA세진아메리카 2027년 미국 인턴 채용설명회"
+NOTICE = "https://example.kumoh.ac.kr/ko/sub0101.do?articleNo=990001&mode=view"
+ALIAS = "https://example.kumoh.ac.kr/md/sub0101.do?articleNo=990002&mode=view"
+DETAIL_PATH = "/ptfol/imng/icmpNsbjtPgm/findIcmpNsbjtPgmInfo.do?encSddpbSeq=990003"
+DETAIL = f"https://biskit.kumoh.ac.kr{DETAIL_PATH}"
+APPLICATION = f"https://biskit.kumoh.ac.kr/common/user/login.do?rtnUrl={quote(DETAIL_PATH, safe='')}"
+OTHER_NOTICE = NOTICE.replace("990001", "990004")
+TITLE = "가상 별빛 인턴 채용설명회"
 EVENT_TEXT = f"{TITLE}\n행사 일시 2026. 11. 23. 13:30"
+PROGRAMS = (
+    Program(
+        title=TITLE, audience="가상 참가자", eligible_statuses=frozenset({"undergraduate"}),
+        apply_from=date(2026, 11, 1), apply_until=date(2026, 11, 22), event_on=date(2026, 11, 23),
+        mileage_status="undisclosed", mileage_points=None, notice_url=NOTICE, application_url=APPLICATION,
+        poster_keywords=("별빛", "인턴", "채용설명회"), poster_notice_aliases=(ALIAS,),
+    ),
+    Program(
+        title="가상 달빛 워크숍", audience="가상 참가자", eligible_statuses=frozenset({"undergraduate"}),
+        apply_from=date(2026, 10, 1), apply_until=date(2026, 10, 15), event_on=None,
+        mileage_status="published", mileage_points=40, notice_url=OTHER_NOTICE,
+    ),
+)
 
 
 def photo(image_format="PNG", size=(8, 8), color=0):
@@ -55,6 +72,8 @@ class PosterLookupTests(unittest.TestCase):
     def setUp(self):
         self.app = create_app()
         self.image = photo()
+        self.enterContext(patch("app.services.poster_lookup.PROGRAMS", PROGRAMS))
+        self.enterContext(patch("app.services.poster_lookup.LISTED_ON", date(2026, 11, 13)))
 
     def upload(self, body, media_type="image/png", **headers):
         async def run_inline(function, *args):
@@ -97,19 +116,19 @@ class PosterLookupTests(unittest.TestCase):
                 self.assertEqual(result["event_match"], "confirmed")
                 self.assertEqual(result["identified_by"], [clue])
                 self.assertEqual(result["event"]["notice_url"], NOTICE)
-                self.assertEqual(result["event"]["application_url"], PROGRAMS[2].application_url)
+                self.assertEqual(result["event"]["application_url"], APPLICATION)
                 self.assertTrue(result["event"]["login_required"])
                 self.assertEqual(result["event"]["checked_on"], "2026-11-13")
 
     def test_unknown_unsafe_or_unverified_qr_omits_links(self):
         for url in (
-            ALIAS.replace("582275", "582274"),
-            ALIAS.replace("mx.kumoh.ac.kr", "mx.kumoh.ac.kr.example.org"),
-            ALIAS.replace("/md/sub0201.do", "/ko/sub0201.do"),
+            ALIAS.replace("990002", "990005"),
+            ALIAS.replace("example.kumoh.ac.kr", "example.kumoh.ac.kr.example.org"),
+            ALIAS.replace("/md/sub0101.do", "/ko/sub0101.do"),
             ALIAS.replace("https://", "http://"),
             ALIAS.replace("https://", "https://user@"),
-            ALIAS + "&articleNo=582274",
-            DETAIL.replace("31303034313732", "31303034313733"),
+            ALIAS + "&articleNo=990005",
+            DETAIL.replace("990003", "990005"),
             "javascript:alert(1)",
         ):
             with self.subTest(url=url):
@@ -144,7 +163,7 @@ class PosterLookupTests(unittest.TestCase):
         result = self.lookup(EVENT_TEXT, today=date(2026, 11, 22))
         self.assertEqual(result["event"]["application_state"], "needs_check")
         self.assertEqual(result["reasons"], ["deadline_day"])
-        result = self.lookup(codes=(PROGRAMS[0].notice_url,))
+        result = self.lookup(codes=(OTHER_NOTICE,))
         self.assertEqual(result["event"]["application_state"], "closed")
         self.assertEqual(result["event"]["mileage"], 40)
         self.assertIsNone(result["event"]["application_url"])

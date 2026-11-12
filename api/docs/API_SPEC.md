@@ -125,9 +125,13 @@ Base URL: `/api/v1`
 
 ---
 
-## POST /poster-lookup
+## POST /photo-input, POST /poster-lookup
 
-현수막 사진 한 장의 바이트를 그대로 보낸다. `Content-Type`은 `image/jpeg` 또는 `image/png`를 쓴다. 서버는 파일명을 받지 않고 사진이나 판독한 글자를 저장하지 않는다.
+채팅에 첨부한 사진 한 장의 바이트를 그대로 보낸다. `Content-Type`은 `image/jpeg` 또는 `image/png`를 쓴다. 기존 `/poster-lookup`도 같은 처리 함수와 응답 형식을 쓴다.
+
+서버는 두 주소의 사진 요청을 본문을 읽기 전부터 한 건씩 처리한다. 파일명을 받지 않으며 사진과 판독문을 저장하거나 로그에 남기지 않는다.
+
+제목 단서와 행사일이 맞거나, 사진 속 정사각형 격자 코드(QR, Quick Response)가 등록된 공식 공지·신청 주소와 일치해 행사 하나로 좁혀지면 행사 정보를 돌려준다. 후보가 충돌하면 행사 확인을 보류한다. 서버는 사진 속 코드에서 읽은 주소를 열지 않고 응답에도 싣지 않는다. 행사 카드의 링크는 확인된 행사 정보에서 가져온다.
 
 | 필드 | 의미 |
 |---|---|
@@ -135,10 +139,42 @@ Base URL: `/api/v1`
 | `identified_by` | 행사 일치에 사용한 단서. 사진 글자 `text`, 공지 QR `qr_notice`, 프로그램 QR `qr_program` |
 | `reasons` | 단서 부족 `no_readable_clue`, 후보 충돌 `ambiguous_event`, 마감 불일치 `deadline_mismatch`, 마감 당일 `deadline_day`, 글자 판독 불가 `text_reader_unavailable` |
 | `event` | 확인된 행사 정보. 행사 확인이 필요하면 `null` |
+| `recognized_text` | 사진에서 읽은 글자. QR에서도 읽은 주소는 제외하며, 판독문이 없으면 빈 문자열 |
 
 행사 정보는 `title`, `event_date`, `official_deadline`, `poster_deadline`, `application_state`, `mileage`, `notice_url`, `application_url`, `login_required`, `checked_on`을 담는다. 현수막 마감은 월-일만 표시한다. 접수 상태는 한국 날짜 기준으로 `open`, `closed`, `needs_check`를 돌려준다. 확인한 날짜, 점수 또는 주소가 없으면 해당 값을 `null`로 표시한다. 마감이 다르면 학교 공지의 날짜를 공식 마감으로 표시한다.
 
-요청 본문이 5MB를 넘으면 413, 사진 형식이 다르면 415, 사진을 열 수 없거나 1,200만 화소를 넘으면 422를 반환한다. 오류 본문은 `{"detail": "안내 문구"}` 형태다.
+사진 본문은 정확히 5,000,000바이트까지 받는다. 이 한도를 넘으면 413, 사진 형식이 다르면 415, 사진을 열 수 없거나 한 장이 아니거나 1,200만 화소를 넘으면 422를 반환한다. 오류 본문은 `{"detail": "안내 문구"}` 형태다.
+
+## POST /photo-question
+
+행사를 확인하지 못했거나 학생이 판독문을 고쳐 다시 묻고 싶으면 사진 없이 글자만 보낸다. 사진 응답에 `ambiguous_event`가 있으면 화면에서 확인 필요 안내를 표시하고, 학생이 다시 묻기 전에는 글자만으로 행사를 재판정하지 않는다. 글자 요청은 사진 처리가 끝날 때까지 기다리지 않는다.
+
+```json
+{
+  "question": "여기 어디야?",
+  "recognized_text": "가상관 101호",
+  "session_id": "s-1"
+}
+```
+
+`question`은 학생이 쓴 질문이고, `recognized_text`는 사진에서 읽었거나 학생이 고친 글자다. 판독문은 2,000자까지 받으며, 넘으면 요청 형식 오류(400)를 돌려준다. 서버는 질문을 우선하고 판독문은 참고 글로 쓴다. 질문이 비어 있으면 판독문으로 묻고, 둘 다 비어 있으면 확인 필요 안내를 돌려준다.
+
+```json
+{
+  "kind": "campus",
+  "answer": "가상관은 정문 옆 건물입니다.",
+  "sources": [{"title": "가상 캠퍼스 안내", "url": "https://example.invalid/campus"}],
+  "event": null,
+  "hold_reason": null
+}
+```
+
+| `kind` | 응답 |
+|---|---|
+| `event` | 제목 단서와 행사일이 맞으면 `event`에 사진 주소와 같은 행사 정보를 담는다. 글자 요청에서는 사진 속 코드를 행사 단서로 쓰지 않는다. |
+| `regulation` | 기존 규정 검색에서 근거를 찾으면 `answer`에 답변을 담고, `sources`에 확인된 출처를 담는다. |
+| `campus` | 기존 캠퍼스 목록에서 장소 하나를 찾으면 `answer`에 안내를 담고, `sources`에 확인된 출처를 담는다. |
+| `hold` | 입력이 비었거나, 장소가 여럿 걸리거나, 근거가 부족하면 `hold_reason`에 안내를 담는다. `sources`는 빈 배열이다. |
 
 ---
 
