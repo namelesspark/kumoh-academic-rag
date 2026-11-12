@@ -63,7 +63,13 @@ class RegulationsAppTests(unittest.TestCase):
         first = {**FIRST, "source": FIRST_ARTICLE}
         second = {**SECOND, "source": FIRST_ARTICLE}
 
-        for documents in ([first, second], [second, first]):
+        unrelated = {
+            **SECOND,
+            "source": "제2조(별사탕 보관) 별사탕은 유리병에 넣는다.",
+            "document_title": "가상 별사탕 공방 규정",
+            "source_url": "https://example.invalid/fictional-star-candy-workshop",
+        }
+        for documents in ([first, second, unrelated], [second, first, unrelated]):
             with self.subTest(first_document=documents[0]["document_title"]):
                 app = create_regulations_app(documents)
                 self.assert_citation(
@@ -86,6 +92,26 @@ class RegulationsAppTests(unittest.TestCase):
         app = create_regulations_app([FIRST, SECOND])
         response = call_app(
             app, "POST", "/api/v1/chat", json_body={"message": "얼룩말 풍금"}
+        )
+
+        self.assertEqual(response.status, 200)
+        body = response.json()
+        self.assertIs(body["answered"], False)
+        self.assertEqual(body["answer"], UNANSWERABLE_TEXT)
+        self.assertEqual(body["citations"], [])
+
+    def test_question_matching_only_terms_shared_by_all_chunks_returns_guidance(self):
+        first = {
+            **FIRST,
+            "source": (
+                "제1조(혜성 관측) 가상의 망원경을 빌린다.\n"
+                "제2조(관측일지) 가상의 관측일지를 제출한다."
+            ),
+        }
+        second = {**SECOND, "source": "제1조(구름 보관) 가상의 표본을 유리장에 둔다."}
+        app = create_regulations_app([first, second])
+        response = call_app(
+            app, "POST", "/api/v1/chat", json_body={"message": "가상의 날씨"}
         )
 
         self.assertEqual(response.status, 200)

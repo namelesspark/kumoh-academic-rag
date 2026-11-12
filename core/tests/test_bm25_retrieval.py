@@ -72,11 +72,45 @@ class BM25RetrievalTests(unittest.TestCase):
         self.assertEqual(retriever.retrieve(" \t\n"), [])
         self.assertEqual(BM25Retriever([]).retrieve("종이"), [])
 
+    def test_only_common_words_returns_no_results(self):
+        source = "제1조(종이 별) 가상의 별빛 상자를 연다.\n제2조(구름 종) 가상의 모형 종을 울린다."
+        retriever = BM25Retriever(chunk_articles(source))
+
+        self.assertEqual(retriever.retrieve("가상의 날씨"), [])
+
+    def test_only_common_character_bigrams_returns_no_results(self):
+        source = "제1조(종이 별) 별빛상자를 연다.\n제2조(구름 종) 별빛종을 울린다."
+        retriever = BM25Retriever(chunk_articles(source))
+
+        self.assertEqual(retriever.retrieve("별빛깔"), [])
+
+    def test_article_number_matches_even_when_shared_by_all_paragraphs(self):
+        title = "제4조(종이 달 공방)"
+        first = "① 반달은 은빛 상자에 둔다."
+        second = "② 만월은 별빛 서랍에 둔다."
+        source = f"{title}\n{first}\n{second}\n"
+        chunks = chunk_articles(source, max_chars=len(title) + len(second))
+
+        self.assertEqual(len(chunks), 2)
+        results = BM25Retriever(chunks).retrieve("제4조")
+
+        self.assert_first_result(source, results, f"{title} ①", first)
+
+    def test_single_chunk_matches_shared_terms(self):
+        path = "제1조(종이 별)"
+        source = f"{path} 가상의 별빛 상자를 연다."
+        chunks = chunk_articles(source)
+
+        self.assertEqual(len(chunks), 1)
+        results = BM25Retriever(chunks).retrieve("가상의 날씨")
+
+        self.assert_first_result(source, results, path, source)
+
     def test_tied_scores_use_source_order_even_with_reversed_input(self):
         citation = "제1조(별빛 우체국) 종이 별을 봉투에 담는다."
-        source = f"{citation}\n{citation}\n"
-        first, second = chunk_articles(source)
-        retriever = BM25Retriever([second, first])
+        source = f"{citation}\n{citation}\n제2조(구름 종) 모형 종을 울린다.\n"
+        first, second, unrelated = chunk_articles(source)
+        retriever = BM25Retriever([second, first, unrelated])
 
         results = retriever.retrieve("봉투")
 

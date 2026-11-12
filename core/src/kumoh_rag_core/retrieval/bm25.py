@@ -60,15 +60,27 @@ class BM25Retriever:
         }
 
     def retrieve(self, query: str, top_k: int = 5) -> list[RetrievedChunk]:
-        """겹치는 검색 단위가 있는 조각을 최대 top_k개 돌려준다."""
+        """여러 조각은 일부에만 있는 검색 단위나 일치하는 조 번호로 찾는다.
+
+        조각이 하나면 겹치는 검색 단위만으로 찾는다.
+        """
         if top_k < 1:
             raise ValueError("top_k must be at least 1")
 
         text = _search_text(query)
         article_numbers = set(_ARTICLE_NUMBER.findall(text))
+        terms = _term_counts(text)
+        size = len(self._chunks)
+        if (
+            size > 1
+            and not any(0 < len(self._postings.get(term, ())) < size for term in terms)
+            and article_numbers.isdisjoint(self._article_numbers)
+        ):
+            return []
+
         scores = defaultdict(float)
         k1, b = 1.2, 0.75
-        for term in _term_counts(text):
+        for term in terms:
             for index, count in self._postings.get(term, ()):
                 length_ratio = self._lengths[index] / self._average_length
                 denominator = count + k1 * (1 - b + b * length_ratio)

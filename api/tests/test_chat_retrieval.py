@@ -68,11 +68,13 @@ class ChatRetrievalTests(unittest.TestCase):
     def test_no_match_returns_existing_department_guidance(self):
         app = create_app(chat_retrieval=self.retrieval)
 
-        body = self.post_chat(app, MISMATCH_QUERY)
+        for question in (MISMATCH_QUERY, "가상의 날씨"):
+            with self.subTest(question=question):
+                body = self.post_chat(app, question)
 
-        self.assertFalse(body["answered"])
-        self.assertEqual(body["citations"], [])
-        self.assertEqual(body["answer"], UNANSWERABLE_TEXT)
+                self.assertFalse(body["answered"])
+                self.assertEqual(body["citations"], [])
+                self.assertEqual(body["answer"], UNANSWERABLE_TEXT)
 
     def test_retrieval_and_default_apps_keep_separate_configuration(self):
         search_app = create_app(chat_retrieval=self.retrieval)
@@ -90,8 +92,9 @@ class ChatRetrievalTests(unittest.TestCase):
                 self.assertTrue(default["answered"])
                 self.assertEqual(default["answer"], ANSWERED_TEXT)
                 self.assertEqual(default["citations"], [stub_citation])
-                self.assertTrue(search["answered"])
-                self.assertEqual([citation["document"] for citation in search["citations"]], [DOCUMENT])
+                self.assertFalse(search["answered"])
+                self.assertEqual(search["answer"], UNANSWERABLE_TEXT)
+                self.assertEqual(search["citations"], [])
 
     def test_api_source_does_not_import_core(self):
         app_dir = API_DIR / "app"
