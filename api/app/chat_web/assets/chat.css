@@ -129,6 +129,13 @@ h1, h2, h3, p { margin-top: 0; }
 .evidence p, .evidence blockquote { margin: 0; }
 .evidence .date { color: var(--muted); font-size: .83rem; }
 .evidence blockquote { margin-top: 9px; }
+.evidence .source-link {
+  display: inline-block;
+  margin-top: 9px;
+  color: var(--blue);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
 .fallback, .error {
   padding: 10px 13px;
   border: 1px solid var(--line);

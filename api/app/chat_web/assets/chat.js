@@ -37,19 +37,43 @@ function scrollToLatest() {
   transcript.scrollTop = transcript.scrollHeight;
 }
 
+function isSafeSourceUrl(value) {
+  const prefix = "https://";
+  if (typeof value !== "string" || /[\p{Z}\p{C}]/u.test(value)) return false;
+  if (!value.toLowerCase().startsWith(prefix)) return false;
+
+  const authority = value.slice(prefix.length).split(/[/?#]/, 1)[0];
+  if (!authority || /[@\\]/.test(authority)) return false;
+
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && /[^.]/.test(url.hostname) && !url.username && !url.password;
+  } catch {
+    return false;
+  }
+}
+
 function citationCard(citation) {
   const card = element("section", "evidence");
-  const reference = element("p", null, citation.document + " · " + citation.article_path);
+  const reference = citation.document + " · " + citation.article_path;
   const date = element("time", null, citation.effective_date);
   date.dateTime = citation.effective_date;
   const dateLine = element("p", "date", "시행일 ");
   dateLine.append(date);
   card.append(
     element("h3", null, "가상 답변 근거"),
-    reference,
+    element("p", null, reference),
     dateLine,
     element("blockquote", null, citation.snippet),
   );
+  if (isSafeSourceUrl(citation.source_url)) {
+    const link = element("a", "source-link", "공식 원문 보기");
+    link.setAttribute("href", citation.source_url);
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    link.append(element("span", "sr-only", ` (${reference}, 새 탭에서 열림)`));
+    card.append(link);
+  }
   return card;
 }
 
