@@ -127,6 +127,8 @@ CAMPUS_PLACES: tuple[CampusPlace, ...] = (
         sources=[CAMPUS_MAP, CAMPUS_MAP_2026, MEETING_ROOMS],
     ),
     # --- 건물 안 시설 ---------------------------------------------------------
+    # 학생식당은 이슈가 "건물 7곳"으로 묶어 부르지만, 대조 결과로는 학생회관 지하에 있고
+    # 공식 지도에 자기 번호가 없다. 그래서 "facility"로 두고 지도 번호를 비운다.
     CampusPlace(
         id="student-cafeteria",
         name="학생식당",
@@ -151,6 +153,9 @@ CAMPUS_PLACES: tuple[CampusPlace, ...] = (
         location="도서관 1·2층 복사실",
         sources=[PRINT_COPY],
     ),
+    # 공지성 자료. 이슈 #10 논의의 2026-11-12 대조 결과에 "텀블러 세척기는 도서관 쿱카페와
+    # 분식당"으로 올라온 두 설치 위치만 옮겼다. 공지에 적용 기간이 있는지는 그 결과에 없어
+    # `valid_period`를 비워 둔다.
     CampusPlace(
         id="tumbler-washer",
         name="텀블러 세척기",

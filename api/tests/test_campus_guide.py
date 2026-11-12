@@ -318,6 +318,31 @@ class CampusGuideEndpointTest(CampusGuideTestCase):
                 # 건물은 공식 지도 번호가 있고, 건물 안 시설은 번호 대신 위치에 건물·호실을 적는다.
                 if place["category"] == "building":
                     self.assertRegex(place["map_number"] or "", r"^\d+$")
+                else:
+                    self.assertIsNone(place["map_number"])
+
+    def test_shipped_list_classifies_by_official_map_number(self):
+        """분류 기준을 고정한다: 공식 지도에 자기 번호가 있으면 건물, 건물 안에 있으면 시설.
+
+        이슈가 "건물 7곳"으로 부른 장소 가운데 학생식당은 학생회관 지하에 있어 시설이다.
+        그래서 기본 목록의 건물은 6곳이고, 일곱 장소는 모두 응답에 있다.
+        """
+
+        by_id = {place.id: place for place in CAMPUS_PLACES}
+
+        buildings = {place.id for place in CAMPUS_PLACES if place.category == "building"}
+        self.assertEqual(
+            buildings,
+            {"techno-hall", "digital-hall", "global-hall", "student-union", "main-hall", "industry-academic-hall"},
+        )
+
+        cafeteria = by_id["student-cafeteria"]
+        self.assertEqual(cafeteria.category, "facility")
+        self.assertIn(by_id["student-union"].name, cafeteria.location)
+
+        # 지도 번호는 건물마다 다르다.
+        numbers = [by_id[place_id].map_number for place_id in buildings]
+        self.assertEqual(len(numbers), len(set(numbers)))
 
     def test_shipped_list_leaves_unverified_values_empty(self):
         """실제 목록에서 대조하지 못한 시간·대상·비용·찾아가는 길은 비어 있어야 한다.

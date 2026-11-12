@@ -74,7 +74,9 @@ class CampusPlace(BaseModel):
     # 공식 자료에 적힌 이름.
     name: str
 
-    # 건물인지 편의시설인지.
+    # 건물인지 시설인지. 기준은 공식 캠퍼스 지도다. 지도에 자기 번호가 있는 곳은
+    # "building", 다른 건물 안에 있어 자기 번호가 없는 곳은 "facility"다.
+    # 예: 학생식당은 학생회관 지하에 있으므로 "facility"다.
     category: Literal["building", "facility"]
 
     # 무엇을 하는 곳인지.
