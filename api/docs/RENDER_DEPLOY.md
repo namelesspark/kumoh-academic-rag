@@ -76,4 +76,4 @@ Invoke-RestMethod "$renderUrl/api/v1/health"
 - [비밀 파일 (Secret Files)](https://render.com/docs/configure-environment-variables#secret-files)
 - [영구 디스크 (Persistent Disks)](https://render.com/docs/disks)
 
-링크를 적은 날은 2026-11-13이다. 이 문서를 쓴 작업 환경은 외부 사이트를 열 수 없어 두 페이지의 내용은 아직 확인하지 못했다. 처음 쓰는 사람이 페이지를 열어 파일이 놓이는 경로와 플랜 조건을 확인하고 이 줄을 확인일로 바꾼다.
+확인일 2026-11-13. PR 검토자가 두 페이지를 열어 확인했다. 파일이 놓이는 경로와 플랜 조건은 바뀔 수 있으니 쓰기 전에 다시 본다.

@@ -30,7 +30,12 @@ _START_COMMAND_KEY = "startCommand:"
 _DOC_START_COMMAND = re.compile(r"^\| Start Command \| `([^`]+)` \|$", re.MULTILINE)
 # 이 프로젝트의 설정 이름은 모두 KUMOH_로 시작한다. 오타 난 이름도 함께 잡힌다.
 _SETTING_NAME = re.compile(r"KUMOH_[A-Z0-9_]+")
-_FIXTURE_PATH = re.compile(r"api/tests/fixtures/[A-Za-z0-9_./-]+\.json")
+# 문서의 표에서 설정 이름 옆 칸에 적힌 값 전체. 배포 담당자가 그대로 복사해 넣는 글자다.
+# 경로의 뒷부분만 찾으면 앞에 다른 폴더가 붙은 틀린 값도 통과한다.
+_DOC_MANIFEST_VALUE = re.compile(
+    r"^\| `" + re.escape(MANIFEST_ENV) + r"` \| `([^`]+)` \|$", re.MULTILINE
+)
+FIXTURES = REPO_ROOT / "api" / "tests" / "fixtures"
 _CHUNK_COUNT = re.compile(r"chunk_count=([0-9]+)")
 _SECTION_START = re.compile(r"^## ", re.MULTILINE)
 # 문서가 `설정 이름: 사유` 모양으로 적은 오류 문구.
@@ -138,12 +143,16 @@ class DocumentedExampleTests(unittest.TestCase):
         cls.section = manifest_section(read_text(DEPLOY_DOC))
 
     def test_fictional_manifest_gives_documented_chunk_count(self):
-        relative = only_value(self, _FIXTURE_PATH, self.section, "가상 목록 경로")
+        relative = only_value(
+            self, _DOC_MANIFEST_VALUE, self.section, "표에 적힌 가상 목록 경로"
+        )
         documented = int(only_value(self, _CHUNK_COUNT, self.section, "목록의 조각 수"))
 
         # 배포 서버는 저장소 루트에서 시작한다. 테스트는 실행한 폴더에 기대지 않도록
-        # 같은 기준으로 직접 푼다.
+        # 표의 값 전체를 같은 기준으로 직접 푼다.
         manifest = REPO_ROOT.joinpath(*relative.split("/"))
+        # 문서의 예시는 저장소가 추적하는 가상 파일 폴더 바로 아래를 가리킨다.
+        self.assertEqual(manifest.parent, FIXTURES, relative)
         self.assertTrue(manifest.is_file(), relative)
         app = create_local_manifest_app({MANIFEST_ENV: str(manifest)})
 
