@@ -38,17 +38,27 @@ OFFICIAL_HOST = "kumoh.ac.kr"
 
 # 데모 확인 표의 한 줄: | `질문` | `true` 또는 `false` | 인용 설명 |
 _DEMO_ROW = re.compile(r"^\| `([^`\n]+)` \| `(true|false)` \| ([^|\n]+) \|$", re.MULTILINE)
-# 가상 목록 확인 표의 한 줄: | `질문` | 문서명 | 시행일 | `주소` |
+# 가상 목록 확인 표의 한 줄: | `질문` | 문서명 | 인용 조문 | 시행일 | `주소` |
 _MANIFEST_ROW = re.compile(
-    r"^\| `([^`\n]+)` \| ([^|`\n]+) \| ([0-9]{4}-[0-9]{2}-[0-9]{2}) \| `([^`\n]+)` \|$",
+    r"^\| `([^`\n]+)` \| ([^|`\n]+) \| ([^|`\n]+) "
+    r"\| ([0-9]{4}-[0-9]{2}-[0-9]{2}) \| `([^`\n]+)` \|$",
     re.MULTILINE,
 )
 # 문서 어디에든 적힌 주소. 백틱이나 표의 세로줄 앞에서 끝난다.
 _ANY_URL = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://[^\s|`]+")
 _DATE_SHAPE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
-# 출처 표의 적용 연도. 학기까지 적을 수 있다.
-_APPLIED_YEAR = re.compile(r"20[0-9]{2}학년도( [12]학기)?")
-_SOURCE_COLUMNS = ("문서명", "적용 연도", "주소", "확인일", "응답 확인", "내용 확인")
+# 출처 표의 발행·적용 학년도. 문서가 말하는 해, 원본 날짜, 해마다 바뀌지 않는 안내 가운데 하나다.
+_ISSUED_YEAR = re.compile(
+    r"20[0-9]{2}학년도( [12]학기)?( \([0-9]{4}-[0-9]{2}-[0-9]{2} 수정본\))?"
+    r"|[0-9]{4}-[0-9]{2}-[0-9]{2} 원본"
+    r"|공통 안내"
+)
+ISSUED = "발행·적용 학년도"
+SCOPE = "입학연도별 판정 범위"
+UNDECIDED = "확정하지 않음"
+# 판정 범위를 문서에서 확인한 줄은 입학연도 구분을 적는다.
+_ADMISSION_YEAR = re.compile(r"20[0-9]{2}학년도 (이후|이전)")
+_SOURCE_COLUMNS = ("문서명", ISSUED, SCOPE, "주소", "확인일", "응답 확인", "내용 확인")
 # 점뿐인 호스트는 화면이 링크를 숨기고, 대문자로 시작하는 주소는 받는다.
 _UI_NOTE_EXAMPLES = ("`https://./`", "`HTTPS://example.invalid/`")
 
@@ -135,8 +145,9 @@ class ManifestQuestionTests(unittest.TestCase):
     def setUpClass(cls):
         cls.section = manifest_section(read_text(DEPLOY_DOC))
         cls.rows = [
-            (question, title.strip(), effective_date, source_url)
-            for question, title, effective_date, source_url in _MANIFEST_ROW.findall(cls.section)
+            (question, title.strip(), article.strip(), effective_date, source_url)
+            for question, title, article, effective_date, source_url
+            in _MANIFEST_ROW.findall(cls.section)
         ]
         cls.entries = {
             entry["document_title"]: entry
@@ -145,12 +156,12 @@ class ManifestQuestionTests(unittest.TestCase):
         cls.application = import_serve(MANIFEST_ENVIRON).app
 
     def test_table_has_one_question_for_every_manifest_document(self):
-        titles = [title for _, title, _, _ in self.rows]
+        titles = [title for _, title, _, _, _ in self.rows]
         self.assertEqual(sorted(titles), sorted(self.entries))
 
     def test_citation_repeats_manifest_fields_and_source_text(self):
         self.assertTrue(self.rows)
-        for question, title, effective_date, source_url in self.rows:
+        for question, title, article, effective_date, source_url in self.rows:
             with self.subTest(question=question):
                 entry = self.entries[title]
                 # 문서의 표가 목록 파일과 글자까지 같다.
@@ -167,6 +178,9 @@ class ManifestQuestionTests(unittest.TestCase):
                     {"article_path", "document", "effective_date", "snippet", "source_url"},
                 )
                 self.assertEqual(citation["document"], title)
+                # 문서가 말한 조문이 실제로 인용되는 조문이다. 질문만 다른 조문의 것으로
+                # 바뀌어도 여기서 걸린다.
+                self.assertEqual(citation["article_path"], article)
                 self.assertEqual(citation["effective_date"], effective_date)
                 # 서버가 주소를 다듬지 않는다. 화면도 이 글자를 그대로 href에 넣는다.
                 self.assertEqual(citation["source_url"], source_url)
@@ -226,18 +240,37 @@ class OfficialSourceTests(unittest.TestCase):
                 self.assertIsNotNone(_DATE_SHAPE.fullmatch(row["확인일"]), row["확인일"])
                 date.fromisoformat(row["확인일"])
 
-    def test_listed_urls_state_the_year_they_apply_to(self):
-        # 적용 연도를 모르는 주소는 링크로 내보내지 않는다. '확인 필요'도 여기서 걸린다.
+    def test_listed_urls_state_the_year_of_the_document(self):
+        # 학년도를 모르는 주소는 링크로 내보내지 않는다. '확인 필요'도 여기서 걸린다.
         for row in self.checked_rows():
             with self.subTest(document=row["문서명"]):
-                self.assertIsNotNone(
-                    _APPLIED_YEAR.fullmatch(row["적용 연도"]), row["적용 연도"]
-                )
+                self.assertIsNotNone(_ISSUED_YEAR.fullmatch(row[ISSUED]), row[ISSUED])
+
+    def test_listed_urls_keep_admission_year_scope_apart_from_document_year(self):
+        # 문서가 나온 해를 입학연도로 읽지 않게, 판정 범위는 따로 적는다. 문서에서
+        # 입학연도 구분을 확인했으면 그 구분을, 아니면 '확정하지 않음'을 적는다.
+        confirmed = 0
+        for row in self.checked_rows():
+            scope = row[SCOPE]
+            with self.subTest(document=row["문서명"]):
+                self.assertNotIn(UNCHECKED, scope)
+                if scope.startswith(UNDECIDED):
+                    continue
+                self.assertIsNotNone(_ADMISSION_YEAR.search(scope), scope)
+                confirmed += 1
+        self.assertGreaterEqual(confirmed, 1, "입학연도 구분을 확인한 문서가 한 건은 있어야 합니다.")
+
+    def test_common_guide_is_not_pinned_to_an_admission_year(self):
+        common = [row for row in self.rows if row[ISSUED] == "공통 안내"]
+        for row in common:
+            with self.subTest(document=row["문서명"]):
+                self.assertTrue(row[SCOPE].startswith(UNDECIDED), row[SCOPE])
+                self.assertIsNone(_ADMISSION_YEAR.search(row[SCOPE]), row[SCOPE])
 
     def test_unchecked_rows_carry_no_address(self):
-        # 적용 연도·주소·확인일 가운데 하나라도 '확인 필요'면 셋 다 '확인 필요'다.
+        # 학년도·주소·확인일 가운데 하나라도 '확인 필요'면 셋 다 '확인 필요'다.
         for row in self.rows:
-            marks = [row[column] == UNCHECKED for column in ("적용 연도", "주소", "확인일")]
+            marks = [row[column] == UNCHECKED for column in (ISSUED, "주소", "확인일")]
             if not any(marks):
                 continue
             with self.subTest(document=row["문서명"]):

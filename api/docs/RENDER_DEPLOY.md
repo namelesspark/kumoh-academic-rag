@@ -73,12 +73,12 @@ Invoke-RestMethod "$renderUrl/api/v1/health"
 
 상태 응답에서 `status=ok`, `index_loaded=true`, `chunk_count=3`을 확인한다. 가상 달무리 천문대 규정의 두 조각과 가상 은여울 목공방 규정의 한 조각을 더한 수다. 채팅 화면의 예시 질문은 가상 구름 도서관 질문이라 이 설정에서는 답이 나오지 않는다. 아래 질문을 직접 입력한다.
 
-| 질문 | 문서명 | 시행일 | `source_url` |
-| --- | --- | --- | --- |
-| `제1조 망원경` | 가상 달무리 천문대 규정 | 2099-03-04 | `https://example.invalid/regulations/observatory` |
-| `제1조 대패` | 가상 은여울 목공방 규정 | 2098-11-20 | `https://example.invalid/regulations/woodshop` |
+| 질문 | 문서명 | 인용 조문 | 시행일 | `source_url` |
+| --- | --- | --- | --- | --- |
+| `제1조 망원경` | 가상 달무리 천문대 규정 | 제1조(망원경 예약) | 2099-03-04 | `https://example.invalid/regulations/observatory` |
+| `제1조 대패` | 가상 은여울 목공방 규정 | 제1조(대패 사용) | 2098-11-20 | `https://example.invalid/regulations/woodshop` |
 
-두 질문 모두 `answered=true`와 그 문서의 제1조 원문 인용 한 건을 돌려준다. 인용의 문서명·시행일·`source_url`은 목록 파일에 적은 글자 그대로다. `가상의 날씨`는 이 설정에서도 `answered=false`와 빈 인용 목록을 돌려준다.
+두 질문 모두 `answered=true`와 표에 적힌 조문의 원문 인용 한 건을 돌려준다. 인용의 문서명·시행일·`source_url`은 목록 파일에 적은 글자 그대로다. `가상의 날씨`는 이 설정에서도 `answered=false`와 빈 인용 목록을 돌려준다.
 
 ### 브라우저에서 출처 링크 확인하기
 
