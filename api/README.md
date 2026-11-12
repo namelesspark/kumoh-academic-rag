@@ -89,6 +89,56 @@ api/
 
 ---
 
+## 로컬에서 규정 파일 한 건으로 실행하기
+
+공개 데모는 코드에 적어 둔 가상 규정만 검색한다. 운영자가 자기 컴퓨터에 있는 규정 텍스트 한 건을
+검색에 연결하려면 `api/local_serve.py`의 `create_local_app`을 쓴다. 도서관 사서에게 책 한 권과
+서지 카드를 함께 건네는 것과 같다. 책은 파일이고, 카드는 문서명·시행일·공식 링크다.
+
+설정은 환경 변수 네 개로 준다. 하나라도 없거나 틀리면 서버가 뜨지 않고, 오류 문구에는 설정 이름과
+이유만 나온다.
+
+| 환경 변수 | 넣는 값 | 검사 |
+|---|---|---|
+| `KUMOH_REGULATION_PATH` | 규정 텍스트 파일 경로 | 읽을 수 있고 UTF-8(Unicode Transformation Format, 8-bit)로 저장한 파일 |
+| `KUMOH_REGULATION_TITLE` | 인용에 표시할 문서명 | 공백뿐이면 거부 |
+| `KUMOH_REGULATION_EFFECTIVE_DATE` | 시행일 | `YYYY-MM-DD` 모양이고 달력에 있는 날 |
+| `KUMOH_REGULATION_SOURCE_URL` | 공식 링크 | `https`, 브라우저가 열 수 있는 호스트 있음, 아이디·비밀번호 없음, 공백·제어 문자 없음 |
+
+저장소 루트에서 PowerShell로 실행하는 예시다. 값은 모두 가상이다.
+
+```powershell
+$env:KUMOH_REGULATION_PATH = "api/tests/fixtures/fictional_regulation.txt"
+$env:KUMOH_REGULATION_TITLE = "가상 솔바람 온실 규정"
+$env:KUMOH_REGULATION_EFFECTIVE_DATE = "2099-03-04"
+$env:KUMOH_REGULATION_SOURCE_URL = "https://example.invalid/regulations/greenhouse"
+python -m uvicorn api.local_serve:create_local_app --factory
+```
+
+`--factory`는 웹 서버(uvicorn)가 시작할 때 `create_local_app()`을 불러 앱을 만들게 하는 옵션이다.
+
+**먼저 확인할 것** — 이 명령은 앱 조립 모듈 `api/regulation_app.py`가 있는 체크아웃에서만 뜬다.
+그 파일이 없으면 `create_local_app`이 `api.regulation_app: 앱 조립 모듈이 없습니다`라는 오류를 내고
+멈춘다. 이때는 그 모듈이 들어 있는 main을 받아 온 뒤 다시 실행한다.
+
+지켜야 할 점:
+
+- **실제 규정 원문은 저장소 밖에 둔다.** 저장소 안에 복사하지 않고, 커밋하지 않고, 이슈·PR·공개 답변에
+  붙이지 않는다. 저장소에는 `api/tests/fixtures/fictional_regulation.txt` 같은 가상 파일만 둔다.
+- 서버는 기동 중에 공식 링크를 열어 보지 않는다. 주소 모양만 검사하므로, 그 링크가 학교의 공식
+  출처인지는 입력한 사람이 확인한다.
+- 파일은 줄바꿈과 맨 앞 표식(BOM, Byte Order Mark)을 바꾸지 않고 읽는다. 조문을 나눌 때와 인용할 때
+  같은 문자열을 써야 글자 위치가 맞기 때문이다.
+- 조문(`제1조(제목)` 모양의 줄)을 하나도 찾지 못하면 서버가 뜨지 않는다.
+
+확인 명령:
+
+```
+python -B -m unittest api.tests.test_local_serve -v
+```
+
+---
+
 ## 데이터 취급
 
 학적 데이터는 **저장하지 않고 통과만 시킨다.** 응답 생성에 쓴 뒤 세션 종료 시 폐기한다.
