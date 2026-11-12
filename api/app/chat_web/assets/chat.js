@@ -16,7 +16,7 @@ const compact = window.matchMedia("(max-width: 680px)");
 
 // 현수막 사진 제한. 서버도 같은 제한으로 다시 검사하므로, 여기서는 보내기 전에 알려 주는 역할만 한다.
 const posterTypes = ["image/jpeg", "image/png"];
-const posterMaxBytes = 5 * 1024 * 1024;
+const posterMaxBytes = 5_000_000;
 const posterRejections = {
   413: "사진이 5MB를 넘어요. 더 작은 사진으로 다시 올려 주세요.",
   415: "JPEG나 PNG 사진만 읽을 수 있어요.",
@@ -424,8 +424,13 @@ function posterEventCard(event, reasons, identifiedBy) {
   );
   const application = sourceLink(event.application_url, "신청 페이지 열기", title);
   if (application) links.append(application);
+  // 신청 링크를 만들지 못해도 로그인이 필요하다는 말은 빠뜨리지 않는다.
   if (event.login_required) {
-    links.append(element("span", "hint", application ? "BISKIT 로그인 필요" : "BISKIT 로그인 후 프로그램명으로 검색"));
+    links.append(element(
+      "span",
+      "hint",
+      application ? "BISKIT 로그인 필요" : "BISKIT 로그인 필요 · 로그인 후 프로그램명으로 검색",
+    ));
   }
   card.append(links);
 
@@ -635,9 +640,12 @@ reset.addEventListener("click", () => {
   sessionId = null;
   graduationTurn = null;
   transcript.replaceChildren(empty);
+  // 고른 사진도 함께 비운다. 남겨 두면 다시 고르지 않아도 같은 사진이 또 전송된다.
+  posterFile.value = "";
   posterNote.textContent = "";
   input.value = "";
   updateSend();
+  updatePosterSubmit();
   input.focus();
 });
 

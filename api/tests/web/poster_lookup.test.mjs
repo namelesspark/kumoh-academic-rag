@@ -124,6 +124,13 @@ function loadChat(fetch) {
     note: elements.get("#poster-note"),
   };
   page.transcript.append(page.empty);
+  // 브라우저의 파일 입력 칸은 value에 빈 글자를 넣으면 고른 파일 목록이 비워진다. 가짜 입력 칸도 같게 맞춘다.
+  Object.defineProperty(page.file, "value", {
+    get: () => "",
+    set(value) {
+      if (value === "") page.file.files = [];
+    },
+  });
   return page;
 }
 
@@ -280,8 +287,9 @@ for (const type of ["image/gif", "image/webp", "application/pdf", ""]) {
   });
 }
 
-test("5MB를 넘는 사진은 읽지도 보내지도 않고 안내하며, 딱 5MB는 보낸다", async () => {
-  const limit = 5 * 1024 * 1024;
+// 서버 한도(5,000,000바이트)와 같은 경계다. 5,000,001바이트는 서버가 413으로 거절하므로 화면이 먼저 막는다.
+test("5,000,001바이트 사진은 읽지도 보내지도 않고 안내하며, 정확히 5,000,000바이트는 보낸다", async () => {
+  const limit = 5_000_000;
   const requests = [];
   const tooLarge = {
     type: "image/png",
@@ -500,7 +508,7 @@ for (const [label, url] of [
 
     assert.equal(links.length, 0);
     assert.equal(byTag(page.transcript, "a").length, 0);
-    assert.deepEqual(hints, ["공식 공지 확인 필요", "BISKIT 로그인 후 프로그램명으로 검색"]);
+    assert.deepEqual(hints, ["공식 공지 확인 필요", "BISKIT 로그인 필요 · 로그인 후 프로그램명으로 검색"]);
     assert.deepEqual(lines, [
       "가상 해외 취업 설명회",
       "확인 단서 · 사진 글자",
@@ -517,7 +525,18 @@ test("공지 주소만 안전하면 공지 링크만 만든다", async () => {
   const { links, hints } = readCard(await shown(confirmed({ application_url: "javascript:alert(1)" })));
 
   assert.deepEqual(links.map(link => link.attributes.get("href")), ["https://notice.example.invalid/view?articleNo=1"]);
-  assert.deepEqual(hints, ["BISKIT 로그인 후 프로그램명으로 검색"]);
+  assert.deepEqual(hints, ["BISKIT 로그인 필요 · 로그인 후 프로그램명으로 검색"]);
+});
+
+test("신청 주소가 null이어도 로그인이 필요하면 'BISKIT 로그인 필요'를 적고, 필요 없으면 적지 않는다", async () => {
+  const login = readCard(await shown(confirmed({ application_url: null, login_required: true })));
+  assert.equal(login.links.length, 1);
+  assert.equal(login.hints.length, 1);
+  assert.match(login.hints[0], /^BISKIT 로그인 필요/);
+
+  const open = readCard(await shown(confirmed({ application_url: null, login_required: false })));
+  assert.equal(open.links.length, 1);
+  assert.deepEqual(open.hints, []);
 });
 
 const needsCheckMessages = {
@@ -702,6 +721,51 @@ test("사진을 여러 번 올리면 결과가 차례로 쌓이고, 새 대화�
 
   assert.deepEqual(page.transcript.children, [page.empty]);
   assert.equal(page.note.textContent, "");
+});
+
+test("새 대화를 누르면 고른 사진도 비워져, 다시 고르기 전에는 제출 버튼이 잠기고 같은 사진이 다시 가지 않는다", async () => {
+  const requests = [];
+  const page = await lookup(answering(confirmed(), requests));
+  assert.equal(requests.length, 1);
+  assert.equal(page.submit.disabled, false);
+
+  page.reset.listeners.get("click")({});
+
+  assert.deepEqual(page.file.files, []);
+  assert.equal(page.submit.disabled, true);
+  assert.deepEqual(page.transcript.children, [page.empty]);
+
+  submit(page);
+  await setImmediate();
+  assert.equal(requests.length, 1, "the previous photo must not be sent again");
+  assert.equal(page.transcript.querySelectorAll(".poster-result").length, 0);
+  assert.equal(page.note.textContent, "현수막 사진을 먼저 골라 주세요.");
+
+  choose(page, photo("image/png"));
+  assert.equal(page.submit.disabled, false);
+  submit(page);
+  await setImmediate();
+  assert.equal(requests.length, 2);
+  assert.equal(requests[1].headers["Content-Type"], "image/png");
+});
+
+test("요청 중에는 새 대화가 눌리지 않아 고른 사진과 잠금이 그대로다", async () => {
+  let respond;
+  const page = loadChat(() => new Promise(resolve => { respond = resolve; }));
+  const chosen = photo();
+  choose(page, chosen);
+  submit(page);
+
+  page.reset.listeners.get("click")({});
+
+  assert.equal(page.file.files[0], chosen);
+  assert.equal(page.submit.disabled, true);
+  assert.equal(page.transcript.querySelectorAll(".turn").length, 1);
+
+  respond({ ok: true, status: 200, json: async () => confirmed() });
+  await setImmediate();
+  assert.equal(page.submit.disabled, false);
+  assert.equal(readCard(page).lines[0], "가상 해외 취업 설명회");
 });
 
 test("사진을 다시 고르면 이전 알림이 지워진다", async () => {
