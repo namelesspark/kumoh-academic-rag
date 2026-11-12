@@ -46,6 +46,11 @@ _MANIFEST_ROW = re.compile(
 # 문서 어디에든 적힌 주소. 백틱이나 표의 세로줄 앞에서 끝난다.
 _ANY_URL = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://[^\s|`]+")
 _DATE_SHAPE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
+# 출처 표의 적용 연도. 학기까지 적을 수 있다.
+_APPLIED_YEAR = re.compile(r"20[0-9]{2}학년도( [12]학기)?")
+_SOURCE_COLUMNS = ("문서명", "적용 연도", "주소", "확인일", "응답 확인", "내용 확인")
+# 점뿐인 호스트는 화면이 링크를 숨기고, 대문자로 시작하는 주소는 받는다.
+_UI_NOTE_EXAMPLES = ("`https://./`", "`HTTPS://example.invalid/`")
 
 
 def ask(application, question: str) -> dict:
@@ -201,8 +206,8 @@ class OfficialSourceTests(unittest.TestCase):
     def test_table_has_the_agreed_columns(self):
         for row in self.rows:
             with self.subTest(document=row.get("문서명")):
-                self.assertLessEqual({"문서명", "적용 연도", "주소", "확인일"}, set(row))
-                for column in ("문서명", "적용 연도", "주소", "확인일"):
+                self.assertEqual(tuple(row), _SOURCE_COLUMNS)
+                for column in _SOURCE_COLUMNS:
                     self.assertTrue(row[column], column)
 
     def test_listed_urls_pass_startup_check_and_belong_to_the_school(self):
@@ -217,17 +222,33 @@ class OfficialSourceTests(unittest.TestCase):
                 self.assertTrue(
                     host == OFFICIAL_HOST or host.endswith("." + OFFICIAL_HOST), host
                 )
-                # 주소가 있는 줄은 사람이 연 날짜가 있어야 한다.
+                # 주소가 있는 줄은 사람이 요청을 보낸 날짜가 있어야 한다.
                 self.assertIsNotNone(_DATE_SHAPE.fullmatch(row["확인일"]), row["확인일"])
                 date.fromisoformat(row["확인일"])
 
-    def test_unchecked_rows_carry_no_address(self):
-        unchecked = [row for row in self.rows if row["주소"] == UNCHECKED]
-        self.assertTrue(unchecked, "확인하지 못한 공지 첨부 줄이 남아 있어야 합니다.")
-        for row in unchecked:
+    def test_listed_urls_state_the_year_they_apply_to(self):
+        # 적용 연도를 모르는 주소는 링크로 내보내지 않는다. '확인 필요'도 여기서 걸린다.
+        for row in self.checked_rows():
             with self.subTest(document=row["문서명"]):
+                self.assertIsNotNone(
+                    _APPLIED_YEAR.fullmatch(row["적용 연도"]), row["적용 연도"]
+                )
+
+    def test_unchecked_rows_carry_no_address(self):
+        # 적용 연도·주소·확인일 가운데 하나라도 '확인 필요'면 셋 다 '확인 필요'다.
+        for row in self.rows:
+            marks = [row[column] == UNCHECKED for column in ("적용 연도", "주소", "확인일")]
+            if not any(marks):
+                continue
+            with self.subTest(document=row["문서명"]):
+                self.assertTrue(all(marks), marks)
                 self.assertEqual(_ANY_URL.findall(" ".join(row.values())), [])
-                self.assertEqual(row["확인일"], UNCHECKED)
+
+    def test_ui_notes_state_the_two_host_and_scheme_edge_cases(self):
+        notes = read_text(UI_NOTES)
+        for example in _UI_NOTE_EXAMPLES:
+            with self.subTest(example=example):
+                self.assertIn(example, notes)
 
     def test_no_address_is_written_outside_the_address_column(self):
         # 표 밖이나 다른 칸에 적은 주소는 확인을 거쳤는지 알 수 없다.
