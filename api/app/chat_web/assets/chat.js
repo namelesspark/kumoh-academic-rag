@@ -186,6 +186,109 @@ function graduationResult(result) {
   ];
 }
 
+// 날짜 글자(2026-11-26)를 읽기 쉬운 글자로만 바꾼다. 꼴이 다르면 받은 글자를 그대로 보여 준다.
+function dateNode(value, withYear) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return element("span", null, value);
+  const [, year, month, day] = match;
+  const node = element("time", null, `${withYear ? `${year}년 ` : ""}${Number(month)}월 ${Number(day)}일`);
+  node.dateTime = value;
+  return node;
+}
+
+// 점수는 서버가 공개됐다고 표시한 양의 정수만 적는다. 더하거나 부족 점수와 견주지 않는다.
+function mileageText(program) {
+  const points = program.mileage_points;
+  if (program.mileage_status === "published" && Number.isInteger(points) && points > 0) return `마일리지 ${points}점`;
+  if (program.mileage_status === "announced") return "마일리지 지급 공지 · 정확한 점수 확인 필요";
+  return "마일리지 미공개";
+}
+
+function biskitProgram(program) {
+  if (program === null || typeof program !== "object" || Array.isArray(program)) {
+    throw new TypeError("Malformed BISKIT program");
+  }
+  // 제목은 글자여야 한다. 숫자 같은 다른 값은 형식 오류로 보고 추천 영역을 그리지 않는다.
+  const title = typeof program.title === "string" ? shownText(program.title) : null;
+  if (!title) throw new TypeError("Malformed BISKIT program");
+  // 로그인 여부는 참·거짓 값이어야 한다. "true" 같은 글자를 어림잡아 읽으면 로그인 안내가 조용히 빠진다.
+  if (typeof program.login_required !== "boolean") throw new TypeError("Malformed BISKIT program");
+
+  const when = element("p", "when");
+  const audience = shownText(program.audience);
+  if (audience) when.append(document.createTextNode(`${audience} · `));
+  const applyUntil = shownText(program.apply_until);
+  if (applyUntil) {
+    when.append(document.createTextNode("신청 "), dateNode(applyUntil, false), document.createTextNode("까지"));
+  } else {
+    when.append(document.createTextNode("신청 마감 확인 필요"));
+  }
+  const eventOn = shownText(program.event_on);
+  if (eventOn) when.append(document.createTextNode(" · 행사 "), dateNode(eventOn, true));
+
+  const card = element("li", "program");
+  card.append(element("h4", null, title), when);
+
+  // 서버가 확인했다고 밝힌 값(eligible, open)이 아니면 모두 확인 필요로 보여 준다.
+  const checks = [];
+  if (program.eligibility !== "eligible") checks.push("대상 확인 필요");
+  if (program.deadline_status !== "open") checks.push("마감 시각 확인 필요");
+  if (checks.length) {
+    const line = element("p", "checks");
+    for (const check of checks) line.append(element("span", "badge needs-check", check));
+    card.append(line);
+  }
+  card.append(element("p", "mileage", mileageText(program)));
+
+  const links = element("div", "links");
+  links.append(
+    sourceLink(program.notice_url, "공식 공지 보기", title) ?? element("span", "hint", "공식 공지 확인 필요"),
+  );
+  const application = sourceLink(program.application_url, "신청 페이지 열기", title);
+  // 신청 주소가 로그인 화면을 거치는 경로일 수 있으므로, 링크가 있어도 로그인 필요를 눈에 보이게 적는다.
+  if (application) links.append(application);
+  if (program.login_required) {
+    links.append(element("span", "hint", application ? "BISKIT 로그인 필요" : "BISKIT 로그인 후 프로그램명으로 검색"));
+  }
+  card.append(links);
+  return card;
+}
+
+// 교내 비교과 시스템(BISKIT) 추천 영역. 고르고 줄 세우는 일은 서버가 끝냈으므로 받은 순서대로 그린다.
+// 값이 없거나 형식이 어긋나면 null을 돌려주어 추천 영역만 빠지고 졸업 표는 남는다.
+function biskitRecommendations(recommendation) {
+  try {
+    if (recommendation === null || typeof recommendation !== "object" || Array.isArray(recommendation)) return null;
+    const shortfall = recommendation.shortfall_points;
+    if (!Number.isInteger(shortfall) || shortfall < 1 || !Array.isArray(recommendation.programs)) return null;
+
+    const section = element("section", "biskit");
+    section.append(element("h3", null, `BISKIT 추천 · ${shortfall}점 부족`));
+
+    const listed = element("p", "source");
+    const listedOn = shownText(recommendation.listed_on);
+    if (listedOn) {
+      listed.append(document.createTextNode("목록 확인 "), dateNode(listedOn, true), document.createTextNode(" · "));
+    }
+    listed.append(document.createTextNode("접수 상태와 정원은 공식 페이지에서 확인"));
+    section.append(listed);
+
+    if (recommendation.programs.length) {
+      const list = element("ul", "programs");
+      for (const program of recommendation.programs) list.append(biskitProgram(program));
+      section.append(list);
+    } else {
+      section.append(element("p", "none", "지금 신청할 수 있는 프로그램을 확인하지 못했어요"));
+    }
+
+    const portal = sourceLink(recommendation.portal_url, "BISKIT 열기", "교내 비교과 시스템");
+    if (portal) section.append(portal);
+    return section;
+  } catch {
+    return null;
+  }
+}
+
 async function checkGraduation() {
   if (busy) return;
   empty.remove();
@@ -205,7 +308,10 @@ async function checkGraduation() {
       signal: AbortSignal.timeout(30_000),
     });
     if (!response.ok) throw new Error("Graduation request failed");
-    reply.append(...graduationResult(await response.json()));
+    const result = await response.json();
+    reply.append(...graduationResult(result));
+    const recommendations = biskitRecommendations(result.biskit_recommendations);
+    if (recommendations) reply.append(recommendations);
   } catch {
     const retry = element("button", "retry", "다시 시도");
     retry.type = "button";

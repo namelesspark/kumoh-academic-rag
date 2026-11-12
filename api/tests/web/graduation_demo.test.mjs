@@ -533,6 +533,304 @@ test("다시 누르면 이전 결과 표를 새 표로 바꾼다", async () => {
   assert.equal(readRows(page).length, 9);
 });
 
+// ── 교내 비교과 시스템(BISKIT) 추천 카드 (#43) ──────────────────────────────────────────
+// 프로그램 이름·주소·점수는 모두 가상 값이다. 화면은 주소가 학교 것인지 따지지 않고(서버 몫)
+// 안전한 HTTPS인지만 다시 본다.
+
+function program(title, fields = {}) {
+  return {
+    title,
+    audience: "가상 재학생",
+    eligibility: "eligible",
+    apply_until: "2026-11-26",
+    deadline_status: "open",
+    event_on: null,
+    mileage_status: "undisclosed",
+    mileage_points: null,
+    notice_url: "https://notice.example.invalid/view?articleNo=1",
+    application_url: null,
+    login_required: true,
+    ...fields,
+  };
+}
+
+function recommending(programs, fields = {}) {
+  return {
+    shortfall_points: 20,
+    listed_on: "2026-11-13",
+    evaluated_at: "2026-11-13T09:00:00+09:00",
+    portal_url: "https://portal.example.invalid/",
+    programs,
+    ...fields,
+  };
+}
+
+const d02Items = [
+  entry("extracurricular", "비교과", "short", {
+    shortfall: "세부 2건 부족",
+    details: [
+      entry("mileage", "마일리지", "short", { current: "480점", required: "500점", shortfall: "20점 부족" }),
+      entry("career_counseling", "취업진로상담", "short", { current: "3회", required: "4회", shortfall: "1회 부족" }),
+    ],
+  }),
+];
+
+function d02(recommendations) {
+  const payload = { profile: { ...issueExample.profile, label: "가상 학생 D02" }, items: d02Items };
+  if (recommendations !== undefined) payload.biskit_recommendations = recommendations;
+  return payload;
+}
+
+const d02Programs = [
+  program("가상 진로 설명회", { apply_until: "2026-11-20", event_on: "2026-11-23" }),
+  program("2027년 가상 해외 설명회", { audience: "가상 재학생·졸업생", apply_until: "2026-11-22", event_on: "2026-11-23" }),
+  program("가상 학습법 특강", { audience: "가상 학부 재학생", mileage_status: "announced" }),
+];
+
+function readBiskit(page) {
+  const sections = page.transcript.querySelectorAll(".biskit");
+  assert.equal(sections.length, 1, "expected exactly one recommendation section");
+  const [section] = sections;
+  return {
+    section,
+    heading: text(byTag(section, "h3")[0]),
+    listed: text(section.querySelectorAll(".source")[0]),
+    portal: section.children.filter(child => child.tagName === "a"),
+    cards: section.querySelectorAll(".program").map(card => ({
+      title: text(byTag(card, "h4")[0]),
+      when: text(card.querySelectorAll(".when")[0]),
+      checks: card.querySelectorAll(".badge").map(text),
+      mileage: text(card.querySelectorAll(".mileage")[0]),
+      hints: card.querySelectorAll(".hint").map(text),
+      links: byTag(card, "a"),
+    })),
+  };
+}
+
+function assertTableWithoutBiskit(page) {
+  assert.equal(page.transcript.querySelectorAll(".biskit").length, 0);
+  assert.equal(page.transcript.querySelectorAll(".error").length, 0);
+  const rows = readRows(page);
+  assert.deepEqual(rows.map(row => [row.label, row.amount, row.note]), [
+    ["비교과", "—", ["세부 2건 부족"]],
+    ["마일리지", "480점 / 500점", ["20점 부족"]],
+    ["취업진로상담", "3회 / 4회", ["1회 부족"]],
+  ]);
+}
+
+test("버튼 한 번에 요청 한 번으로 D02의 졸업 표와 추천 카드가 함께 나온다", async () => {
+  const requests = [];
+  const page = loadChat(serving(d02(recommending(d02Programs)), requests));
+  await pressCheck(page);
+
+  assert.deepEqual(requests, [["/api/v1/graduation-demo", "GET"]]);
+  const rows = readRows(page);
+  assert.equal(rows[1].amount, "480점 / 500점");
+  assert.deepEqual(rows[1].note, ["20점 부족"]);
+  assert.equal(rows[2].amount, "3회 / 4회");
+  assert.deepEqual(rows[2].note, ["1회 부족"]);
+
+  const biskit = readBiskit(page);
+  assert.equal(biskit.heading, "BISKIT 추천 · 20점 부족");
+  assert.equal(biskit.listed, "목록 확인 2026년 11월 13일 · 접수 상태와 정원은 공식 페이지에서 확인");
+  assert.deepEqual(biskit.cards.map(card => [card.title, card.when, card.mileage]), [
+    ["가상 진로 설명회", "가상 재학생 · 신청 11월 20일까지 · 행사 2026년 11월 23일", "마일리지 미공개"],
+    [
+      "2027년 가상 해외 설명회",
+      "가상 재학생·졸업생 · 신청 11월 22일까지 · 행사 2026년 11월 23일",
+      "마일리지 미공개",
+    ],
+    ["가상 학습법 특강", "가상 학부 재학생 · 신청 11월 26일까지", "마일리지 지급 공지 · 정확한 점수 확인 필요"],
+  ]);
+  for (const card of biskit.cards) {
+    assert.deepEqual(card.checks, [], card.title);
+    assert.deepEqual(card.hints, ["BISKIT 로그인 후 프로그램명으로 검색"], card.title);
+    assert.equal(card.links.length, 1, card.title);
+  }
+
+  const [notice] = biskit.cards[2].links;
+  assert.equal(notice.attributes.get("href"), "https://notice.example.invalid/view?articleNo=1");
+  assert.equal(notice.target, "_blank");
+  assert.equal(notice.rel, "noopener noreferrer");
+  assert.equal(text(notice), "공식 공지 보기 (가상 학습법 특강, 새 탭에서 열림)");
+  assert.equal(biskit.portal.length, 1);
+  assert.equal(biskit.portal[0].attributes.get("href"), "https://portal.example.invalid/");
+
+  // 추천 영역은 표 아래, 같은 답변 안에 놓인다.
+  const [reply] = page.transcript.querySelectorAll(".reply");
+  assert.equal(reply.children.at(-1), biskit.section);
+  assert.equal(reply.children[0].className, "table-scroll");
+});
+
+test("점수는 공개된 정수만 N점으로 쓰고, 지급 공지와 미공개를 구분하며 합산하지 않는다", async () => {
+  const page = await shown(d02(recommending([
+    program("가상 공개", { mileage_status: "published", mileage_points: 40 }),
+    program("가상 지급 공지", { mileage_status: "announced", mileage_points: 40 }),
+    program("가상 미공개", { mileage_status: "undisclosed", mileage_points: 40 }),
+    program("가상 모르는 값", { mileage_status: "constructor", mileage_points: 40 }),
+    program("가상 값 없음", { mileage_status: null }),
+    program("가상 점수 누락", { mileage_status: "published", mileage_points: null }),
+    program("가상 점수 글자", { mileage_status: "published", mileage_points: "40" }),
+    program("가상 점수 0", { mileage_status: "published", mileage_points: 0 }),
+  ])));
+  const biskit = readBiskit(page);
+
+  assert.deepEqual(biskit.cards.map(card => card.mileage), [
+    "마일리지 40점",
+    "마일리지 지급 공지 · 정확한 점수 확인 필요",
+    "마일리지 미공개",
+    "마일리지 미공개",
+    "마일리지 미공개",
+    "마일리지 미공개",
+    "마일리지 미공개",
+    "마일리지 미공개",
+  ]);
+  assert.equal(biskit.heading, "BISKIT 추천 · 20점 부족");
+  assert.doesNotMatch(text(biskit.section), /충족|채울|합계|80점/);
+});
+
+test("대상이나 마감이 확인됨이 아니면 카드에 확인 필요를 붙인다", async () => {
+  const page = await shown(d02(recommending([
+    program("가상 확인됨"),
+    program("가상 대상 미확인", { eligibility: "needs_check" }),
+    program("가상 마감 당일", { deadline_status: "needs_check" }),
+    program("가상 둘 다", { eligibility: "needs_check", deadline_status: "needs_check" }),
+    program("가상 모르는 값", { eligibility: "ELIGIBLE", deadline_status: null }),
+    program("가상 마감일 없음", { apply_until: null }),
+  ])));
+  const { cards } = readBiskit(page);
+
+  assert.deepEqual(cards.map(card => card.checks), [
+    [],
+    ["대상 확인 필요"],
+    ["마감 시각 확인 필요"],
+    ["대상 확인 필요", "마감 시각 확인 필요"],
+    ["대상 확인 필요", "마감 시각 확인 필요"],
+    [],
+  ]);
+  assert.equal(cards[5].when, "가상 재학생 · 신청 마감 확인 필요");
+});
+
+for (const [label, url] of [
+  ["주소 없음", null],
+  ["빈 문자열", ""],
+  ["HTTP 주소", "http://notice.example.invalid/view"],
+  ["JavaScript 주소", "javascript:alert(1)"],
+  ["계정 정보가 든 주소", "https://user:pass@notice.example.invalid/view"],
+  ["공백이 든 주소", "https://notice.example.invalid/view "],
+  ["상대 경로", "/view"],
+]) {
+  test(`추천 카드의 주소가 ${label}이면 링크만 숨기고 나머지 내용은 남긴다`, async () => {
+    const page = await shown(d02(recommending(
+      [
+        program("가상 로그인 필요", { notice_url: url, application_url: url, event_on: "2026-11-23" }),
+        program("가상 로그인 불필요", { notice_url: url, application_url: url, login_required: false }),
+      ],
+      { portal_url: url },
+    )));
+    const biskit = readBiskit(page);
+    const [login, open] = biskit.cards;
+
+    assert.equal(byTag(biskit.section, "a").length, 0);
+    assert.deepEqual(login.hints, ["공식 공지 확인 필요", "BISKIT 로그인 후 프로그램명으로 검색"]);
+    assert.deepEqual(open.hints, ["공식 공지 확인 필요"]);
+    assert.equal(login.title, "가상 로그인 필요");
+    assert.equal(login.when, "가상 재학생 · 신청 11월 26일까지 · 행사 2026년 11월 23일");
+    assert.equal(login.mileage, "마일리지 미공개");
+    assert.equal(readRows(page).length, 3);
+  });
+}
+
+test("확인된 신청 주소가 오면 주소 그대로 신청 링크를 붙이고, 로그인이 필요하면 눈에 보이게 적는다", async () => {
+  const loginPath = "https://apply.example.invalid/login?next=%2Fprograms%2F1";
+  const page = await shown(d02(recommending([
+    program("가상 로그인 경로", { application_url: loginPath, login_required: true }),
+    program("가상 바로 신청", { application_url: "https://apply.example.invalid/programs/2", login_required: false }),
+  ])));
+  const [login, open] = readBiskit(page).cards;
+
+  assert.deepEqual(login.links.map(link => link.attributes.get("href")), [
+    "https://notice.example.invalid/view?articleNo=1",
+    loginPath,
+  ]);
+  assert.equal(text(login.links[1]), "신청 페이지 열기 (가상 로그인 경로, 새 탭에서 열림)");
+  assert.deepEqual(login.hints, ["BISKIT 로그인 필요"]);
+
+  assert.equal(open.links.length, 2);
+  assert.deepEqual(open.hints, []);
+});
+
+test("추천 목록이 비면 안내 문구와 BISKIT 링크를 보여 준다", async () => {
+  const page = await shown(d02(recommending([])));
+  const biskit = readBiskit(page);
+
+  assert.equal(biskit.heading, "BISKIT 추천 · 20점 부족");
+  assert.deepEqual(biskit.cards, []);
+  assert.deepEqual(biskit.section.querySelectorAll(".none").map(text), ["지금 신청할 수 있는 프로그램을 확인하지 못했어요"]);
+  assert.equal(biskit.portal.length, 1);
+  assert.equal(biskit.portal[0].attributes.get("href"), "https://portal.example.invalid/");
+  assert.equal(text(biskit.portal[0]), "BISKIT 열기 (교내 비교과 시스템, 새 탭에서 열림)");
+  assert.equal(readRows(page).length, 3);
+});
+
+for (const [label, recommendations] of [
+  ["항목 없음", undefined],
+  ["null", null],
+  ["문자열", "가상 문자열"],
+  ["배열", []],
+  ["부족 점수 없음", recommending(d02Programs, { shortfall_points: undefined })],
+  ["부족 점수 0", recommending(d02Programs, { shortfall_points: 0 })],
+  ["부족 점수 글자", recommending(d02Programs, { shortfall_points: "20점 부족" })],
+  ["부족 점수 소수", recommending(d02Programs, { shortfall_points: 19.5 })],
+  ["배열이 아닌 programs", recommending("가상 문자열")],
+  ["programs 없음", recommending(undefined)],
+  ["객체가 아닌 프로그램", recommending([d02Programs[0], null])],
+  ["배열인 프로그램", recommending([[]])],
+  ["제목 없는 프로그램", recommending([program(null)])],
+  ["제목이 숫자인 프로그램", recommending([program(123)])],
+  [
+    "로그인 여부가 글자인 프로그램",
+    recommending([program("가상 글자 값", { application_url: "https://apply.example.invalid/login", login_required: "true" })]),
+  ],
+  ["로그인 여부가 숫자인 프로그램", recommending([d02Programs[0], program("가상 숫자 값", { login_required: 1 })])],
+  ["로그인 여부가 null인 프로그램", recommending([program("가상 null 값", { login_required: null })])],
+  ["로그인 여부가 없는 프로그램", recommending([program("가상 값 누락", { login_required: undefined })])],
+  ["제목이 빈 글자인 프로그램", recommending([d02Programs[0], program("  ")])],
+]) {
+  test(`biskit_recommendations가 ${label}이면 추천 영역만 빼고 표는 그대로 그린다`, async () => {
+    assertTableWithoutBiskit(await shown(d02(recommendations)));
+  });
+}
+
+test("추천 카드도 서버 값을 글자 그대로 넣고 HTML로 해석하지 않는다", async () => {
+  const markup = "<img src=x onerror=alert(1)>";
+  const page = await shown(d02(recommending(
+    [program(markup, { audience: markup, apply_until: markup, event_on: markup })],
+    { listed_on: markup },
+  )));
+  const biskit = readBiskit(page);
+
+  assert.equal(biskit.listed, `목록 확인 ${markup} · 접수 상태와 정원은 공식 페이지에서 확인`);
+  assert.equal(biskit.cards[0].title, markup);
+  assert.equal(biskit.cards[0].when, `${markup} · 신청 ${markup}까지 · 행사 ${markup}`);
+  assert.equal(text(biskit.cards[0].links[0]), `공식 공지 보기 (${markup}, 새 탭에서 열림)`);
+  assert.equal(byTag(page.transcript, "img").length, 0);
+});
+
+test("다시 누르면 추천 영역도 하나만 남고, 새 대화를 누르면 카드까지 지워진다", async () => {
+  const page = await shown(d02(recommending(d02Programs)));
+  await pressCheck(page);
+  assert.equal(readBiskit(page).cards.length, 3);
+  assert.equal(page.transcript.children.length, 1);
+
+  click(page.reset);
+
+  assert.equal(page.transcript.querySelectorAll(".biskit").length, 0);
+  assert.equal(page.transcript.querySelectorAll(".program").length, 0);
+  assert.equal(byTag(page.transcript, "table").length, 0);
+  assert.deepEqual(page.transcript.children, [page.empty]);
+});
+
 test("새 대화를 누르면 결과 표도 지워진다", async () => {
   const page = await shown(threeItems);
   assert.equal(byTag(page.transcript, "table").length, 1);
