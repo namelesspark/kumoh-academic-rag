@@ -13,7 +13,9 @@ Render는 저장소의 `render.yaml`을 읽어 서버를 시작한다. 사람은
 import json
 import re
 import unittest
+from contextlib import contextmanager
 from pathlib import Path
+from unittest import mock
 
 from api.local_serve import MANIFEST_ENV, create_local_manifest_app
 from api.tests.asgi_harness import call_app
@@ -66,6 +68,35 @@ def tracked_fixture_paths() -> dict[str, Path]:
         for entry in FIXTURES_DIR.iterdir()
         if entry.is_file()
     }
+
+
+@contextmanager
+def started_at_repo_root():
+    """서버를 저장소 루트에서 시작한 것처럼 상대 경로를 읽게 한다.
+
+    배포 앱은 문서의 상대 경로를 고치지 않고 받아 시작 폴더에서 찾는다. 테스트가 값을
+    절대 경로로 바꿔 넘기면 로더가 상대 경로를 다루는 길을 지나지 않는다. 그렇다고
+    테스트를 실행한 폴더에 기댈 수도 없다. 그래서 `Path.read_bytes`만 바꿔, 상대 경로는
+    저장소 루트에서 본 가상 파일 가운데 글자까지 같은 것만 읽어 준다. 그 밖의 상대
+    경로는 Render의 리눅스처럼 없는 파일로 답한다. 절대 경로는 시작 폴더와 무관하므로
+    원래대로 읽는다. 읽은 상대 경로를 순서대로 모아 돌려준다.
+    """
+
+    real_read = Path.read_bytes
+    tracked = tracked_fixture_paths()
+    requested = []
+
+    def read(path):
+        if path.is_absolute():
+            return real_read(path)
+        key = path.as_posix()
+        requested.append(key)
+        if key not in tracked:
+            raise FileNotFoundError(2, "No such file or directory")
+        return real_read(tracked[key])
+
+    with mock.patch.object(Path, "read_bytes", autospec=True, side_effect=read):
+        yield requested
 
 
 def read_text(path: Path) -> str:
@@ -175,9 +206,13 @@ class DocumentedExampleTests(unittest.TestCase):
         documented = int(only_value(self, _CHUNK_COUNT, self.section, "목록의 조각 수"))
 
         # 표의 값은 실제 가상 파일로 만든 값 가운데 하나와 글자까지 같아야 한다.
-        tracked = tracked_fixture_paths()
-        self.assertIn(relative, tracked)
-        app = create_local_manifest_app({MANIFEST_ENV: str(tracked[relative])})
+        self.assertIn(relative, tracked_fixture_paths())
+        # 문서에서 읽은 값을 고치지 않고 그대로 넘긴다. 배포 담당자가 넣는 글자와 같다.
+        with started_at_repo_root() as requested:
+            app = create_local_manifest_app({MANIFEST_ENV: relative})
+        # 로더가 목록을 문서의 값 그대로 찾았고, 규정 파일 두 건도 상대 경로로 찾았다.
+        self.assertEqual(requested[0], relative)
+        self.assertEqual(len(requested), 3, requested)
 
         # 서버를 띄우지 않고 앱을 파이썬 함수처럼 바로 부른다 (ASGI 직접 호출).
         response = call_app(app, "GET", HEALTH)
