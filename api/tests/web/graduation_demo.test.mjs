@@ -7,6 +7,22 @@ import { test } from "node:test";
 import { runInNewContext } from "node:vm";
 
 const script = readFileSync(new URL("../../app/chat_web/assets/chat.js", import.meta.url), "utf8");
+const styles = readFileSync(new URL("../../app/chat_web/assets/chat.css", import.meta.url), "utf8");
+
+// 390px 화면에서 링크 안의 낭독용 글자가 표 밖으로 뻗어 페이지 폭이 621px로 늘어난 적이 있다(#41).
+// 배치 자체는 브라우저에서 확인하고, 여기서는 그 원인을 막는 선언이 빠지지 않았는지만 본다.
+test("근거 링크가 낭독용 글자의 위치 기준이 되고, 표는 자기 영역 안에서만 가로로 스크롤된다", () => {
+  const declarations = selector => {
+    const rules = [...styles.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+      .filter(([, selectors]) => selectors.split(",").some(part => part.trim() === selector));
+    return rules.map(([, , body]) => body.replace(/\/\*.*?\*\//gs, "")).join(";");
+  };
+
+  assert.match(declarations(".sr-only"), /position:\s*absolute/);
+  assert.match(declarations(".graduation .source-link"), /position:\s*relative/);
+  assert.match(declarations(".evidence .source-link"), /position:\s*relative/);
+  assert.match(declarations(".table-scroll"), /overflow-x:\s*auto/);
+});
 
 class FakeElement {
   children = [];
@@ -449,6 +465,8 @@ for (const [label, payload] of [
   ["배열이 아닌 items", { profile: issueExample.profile, items: "가상 문자열" }],
   ["객체가 아닌 항목", { profile: issueExample.profile, items: [null] }],
   ["객체가 아닌 세부 행", { profile: issueExample.profile, items: [entry("a", "학점", "met", { details: [7] })] }],
+  ["배열인 항목", { profile: issueExample.profile, items: [[]] }],
+  ["배열인 세부 행", { profile: issueExample.profile, items: [entry("a", "학점", "met", { details: [[]] })] }],
   ["null 본문", null],
 ]) {
   test(`응답 형식이 어긋나면(${label}) 반쯤 그린 표 대신 오류 문구를 보여 준다`, async () => {

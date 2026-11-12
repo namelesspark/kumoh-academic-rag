@@ -149,6 +149,8 @@ h1, h2, h3, p { margin-top: 0; }
 .evidence .date { color: var(--muted); font-size: .83rem; }
 .evidence blockquote { margin-top: 9px; }
 .evidence .source-link, .graduation .source-link {
+  /* 링크 안의 화면 낭독용 글자(.sr-only)는 절대 위치라, 기준을 링크에 두어야 표의 가로 스크롤 밖으로 뻗지 않는다. */
+  position: relative;
   display: inline-block;
   margin-top: 9px;
   color: var(--blue);

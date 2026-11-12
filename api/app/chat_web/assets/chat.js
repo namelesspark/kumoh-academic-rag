@@ -115,7 +115,9 @@ function graduationBasis(basis, label) {
 }
 
 function graduationRow(entry, className) {
-  if (entry === null || typeof entry !== "object") throw new TypeError("Malformed graduation item");
+  if (entry === null || typeof entry !== "object" || Array.isArray(entry)) {
+    throw new TypeError("Malformed graduation item");
+  }
   const known = typeof entry.status === "string" && Object.hasOwn(graduationStatuses, entry.status);
   const status = known ? entry.status : "needs_check";
   const label = shownText(entry.label) ?? "이름 없는 항목";
