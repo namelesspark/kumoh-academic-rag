@@ -291,24 +291,23 @@ class SettingTests(unittest.TestCase):
             "https://example.invalid/가상 규정",
             "https://example.invalid/regulations\n",
             "https://example.invalid:port/regulations",
-            # urlsplit은 맨 앞의 제어 문자를 지우고 나누므로 따로 막아야 한다.
+            # 주소 검사기는 맨 앞의 제어 문자를 지우고 읽으므로 먼저 막아야 한다.
             "\x01https://example.invalid/regulations",
             "https://example.invalid/regulations\x00",
             "https://example.invalid/\x7fregulations",
-            # urlsplit은 역슬래시 같은 글자도 호스트로 돌려주므로 이름 모양을 따로 막아야 한다.
+            # 호스트 자리가 비었거나 역슬래시가 있으면 검사기에 넘기기 전에 막는다.
             "https://" + chr(92),
             "https://" + chr(92) + "/regulations",
             "https://example.invalid" + chr(92) + "regulations",
-            "https://%65xample.invalid/regulations",
+            "https://?version=2",
+            "https://:443/regulations",
+            # 검사기는 점 하나뿐인 호스트를 받으므로 따로 막는다.
             "https://./regulations",
-            # 대괄호 안에는 IPv6 주소만 받는다.
+            # 아래는 이미 쓰는 주소 검사기(pydantic AnyHttpUrl)가 거부하는 호스트다.
             "https://[v1.a]/regulations",
             "https://[2001:db8::zz]/regulations",
-            "https://[fe80::1%25eth0]/regulations",
-            # 마지막 마디가 숫자면 숫자 주소(IPv4)로 읽으므로 범위와 모양이 맞아야 한다.
             "https://256.256.256.256/regulations",
-            "https://192.0.2/regulations",
-            "https://example.123/regulations",
+            "https://２５６.２５６.２５６.２５６/regulations",
             "​https://example.invalid/regulations",
         )
         for value in values:
@@ -320,11 +319,13 @@ class SettingTests(unittest.TestCase):
             "https://[2001:db8::1]/regulations",
             "https://[2001:DB8::1]:8443/regulations",
             "https://example.invalid./regulations",
-            "https://example.invalid.:8443/regulations",
             "https://192.0.2.7/regulations",
-            "https://192.0.2.7./regulations",
+            # 점 셋짜리 숫자 주소는 브라우저와 주소 검사기가 모두 줄임 표기로 읽는다.
+            "https://192.0.2/regulations",
+            # 퍼센트 표기 호스트는 검사기가 풀어서 읽는다. 넘길 때는 입력한 글자 그대로다.
+            "https://%65xample.invalid/regulations",
             "https://sub-domain.example.invalid/regulations",
-            "https://가상.invalid/regulations",
+            "HTTPS://example.invalid/regulations",
         )
         for value in values:
             with self.subTest(value=value):

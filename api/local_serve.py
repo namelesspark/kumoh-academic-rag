@@ -13,9 +13,9 @@ import re
 from collections.abc import Callable, Mapping
 from datetime import date
 from importlib import import_module
-from ipaddress import IPv4Address, IPv6Address
 from pathlib import Path
-from urllib.parse import urlsplit
+
+from pydantic import AnyHttpUrl, TypeAdapter, ValidationError
 
 
 PATH_ENV = "KUMOH_REGULATION_PATH"
@@ -28,42 +28,13 @@ BUILDER_MODULE = "api.regulation_app"
 # 그래서 모양을 먼저 확인한다.
 _DATE_SHAPE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
 
-# 브라우저가 주소를 읽는 규칙(WHATWG URL 표준)이 호스트 이름에서 금지하는 글자.
-# urlsplit은 역슬래시 같은 글자도 호스트로 돌려주므로 따로 막는다. 퍼센트 표기(%65 등)
-# 호스트는 브라우저가 풀어서 읽지만, 여기서는 풀지 않고 거부한다.
-_FORBIDDEN_HOST_CHARACTER = re.compile(r"[\x00-\x20#/:<>?@\[\\\]^|%\x7f]")
-# 마지막 마디가 숫자면 브라우저는 호스트 전체를 숫자 주소(IPv4)로 읽는다.
-_NUMERIC_LABEL = re.compile(r"[0-9]+|0x[0-9a-f]*")
-
-
-def _is_usable_host(netloc: str, host: str | None) -> bool:
-    """브라우저가 열 수 있는 호스트인지 모양으로 판단한다. 이름을 조회하지는 않는다."""
-
-    if not host:
-        return False
-
-    if netloc.startswith("["):
-        # 대괄호 안에는 IPv6 주소만 온다. urlsplit은 [v1.a] 같은 표기도 통과시킨다.
-        # 구역 표시(%eth0 등)는 브라우저가 받지 않는다.
-        if "%" in host:
-            return False
-        try:
-            IPv6Address(host)
-        except ValueError:
-            return False
-        return True
-
-    # 끝에 붙은 점 하나는 '여기가 이름의 끝'이라는 표시로, 올바른 표기다.
-    name = host.removesuffix(".")
-    if not name or _FORBIDDEN_HOST_CHARACTER.search(name):
-        return False
-    if _NUMERIC_LABEL.fullmatch(name.rsplit(".", 1)[-1]):
-        # 256.256.256.256처럼 범위를 벗어난 값을 막는다. 점 넷으로 나눈 십진 표기만 받는다.
-        try:
-            IPv4Address(name)
-        except ValueError:
-            return False
-    return True
+_HTTPS_PREFIX = "https://"
+# 주소에서 호스트 부분이 끝나는 글자. 그 앞까지가 호스트와 포트다.
+_AFTER_HOST = re.compile(r"[/?#]")
+# 호스트 이름과 숫자 주소(IPv4·IPv6)의 모양은 이미 쓰는 값 검사 라이브러리(pydantic)의
+# 주소 검사기에 맡긴다. 브라우저와 같은 규칙으로 읽어, 전각 숫자나 범위를 벗어난
+# 숫자 주소를 걸러 낸다.
+_URL_PARSER = TypeAdapter(AnyHttpUrl)
 
 
 def _fail(name: str, reason: str) -> ValueError:
@@ -92,21 +63,34 @@ def _parse_effective_date(value: str) -> date:
 def _check_source_url(value: str) -> str:
     """주소의 모양만 본다. 기동 중에 링크를 열지 않으며, 공식 여부는 입력한 사람이 책임진다."""
 
-    # urlsplit은 탭·줄바꿈과 맨 앞의 제어 문자를 말없이 지우고 나눈다. 그대로 두면
-    # 검사한 값과 넘기는 값이 달라지므로 나누기 전에 본다.
+    # 주소 검사기는 앞뒤 공백과 제어 문자를 말없이 지우거나, 빈 호스트 자리를 뒤의
+    # 글자로 채워 읽기도 한다. 검사한 값과 넘기는 값이 달라지지 않게, 고쳐 읽을 여지가
+    # 있는 입력은 검사기에 넘기기 전에 원래 글자 그대로 보고 거부한다.
     if any(character.isspace() or not character.isprintable() for character in value):
         raise _fail(SOURCE_URL_ENV, "공백이나 제어 문자가 들어 있습니다.")
-    try:
-        parts = urlsplit(value)
-        parts.port  # 숫자가 아닌 포트는 여기서 ValueError가 난다.
-    except ValueError:
-        raise _fail(SOURCE_URL_ENV, "주소로 읽을 수 없습니다.") from None
-    if parts.scheme != "https":
-        raise _fail(SOURCE_URL_ENV, "https 주소가 아닙니다.")
-    if "@" in parts.netloc:
+    if value[: len(_HTTPS_PREFIX)].lower() != _HTTPS_PREFIX:
+        raise _fail(SOURCE_URL_ENV, "https:// 로 시작하는 주소가 아닙니다.")
+    host_and_port = _AFTER_HOST.split(value[len(_HTTPS_PREFIX) :], maxsplit=1)[0]
+    if not host_and_port:
+        raise _fail(SOURCE_URL_ENV, "호스트가 없습니다.")
+    if "@" in host_and_port:
         raise _fail(SOURCE_URL_ENV, "아이디나 비밀번호가 들어 있습니다.")
-    if not _is_usable_host(parts.netloc, parts.hostname):
-        raise _fail(SOURCE_URL_ENV, "호스트가 없거나 브라우저가 열 수 없는 호스트입니다.")
+    if "\\" in host_and_port:
+        raise _fail(SOURCE_URL_ENV, "호스트에 역슬래시가 들어 있습니다.")
+
+    try:
+        url = _URL_PARSER.validate_python(value)
+    except ValidationError:
+        # 검사기의 오류 문구에는 입력값이 실리므로 이어 붙이지 않는다.
+        raise _fail(SOURCE_URL_ENV, "주소로 읽을 수 없습니다.") from None
+    if url.scheme != "https":
+        raise _fail(SOURCE_URL_ENV, "https 주소가 아닙니다.")
+    if url.username is not None or url.password is not None:
+        raise _fail(SOURCE_URL_ENV, "아이디나 비밀번호가 들어 있습니다.")
+    # 검사기는 점 하나뿐인 호스트도 받는다.
+    if not url.host or not url.host.strip("."):
+        raise _fail(SOURCE_URL_ENV, "호스트가 없습니다.")
+    # 검사기가 다듬은 값이 아니라 입력한 글자 그대로 돌려준다.
     return value
 
 
