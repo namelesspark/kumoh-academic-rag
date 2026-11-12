@@ -59,6 +59,8 @@ secrets/
 /models/
 /core/models/
 /api/models/
+/api/.poster-ocr/
+*.traineddata
 *.gguf
 *.safetensors
 *.bin

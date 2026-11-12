@@ -26,6 +26,8 @@ class Program:
     notice_url: str | None
     application_url: str | None = None
     login_required: bool = True
+    poster_keywords: tuple[str, ...] = ()
+    poster_notice_aliases: tuple[str, ...] = ()
 
 
 PROGRAMS = (
@@ -51,6 +53,7 @@ PROGRAMS = (
         mileage_points=None,
         notice_url="https://www.kumoh.ac.kr/ko/sub06_01_01_02.do?articleNo=581126&mode=view",
         application_url="https://biskit.kumoh.ac.kr/common/user/login.do?rtnUrl=%2Fptfol%2Fimng%2FicmpNsbjtPgm%2FfindIcmpNsbjtPgmInfo.do%3FencSddpbSeq%3D31303034313830",
+        poster_keywords=("병역진로설계", "설명회"),
     ),
     Program(
         title="SJA세진아메리카 2027년 미국 인턴 채용설명회",
@@ -63,6 +66,8 @@ PROGRAMS = (
         mileage_points=None,
         notice_url="https://www.kumoh.ac.kr/ko/sub06_01_01_02.do?articleNo=582099&mode=view",
         application_url="https://biskit.kumoh.ac.kr/common/user/login.do?rtnUrl=%2Fptfol%2Fimng%2FicmpNsbjtPgm%2FfindIcmpNsbjtPgmInfo.do%3FencSddpbSeq%3D31303034313732",
+        poster_keywords=("세진아메리카", "인턴", "설명회"),
+        poster_notice_aliases=("https://mx.kumoh.ac.kr/md/sub0201.do?articleNo=582275&mode=view",),
     ),
     Program(
         title="2026학년도 제2차 공학교육 맞춤형 학습법 특강(온라인 특강)",
@@ -78,7 +83,7 @@ PROGRAMS = (
 )
 
 
-def _official_url(url: str | None) -> str | None:
+def official_url(url: str | None) -> str | None:
     if not url or any(char.isspace() or ord(char) < 32 or char == "\\" for char in url):
         return None
     try:
@@ -123,8 +128,8 @@ def recommend_biskit(
             event_on=program.event_on,
             mileage_status=program.mileage_status,
             mileage_points=program.mileage_points if program.mileage_status == "published" else None,
-            notice_url=_official_url(program.notice_url),
-            application_url=_official_url(program.application_url),
+            notice_url=official_url(program.notice_url),
+            application_url=official_url(program.application_url),
             login_required=program.login_required,
         ))
     return BiskitRecommendations(

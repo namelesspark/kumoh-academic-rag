@@ -30,6 +30,8 @@ SERVICE_COUNT = 2
 HEALTH = "/api/v1/health"
 
 _START_COMMAND_KEY = "startCommand:"
+_BUILD_COMMAND = re.compile(r"^    buildCommand: (.+)$", re.MULTILINE)
+_DOC_BUILD_COMMAND = re.compile(r"^\| Build Command \| `([^`]+)` \|$", re.MULTILINE)
 _DOC_START_COMMAND = re.compile(r"^\| Start Command \| `([^`]+)` \|$", re.MULTILINE)
 # 이 프로젝트의 설정 이름은 모두 KUMOH_로 시작한다. 오타 난 이름도 함께 잡힌다.
 _SETTING_NAME = re.compile(r"KUMOH_[A-Z0-9_]+")
@@ -161,10 +163,26 @@ class RenderYamlTests(unittest.TestCase):
                 self.assertEqual(words[3], ENTRY_POINT)
                 # 앱을 만드는 함수를 넘기는 방식(--factory)이면 진입점이 달라진다.
                 self.assertNotIn("--factory", words)
+                self.assertIn("--workers", words)
+                self.assertEqual(words[words.index("--workers") + 1], "1")
 
     def test_manifest_setting_is_not_declared_in_blueprint(self):
         # 이름만 있고 값이 비면 서버가 뜨지 않는다. 필요한 서비스의 대시보드에만 넣는다.
         self.assertNotIn(MANIFEST_ENV, self.render_text)
+
+    def test_both_services_prepare_poster_ocr_after_install(self):
+        services = self.render_text.split("\n  - type: web\n")[1:]
+        self.assertEqual(len(services), SERVICE_COUNT)
+        for service in services:
+            with self.subTest(service=service.splitlines()[0]):
+                commands = _BUILD_COMMAND.findall(service)
+                self.assertEqual(len(commands), 1)
+                install, separator, prepare = commands[0].partition(" && ")
+                self.assertEqual(separator, " && ")
+                self.assertEqual(install.split(), ["pip", "install", "-r", "api/requirements.txt"])
+                self.assertEqual(
+                    prepare.split(), ["python", "-B", "api/scripts/prepare_poster_ocr.py"]
+                )
 
 
 class DeployDocTests(unittest.TestCase):
@@ -179,6 +197,13 @@ class DeployDocTests(unittest.TestCase):
         self.assertEqual(len(documented), 1, documented)
         self.assertEqual(
             start_commands(read_text(RENDER_YAML)), documented * SERVICE_COUNT
+        )
+
+    def test_build_command_matches_blueprint(self):
+        documented = _DOC_BUILD_COMMAND.findall(self.doc_text)
+        self.assertEqual(len(documented), 1, documented)
+        self.assertEqual(
+            _BUILD_COMMAND.findall(read_text(RENDER_YAML)), documented * SERVICE_COUNT
         )
 
     def test_setting_name_matches_loader(self):

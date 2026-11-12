@@ -8,8 +8,8 @@ Render 대시보드에서 **New → Blueprint**를 고르고 `namelesspark/kumoh
 | --- | --- |
 | Runtime | Python 3.12.7 |
 | Root Directory | 빈칸 (저장소 루트) |
-| Build Command | `pip install -r api/requirements.txt` |
-| Start Command | `python -m uvicorn api.serve:app --host 0.0.0.0 --port $PORT` |
+| Build Command | `pip install -r api/requirements.txt && python -B api/scripts/prepare_poster_ocr.py` |
+| Start Command | `python -m uvicorn api.serve:app --host 0.0.0.0 --port $PORT --workers 1` |
 | Health Check Path | `/api/v1/health` |
 
 Web Service를 직접 설정할 때도 같은 값을 입력한다. 저장소 루트에서 시작해야 `api/`의 웹 앱과 `core/`의 검색 모듈을 함께 불러올 수 있다. [Render 서비스 루트 설정](https://render.com/docs/monorepo-support#setting-a-root-directory)
@@ -42,6 +42,28 @@ foreach ($question in "달빛열람증을 누가 내주나요", "가상의 날�
 - **데모 인용의 `source_url`** — 가상 규정에는 공식 주소가 없어 `null`이다. 그래서 채팅 화면의 인용 카드에 `공식 원문 보기` 링크가 없다.
 
 [Render의 FastAPI 배포 가이드](https://render.com/docs/deploy-fastapi) · [HTTP 상태 확인 설정](https://render.com/docs/health-checks)
+
+## 현수막 글자 인식 준비
+
+두 서비스는 서버 프로세스를 한 개씩 띄운다. 사진 요청은 본문을 읽기 전부터 판독을 마칠 때까지 한 건씩 처리한다. 채팅과 상태 확인은 사진 처리를 기다리지 않는다.
+
+Render의 두 서비스는 패키지를 설치한 뒤 한글과 영어 글자 인식 모델을 준비한다. 스크립트는 파일 지문(SHA-256)이 일치하는 모델을 재사용한다. 새로 받은 파일은 지문이 맞을 때만 `api/.poster-ocr/`에 넣는다. 지문이 다르면 빌드가 실패해 이전 배포가 계속 응답한다. [Render 배포 순서](https://render.com/docs/deploys#sequence-of-events)
+
+로컬에서도 모델을 준비하려면 저장소 루트에서 `python -B api/scripts/prepare_poster_ocr.py`를 실행한다. 모델이 없어도 서버가 시작하고 QR(정사각형 바코드)을 읽는다. 글자가 필요한 사진은 `text_reader_unavailable`과 함께 확인 필요로 응답한다.
+
+| 구성 요소 | 버전과 라이선스 |
+| --- | --- |
+| 사진 파일 열기 | Pillow 12.2.0 · [MIT-CMU](https://github.com/python-pillow/Pillow/blob/12.2.0/LICENSE) |
+| QR 읽기 | zxing-cpp 3.1.1 · [Apache-2.0](https://github.com/zxing-cpp/zxing-cpp/blob/v3.1.1/LICENSE) |
+| 글자 인식 | tesserocr 2.12.0 · [MIT](https://github.com/sirfz/tesserocr/blob/v2.12.0/LICENSE) |
+| 한글·영어 모델 | tessdata_fast 4.1.0 · [Apache-2.0](https://github.com/tesseract-ocr/tessdata_fast/blob/65727574dfcd264acbb0c3e07860e4e9e9b22185/LICENSE) |
+
+모델 출처는 [tessdata_fast 커밋 `65727574dfcd264acbb0c3e07860e4e9e9b22185`](https://github.com/tesseract-ocr/tessdata_fast/tree/65727574dfcd264acbb0c3e07860e4e9e9b22185)이다. 스크립트가 확인하는 파일 지문은 아래와 같다.
+
+| 모델 | SHA-256 |
+| --- | --- |
+| `kor.traineddata` | `6b85e11d9bbf07863b97b3523b1b112844c43e713df8b66418a081fd1060b3b2` |
+| `eng.traineddata` | `7d4322bd2a7749724879683fc3912cb542f19906c83bcc1a52132556427170b2` |
 
 ## 규정 목록 설정 (선택)
 
