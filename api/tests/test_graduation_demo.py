@@ -105,6 +105,13 @@ class GraduationDemoTest(unittest.TestCase):
                 for item in body["items"]
             )
         )
+        details = {detail["id"]: detail for item in body["items"] for detail in item["details"]}
+        for key, required in (("msc", "16학점"), ("career_education", "8회"), ("counseling", "4회")):
+            with self.subTest(key=key):
+                self.assertEqual(details[key]["required"], required)
+                self.assertTrue(details[key]["basis"]["source_url"].endswith("#page=6"))
+        self.assertEqual(details["required_courses"]["status"], "needs_check")
+        self.assertTrue(details["required_courses"]["reason"])
 
     def test_rejects_post(self):
         response = call_app(self.app, "POST", ENDPOINT)

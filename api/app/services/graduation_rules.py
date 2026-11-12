@@ -64,6 +64,7 @@ class CourseAttempt:
     # 가상 기록은 인정된 성적을 pass로, 낙제를 F로 표시한다.
     grade: Literal["pass", "F"]
     credits: int
+    semester: tuple[int, int]  # (연도, 학기)
 
 
 @dataclass(frozen=True)
@@ -76,7 +77,7 @@ class CompletionRecord:
     thesis_passed: bool | None = None
     education_semesters: tuple[str, ...] | None = None
     counseling_years: tuple[int, ...] | None = None
-    mileage: int | None = None
+    mileage: int | None = None  # 이미 승인된 점수
     remaining_semesters_2025_03_01: int | None = None
 
 
@@ -86,12 +87,14 @@ def _passing_courses(
     if attempts is None:
         return None
 
-    passing = {}
+    latest: dict[str, CourseAttempt] = {}
     for attempt in attempts:
-        if attempt.grade == "pass":
-            code = aliases.get(attempt.code, attempt.code)
-            passing[code] = max(passing.get(code, 0), attempt.credits)
-    return passing
+        code = aliases.get(attempt.code, attempt.code)
+        previous = latest.get(code)
+        # 같은 학기에 기록이 여러 개면 뒤에 적힌 기록을 사용한다.
+        if previous is None or attempt.semester >= previous.semester:
+            latest[code] = attempt
+    return {code: attempt.credits for code, attempt in latest.items() if attempt.grade == "pass"}
 
 
 def _count(current: int | None, required: int | None, unit: str) -> dict:
@@ -132,12 +135,10 @@ def _thesis_result(passed: bool | None, required: bool | None) -> dict:
     return result
 
 
-def _periods(
-    completed: tuple[Period, ...] | None, required: frozenset[Period] | None, unit: str,
-) -> dict:
+def _periods(completed: tuple[Period, ...] | None, required: frozenset[Period] | None) -> dict:
     if completed is None or required is None:
-        return _count(None, None if required is None else len(required), unit)
-    return _count(len(required.intersection(completed)), len(required), unit)
+        return _count(None, None if required is None else len(required), "회")
+    return _count(len(required.intersection(completed)), len(required), "회")
 
 
 def _mileage(rules: GraduationRules, record: CompletionRecord) -> dict:
@@ -166,8 +167,8 @@ def _evaluate_details(rules: GraduationRules, record: CompletionRecord) -> dict[
     results.update(
         required_courses=_course_result(passing, rules.required_courses),
         thesis=_thesis_result(record.thesis_passed, rules.thesis_required),
-        career_education=_periods(record.education_semesters, rules.education_semesters, "학기"),
-        counseling=_periods(record.counseling_years, rules.counseling_years, "학년"),
+        career_education=_periods(record.education_semesters, rules.education_semesters),
+        counseling=_periods(record.counseling_years, rules.counseling_years),
         mileage=_mileage(rules, record),
     )
     return results
@@ -212,6 +213,7 @@ def evaluate_graduation(rules: GraduationRules, record: CompletionRecord) -> Gra
 
 
 DEMO_COHORT = Cohort()
+DEMO_STUDY_YEARS = 4
 GUIDE_BASIS = GraduationBasis(
     applied_rule=f"{DEMO_COHORT.label} (Type B)",
     source_title="컴퓨터공학전공 2026학년도 2학기 수강지도 안내 6–10쪽",
@@ -226,16 +228,23 @@ DEMO_RULES = GraduationRules(
     cohort=DEMO_COHORT,
     credit_minima={
         "credits_total": 130, "general_required": 4, "general_elective": 16,
-        "msc": None, "major": 75,
+        "msc": 16, "major": 75,
     },
     required_courses=None,
     course_aliases={"CD0062": "GA3006"},
     thesis_required=True,
-    education_semesters=None,
-    counseling_years=None,
+    education_semesters=frozenset(
+        f"{DEMO_COHORT.admission_year + year_offset}-{semester}"
+        for year_offset in range(DEMO_STUDY_YEARS)
+        for semester in (1, 2)
+    ),
+    counseling_years=frozenset(range(1, DEMO_STUDY_YEARS + 1)),
     mileage_per_semester=125,
     basis={
-        **dict.fromkeys(("credits_total", "general_required", "general_elective", "major", "thesis"), GUIDE_BASIS),
+        **dict.fromkeys((
+            "credits_total", "general_required", "general_elective", "msc", "major",
+            "thesis", "career_education", "counseling",
+        ), GUIDE_BASIS),
         "mileage": MILEAGE_BASIS,
     },
 )
