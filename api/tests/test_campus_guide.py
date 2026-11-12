@@ -19,7 +19,7 @@ GET은 "읽기만 하겠다"는 뜻의 웹 요청 종류다. 테스트는 서버
 import pathlib
 import sys
 import unittest
-from datetime import date
+from urllib.parse import urlsplit
 
 # import 경로를 잡는다. 저장소 루트에서 실행해도 아래 import들이 되게 한다.
 #   api/        -> `from app.main import app`
@@ -55,6 +55,21 @@ PLACE_FIELDS = {
 
 # 확인하지 못하면 비워 두는 필드.
 OPTIONAL_FIELDS = ("map_number", "hours", "audience", "cost", "directions", "valid_period")
+
+# 기본 목록에 반드시 있어야 하는 장소: 고정 이름(id) -> (분류, 이슈에서 부른 이름).
+# 공식 표기가 이슈의 이름과 다를 수 있어 `name`은 비교하지 않고 고정 이름으로 찾는다.
+REQUIRED_PLACES = {
+    "global-hall": ("building", "글로벌관"),
+    "techno-hall": ("building", "테크노관"),
+    "digital-hall": ("building", "디지털관"),
+    "industry-academic-hall": ("building", "산학협력관"),
+    "main-hall": ("building", "본관"),
+    "student-union": ("building", "학생회관"),
+    # 학생식당은 독립 건물이 아니라 학생회관 지하에 있어 시설로 분류한다.
+    "student-cafeteria": ("facility", "학생식당"),
+    "medical-support-room": ("facility", "의료지원실"),
+    "print-copy": ("facility", "인쇄·복사"),
+}
 
 FICTIONAL_SOURCE = {
     "title": "가상 달 기지 캠퍼스 안내",
@@ -274,8 +289,11 @@ class CampusGuideEndpointTest(CampusGuideTestCase):
         """바꿔 끼우지 않은 실제 목록도 대기 없이 나가고, 형식 규칙을 지킨다.
 
         장소의 사실이 맞는지는 여기서 보지 않는다. 그것은 리뷰어가 공식 페이지와 대조한다.
-        여기서는 형식만 본다: 고정 이름(id)이 겹치지 않고, 출처가 모두 학교 공식 사이트다.
+        여기서는 형식만 본다: 목록이 비어 있지 않고, 고정 이름(id)이 겹치지 않고, 출처가
+        모두 학교 공식 사이트다.
         """
+
+        self.assertTrue(CAMPUS_PLACES, "기본 장소 목록이 비어 있습니다")
 
         resp = call_app(app, "GET", CAMPUS_GUIDE)
 
@@ -293,7 +311,44 @@ class CampusGuideEndpointTest(CampusGuideTestCase):
                 self.assertTrue(place["sources"])
 
                 for source in place["sources"]:
-                    self.assertTrue(source["url"].startswith("https://www.kumoh.ac.kr/"))
+                    # 학교 공식 사이트와 그 아래 사이트(예: 생활협동조합)만 출처로 받는다.
+                    host = urlsplit(source["url"]).hostname or ""
+                    self.assertTrue(host == "kumoh.ac.kr" or host.endswith(".kumoh.ac.kr"), source["url"])
+
+                # 건물은 공식 지도 번호가 있고, 건물 안 시설은 번호 대신 위치에 건물·호실을 적는다.
+                if place["category"] == "building":
+                    self.assertRegex(place["map_number"] or "", r"^\d+$")
+
+    def test_shipped_list_leaves_unverified_values_empty(self):
+        """실제 목록에서 대조하지 못한 시간·대상·비용·찾아가는 길은 비어 있어야 한다.
+
+        이 값을 공식 페이지와 대조해 채우는 변경은 이 테스트도 함께 고쳐야 한다. 그래서
+        누가 언제 무엇을 확인했는지 리뷰에 드러난다.
+        """
+
+        for place in CAMPUS_PLACES:
+            with self.subTest(place=place.id):
+                self.assertIsNone(place.hours)
+                self.assertIsNone(place.audience)
+                self.assertIsNone(place.cost)
+                self.assertIsNone(place.directions)
+
+    def test_shipped_list_contains_required_places(self):
+        """기본 응답에 이슈가 정한 장소 아홉 곳(건물 6, 건물 안 시설 3)이 모두 있어야 한다.
+
+        목록이 비어 있거나 한 곳이라도 빠지면 실패한다. 빈 목록이 "형식은 맞다"는 이유로
+        통과하는 일을 막는다. 사실이 맞는지는 여전히 리뷰어가 공식 페이지와 대조한다.
+        """
+
+        places = {place["id"]: place for place in call_app(app, "GET", CAMPUS_GUIDE).json()["places"]}
+
+        for place_id, (category, label) in REQUIRED_PLACES.items():
+            with self.subTest(place=label):
+                self.assertIn(place_id, places, f"기본 목록에 {label} 항목이 없습니다")
+
+                place = places[place_id]
+                self.assertEqual(place["category"], category)
+                self.assertTrue(place["sources"])
 
 
 # `python api/tests/test_campus_guide.py`로 직접 실행할 때의 진입점.

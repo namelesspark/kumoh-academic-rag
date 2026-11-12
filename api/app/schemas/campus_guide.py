@@ -34,7 +34,7 @@ class GuideSource(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    # 페이지 제목. 예: "캠퍼스맵"
+    # 그 페이지를 가리키는 짧은 이름. 예: "캠퍼스 맵"
     title: str
 
     # 공식 페이지 주소(URL, Uniform Resource Locator). 암호화 연결(https) 주소만 받는다.

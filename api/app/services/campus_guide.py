@@ -13,32 +13,53 @@
 이 모듈을 불러오는 시점에 오류가 나서, 잘못된 목록으로는 서버가 뜨지 않는다.
 """
 
-from app.schemas.campus_guide import CampusPlace
+from datetime import date
+
+from app.schemas.campus_guide import CampusPlace, GuideSource
 
 
 # ---------------------------------------------------------------------------
-# 대조를 기다리는 공식 페이지
+# 출처
 # ---------------------------------------------------------------------------
 
-# 이슈에 적힌 공식 페이지 주소. 이름은 이슈에서 부른 이름이고, 페이지의 실제 제목과
-# 본문은 아직 대조하지 못했다. 응답에는 나가지 않는다. 항목을 대조해 `CAMPUS_PLACES`에
-# 옮길 때 여기서 주소를 가져다 쓴다.
+# 아래 사실을 공식 페이지와 대조한 날짜. 이슈 #10 논의에 올라온 대조 결과의 날짜다.
+# 항목을 다시 대조하면 그 항목의 출처만 새 날짜로 바꾼다.
+CHECKED_ON = date(2026, 11, 12)
+
+
+def _source(title: str, url: str) -> GuideSource:
+    """`CHECKED_ON`에 대조한 출처 하나를 만든다.
+
+    `title`은 그 페이지를 가리키는 짧은 이름이다. 페이지 제목을 글자 그대로 옮긴 것은 아니다.
+    """
+
+    return GuideSource(title=title, url=url, checked_on=CHECKED_ON)
+
+
+CAMPUS_MAP = _source("캠퍼스 맵", "https://www.kumoh.ac.kr/ko/campusMap.do")
+CAMPUS_MAP_2026 = _source(
+    "2026 캠퍼스 조감도",
+    "https://www.kumoh.ac.kr/iplec/sub060201.do?articleNo=546739&attachNo=159714&mode=download",
+)
+CAMPUS_TEL = _source("교내 전화번호·학사지원실", "https://www.kumoh.ac.kr/ko/campusTel02.do")
+MAIN_HALL_OFFICES = _source("본관 부서 안내", "https://www.kumoh.ac.kr/ko/sub02_03_03_01.do")
+MEETING_ROOMS = _source("산학협력관 대회의실 안내", "https://www.kumoh.ac.kr/ko/sub04_03_10_01.do")
+STUDENT_UNION_OFFICES = _source("학생회관 부서 안내", "https://www.kumoh.ac.kr/ko/sub01_03_02_01.do")
+MEDICAL_SUPPORT = _source("의료지원실 안내", "https://www.kumoh.ac.kr/ko/sub04_02_02_01.do")
+CAFETERIA = _source("학생식당 안내", "https://tec.kumoh.ac.kr/ko/sub04_03_05_01.do")
+CAFETERIA_HOURS = _source("생활협동조합 식당 운영시간", "https://kitcoop.kumoh.ac.kr/kitcoop/sub0210.do")
+PRINT_COPY = _source("인쇄·복사 안내", "https://www.kumoh.ac.kr/ko/sub04_03_05_04.do")
+TUMBLER_WASHER = _source(
+    "텀블러 세척기 공지",
+    "https://www.kumoh.ac.kr/ko/sub06_01_01_03.do?articleNo=580781&mode=view",
+)
+
+# 이슈에 주소가 적혀 있지만 본문 대조 결과가 아직 없는 공지성 자료. 응답에는 나가지 않는다.
+# 대조한 뒤에 `CAMPUS_PLACES`로 옮기고, 기간이 정해진 공지는 `valid_period`를 적는다.
 PENDING_OFFICIAL_PAGES: dict[str, str] = {
-    # 건물 7곳(글로벌관·테크노관·디지털관·산학협력관·본관·학생회관·학생식당)
-    "캠퍼스 맵": "https://www.kumoh.ac.kr/ko/campusMap.do",
-    "2026 공식 지도": (
-        "https://www.kumoh.ac.kr/iplec/sub060201.do?articleNo=546739&attachNo=159714&mode=download"
-    ),
-    "교내 전화번호·학사지원실": "https://www.kumoh.ac.kr/ko/campusTel02.do",
-    "본관 부서": "https://www.kumoh.ac.kr/ko/sub02_03_03_01.do",
-    # 편의시설
-    "의료지원실": "https://www.kumoh.ac.kr/ko/sub04_02_02_01.do",
-    "인쇄·복사": "https://www.kumoh.ac.kr/ko/sub04_03_05_04.do",
-    # 공지성 자료. 본문을 대조한 경우에만 넣고, 기간이 정해진 공지는 `valid_period`를 적는다.
     "학생식당 공지": "https://www.kumoh.ac.kr/dorm/sub0401.do?articleNo=554382&mode=view",
     "셔틀": "https://www.kumoh.ac.kr/ko/sub04_02_07_01.do",
     "에듀롬": "https://www.kumoh.ac.kr/ko/sub06_01_01_03.do?articleNo=580770&mode=view",
-    "텀블러 세척기": "https://www.kumoh.ac.kr/ko/sub06_01_01_03.do?articleNo=580781&mode=view",
 }
 
 
@@ -46,25 +67,99 @@ PENDING_OFFICIAL_PAGES: dict[str, str] = {
 # 장소 목록
 # ---------------------------------------------------------------------------
 
-# 지금은 비어 있다. 이 코드를 작성한 환경에서 학교 사이트를 열 수 없어 어느 항목도 공식
-# 페이지와 대조하지 못했고, 용도·위치를 추정으로 채우지 않았다.
-#
-# 항목을 넣는 모양(가상 예시):
-#     CampusPlace(
-#         id="fictional-hall",
-#         name="가상관",
-#         category="building",
-#         purpose="공식 페이지에 적힌 용도",
-#         location="공식 페이지에 적힌 위치",
-#         sources=[
-#             GuideSource(
-#                 title="공식 페이지의 실제 제목",
-#                 url="https://example.invalid/campus-map",
-#                 checked_on=date(2099, 1, 1),
-#             )
-#         ],
-#     )
-CAMPUS_PLACES: tuple[CampusPlace, ...] = ()
+# 대조 결과에 없는 값은 적지 않았다. 운영 시간·이용 대상·비용·찾아가는 길은 모든 항목에서
+# 비어 있다. 식당 운영 시간은 자주 바뀌므로 값을 옮기지 않고 운영시간 페이지를 출처로만 붙였다.
+# 지도 번호는 건물에만 적는다. 건물 안 시설은 `location`에 건물 이름과 호실을 적는다.
+CAMPUS_PLACES: tuple[CampusPlace, ...] = (
+    # --- 건물 ---------------------------------------------------------------
+    CampusPlace(
+        id="techno-hall",
+        name="테크노관",
+        category="building",
+        purpose="기계·신소재 학사지원실이 있는 건물",
+        location="양호동 캠퍼스, 공식 캠퍼스 지도 1번",
+        map_number="1",
+        sources=[CAMPUS_MAP, CAMPUS_MAP_2026, CAMPUS_TEL],
+    ),
+    CampusPlace(
+        id="digital-hall",
+        name="디지털관",
+        category="building",
+        purpose="전자·컴퓨터 학사지원실이 있는 건물",
+        location="양호동 캠퍼스, 공식 캠퍼스 지도 2번",
+        map_number="2",
+        sources=[CAMPUS_MAP, CAMPUS_MAP_2026, CAMPUS_TEL],
+    ),
+    CampusPlace(
+        id="global-hall",
+        name="글로벌관",
+        category="building",
+        purpose="건축·토목·환경 학사지원실과 교양학부가 있는 건물",
+        location="양호동 캠퍼스, 공식 캠퍼스 지도 3번",
+        map_number="3",
+        sources=[CAMPUS_MAP, CAMPUS_MAP_2026, CAMPUS_TEL],
+    ),
+    CampusPlace(
+        id="student-union",
+        name="학생회관",
+        category="building",
+        purpose="학생복지팀(101호), 의료지원실(103호), 학생상담센터(202호)가 있는 건물",
+        location="양호동 캠퍼스, 공식 캠퍼스 지도 5번",
+        map_number="5",
+        sources=[CAMPUS_MAP, CAMPUS_MAP_2026, STUDENT_UNION_OFFICES, MEDICAL_SUPPORT],
+    ),
+    CampusPlace(
+        id="main-hall",
+        name="본관(대학본부 및 강당)",
+        category="building",
+        purpose="대학본부와 강당. 학생지원팀(101호)과 학사관리팀(303호)이 있음",
+        location="양호동 캠퍼스, 공식 캠퍼스 지도 6번",
+        map_number="6",
+        sources=[CAMPUS_MAP, CAMPUS_MAP_2026, MAIN_HALL_OFFICES],
+    ),
+    CampusPlace(
+        id="industry-academic-hall",
+        name="산학협력관",
+        category="building",
+        purpose="대회의실(104호)이 있는 건물",
+        location="양호동 캠퍼스, 공식 캠퍼스 지도 29번",
+        map_number="29",
+        sources=[CAMPUS_MAP, CAMPUS_MAP_2026, MEETING_ROOMS],
+    ),
+    # --- 건물 안 시설 ---------------------------------------------------------
+    CampusPlace(
+        id="student-cafeteria",
+        name="학생식당",
+        category="facility",
+        purpose="일품식당, 정찬식당, 분식당으로 나뉜 학생 식당",
+        location="학생회관 지하. 일품식당 B104, 정찬식당 B106, 분식당 B101",
+        sources=[CAFETERIA, CAFETERIA_HOURS],
+    ),
+    CampusPlace(
+        id="medical-support-room",
+        name="의료지원실",
+        category="facility",
+        purpose="의료 지원",
+        location="학생회관 103호",
+        sources=[MEDICAL_SUPPORT, STUDENT_UNION_OFFICES],
+    ),
+    CampusPlace(
+        id="print-copy",
+        name="인쇄·복사",
+        category="facility",
+        purpose="문서 인쇄와 복사. 휴대폰으로 파일을 올린 뒤 PIN 번호로 출력할 수 있음",
+        location="도서관 1·2층 복사실",
+        sources=[PRINT_COPY],
+    ),
+    CampusPlace(
+        id="tumbler-washer",
+        name="텀블러 세척기",
+        category="facility",
+        purpose="텀블러 세척",
+        location="도서관 쿱카페, 분식당",
+        sources=[TUMBLER_WASHER],
+    ),
+)
 
 
 async def get_campus_places() -> list[CampusPlace]:
