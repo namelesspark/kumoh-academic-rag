@@ -295,6 +295,14 @@ class SettingTests(unittest.TestCase):
             "\x01https://example.invalid/regulations",
             "https://example.invalid/regulations\x00",
             "https://example.invalid/\x7fregulations",
+            # urlsplit은 역슬래시 같은 글자도 호스트로 돌려주므로 이름 모양을 따로 막아야 한다.
+            "https://" + chr(92),
+            "https://" + chr(92) + "/regulations",
+            "https://example.invalid" + chr(92) + "regulations",
+            "https://exa_mple.invalid/regulations",
+            "https://-example.invalid/regulations",
+            "https://example..invalid/regulations",
+            "https://%65xample.invalid/regulations",
             "​https://example.invalid/regulations",
         )
         for value in values:
@@ -304,7 +312,8 @@ class SettingTests(unittest.TestCase):
     def test_valid_settings_reach_builder_unchanged(self):
         build = mock.Mock(return_value="가상 앱")
         title = " 가상 솔바람 온실 규정 (개정) "
-        url = "https://example.invalid:8443/regulations/greenhouse?version=2#article-1"
+        # 대문자가 섞인 호스트도 받고, 넘길 때는 입력한 글자 그대로 둔다.
+        url = "https://Example.invalid:8443/regulations/greenhouse?version=2#article-1"
         environ = settings(
             **{local_serve.TITLE_ENV: title, local_serve.SOURCE_URL_ENV: url}
         )

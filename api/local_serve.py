@@ -27,6 +27,12 @@ BUILDER_MODULE = "api.regulation_app"
 # 그래서 모양을 먼저 확인한다.
 _DATE_SHAPE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
 
+# 호스트 이름은 영문 소문자·숫자·하이픈으로 된 마디를 점으로 이은 모양만 받는다.
+# urlsplit이 호스트를 소문자로 바꿔 주므로 대문자 입력도 통과한다. 한글 주소는
+# 변환 표기(퓨니코드, xn--로 시작)로 적는다.
+_HOST_LABEL = r"[a-z0-9](?:[a-z0-9-]*[a-z0-9])?"
+_HOST_SHAPE = re.compile(rf"{_HOST_LABEL}(?:\.{_HOST_LABEL})*")
+
 
 def _fail(name: str, reason: str) -> ValueError:
     # 문구에는 설정 이름과 이유만 담는다. 입력값과 파일 내용은 넣지 않는다.
@@ -67,8 +73,9 @@ def _check_source_url(value: str) -> str:
         raise _fail(SOURCE_URL_ENV, "https 주소가 아닙니다.")
     if "@" in parts.netloc:
         raise _fail(SOURCE_URL_ENV, "아이디나 비밀번호가 들어 있습니다.")
-    if not parts.hostname:
-        raise _fail(SOURCE_URL_ENV, "호스트가 없습니다.")
+    # urlsplit은 역슬래시 같은 글자도 호스트로 돌려주므로 이름 모양을 따로 본다.
+    if not parts.hostname or _HOST_SHAPE.fullmatch(parts.hostname) is None:
+        raise _fail(SOURCE_URL_ENV, "호스트가 없거나 호스트 이름으로 쓸 수 없는 글자가 있습니다.")
     return value
 
 
