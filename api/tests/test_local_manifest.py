@@ -16,7 +16,7 @@ import types
 import unittest
 from contextlib import contextmanager
 from datetime import date
-from pathlib import Path
+from pathlib import Path, PurePath, PurePosixPath, PureWindowsPath
 from unittest import mock
 
 from api import local_serve
@@ -28,12 +28,10 @@ sys.path[:0] = [str(API_DIR), str(API_DIR.parent / "core" / "src")]
 
 from app.services.chat_stub import UNANSWERABLE_TEXT
 
-try:
-    from api import regulation_app
-except ImportError:
-    regulation_app = None
+# 조립 모듈은 기준 커밋부터 있다. 불러오기에 실패하면 감추지 않고 테스트 전체가 실패한다.
+from api import regulation_app
 
-# 여러 문서를 받는 조립 함수는 다른 PR이 만든다.
+# 여러 문서를 받는 조립 함수는 다른 PR이 만든다. 건너뛰는 이유는 이 함수가 없을 때뿐이다.
 HAS_MANIFEST_BUILDER = hasattr(regulation_app, "create_regulations_app")
 SKIP_REASON = (
     "api.regulation_app에 create_regulations_app이 이 체크아웃에 아직 없어 건너뜀"
@@ -302,17 +300,12 @@ class ManifestFileTests(RejectionMixin, unittest.TestCase):
                     data, MANIFEST_ENV, "JSON으로 읽을 수 없습니다."
                 )
 
-    def test_field_written_twice_fails(self):
+    def test_documents_written_twice_fails(self):
         item = json.dumps(entry(), ensure_ascii=False)
-        twice = item[:-1] + f', "document_title": "{SECRET}"}}'
-        for text in (
-            f'{{"documents": [], "documents": [{item}]}}',
-            f'{{"documents": [{twice}]}}',
-        ):
-            with self.subTest(text=text):
-                self.assert_manifest_rejected(
-                    text.encode("utf-8"), MANIFEST_ENV, "같은 필드를 두 번 적었습니다."
-                )
+        text = f'{{"documents": [], "documents": [{item}]}}'
+        self.assert_manifest_rejected(
+            text.encode("utf-8"), "documents", "같은 필드를 두 번 적었습니다."
+        )
 
     def test_top_level_must_be_object(self):
         for text in ("[]", f'"{SECRET}"', "null", "3"):
@@ -393,6 +386,69 @@ class ManifestEntryTests(RejectionMixin, unittest.TestCase):
                         f"documents[1].{field}",
                         "값이 비어 있습니다.",
                     )
+
+    def test_each_field_written_twice_fails_with_its_position(self):
+        # json.loads는 뒤의 값만 남긴다. 어느 항목의 어느 필드인지 알려 주고 멈춘다.
+        first = json.dumps(entry(), ensure_ascii=False)
+        for field in entry():
+            with self.subTest(field=field):
+                second = first[:-1] + f', "{field}": "{SECRET}"}}'
+                text = f'{{"documents": [{first}, {second}]}}'
+                self.assert_manifest_rejected(
+                    text.encode("utf-8"),
+                    f"documents[1].{field}",
+                    "같은 필드를 두 번 적었습니다.",
+                )
+
+    def test_each_field_with_unpaired_surrogate_fails(self):
+        # JSON의 \ud800 표기는 UTF-8로 적을 수 없는 글자를 만든다. 그대로 두면 기동은
+        # 되고 답변을 내보낼 때 실패한다.
+        for field in entry():
+            with self.subTest(field=field):
+                second = entry(**{field: SECRET + "\ud800"})
+                # 이 글자는 UTF-8 바이트로 쓸 수 없어 목록에 \ud800 표기로 적는다.
+                text = json.dumps({"documents": [entry(), second]}, ensure_ascii=True)
+                self.assertIn("\\ud800", text)
+                self.assert_manifest_rejected(
+                    text.encode("ascii"),
+                    f"documents[1].{field}",
+                    "UTF-8로 적을 수 없는 글자가 들어 있습니다.",
+                )
+
+    def test_drive_without_root_is_recognized(self):
+        # 윈도우의 D:파일 모양은 D 드라이브의 현재 폴더에 따라 가리키는 곳이 달라진다.
+        check = local_serve._has_drive_without_root
+        self.assertTrue(check(PureWindowsPath("D:fictional.txt")))
+        self.assertTrue(check(PureWindowsPath("D:아래/fictional.txt")))
+        for value in (
+            "fictional.txt",
+            "아래/fictional.txt",
+            "D:/fictional.txt",
+            "D:" + chr(92) + "fictional.txt",
+            "//server/share/fictional.txt",
+        ):
+            with self.subTest(value=value):
+                self.assertFalse(check(PureWindowsPath(value)))
+        # 윈도우가 아닌 곳에서는 D:fictional.txt가 평범한 파일 이름이다.
+        self.assertFalse(check(PurePosixPath("D:fictional.txt")))
+
+    def test_drive_without_root_fails_where_paths_have_drives(self):
+        value = "D:fictional.txt"
+        data = manifest_bytes([entry(path=value)])
+        if PurePath(value).drive:
+            self.assert_manifest_rejected(
+                data,
+                "documents[0].path",
+                "드라이브 글자 뒤에 폴더 구분이 없는 경로입니다.",
+                secrets=("fictional",),
+            )
+            return
+        files = {FAKE_MANIFEST: data, FAKE_DIR / value: FIRST_ARTICLE_1.encode("utf-8")}
+        build = mock.Mock()
+        with fake_files(files) as requested:
+            create_local_manifest_app(FAKE_ENVIRON, build)
+        self.assertEqual(requested, list(files))
+        build.assert_called_once()
 
     def test_unknown_field_fails(self):
         # 필드 이름을 잘못 적으면 빠진 필드보다 먼저 알려 준다.

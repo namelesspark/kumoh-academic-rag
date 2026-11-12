@@ -17,7 +17,7 @@ import re
 from collections.abc import Callable, Mapping
 from datetime import date
 from importlib import import_module
-from pathlib import Path
+from pathlib import Path, PurePath
 
 from pydantic import AnyHttpUrl, TypeAdapter, ValidationError
 
@@ -161,17 +161,39 @@ def _load_manifest_builder() -> Callable:
     return builder
 
 
-class _DuplicateField(ValueError):
-    pass
+class _Fields(dict):
+    """목록에서 읽은 객체 하나. 두 번 적힌 필드 이름을 함께 기억한다."""
+
+    repeated: frozenset = frozenset()
 
 
-def _unique_fields(pairs: list[tuple[str, object]]) -> dict:
-    # json.loads는 같은 이름이 두 번 나오면 말없이 뒤의 값만 남긴다. 어느 값이 쓰였는지
-    # 헷갈리지 않게 거부한다.
-    fields = dict(pairs)
+def _keep_repeated_fields(pairs: list[tuple[str, object]]) -> _Fields:
+    # json.loads는 같은 이름이 두 번 나오면 말없이 뒤의 값만 남긴다. 어느 항목의 어느
+    # 필드인지 알려 주려고 여기서는 이름만 적어 두고, 거부는 항목 번호를 아는 쪽이 한다.
+    fields = _Fields(pairs)
     if len(fields) != len(pairs):
-        raise _DuplicateField
+        seen: set[str] = set()
+        repeated: set[str] = set()
+        for key, _ in pairs:
+            (repeated if key in seen else seen).add(key)
+        fields.repeated = frozenset(repeated)
     return fields
+
+
+def _is_utf8_text(value: str) -> bool:
+    # JSON의 \ud800 같은 표기는 짝 없는 글자 조각(서로게이트)을 만든다. 이런 글자는
+    # UTF-8로 적을 수 없어, 기동은 되고 답변을 내보낼 때 실패한다.
+    try:
+        value.encode("utf-8")
+    except UnicodeEncodeError:
+        return False
+    return True
+
+
+def _has_drive_without_root(path: PurePath) -> bool:
+    """윈도우의 `D:파일` 모양인지 본다. 이 경로는 그 드라이브의 현재 폴더에 따라 달라진다."""
+
+    return bool(path.drive) and not path.root
 
 
 def _read_manifest(path: Path) -> list[dict]:
@@ -181,19 +203,20 @@ def _read_manifest(path: Path) -> list[dict]:
     # 문자열을 넘긴다. 맨 앞 표식은 목록 파일에서만 뗀다.
     text = _read_source(path, MANIFEST_ENV).removeprefix(_BOM)
     try:
-        manifest = json.loads(text, object_pairs_hook=_unique_fields)
-    except _DuplicateField:
-        raise _fail(MANIFEST_ENV, "같은 필드를 두 번 적었습니다.") from None
+        manifest = json.loads(text, object_pairs_hook=_keep_repeated_fields)
     except (ValueError, RecursionError):
         # 원래 오류에는 목록 내용이 실리므로 이어 붙이지 않는다.
         raise _fail(MANIFEST_ENV, "JSON으로 읽을 수 없습니다.") from None
 
-    if type(manifest) is not dict:
+    # json.loads가 만든 객체는 모두 _Fields다.
+    if not isinstance(manifest, _Fields):
         raise _fail(MANIFEST_ENV, "최상위가 객체가 아닙니다.")
     if "documents" not in manifest:
         raise _fail("documents", "필드가 없습니다.")
     if len(manifest) != 1:
         raise _fail(MANIFEST_ENV, "모르는 필드가 있습니다.")
+    if manifest.repeated:
+        raise _fail("documents", "같은 필드를 두 번 적었습니다.")
     entries = manifest["documents"]
     if type(entries) is not list:
         raise _fail("documents", "배열이 아닙니다.")
@@ -202,7 +225,7 @@ def _read_manifest(path: Path) -> list[dict]:
 
     for index, entry in enumerate(entries):
         name = f"documents[{index}]"
-        if type(entry) is not dict:
+        if not isinstance(entry, _Fields):
             raise _fail(name, "객체가 아닙니다.")
         # 모르는 필드는 오타일 수 있어 거부한다. 필드 이름도 입력값이라 문구에 넣지 않는다.
         if not set(entry) <= set(_DOCUMENT_FIELDS):
@@ -210,10 +233,14 @@ def _read_manifest(path: Path) -> list[dict]:
         for field in _DOCUMENT_FIELDS:
             if field not in entry:
                 raise _fail(f"{name}.{field}", "필드가 없습니다.")
+            if field in entry.repeated:
+                raise _fail(f"{name}.{field}", "같은 필드를 두 번 적었습니다.")
             if type(entry[field]) is not str:
                 raise _fail(f"{name}.{field}", "문자열이 아닙니다.")
             if not entry[field].strip():
                 raise _fail(f"{name}.{field}", "값이 비어 있습니다.")
+            if not _is_utf8_text(entry[field]):
+                raise _fail(f"{name}.{field}", "UTF-8로 적을 수 없는 글자가 들어 있습니다.")
     return entries
 
 
@@ -265,29 +292,27 @@ def create_local_manifest_app(
     manifest_path = Path(_read_setting(environ, MANIFEST_ENV))
     entries = _read_manifest(manifest_path)
 
-    # 날짜와 주소를 모든 항목에서 먼저 확인한다. 뒤 항목이 틀렸을 때 앞 항목의
+    # 경로 모양, 날짜, 주소를 모든 항목에서 먼저 확인한다. 뒤 항목이 틀렸을 때 앞 항목의
     # 규정 파일을 괜히 읽지 않는다.
-    checked = [
-        {
+    checked = []
+    for index, entry in enumerate(entries):
+        name = f"documents[{index}]"
+        entry_path = Path(entry["path"])
+        if _has_drive_without_root(entry_path):
+            raise _fail(f"{name}.path", "드라이브 글자 뒤에 폴더 구분이 없는 경로입니다.")
+        fields = {
             "document_title": entry["document_title"],
             "effective_date": _parse_effective_date(
-                entry["effective_date"], f"documents[{index}].effective_date"
+                entry["effective_date"], f"{name}.effective_date"
             ),
-            "source_url": _check_source_url(
-                entry["source_url"], f"documents[{index}].source_url"
-            ),
+            "source_url": _check_source_url(entry["source_url"], f"{name}.source_url"),
         }
-        for index, entry in enumerate(entries)
-    ]
+        # 경로가 절대 경로면 `/`가 목록 폴더를 버리고 그 경로를 그대로 쓴다.
+        checked.append((manifest_path.parent / entry_path, fields))
+
     documents = [
-        {
-            # 경로가 절대 경로면 `/`가 목록 폴더를 버리고 그 경로를 그대로 쓴다.
-            "source": _read_source(
-                manifest_path.parent / entry["path"], f"documents[{index}].path"
-            ),
-            **fields,
-        }
-        for index, (entry, fields) in enumerate(zip(entries, checked))
+        {"source": _read_source(path, f"documents[{index}].path"), **fields}
+        for index, (path, fields) in enumerate(checked)
     ]
 
     if build_app is None:
