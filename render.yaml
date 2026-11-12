@@ -17,3 +17,17 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: 3.12.7               # requirements.txt의 버전들이 검증된 범위 안의 안정 버전
+  - type: web
+    name: kumoh-campus
+    runtime: python
+    plan: 0.5c-512mb
+    region: singapore               # 한국에서 가장 가까운 리전
+    branch: main
+    rootDir: api                    # 이 아래에서 빌드·시작 명령을 실행한다
+    buildCommand: pip install -r requirements.txt
+    startCommand: python -m uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/v1/health
+    autoDeployTrigger: commit       # main에 커밋이 추가되면 자동 재배포
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.7               # requirements.txt의 버전들이 검증된 범위 안의 안정 버전
