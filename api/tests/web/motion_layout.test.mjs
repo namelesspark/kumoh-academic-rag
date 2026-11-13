@@ -11,14 +11,14 @@ const html = read("../../app/chat_web/index.html");
 const styles = read("../../app/chat_web/assets/chat.css").replace(/\/\*[\s\S]*?\*\//g, "");
 const notes = read("../../../web/docs/UI_NOTES.md");
 
-// 이슈 #67의 「카드별 패널」 표. [식별자, 카드 이름, 준비 중 여부, 시작 버튼 문구, 시작 버튼이 부르는 동작] 순서다.
+// 카드별 패널 표. [식별자, 카드 이름, 준비 중 여부, 시작 버튼 문구, 시작 버튼이 부르는 동작] 순서다.
 const features = [
   ["graduation", "졸업 체크", false, "졸업 체크 시작", "graduation"],
   ["biskit", "비교과 추천", false, "졸업 체크와 추천 보기", "graduation"],
   ["photo", "사진으로 묻기", false, "사진 선택", "photo"],
   ["ask", "규정 질문", false, "질문 입력하기", "ask"],
-  ["calendar", "학사 일정", true, null, null],
-  ["campus", "캠퍼스 안내", true, null, null],
+  ["calendar", "학사 일정", false, null, null],
+  ["campus", "캠퍼스 안내", false, null, null],
 ];
 
 // --- index.html 읽기 -------------------------------------------------------------------------
@@ -37,7 +37,7 @@ test("카드 여섯 개는 모두 패널을 가리키는 버튼이고, 기능을
     assert.ok(cards[index].slice(opening.length).trimStart().startsWith(`<span class="card-title">${title}</span>`), id);
     assert.match(cards[index], /<span class="card-text">[^<]+<\/span>/, id);
     assert.equal(cards[index].includes("data-action"), false, id);
-    // 준비 중 카드도 버튼이지만 문구로 상태를 알린다.
+    // 서버 자료가 연결된 카드에는 준비 중 표시가 없다.
     assert.equal(cards[index].includes('<span class="soon-label">준비 중</span>'), soon, id);
   });
 
@@ -67,11 +67,12 @@ test("패널 여섯 개는 숨긴 채 시작하고 제목·닫기·시작 버튼
 
     const starts = [...panel.matchAll(/<button type="button" class="cta" data-action="([a-z]+)">([^<]+)<\/button>/g)]
       .map(match => [match[2], match[1]]);
-    assert.deepEqual(starts, soon ? [] : [[label, action]], id);
+    assert.deepEqual(starts, label ? [[label, action]] : [], id);
     assert.equal(panel.split("data-action=").length - 1, starts.length, id);
     assert.equal(panel.includes('<span class="soon-label">준비 중</span>'), soon, id);
-    // 버튼은 닫기와 시작 버튼뿐이다.
-    assert.equal(panel.split("<button").length - 1, soon ? 1 : 2, id);
+    // 조회 패널은 열 때 자료를 불러오므로 별도 시작 버튼이 없다.
+    assert.equal(panel.split("<button").length - 1, label ? 2 : 1, id);
+    if (!label) assert.match(panel, /<div data-panel-content aria-live="polite"><\/div>/, id);
   });
 });
 
@@ -269,7 +270,7 @@ test("설계 문서가 펫·말풍선·패널·모핑을 지금 화면대로 설
   }
   for (const [, title, soon, label] of features) {
     assert.ok(notes.includes(title), title);
-    if (!soon) assert.ok(notes.includes(`\`${label}\``), label);
+    if (label) assert.ok(notes.includes(`\`${label}\``), label);
   }
   // 없앤 왼쪽 비서와 자세 그림 세 장에 대한 설명은 남지 않는다.
   for (const gone of ["## 테크모 비서", "자세 그림 세 장", "예시 질문 아래(채팅 왼쪽)", "160×184px"]) {
