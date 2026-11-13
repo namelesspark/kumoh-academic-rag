@@ -7,6 +7,7 @@ from pathlib import Path
 from tempfile import NamedTemporaryFile
 from time import monotonic
 from typing import NamedTuple
+from urllib.error import HTTPError
 from urllib.parse import urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 from zipfile import ZipFile
@@ -53,9 +54,11 @@ CAMPUS_PHOTOS = (
                 299358, "eb5c46f8a47e642e22a2dbbc55248a7eefcffb00d43f997f76459c65445555a5"),
 )
 PHOTO_DIMENSIONS = (1920, 280)
-# 사진은 네 장이라 한 장이 빌드를 오래 붙잡지 않게 로고·테크모보다 짧은 한도를 따로 둔다.
-PHOTO_REQUEST_TIMEOUT = 4
-PHOTO_TOTAL_TIMEOUT = 10
+# 사진은 로고·테크모보다 크고 학교 서버가 느릴 때가 있어 한도를 따로 넉넉히 둔다.
+# 4초·10초였을 때 실제 배포 준비에서 한 장이 시간 초과로 빠졌다.
+PHOTO_REQUEST_TIMEOUT = 15  # 요청 하나가 응답 없이 기다리는 시간
+PHOTO_TOTAL_TIMEOUT = 60  # 사진 한 장에 쓰는 전체 시간. 다시 시도한 시간도 여기에 든다
+PHOTO_ATTEMPTS = 2  # 시간 초과나 연결 오류면 한 장당 한 번 더 받는다
 # 학교 서버는 브라우저가 보낸 것처럼 보이지 않는 사진 요청에 143바이트 HTML 오류를 준다.
 PHOTO_HEADERS = {
     "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -101,6 +104,10 @@ class AssetError(ValueError):
     """공개 로그에 남겨도 되는 고정 실패 사유임."""
 
 
+class DeadlineExceeded(TimeoutError):
+    """그림 하나에 준 전체 시간을 다 썼다. 요청 하나의 시간 초과와 달리 다시 시도하지 않는다."""
+
+
 def check_url(url, host=OFFICIAL_HOST):
     parsed = urlsplit(url)
     if (parsed.scheme != "https" or parsed.netloc != host):
@@ -120,7 +127,7 @@ class OfficialRedirect(HTTPRedirectHandler):
         if self.deadline is not None:
             remaining = self.deadline - self.clock()
             if remaining <= 0:
-                raise TimeoutError("주소 이동 전체 시간 초과")
+                raise DeadlineExceeded("주소 이동 전체 시간 초과")
             req.timeout = min(self.request_timeout, remaining)
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
@@ -128,7 +135,8 @@ class OfficialRedirect(HTTPRedirectHandler):
 def download(url, *, opener=None, clock=monotonic, limit=None):
     """허용한 주소에서 제한된 크기와 시간 안에 읽는다.
 
-    사진 주소에는 브라우저형 요청 헤더를 붙이고 사진용 시간 한도를 쓴다.
+    사진 주소에는 브라우저형 요청 헤더를 붙이고 사진용 시간 한도를 쓴다. 시간 초과나
+    연결 오류가 나면 같은 전체 한도 안에서 한 번 더 받는다.
     글꼴 주소는 글꼴 저장소 안에서만 받고 글꼴용 크기 한도를 쓴다.
     로고와 테크모 요청은 전과 같다.
     """
@@ -145,31 +153,51 @@ def download(url, *, opener=None, clock=monotonic, limit=None):
     deadline = clock() + total_timeout
     opener = opener or build_opener(OfficialRedirect(
         clock=clock, deadline=deadline, request_timeout=request_timeout, host=host)).open
-    target = Request(url, headers=PHOTO_HEADERS) if is_photo else url
-    with opener(target, timeout=request_timeout) as response:
-        check_url(response.geturl(), host)
-        length = response.headers.get("Content-Length")
-        if length is not None and int(length) > limit:
-            raise AssetError("받는 크기 초과")
-        result = bytearray()
-        while True:
-            remaining = deadline - clock()
-            if remaining <= 0:
-                raise TimeoutError("전체 시간 초과")
-            # 실제 HTTPS 응답의 다음 읽기도 남은 전체 시간을 넘기지 않는다.
-            raw = getattr(getattr(response, "fp", None), "raw", None)
-            sock = getattr(raw, "_sock", None)
-            if sock is not None:
-                sock.settimeout(min(request_timeout, remaining))
-            read = getattr(response, "read1", response.read)
-            chunk = read(min(65536, limit + 1 - len(result)))
-            if clock() >= deadline:
-                raise TimeoutError("전체 시간 초과")
-            if not chunk:
-                return bytes(result)
-            result.extend(chunk)
-            if len(result) > limit:
+
+    def read_once(timeout):
+        # 시도마다 요청을 새로 만들고 처음부터 다시 읽는다. 앞 시도에서 받다 만 바이트는 버린다.
+        target = Request(url, headers=PHOTO_HEADERS) if is_photo else url
+        with opener(target, timeout=timeout) as response:
+            check_url(response.geturl(), host)
+            length = response.headers.get("Content-Length")
+            if length is not None and int(length) > limit:
                 raise AssetError("받는 크기 초과")
+            result = bytearray()
+            while True:
+                remaining = deadline - clock()
+                if remaining <= 0:
+                    raise DeadlineExceeded("전체 시간 초과")
+                # 실제 HTTPS 응답의 다음 읽기도 남은 전체 시간을 넘기지 않는다.
+                raw = getattr(getattr(response, "fp", None), "raw", None)
+                sock = getattr(raw, "_sock", None)
+                if sock is not None:
+                    sock.settimeout(min(request_timeout, remaining))
+                read = getattr(response, "read1", response.read)
+                chunk = read(min(65536, limit + 1 - len(result)))
+                if clock() >= deadline:
+                    raise DeadlineExceeded("전체 시간 초과")
+                if not chunk:
+                    return bytes(result)
+                result.extend(chunk)
+                if len(result) > limit:
+                    raise AssetError("받는 크기 초과")
+
+    attempts = PHOTO_ATTEMPTS if is_photo else 1
+    for attempt in range(1, attempts + 1):
+        timeout = request_timeout
+        if attempt > 1:
+            # 다시 받는 요청은 남은 전체 시간보다 오래 기다리지 않는다.
+            timeout = min(request_timeout, deadline - clock())
+            if timeout <= 0:
+                raise DeadlineExceeded("전체 시간 초과")
+        try:
+            return read_once(timeout)
+        except OSError as error:
+            # 시간 초과와 연결 오류만 다시 시도한다. 둘 다 OSError의 한 갈래다.
+            # 서버가 오류 상태로 답했거나(HTTPError) 전체 한도를 다 썼으면 다시 해도 같으므로 그만둔다.
+            # 크기·주소 위반(AssetError)은 OSError가 아니라 여기 오지 않는다.
+            if attempt == attempts or isinstance(error, (HTTPError, DeadlineExceeded)):
+                raise
 
 
 def logo_png(data, expected_hash=LOGO_HASH):

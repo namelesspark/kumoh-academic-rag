@@ -8,6 +8,7 @@ import re
 import sys
 import unittest
 from unittest.mock import Mock, patch
+from urllib.error import HTTPError, URLError
 from zipfile import BadZipFile, ZipFile
 
 from PIL import Image, ImageDraw, ImageFont, UnidentifiedImageError
@@ -162,9 +163,12 @@ class TestCampusPhotos(unittest.TestCase):
             self.assertEqual(str(caught.exception), "사진 형식 또는 크기 불일치")
 
     def test_photo_request_carries_browser_headers_and_its_own_timeout(self):
-        self.assertLess(assets.PHOTO_TOTAL_TIMEOUT, assets.TOTAL_TIMEOUT)
+        # 요청 하나 15초, 사진 한 장 전체 60초, 한 장당 두 번까지 받는다.
+        self.assertEqual((assets.PHOTO_REQUEST_TIMEOUT, assets.PHOTO_TOTAL_TIMEOUT,
+                          assets.PHOTO_ATTEMPTS), (15, 60, 2))
         # 값이 달라야 사진 요청이 로고용 한도를 잘못 쓰는 실수가 아래 단언에 걸린다.
-        self.assertLess(assets.PHOTO_REQUEST_TIMEOUT, assets.REQUEST_TIMEOUT)
+        self.assertNotEqual(assets.PHOTO_REQUEST_TIMEOUT, assets.REQUEST_TIMEOUT)
+        self.assertNotEqual(assets.PHOTO_TOTAL_TIMEOUT, assets.TOTAL_TIMEOUT)
         for photo in REAL_PHOTOS:
             with self.subTest(name=photo.name):
                 opener = Mock(return_value=FakeResponse(b"fictional", url=photo.url))
@@ -190,12 +194,163 @@ class TestCampusPhotos(unittest.TestCase):
         for times in ((0, assets.PHOTO_TOTAL_TIMEOUT), (0, 0, assets.PHOTO_TOTAL_TIMEOUT)):
             with self.subTest(times=times), self.assertRaises(TimeoutError):
                 assets.download(url, opener=respond, clock=Mock(side_effect=times))
-        # 같은 시각이어도 로고는 자기 한도 안이라 끝까지 읽는다.
-        times = iter((0, assets.PHOTO_TOTAL_TIMEOUT, assets.PHOTO_TOTAL_TIMEOUT,
-                      assets.PHOTO_TOTAL_TIMEOUT, assets.PHOTO_TOTAL_TIMEOUT))
-        self.assertEqual(assets.download(assets.LOGO_URL,
-                                         opener=lambda *args, **kwargs: FakeResponse(b"123"),
-                                         clock=lambda: next(times)), b"123")
+        # 로고의 전체 한도가 지난 시각이어도 사진은 자기 한도 안이라 끝까지 읽는다.
+        late = assets.TOTAL_TIMEOUT
+        self.assertLess(late, assets.PHOTO_TOTAL_TIMEOUT)
+        times = iter((0, late, late, late, late))
+        self.assertEqual(assets.download(url, opener=respond, clock=lambda: next(times)), b"123")
+        with self.assertRaises(TimeoutError):
+            assets.download(assets.LOGO_URL, opener=lambda *args, **kwargs: FakeResponse(b"123"),
+                            clock=Mock(side_effect=(0, late)))
+
+    def flaky_opener(self, outcomes):
+        """부를 때마다 `outcomes`의 다음 값을 낸다. 예외면 던지고, 바이트면 그 내용의 응답을 준다."""
+        remaining = list(outcomes)
+
+        def respond(target, *, timeout):
+            outcome = remaining.pop(0)
+            if isinstance(outcome, Exception):
+                raise outcome
+            return FakeResponse(outcome, url=target.full_url)
+
+        return Mock(side_effect=respond)
+
+    def test_timeout_or_connection_error_is_retried_once_per_photo(self):
+        url = REAL_PHOTOS[1].url
+        for first in (TimeoutError("fictional timeout"), ConnectionResetError("fictional reset"),
+                      URLError("fictional unreachable"), OSError("fictional socket error")):
+            with self.subTest(first=type(first).__name__):
+                opener = self.flaky_opener((first, b"fictional photo"))
+                self.assertEqual(assets.download(url, opener=opener), b"fictional photo")
+                self.assertEqual(opener.call_count, 2)
+                # 두 번째 요청도 같은 주소·헤더·요청 한도로 새로 만든다.
+                (one,), first_keywords = opener.call_args_list[0]
+                (two,), second_keywords = opener.call_args_list[1]
+                self.assertIsNot(one, two)
+                for request, keywords in ((one, first_keywords), (two, second_keywords)):
+                    self.assertEqual(request.full_url, url)
+                    self.assertEqual(request.get_header("Referer"),
+                                     "https://www.kumoh.ac.kr/ko/index.do")
+                    self.assertEqual(keywords, {"timeout": assets.PHOTO_REQUEST_TIMEOUT})
+
+    def test_second_failure_gives_up_without_a_third_request(self):
+        url = REAL_PHOTOS[1].url
+        second = ConnectionResetError("fictional second failure")
+        opener = self.flaky_opener((TimeoutError("fictional first failure"), second, b"never read"))
+        with self.assertRaises(ConnectionResetError) as caught:
+            assets.download(url, opener=opener)
+        self.assertIs(caught.exception, second)
+        self.assertEqual(opener.call_count, 2)
+
+    def test_failure_while_reading_restarts_from_the_first_byte(self):
+        url = REAL_PHOTOS[1].url
+        broken = FakeResponse(b"partial bytes", url=url)
+        chunks = iter((b"partial ", TimeoutError("fictional stall")))
+
+        def stalled_read(size):
+            chunk = next(chunks)
+            if isinstance(chunk, Exception):
+                raise chunk
+            return chunk
+
+        broken.read1 = stalled_read
+        responses = iter((broken, FakeResponse(b"whole photo", url=url)))
+        opener = Mock(side_effect=lambda target, *, timeout: next(responses))
+        # 앞 시도에서 받다 만 바이트가 결과에 섞이지 않는다.
+        self.assertEqual(assets.download(url, opener=opener), b"whole photo")
+        self.assertEqual(opener.call_count, 2)
+
+    def test_errors_that_a_retry_cannot_fix_are_not_retried(self):
+        url = REAL_PHOTOS[1].url
+        # 서버가 오류 상태로 답한 경우.
+        opener = self.flaky_opener((HTTPError(url, 404, "Not Found", {}, None), b"never read"))
+        with self.assertRaises(HTTPError):
+            assets.download(url, opener=opener)
+        self.assertEqual(opener.call_count, 1)
+        # 크기 한도와 허용 주소 위반.
+        opener = self.flaky_opener((b"12345", b"1"))
+        with self.assertRaises(assets.AssetError):
+            assets.download(url, opener=opener, limit=4)
+        self.assertEqual(opener.call_count, 1)
+        opener = Mock(return_value=FakeResponse(b"", url="https://example.invalid/photo.jpg"))
+        with self.assertRaises(assets.AssetError):
+            assets.download(url, opener=opener)
+        self.assertEqual(opener.call_count, 1)
+        # 사진 한 장의 전체 한도를 다 쓴 경우.
+        opener = self.flaky_opener((b"123", b"123"))
+        with self.assertRaises(assets.DeadlineExceeded):
+            assets.download(url, opener=opener,
+                            clock=Mock(side_effect=(0, assets.PHOTO_TOTAL_TIMEOUT)))
+        self.assertEqual(opener.call_count, 1)
+
+    def test_retry_shares_the_total_time_of_one_photo(self):
+        url = REAL_PHOTOS[1].url
+        # 첫 시도가 실패했을 때 60초가 이미 다 지났으면 두 번째 요청을 보내지 않는다.
+        opener = self.flaky_opener((TimeoutError("fictional timeout"), b"fictional photo"))
+        with self.assertRaises(assets.DeadlineExceeded):
+            assets.download(url, opener=opener,
+                            clock=Mock(side_effect=(0, assets.PHOTO_TOTAL_TIMEOUT)))
+        self.assertEqual(opener.call_count, 1)
+        # 59초에 시작한 두 번째 시도는 남은 1초만 기다리고, 그 안에 끝나면 받는다.
+        almost = assets.PHOTO_TOTAL_TIMEOUT - 1
+        opener = self.flaky_opener((TimeoutError("fictional timeout"), b"fictional photo"))
+        times = iter((0, almost, almost, almost, almost, almost))
+        self.assertEqual(assets.download(url, opener=opener, clock=lambda: next(times)),
+                         b"fictional photo")
+        self.assertEqual([call.kwargs for call in opener.call_args_list],
+                         [{"timeout": assets.PHOTO_REQUEST_TIMEOUT}, {"timeout": 1}])
+
+    def test_logo_techmo_and_font_requests_are_not_retried(self):
+        for url in (assets.LOGO_URL, assets.TECHMO_URL, assets.TITLE_IMAGES[0].url):
+            with self.subTest(url=url):
+                opener = Mock(side_effect=TimeoutError("fictional timeout"))
+                with self.assertRaises(TimeoutError):
+                    assets.download(url, opener=opener)
+                self.assertEqual(opener.call_count, 1)
+
+    def run_main_with_opener(self, opener, written, logs):
+        """실제 받기 함수를 가짜 응답에 물려 준비 스크립트 전체를 돌린다."""
+        return self.run_main(lambda url: assets.download(url, opener=opener), written, logs)
+
+    def test_main_saves_a_photo_that_succeeds_on_the_second_request(self):
+        flaky = self.photos[1]
+        calls = []
+
+        def opener(target, *, timeout):
+            url = getattr(target, "full_url", target)
+            calls.append(url)
+            if url == flaky.url and calls.count(url) == 1:
+                raise TimeoutError("fictional timeout")
+            return FakeResponse(self.by_url.get(url, b"fictional"), url=url)
+
+        written, logs = {}, []
+        self.assertEqual(self.run_main_with_opener(opener, written, logs), 0)
+        for name, data in zip(PHOTO_NAMES, self.sources):
+            self.assertEqual(written[name], data)
+        self.assertEqual(sum("준비 실패" in line for line in logs), 0)
+        # 실패한 한 장만 두 번 요청했고 나머지는 한 번씩이다.
+        self.assertEqual([calls.count(photo.url) for photo in self.photos], [1, 2, 1, 1])
+
+    def test_main_skips_only_the_photo_that_fails_twice(self):
+        failing = self.photos[1]
+        calls = []
+
+        def opener(target, *, timeout):
+            url = getattr(target, "full_url", target)
+            calls.append(url)
+            if url == failing.url:
+                raise URLError("fictional unreachable")
+            return FakeResponse(self.by_url.get(url, b"fictional"), url=url)
+
+        written, logs = {failing.name: b"previous"}, []
+        self.assertEqual(self.run_main_with_opener(opener, written, logs), 0)
+        self.assertEqual(written[failing.name], b"previous")
+        for photo, data in zip(self.photos, self.sources):
+            if photo is not failing:
+                self.assertEqual(written[photo.name], data)
+        self.assertEqual([line for line in logs if "준비 실패" in line],
+                         [f"{failing.name}: 준비 실패 (URLError)"])
+        self.assertEqual(calls.count(failing.url), 2)
 
     def test_photo_download_keeps_size_and_origin_limits(self):
         url = REAL_PHOTOS[0].url
