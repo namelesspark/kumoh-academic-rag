@@ -91,7 +91,7 @@ function graduation(id = "demo-d02") {
   };
 }
 
-function loadPage({ saved = null, storageFails = false, list = students, listResult = () => ok({ students: list }), result = () => ok(graduation()) } = {}) {
+function loadPage({ startViewTransition, saved = null, storageFails = false, list = students, listResult = () => ok({ students: list }), loginResult = (_path, options) => ok({ student: students.find(student => `2099000${student.id.slice(-1)}` === JSON.parse(options.body).student_number) }), result = () => ok(graduation()) } = {}) {
   const elements = new Map();
   const requests = [];
   const documentListeners = new Map();
@@ -113,6 +113,11 @@ function loadPage({ saved = null, storageFails = false, list = students, listRes
     button.dataset = { action };
     return button;
   });
+  const accounts = students.map(student => {
+    const button = create("button");
+    button.dataset.demoAccount = `2099000${student.id.slice(-1)}`;
+    return button;
+  });
   for (const id of ["demo-students", "demo-identity"]) get(`#${id}`).hidden = true;
   get(".demo-account").append(get("#demo-login"), get("#demo-identity"), get("#demo-students"));
   get("#demo-students").append(get("#demo-student-list"), get("#demo-notice"));
@@ -123,12 +128,13 @@ function loadPage({ saved = null, storageFails = false, list = students, listRes
   };
   runInNewContext(script, {
     document: {
+      startViewTransition,
       addEventListener(name, listener, capture = false) {
         documentListeners.set(name, listener);
         documentCapture.set(name, capture === true || capture.capture === true);
       },
       querySelector: get,
-      querySelectorAll: selector => selector === "[data-action]" ? buttons : [],
+      querySelectorAll: selector => selector === "[data-action]" ? buttons : selector === "[data-demo-account]" ? accounts : [],
       createElement: create,
       createTextNode: value => value,
     },
@@ -140,12 +146,12 @@ function loadPage({ saved = null, storageFails = false, list = students, listRes
     clearTimeout(id) { timers.delete(id); },
     fetch: async (path, options = {}) => {
       requests.push({ path, options });
-      return path === "/api/v1/demo-students" ? listResult() : result(path, options);
+      return path === "/api/v1/demo-students" ? listResult() : path === "/api/v1/demo-login" ? loginResult(path, options) : result(path, options);
     },
   }, { filename: "chat.js" });
   get("#transcript").append(get("#empty"));
   return {
-    get, buttons, requests, storage, timers,
+    get, buttons, accounts, requests, storage, timers,
     dispatch(name, target) { documentListeners.get(name)?.({ target }); },
     click(node) {
       const documentClick = () => documentListeners.get("click")?.({ target: node });
@@ -161,198 +167,202 @@ function loadPage({ saved = null, storageFails = false, list = students, listRes
 }
 function click(node) { node.listeners.get("click")({}); }
 async function select(page, index = 0) {
-  click(page.get("#demo-login"));
+  const student = students[index];
+  page.get("#student-number").value = `2099000${student.id.slice(-1)}`;
+  page.get("#student-password").value = `${student.id}-pass`;
+  page.get("#login-form").listeners.get("submit")({ preventDefault() {} });
   await flush();
-  click(page.choices()[index]);
+  for (const [id, timer] of page.timers) {
+    if (timer.delay === 650) { page.timers.delete(id); timer.callback(); }
+  }
   await flush();
 }
-
 function ask(page) {
   page.get("#question").value = "가상 질문";
   page.get("#composer").listeners.get("submit")({ preventDefault() {} });
 }
 
-test("로그인 목록에 가상 표기와 상황이 보이고 개인정보 입력란을 만들지 않는다", async () => {
-  assert.doesNotMatch(html + script, /type\s*=\s*["']password["']/i);
-  assert.doesNotMatch(html, /<input[^>]*(?:학번|계정|password|student[-_]?number)/i);
-  assert.match(html, /<button(?=[^>]*id="demo-login")(?=[^>]*aria-controls="demo-students")(?=[^>]*aria-expanded="false")[^>]*>/);
-  assert.match(html, /id="demo-notice"[^>]*(?:role="status"|aria-live="polite")/);
+test("시연 계정 버튼은 두 칸만 채우고 로그인 요청이나 저장을 하지 않는다", () => {
   const page = loadPage();
-  assert.equal(page.requests.length, 0);
-  click(page.get("#demo-login"));
-  await flush();
-  assert.equal(page.get("#demo-students").hidden, false);
-  assert.equal(page.get("#demo-login").getAttribute("aria-expanded"), "true");
-  assert.equal(page.choices().length, 3);
-  for (const [index, student] of students.entries()) {
-    assert.match(text(page.choices()[index]), new RegExp(student.label));
-    assert.match(text(page.choices()[index]), new RegExp(student.scenario));
-    assert.equal(page.choices()[index].type, "button");
-  }
-  assert.match(html, /가상 학생 데이터입니다/);
-  assert.match(html, /id="demo-identity"[\s\S]*?가상 학생 데이터입니다[\s\S]*?<\/div>/);
-  assert.match(html, /id="demo-students"[\s\S]*?가상 학생 데이터입니다[\s\S]*?<\/section>/);
-});
-
-test("펼친 목록에서 Escape를 누르면 목록을 닫고 로그인 버튼으로 초점을 돌린다", async () => {
-  const page = loadPage();
-  click(page.get("#demo-login"));
-  await flush();
-  let prevented = false;
-  page.get("#demo-students").listeners.get("keydown")({ key: "Escape", preventDefault() { prevented = true; } });
-  assert.equal(prevented, true);
-  assert.equal(page.get("#demo-students").hidden, true);
-  assert.equal(page.get("#demo-login").getAttribute("aria-expanded"), "false");
-  assert.equal(page.focused, page.get("#demo-login"));
-});
-
-test("목록 응답 전에 닫았다 다시 열어도 학생 버튼을 중복해서 만들지 않는다", async () => {
-  let finish;
-  const page = loadPage({ listResult: () => new Promise(resolve => { finish = resolve; }) });
-  click(page.get("#demo-login"));
-  click(page.get("#demo-login"));
-  click(page.get("#demo-login"));
-  finish(ok({ students }));
-  await flush();
-  assert.equal(page.choices().length, 3);
-  assert.equal(page.requests.length, 1);
-});
-
-test("목록 조회 실패는 재시도를 제공하고 가상 표시가 없는 목록은 선택하지 못하게 한다", async () => {
-  let attempts = 0;
-  const page = loadPage({ listResult: () => ++attempts === 1 ? { ok: false, status: 503 } : ok({ students }) });
-  click(page.get("#demo-login"));
-  await flush();
-  assert.match(text(page.get("#demo-notice")), /불러오지 못했어요/);
-  assert.equal(page.choices().length, 1);
-  assert.equal(text(page.choices()[0]), "다시 시도");
-  click(page.choices()[0]);
-  await flush();
-  assert.equal(page.choices().length, 3);
-
-  const malformed = loadPage({ list: [{ ...students[0], is_fictional: false }] });
-  click(malformed.get("#demo-login"));
-  await flush();
-  assert.equal(malformed.choices().length, 1);
-  assert.equal(text(malformed.choices()[0]), "다시 시도");
-  assert.equal(malformed.get("#demo-identity").hidden, true);
-  assert.equal(malformed.storage.size, 0);
-});
-
-test("세 졸업·비교과 시작 버튼은 선택 전에 목록으로 안내하고 졸업 결과를 요청하지 않는다", async () => {
-  for (const index of [0, 1, 2]) {
-    const page = loadPage();
-    click(page.buttons[index]);
-    await flush();
-    assert.deepEqual(page.requests.map(request => request.path), ["/api/v1/demo-students"]);
-    assert.match(text(page.get("#demo-notice")), /먼저 가상 학생을 골라 주세요/);
-    assert.equal(page.get("#demo-students").hidden, false);
-    assert.ok(page.focused === page.choices()[0] || page.focused === page.get("#demo-students"));
-    click(page.choices()[0]);
-    await flush();
-    assert.equal(page.requests.length, 1, "선택만으로 졸업 체크를 시작하지 않음");
+  for (const [index, account] of page.accounts.entries()) {
+    click(account);
+    assert.equal(page.get("#student-number").value, `2099000${students[index].id.slice(-1)}`);
+    assert.equal(page.get("#student-password").value, `${students[index].id}-pass`);
+    assert.equal(page.requests.length, 0);
+    assert.equal(page.storage.size, 0);
+    assert.equal(text(page.get("#login-pet-line")), "좋아요, 로그인을 눌러 보세요");
   }
 });
 
-test("선택한 ID 하나만 탭에 저장하고 이름·나가기를 표시하며 펫 축하 뒤 idle로 돌아간다", async () => {
-  const page = loadPage();
+test("로그아웃해도 일반 질문 대화는 남긴다", async () => {
+  const page = loadPage({ result: path => path === "/api/v1/chat" ? ok({ session_id: "fictional-session", answered: false }) : ok(graduation()) });
   await select(page);
-  assert.deepEqual([...page.storage], [[storageKey, "demo-d02"]]);
-  assert.equal(page.get("#demo-identity").hidden, false);
-  assert.equal(page.get("#demo-login").hidden, true);
-  assert.equal(page.get("#demo-students").hidden, true);
-  assert.equal(text(page.get("#demo-label")), "가상 학생 D02");
-  assert.equal(page.focused, page.get("#demo-logout"));
-  assert.equal(page.get("#pet-dock").getAttribute("data-pose"), "celebrate");
-  assert.match(text(page.get("#pet-line")), /가상 학생 D02.*들어왔어요/);
-  assert.equal(page.timers.size, 1);
-  const timer = [...page.timers.values()][0];
-  assert.equal(timer.delay, 1200);
-  timer.callback();
-  assert.equal(page.get("#pet-dock").getAttribute("data-state"), "idle");
+  ask(page);
+  await flush();
+  const questionTurn = page.get("#transcript").children[0];
+  click(page.buttons[0]);
+  await flush();
   click(page.get("#demo-logout"));
+  assert.deepEqual(page.get("#transcript").children, [questionTurn]);
+  assert.match(text(questionTurn), /가상 질문/);
+});
+
+test("서버가 성공하기 전에는 학생과 탭 저장값을 정하지 않는다", async () => {
+  let finish;
+  const page = loadPage({ loginResult: () => new Promise(resolve => { finish = resolve; }) });
+  page.get("#student-number").value = "20990002";
+  page.get("#student-password").value = "demo-d02-pass";
+  page.get("#login-form").listeners.get("submit")({ preventDefault() {} });
   assert.equal(page.storage.size, 0);
-  assert.equal(page.get("#demo-identity").hidden, true);
-  assert.equal(page.get("#demo-login").hidden, false);
-  assert.equal(page.focused, page.get("#demo-login"));
+  assert.equal(page.requests[0].path, "/api/v1/demo-login");
+  assert.equal(page.requests[0].options.method, "POST");
+  assert.deepEqual(JSON.parse(page.requests[0].options.body), { student_number: "20990002", password: "demo-d02-pass" });
+  finish(ok({ student: students[0] }));
+  await flush();
+  assert.deepEqual([...page.storage], [[storageKey, "demo-d02"]]);
+  assert.equal(page.get("#login-screen").hidden, false);
+  const timer = [...page.timers.values()][0];
+  assert.equal(timer.delay, 650);
+  timer.callback();
+  await flush();
+  assert.equal(page.get("#login-screen").hidden, true);
+  assert.equal(page.get("#main-screen").hidden, false);
+  assert.equal(text(page.get("#demo-label")), students[0].label);
 });
 
-test("학생별 요청은 한 번만 보내고 로그아웃하면 결과를 지운다", async () => {
-  const page = loadPage({ result: path => ok(graduation(path.endsWith("demo-d03") ? "demo-d03" : "demo-d02")) });
-  await select(page, 1);
-  click(page.buttons[0]);
-  click(page.buttons[0]);
+test("허용된 시연 학번의 비밀번호를 그대로 보내고 불일치는 로그인 화면에 남긴다", async () => {
+  const page = loadPage({ loginResult: () => ({ ok: false, status: 401, json: async () => ({ detail: "학번 또는 비밀번호가 맞지 않아요" }) }) });
+  page.get("#student-number").value = "20990002";
+  page.get("#student-password").value = " 다른 비밀번호 ";
+  page.get("#login-form").listeners.get("submit")({ preventDefault() {} });
   await flush();
-  assert.deepEqual(page.requests.map(request => request.path), [
-    "/api/v1/demo-students", "/api/v1/graduation-demo?student_id=demo-d03",
-  ]);
-  assert.equal(page.tables().length, 1);
-  assert.match(text(page.tables()[0]), /가상 학생 D03/);
-  click(page.get("#demo-logout"));
-  assert.equal(page.tables().length, 0);
-  assert.deepEqual(page.get("#transcript").children, [page.get("#empty")]);
+  assert.deepEqual(JSON.parse(page.requests[0].options.body), { student_number: "20990002", password: " 다른 비밀번호 " });
+  assert.equal(page.storage.size, 0);
+  assert.match(text(page.get("#login-error")), /학번 또는 비밀번호가 맞지 않아요/);
+  assert.match(text(page.get("#login-pet-line")), /쉿, 시연 계정으로만 들어올 수 있어요/);
 });
 
-test("응답 학생이 다르면 결과를 숨기고 재시도하며 404면 선택과 저장 ID를 지운다", async () => {
-  const mismatch = loadPage({ result: () => ok(graduation("demo-d03")) });
-  await select(mismatch);
-  click(mismatch.buttons[0]);
-  await flush();
-  assert.equal(mismatch.tables().length, 0);
-  assert.equal(mismatch.retries().length, 1);
-  assert.match(text(mismatch.get("#transcript")), /다시 시도/);
-
-  const missing = loadPage({ result: () => ({ ok: false, status: 404 }) });
-  await select(missing);
-  click(missing.buttons[0]);
-  await flush();
-  assert.equal(missing.tables().length, 0);
-  assert.equal(missing.storage.size, 0);
-  assert.equal(missing.get("#demo-identity").hidden, true);
-  assert.equal(missing.get("#demo-students").hidden, false);
-  assert.match(text(missing.get("#demo-notice")), /골라 주세요/);
-  assert.deepEqual(missing.get("#transcript").children, [missing.get("#empty")]);
-});
-
-test("학생 결과를 지워도 다른 질문은 남기고 첫 화면을 덧붙이지 않는다", async () => {
-  for (const missing of [false, true]) {
-    const page = loadPage({ result: path => path === "/api/v1/chat"
-      ? ok({ session_id: "fictional-session", answered: false })
-      : missing ? { ok: false, status: 404 } : ok(graduation()) });
-    await select(page);
-    ask(page);
+test("세 시연 학번 밖의 값은 서버로 보내지 않고 같은 불일치 문구를 표시한다", async () => {
+  for (const number of ["", "20990001", "20990005", "20990099", "2099000", "209900020", " 20990002", "20990002 ", "DEMO-D02", "2099가002"]) {
+    const page = loadPage();
+    page.get("#student-number").value = number;
+    page.get("#student-password").value = "가상 비밀번호";
+    page.get("#login-form").listeners.get("submit")({ preventDefault() {} });
     await flush();
-    const questionTurn = page.get("#transcript").children[0];
+    assert.equal(page.requests.length, 0, number);
+    assert.equal(page.storage.size, 0);
+    assert.equal(page.get("#login-screen").hidden, false);
+    assert.equal(text(page.get("#login-error")), "학번 또는 비밀번호가 맞지 않아요");
+  }
+});
+
+test("둘러보기는 저장하지 않고 메인으로 가며 개인 기능은 로그인을 안내한다", async () => {
+  const page = loadPage();
+  click(page.get("#browse-main"));
+  assert.equal(page.get("#login-screen").hidden, true);
+  assert.equal(page.get("#main-screen").hidden, false);
+  assert.equal(page.get("#demo-login").hidden, false);
+  assert.equal(page.storage.size, 0);
+  click(page.buttons[0]);
+  await flush();
+  assert.equal(page.get("#login-screen").hidden, false);
+  assert.equal(page.requests.length, 0);
+});
+
+test("세 학생은 제출 뒤 ID 하나만 저장하고 로그아웃하면 개인 결과를 지운다", async () => {
+  for (let index = 0; index < students.length; index++) {
+    const student = students[index];
+    const page = loadPage({ result: () => ok(graduation(student.id)) });
+    await select(page, index);
+    assert.deepEqual([...page.storage], [[storageKey, student.id]]);
+    assert.equal(page.get("#demo-identity").hidden, false);
     click(page.buttons[0]);
     await flush();
-    if (!missing) click(page.get("#demo-logout"));
-    assert.deepEqual(page.get("#transcript").children, [questionTurn]);
-    assert.match(text(questionTurn), /가상 질문/);
-    assert.equal(page.get("#empty").parent, null);
+    assert.equal(page.tables().length, 1);
+    assert.equal(page.requests.at(-1).path, `/api/v1/graduation-demo?student_id=${student.id}`);
+    click(page.get("#demo-logout"));
+    assert.equal(page.storage.size, 0);
+    assert.equal(page.tables().length, 0);
+    assert.equal(page.get("#login-screen").hidden, false);
+    assert.equal(page.get("#student-password").value, "");
   }
 });
 
-test("일반 질문을 기다리는 중 학생을 고르거나 나가도 펫의 대기 상태를 유지한다", async () => {
-  for (const leaving of [false, true]) {
+test("둘러보기와 로그아웃 뒤 늦은 로그인 응답은 이전 화면을 되살리지 않는다", async () => {
+  for (const destination of ["#browse-main", "#demo-logout"]) {
     let finish;
-    const page = loadPage({ result: () => new Promise(resolve => { finish = resolve; }) });
-    if (leaving) await select(page);
-    ask(page);
-    const dock = page.get("#pet-dock");
-    const waitingLine = text(page.get("#pet-line"));
-    assert.equal(dock.getAttribute("data-state"), "searching");
-    if (leaving) click(page.get("#demo-logout"));
-    else await select(page);
-    assert.equal(dock.getAttribute("data-state"), "searching");
-    assert.equal(text(page.get("#pet-line")), waitingLine);
-    assert.equal(page.timers.size, 0);
-    finish(ok({ session_id: "fictional-session", answered: false }));
+    const page = loadPage({ loginResult: () => new Promise(resolve => { finish = resolve; }) });
+    page.get("#student-number").value = "20990002";
+    page.get("#student-password").value = "demo-d02-pass";
+    page.get("#login-form").listeners.get("submit")({ preventDefault() {} });
+    click(page.get(destination));
+    finish(ok({ student: students[0] }));
     await flush();
-    assert.equal(dock.getAttribute("data-state"), "hold");
+    assert.equal(page.storage.size, 0);
+    assert.equal(page.get("#demo-identity").hidden, true);
+    assert.equal(page.timers.size, 0);
   }
 });
 
-test("나간 뒤 늦게 온 응답과 예전 재시도는 이전 학생 결과를 만들지 않는다", async () => {
+test("재제출 뒤 먼저 도착한 이전 계정 응답은 버린다", async () => {
+  const pending = [];
+  const page = loadPage({ loginResult: () => new Promise(resolve => pending.push(resolve)) });
+  for (const student of students.slice(0, 2)) {
+    page.get("#student-number").value = `2099000${student.id.slice(-1)}`;
+    page.get("#student-password").value = `${student.id}-pass`;
+    page.get("#login-form").listeners.get("submit")({ preventDefault() {} });
+  }
+  pending[0](ok({ student: students[0] }));
+  await flush();
+  assert.equal(page.storage.size, 0);
+  pending[1](ok({ student: students[1] }));
+  await flush();
+  assert.deepEqual([...page.storage], [[storageKey, students[1].id]]);
+});
+
+test("취소한 축하 타이머를 직접 불러도 화면이 돌아가지 않는다", async () => {
+  const page = loadPage();
+  page.get("#student-number").value = "20990002";
+  page.get("#student-password").value = "demo-d02-pass";
+  page.get("#login-form").listeners.get("submit")({ preventDefault() {} });
+  await flush();
+  const oldTimer = [...page.timers.values()][0];
+  click(page.get("#demo-logout"));
+  oldTimer.callback();
+  await flush();
+  assert.equal(page.get("#login-screen").hidden, false);
+  assert.equal(page.storage.size, 0);
+});
+
+test("저장 ID는 목록으로 확인해 복원하고 사라진 ID는 지운다", async () => {
+  const page = loadPage({ saved: "demo-d04" });
+  await flush();
+  assert.deepEqual(page.requests.map(request => request.path), ["/api/v1/demo-students"]);
+  assert.equal(text(page.get("#demo-label")), "가상 학생 D04");
+  assert.equal(page.get("#demo-identity").hidden, false);
+  assert.equal(page.timers.size, 0);
+  const removed = loadPage({ saved: "demo-retired" });
+  await flush();
+  assert.equal(removed.storage.size, 0);
+  assert.equal(removed.get("#demo-identity").hidden, true);
+});
+
+test("목록 조회가 일시 실패하면 ID를 남기고 탭 저장소가 막혀도 로그인한다", async () => {
+  const failed = loadPage({ saved: "demo-d04", listResult: () => { throw new Error("가상 실패"); } });
+  await flush();
+  assert.deepEqual([...failed.storage], [[storageKey, "demo-d04"]]);
+  assert.equal(failed.get("#demo-identity").hidden, true);
+  assert.match(text(failed.get("#login-error")), /복원하지 못했어요/);
+  const page = loadPage({ storageFails: true });
+  await select(page);
+  click(page.buttons[0]);
+  await flush();
+  assert.equal(page.tables().length, 1);
+  click(page.get("#demo-logout"));
+  assert.equal(page.tables().length, 0);
+});
+
+test("로그아웃 뒤 늦은 졸업 결과와 예전 재시도는 이전 학생 결과를 만들지 않는다", async () => {
   let finish;
   const page = loadPage({ result: () => new Promise(resolve => { finish = resolve; }) });
   await select(page);
@@ -363,155 +373,30 @@ test("나간 뒤 늦게 온 응답과 예전 재시도는 이전 학생 결과�
   await flush();
   assert.equal(page.tables().length, 0);
   assert.equal(text(page.get("#demo-label")), "가상 학생 D03");
-
-  const failed = loadPage({ result: () => { throw new Error("가상 요청 실패"); } });
+  const failed = loadPage({ result: () => { throw new Error("가상 실패"); } });
   await select(failed);
   click(failed.buttons[0]);
   await flush();
-  const oldRetry = failed.retries()[0];
+  const retry = failed.retries()[0];
   click(failed.get("#demo-logout"));
   await select(failed, 1);
   const before = failed.requests.length;
-  click(oldRetry);
+  click(retry);
   await flush();
   assert.equal(failed.requests.length, before);
-  assert.equal(failed.tables().length, 0);
 });
 
-test("저장 ID는 새 목록으로 확인해 복원하고 사라진 ID는 지운다", async () => {
-  const page = loadPage({ saved: "demo-d04" });
-  await flush();
-  assert.deepEqual(page.requests.map(request => request.path), ["/api/v1/demo-students"]);
-  assert.equal(text(page.get("#demo-label")), "가상 학생 D04");
-  assert.equal(page.get("#demo-identity").hidden, false);
-  assert.equal(page.timers.size, 0, "새로고침 복원에서는 축하를 되풀이하지 않음");
-  const removed = loadPage({ saved: "demo-retired" });
-  await flush();
-  assert.equal(removed.storage.size, 0);
-  assert.equal(removed.get("#demo-identity").hidden, true);
-});
 
-test("탭 저장소가 막혀도 선택한 학생으로 조회하고 나갈 수 있다", async () => {
-  const page = loadPage({ storageFails: true });
-  await select(page);
-  click(page.buttons[0]);
-  await flush();
-  assert.equal(page.tables().length, 1);
-  assert.equal(page.requests.at(-1).path, "/api/v1/graduation-demo?student_id=demo-d02");
-  click(page.get("#demo-logout"));
-  assert.equal(page.get("#demo-identity").hidden, true);
-  assert.equal(page.tables().length, 0);
-});
-
-test("복원할 목록을 일시적으로 받지 못해도 저장 ID를 유지해 다음 새로고침에서 복원한다", async () => {
-  for (const failure of ["network", "server"]) {
-    const page = loadPage({ saved: "demo-d04", listResult: () => {
-      if (failure === "network") throw new Error("가상 연결 실패");
-      return { ok: false, status: 503 };
+test("로그인 화면 전환의 동기·비동기 실패에도 메인으로 이동한다", async () => {
+  for (const kind of ["throw", "ready", "updateCallbackDone", "finished"]) {
+    const page = loadPage({ startViewTransition() {
+      if (kind === "throw") throw new Error("가상 전환 실패");
+      return Object.fromEntries(["ready", "updateCallbackDone", "finished"].map(name =>
+        [name, name === kind ? Promise.reject(new Error("가상 전환 실패")) : new Promise(() => {})]));
     } });
+    await select(page);
     await flush();
-    assert.deepEqual([...page.storage], [[storageKey, "demo-d04"]]);
-    assert.equal(page.get("#demo-identity").hidden, true);
-    const refreshed = loadPage({ saved: page.storage.get(storageKey) });
-    await flush();
-    assert.equal(text(refreshed.get("#demo-label")), "가상 학생 D04");
-    assert.equal(refreshed.get("#demo-identity").hidden, false);
+    assert.equal(page.get("#login-screen").hidden, true, kind);
+    assert.equal(page.get("#main-screen").hidden, false, kind);
   }
-});
-
-test("바깥 클릭은 목록을 닫고 클릭한 곳의 초점을 유지한다", async () => {
-  const page = loadPage();
-  click(page.get("#demo-login"));
-  await flush();
-  const outside = page.get("#question");
-  const previousFocus = page.focused;
-  page.dispatch("click", outside);
-  assert.equal(page.focused, previousFocus);
-  outside.focus();
-  assert.equal(page.get("#demo-students").hidden, true);
-  assert.equal(page.focused, outside);
-  assert.equal(page.get("#demo-login").getAttribute("aria-expanded"), "false");
-});
-
-test("로그인 버튼에서 Escape를 누르면 목록을 닫고 버튼에 초점을 둔다", async () => {
-  const page = loadPage();
-  click(page.get("#demo-login"));
-  await flush();
-  page.get("#demo-login").focus();
-  let prevented = false;
-  page.get("#demo-login").listeners.get("keydown")({ key: "Escape", preventDefault() { prevented = true; } });
-  assert.equal(prevented, true);
-  assert.equal(page.get("#demo-students").hidden, true);
-  assert.equal(page.focused, page.get("#demo-login"));
-});
-
-test("Tab으로 메뉴 밖에 초점이 가면 닫고 메뉴 안 이동은 유지한다", async () => {
-  const page = loadPage();
-  click(page.get("#demo-login"));
-  await flush();
-  page.choices()[1].focus();
-  assert.equal(page.get("#demo-students").hidden, false);
-  page.get("#reset").focus();
-  assert.equal(page.get("#demo-students").hidden, true);
-  assert.equal(page.focused, page.get("#reset"));
-});
-
-test("졸업 체크 클릭이 문서에 전달되어도 방금 연 목록을 유지한다", async () => {
-  const page = loadPage();
-  page.click(page.buttons[0]);
-  await flush();
-  assert.equal(page.get("#demo-students").hidden, false);
-  assert.match(text(page.get("#demo-notice")), /먼저 가상 학생을 골라 주세요/);
-  assert.equal(page.focused, page.choices()[0]);
-});
-
-test("닫은 목록에 늦게 도착한 성공과 실패 응답은 초점을 가져가지 않는다", async () => {
-  for (const succeeds of [true, false]) {
-    let finish;
-    const page = loadPage({ listResult: () => new Promise(resolve => { finish = resolve; }) });
-    click(page.get("#demo-login"));
-    const outside = page.get("#question");
-    page.dispatch("click", outside);
-    outside.focus();
-    finish(succeeds ? ok({ students }) : { ok: false, status: 503 });
-    await flush();
-    assert.equal(page.get("#demo-students").hidden, true);
-    assert.equal(page.choices().length, 0);
-    assert.equal(page.focused, outside);
-    assert.equal(page.get("#demo-login").getAttribute("aria-expanded"), "false");
-  }
-});
-
-test("학생 메뉴는 상단 띠의 높이를 늘리지 않는 위치에 둔다", () => {
-  assert.match(css, /\.demo-account\s*\{[^}]*position:\s*relative/s);
-  assert.match(css, /#demo-students\s*\{[^}]*position:\s*absolute/s);
-  assert.match(css, /#demo-students\s*\{[^}]*overflow-y:\s*auto/s);
-  assert.doesNotMatch(css, /#demo-identity[^}]*flex-basis:\s*100%/s);
-  assert.doesNotMatch(css, /\.demo-account\s*\{[^}]*(?:\{|;)\s*width:\s*100%/s);
-});
-
-test("로딩·오류·미선택 안내는 메뉴 안에 있고 닫은 뒤 안내는 계정 영역에 둔다", async () => {
-  let finish;
-  const page = loadPage({ listResult: () => new Promise(resolve => { finish = resolve; }) });
-  page.click(page.get("#demo-login"));
-  const notice = page.get("#demo-notice");
-  assert.equal(notice.parentElement, page.get("#demo-students"));
-  assert.match(text(notice), /불러오는 중/);
-  finish({ ok: false, status: 503 });
-  await flush();
-  assert.equal(notice.parentElement, page.get("#demo-students"));
-  assert.match(text(notice), /불러오지 못했어요/);
-  page.click(page.get("#demo-login"));
-  assert.equal(notice.parentElement, page.get(".demo-account"));
-  assert.equal(text(notice), "");
-
-  const unselected = loadPage();
-  unselected.click(unselected.buttons[0]);
-  await flush();
-  assert.equal(unselected.get("#demo-notice").parentElement, unselected.get("#demo-students"));
-  assert.match(text(unselected.get("#demo-notice")), /먼저 가상 학생을 골라 주세요/);
-  click(unselected.choices()[1]);
-  click(unselected.get("#demo-logout"));
-  assert.equal(unselected.get("#demo-notice").parentElement, unselected.get(".demo-account"));
-  assert.match(text(unselected.get("#demo-notice")), /가상 학생에서 나왔어요/);
 });

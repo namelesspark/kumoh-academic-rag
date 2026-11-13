@@ -299,7 +299,8 @@ test("입력창 안에 사진 첨부 칸이 있고, 별도의 현수막 칸과 �
     assert.equal(html.includes(`id="${id}"`), false, id);
     assert.equal(script.includes(`#${id}`), false, id);
   }
-  assert.equal(html.split("<form").length, 2, "the composer must be the only form");
+  assert.equal(html.split("<form").length, 3, "로그인과 질문 입력 폼만 둔다");
+  assert.match(html, /<form id="login-form"/);
   assert.equal(script.includes("/api/v1/poster-lookup"), false);
 });
 

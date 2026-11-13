@@ -8,6 +8,47 @@
   <script src="/chat-assets/chat.js" defer></script>
 </head>
 <body>
+  <div class="campus-backdrop" aria-hidden="true">
+    <canvas id="campus-canvas" aria-hidden="true" hidden></canvas>
+    <div class="campus-overlay"></div>
+    <div id="campus-caption" class="campus-caption" hidden><span id="campus-name"></span><div id="campus-progress"></div></div>
+  </div>
+  <section id="login-screen" class="login-screen" aria-labelledby="login-title">
+    <div class="login-intro">
+      <p class="intro-badge">국립금오공과대학교 학사 안내</p>
+      <p class="drawing-dimension" aria-hidden="true">KIT · ACADEMIC GUIDE  ⟵ 2026 ⟶</p>
+      <span class="title-lettering" data-brand-slot hidden><img src="/chat-assets/title-lettering.png" alt="졸업까지, 테크모와 함께" width="1014" height="376"></span>
+      <h1 class="title-fallback">졸업까지,<span><em>테크모</em>와 함께</span></h1>
+      <div class="title-ticks" aria-hidden="true"></div>
+      <p class="intro-description">근거 조문과 함께 답하는 금오공대 학사 안내</p>
+    </div>
+    <div class="login-card">
+      <div id="login-pet" class="login-pet" data-pose="guide">
+        <p id="login-pet-line">학번으로 들어와 보세요!</p>
+        <span class="login-techmo" data-brand-slot hidden><img src="/chat-assets/techmo-sprite.png" alt="" width="960" height="192"><span class="pet-frame"></span></span>
+      </div>
+      <span class="login-brand" data-brand-slot hidden><img src="/chat-assets/kumoh-signature.png" alt="국립금오공과대학교" width="782" height="113"></span>
+      <h2 id="login-title">로그인</h2>
+      <p class="login-help">시연 계정으로 이수 내역을 확인해 보세요.</p>
+      <form id="login-form">
+        <label for="student-number">학번</label><input id="student-number" name="student_number" type="text" inputmode="numeric" autocomplete="off" maxlength="8" placeholder="예: 20990002" required>
+        <label for="student-password">비밀번호</label><input id="student-password" name="password" type="password" autocomplete="off" maxlength="64" required>
+        <p class="login-safety">시연 전용 계정입니다. 실제 학번이나 비밀번호를 입력하지 마세요.</p>
+        <button class="login-submit" id="login-submit" type="submit">로그인</button>
+        <p id="login-error" role="alert"></p>
+      </form>
+      <section id="demo-students" aria-label="시연 계정">
+        <p class="login-help">시연 계정 · 누르면 채워집니다</p>
+        <div id="demo-student-list">
+          <button type="button" data-demo-account="20990002"><strong>20990002</strong><span>졸업 요건에 가까움</span></button>
+          <button type="button" data-demo-account="20990003"><strong>20990003</strong><span>학점이 많이 남음</span></button>
+          <button type="button" data-demo-account="20990004"><strong>20990004</strong><span>비교과 점수 부족</span></button>
+        </div>
+      </section>
+      <button type="button" class="browse-main" id="browse-main">로그인 없이 둘러보기</button>
+    </div>
+  </section>
+  <div id="main-screen" hidden>
   <header class="masthead">
     <div class="masthead-inner">
       <h1 class="brand">
@@ -19,21 +60,18 @@
       </h1>
       <div class="masthead-actions">
         <div class="demo-account">
-          <button type="button" class="login" id="demo-login" aria-expanded="false" aria-controls="demo-students">가상 학생 로그인</button>
+          <button type="button" class="login" id="demo-login" aria-expanded="false" aria-controls="login-screen">로그인</button>
           <div id="demo-identity" hidden>
             <span class="demo-person"><span id="demo-label"></span><span class="hint">가상 학생 데이터입니다</span></span>
-            <button type="button" class="reset" id="demo-logout">나가기</button>
+            <button type="button" class="reset" id="demo-logout">로그아웃</button>
           </div>
-          <section id="demo-students" aria-label="가상 학생 고르기" hidden>
-            <p class="hint">가상 학생 데이터입니다</p>
-            <div id="demo-student-list"></div>
-          </section>
           <p id="demo-notice" role="status" aria-live="polite"></p>
         </div>
         <button type="button" class="reset" id="reset">새 대화</button>
       </div>
     </div>
   </header>
+  <section class="main-welcome"><h2 id="main-greeting">학사 안내를 둘러보세요</h2><p>궁금한 학사 규정부터 캠퍼스 생활까지, 테크모에게 물어보세요.</p></section>
   <main class="layout">
     <details class="topics" id="topics" open>
       <summary>예시 질문</summary>
@@ -42,139 +80,6 @@
     </details>
     <section class="chat" aria-labelledby="chat-heading">
       <h2 id="chat-heading" class="sr-only">학사 규정에 질문하기</h2>
-      <div id="transcript" class="transcript" role="log" aria-label="대화 내용" tabindex="0">
-        <div id="empty" class="empty">
-          <section class="hero" aria-labelledby="hero-title">
-            <div class="hero-copy">
-              <h2 id="hero-title">졸업까지 남은 조건, 테크모가 같이 확인해요</h2>
-              <p>가상 학생의 이수 내역으로 졸업 조건을 계산하고, 규정 질문에는 근거 조문을 붙여 답해요.</p>
-              <div class="hero-actions">
-                <button type="button" class="cta" data-action="graduation">내 졸업 체크 보기</button>
-              </div>
-            </div>
-            <div class="hero-art" data-brand-slot hidden>
-              <img src="/chat-assets/techmo-basic.png" alt="" width="468" height="414">
-            </div>
-          </section>
-          <section class="features" aria-labelledby="features-title">
-            <h3 id="features-title" class="sr-only">기능 바로가기</h3>
-            <!-- 카드는 책갈피다. 누르면 기능을 바로 부르지 않고, 카드 목록 자리에 그 카드의 패널이 펼쳐진다.
-                 카드에는 data-feature만 두고 data-action은 두지 않는다. 기능은 패널 안의 시작 버튼이 부른다. -->
-            <ul class="cards" id="feature-cards">
-              <li>
-                <button type="button" class="card" data-feature="graduation" aria-controls="panel-graduation" aria-expanded="false">
-                  <span class="card-title">졸업 체크</span>
-                  <span class="card-text">가상 학생의 이수 내역으로 남은 졸업 조건을 계산해요.</span>
-                </button>
-              </li>
-              <li>
-                <button type="button" class="card" data-feature="biskit" aria-controls="panel-biskit" aria-expanded="false">
-                  <span class="card-title">비교과 추천</span>
-                  <span class="card-text">졸업 체크 결과 아래에 부족한 점수를 채울 프로그램이 함께 나와요.</span>
-                </button>
-              </li>
-              <li>
-                <button type="button" class="card" data-feature="photo" aria-controls="panel-photo" aria-expanded="false">
-                  <span class="card-title">사진으로 묻기</span>
-                  <span class="card-text">포스터나 안내문 사진을 고르면 글자를 읽어 답을 찾아요.</span>
-                </button>
-              </li>
-              <li>
-                <button type="button" class="card" data-feature="ask" aria-controls="panel-ask" aria-expanded="false">
-                  <span class="card-title">규정 질문</span>
-                  <span class="card-text">궁금한 점을 적으면 근거 조문과 함께 답해요.</span>
-                </button>
-              </li>
-              <li>
-                <button type="button" class="card" data-feature="calendar" aria-controls="panel-calendar" aria-expanded="false">
-                  <span class="card-title">학사 일정</span>
-                  <span class="card-text">확인한 수강신청 일정을 날짜순으로 보여 줘요.</span>
-                </button>
-              </li>
-              <li>
-                <button type="button" class="card" data-feature="campus" aria-controls="panel-campus" aria-expanded="false">
-                  <span class="card-title">캠퍼스 안내</span>
-                  <span class="card-text">장소를 고르면 용도와 위치를 볼 수 있어요.</span>
-                </button>
-              </li>
-            </ul>
-            <!-- 카드별 패널. 모두 숨긴 채 시작하고 chat.js가 한 번에 하나만 보인다. 화면 위에 띄우지 않고 글 흐름 안에 놓는다.
-                 제목은 열릴 때 초점을 받는다. 시작 버튼만 data-action을 가져, 요청 중에는 다른 버튼과 함께 잠긴다. -->
-            <section class="feature-panel" id="panel-graduation" data-panel="graduation" aria-labelledby="panel-graduation-title" hidden>
-              <div class="panel-head">
-                <h4 class="panel-title" id="panel-graduation-title" data-panel-title tabindex="-1">졸업 체크</h4>
-                <button type="button" class="panel-close" data-panel-close>닫기</button>
-              </div>
-              <p class="panel-text">가상 학생의 이수 내역으로 남은 졸업 조건을 계산해요. 항목마다 충족·부족·확인 필요를 표로 보여 주고, 적용한 근거를 함께 적어요.</p>
-              <div class="panel-actions">
-                <button type="button" class="cta" data-action="graduation">졸업 체크 시작</button>
-              </div>
-            </section>
-            <section class="feature-panel" id="panel-biskit" data-panel="biskit" aria-labelledby="panel-biskit-title" hidden>
-              <div class="panel-head">
-                <h4 class="panel-title" id="panel-biskit-title" data-panel-title tabindex="-1">비교과 추천</h4>
-                <button type="button" class="panel-close" data-panel-close>닫기</button>
-              </div>
-              <p class="panel-text">졸업 체크 결과 아래에 부족한 점수를 채울 프로그램이 함께 나와요. 접수 상태와 정원은 공식 페이지에서 다시 확인해 주세요.</p>
-              <div class="panel-actions">
-                <button type="button" class="cta" data-action="graduation">졸업 체크와 추천 보기</button>
-              </div>
-            </section>
-            <section class="feature-panel" id="panel-photo" data-panel="photo" aria-labelledby="panel-photo-title" hidden>
-              <div class="panel-head">
-                <h4 class="panel-title" id="panel-photo-title" data-panel-title tabindex="-1">사진으로 묻기</h4>
-                <button type="button" class="panel-close" data-panel-close>닫기</button>
-              </div>
-              <p class="panel-text">글자가 보이는 사진 한 장을 고르면 글자를 읽어 답을 찾아요. JPEG·PNG, 5MB 이하만 받아요. 얼굴이나 개인정보가 찍힌 사진은 올리지 마세요. 사진을 고른 뒤 「보내기」를 눌러 주세요.</p>
-              <div class="panel-actions">
-                <button type="button" class="cta" data-action="photo">사진 선택</button>
-              </div>
-            </section>
-            <section class="feature-panel" id="panel-ask" data-panel="ask" aria-labelledby="panel-ask-title" hidden>
-              <div class="panel-head">
-                <h4 class="panel-title" id="panel-ask-title" data-panel-title tabindex="-1">규정 질문</h4>
-                <button type="button" class="panel-close" data-panel-close>닫기</button>
-              </div>
-              <p class="panel-text">궁금한 점을 적으면 근거 조문과 함께 답해요. 근거를 찾지 못하면 지어내지 않고, 찾지 못했다고 알려요.</p>
-              <div class="panel-actions">
-                <button type="button" class="cta" data-action="ask">질문 입력하기</button>
-              </div>
-            </section>
-            <section class="feature-panel" id="panel-calendar" data-panel="calendar" aria-labelledby="panel-calendar-title" hidden>
-              <div class="panel-head">
-                <h4 class="panel-title" id="panel-calendar-title" data-panel-title tabindex="-1">학사 일정</h4>
-                <button type="button" class="panel-close" data-panel-close>닫기</button>
-              </div>
-              <p class="panel-text">종료일이 지나지 않은 수강신청 일정을 날짜순으로 보여 줘요.</p>
-              <div data-panel-content aria-live="polite"></div>
-            </section>
-            <section class="feature-panel" id="panel-campus" data-panel="campus" aria-labelledby="panel-campus-title" hidden>
-              <div class="panel-head">
-                <h4 class="panel-title" id="panel-campus-title" data-panel-title tabindex="-1">캠퍼스 안내</h4>
-                <button type="button" class="panel-close" data-panel-close>닫기</button>
-              </div>
-              <p class="panel-text">장소를 고르면 용도와 위치를 볼 수 있어요.</p>
-              <div data-panel-content aria-live="polite"></div>
-            </section>
-          </section>
-          <p class="empty-hint">예시 질문을 고르거나 직접 입력해 보세요.</p>
-        </div>
-      </div>
-      <noscript><p class="status">채팅을 사용하려면 브라우저에서 JavaScript를 켜 주세요.</p></noscript>
-      <p class="status" id="status" role="status"></p>
-      <!-- 테크모 펫과 말풍선. chat.js는 이 줄의 data-pose·data-state만 바꾸고, chat.css가 그 값으로 그림 칸과 움직임을 고른다.
-           펫 버튼은 숨긴 채 시작하고, 안에 든 그림이 로드에 성공해야 보인다. 그림이 없어도 말풍선은 남는다.
-           data-action을 주지 않아 답변을 기다리는 동안에도 눌린다. 진행 알림은 #status가 읽어 주므로 여기에는 알림 역할을 두지 않는다. -->
-      <div class="pet-dock" id="pet-dock" data-pose="guide" data-state="idle">
-        <p class="pet-says">
-          <span id="pet-line">궁금한 점을 물어보세요</span>
-          <span class="pet-dots" id="pet-dots" aria-hidden="true" hidden><span></span><span></span><span></span></span>
-        </p>
-        <button type="button" class="pet" id="pet" aria-label="테크모에게 묻기" data-brand-slot hidden>
-          <img src="/chat-assets/techmo-sprite.png" alt="" width="960" height="192">
-          <span class="pet-float"><span class="pet-hop"><span class="pet-frame"></span></span></span>
-        </button>
-      </div>
       <form id="composer" class="composer">
         <label for="question" class="sr-only">질문</label>
         <div class="composer-row">
@@ -190,10 +95,134 @@
         <p id="photo-hint">글자가 보이는 사진 한 장(JPEG·PNG, 5MB 이하). 서버는 사진을 저장하지 않아요. 얼굴이나 개인정보가 찍힌 사진은 올리지 마세요.</p>
         <p>학번, 이름 같은 개인정보는 입력하지 마세요.</p>
       </form>
+      <div id="transcript" class="transcript" role="log" aria-label="대화 내용" tabindex="0">
+        <div id="empty" class="empty">
+          <section class="hero sr-only" aria-labelledby="hero-title"><div class="hero-copy"><h2 id="hero-title">졸업까지 남은 조건, 테크모가 같이 확인해요</h2><p>규정 질문에는 근거 조문을 붙여 답해요.</p></div></section>
+          <section class="features" aria-labelledby="features-title">
+            <h3 id="features-title" class="sr-only">기능 바로가기</h3>
+            <!-- 카드는 책갈피다. 누르면 기능을 바로 부르지 않고, 카드 목록 자리에 그 카드의 패널이 펼쳐진다.
+                 카드에는 data-feature만 두고 data-action은 두지 않는다. 기능은 패널 안의 시작 버튼이 부른다. -->
+            <ul class="cards" id="feature-cards">
+              <li>
+                <button type="button" class="card" data-feature="graduation" aria-controls="panel-graduation" aria-expanded="false">
+                  <span class="card-heading"><span class="feature-badge" aria-hidden="true"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5.2 16.5a8 8 0 1 1 13.6 0"/><path class="a" d="m8.6 12.4 2.5 2.5 4.5-5"/><path d="M4 19.5h16"/></svg></span><span class="card-title">졸업 체크</span></span>
+                  <span class="card-text">가상 학생의 이수 내역으로 남은 졸업 조건을 계산해요.</span>
+                </button>
+              </li>
+              <li>
+                <button type="button" class="card" data-feature="biskit" aria-controls="panel-biskit" aria-expanded="false">
+                  <span class="card-heading"><span class="feature-badge" aria-hidden="true"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="5.5" cy="6.5" r="2"/><circle cx="5.5" cy="17.5" r="2"/><circle class="a f" cx="18" cy="12" r="2.6"/><path d="M7.5 6.5H11l3 4.2M7.5 17.5H11l3-4.2"/><path d="M11 6.5v11"/></svg></span><span class="card-title">비교과 추천</span></span>
+                  <span class="card-text">졸업 체크 결과 아래에 부족한 점수를 채울 프로그램이 함께 나와요.</span>
+                </button>
+              </li>
+              <li>
+                <button type="button" class="card" data-feature="photo" aria-controls="panel-photo" aria-expanded="false">
+                  <span class="card-heading"><span class="feature-badge" aria-hidden="true"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 8V5.5A1.5 1.5 0 0 1 5.5 4H8M16 4h2.5A1.5 1.5 0 0 1 20 5.5V8M20 16v2.5a1.5 1.5 0 0 1-1.5 1.5H16M8 20H5.5A1.5 1.5 0 0 1 4 18.5V16"/><path class="a" d="M3 12h18"/><path d="M8 9h8M8 15h5"/></svg></span><span class="card-title">사진으로 묻기</span></span>
+                  <span class="card-text">포스터나 안내문 사진을 고르면 글자를 읽어 답을 찾아요.</span>
+                </button>
+              </li>
+              <li>
+                <button type="button" class="card" data-feature="ask" aria-controls="panel-ask" aria-expanded="false">
+                  <span class="card-heading"><span class="feature-badge" aria-hidden="true"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M7 3.5h7.5L19 8v12.5H7Z"/><path d="M14.5 3.5V8H19"/><path class="a" d="m11.2 12-2 2.2 2 2.2M14.8 12l2 2.2-2 2.2"/></svg></span><span class="card-title">규정 질문</span></span>
+                  <span class="card-text">궁금한 점을 적으면 근거 조문과 함께 답해요.</span>
+                </button>
+              </li>
+              <li>
+                <button type="button" class="card" data-feature="calendar" aria-controls="panel-calendar" aria-expanded="false">
+                  <span class="card-heading"><span class="feature-badge" aria-hidden="true"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 4v16h16"/><path d="M7.5 8h6"/><path class="a" d="M10 12h7"/><path d="M8.5 16h4"/></svg></span><span class="card-title">학사 일정</span></span>
+                  <span class="card-text">확인한 수강신청 일정을 날짜순으로 보여 줘요.</span>
+                </button>
+              </li>
+              <li>
+                <button type="button" class="card" data-feature="campus" aria-controls="panel-campus" aria-expanded="false">
+                  <span class="card-heading"><span class="feature-badge" aria-hidden="true"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 9h16M4 15h16M9 4v16M15 4v16"/><circle class="a" cx="12" cy="12" r="3.2"/><circle class="a f" cx="12" cy="12" r="1"/></svg></span><span class="card-title">캠퍼스 안내</span></span>
+                  <span class="card-text">장소를 고르면 용도와 위치를 볼 수 있어요.</span>
+                </button>
+              </li>
+            </ul>
+            <!-- 카드별 패널. 모두 숨긴 채 시작하고 chat.js가 한 번에 하나만 보인다. 화면 위에 띄우지 않고 글 흐름 안에 놓는다.
+                 제목은 열릴 때 초점을 받는다. 시작 버튼만 data-action을 가져, 요청 중에는 다른 버튼과 함께 잠긴다. -->
+            <section class="feature-panel" id="panel-graduation" data-panel="graduation" aria-labelledby="panel-graduation-title" hidden>
+              <div class="panel-head">
+                <h4 class="panel-title" id="panel-graduation-title" data-panel-title tabindex="-1"><span class="feature-badge" aria-hidden="true"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5.2 16.5a8 8 0 1 1 13.6 0"/><path class="a" d="m8.6 12.4 2.5 2.5 4.5-5"/><path d="M4 19.5h16"/></svg></span>졸업 체크</h4>
+                <button type="button" class="panel-close" data-panel-close>닫기</button>
+              </div>
+              <p class="panel-text">가상 학생의 이수 내역으로 남은 졸업 조건을 계산해요. 항목마다 충족·부족·확인 필요를 표로 보여 주고, 적용한 근거를 함께 적어요.</p>
+              <div class="panel-actions">
+                <button type="button" class="cta" data-action="graduation">졸업 체크 시작</button>
+              </div>
+            </section>
+            <section class="feature-panel" id="panel-biskit" data-panel="biskit" aria-labelledby="panel-biskit-title" hidden>
+              <div class="panel-head">
+                <h4 class="panel-title" id="panel-biskit-title" data-panel-title tabindex="-1"><span class="feature-badge" aria-hidden="true"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="5.5" cy="6.5" r="2"/><circle cx="5.5" cy="17.5" r="2"/><circle class="a f" cx="18" cy="12" r="2.6"/><path d="M7.5 6.5H11l3 4.2M7.5 17.5H11l3-4.2"/><path d="M11 6.5v11"/></svg></span>비교과 추천</h4>
+                <button type="button" class="panel-close" data-panel-close>닫기</button>
+              </div>
+              <p class="panel-text">졸업 체크 결과 아래에 부족한 점수를 채울 프로그램이 함께 나와요. 접수 상태와 정원은 공식 페이지에서 다시 확인해 주세요.</p>
+              <div class="panel-actions">
+                <button type="button" class="cta" data-action="graduation">졸업 체크와 추천 보기</button>
+              </div>
+            </section>
+            <section class="feature-panel" id="panel-photo" data-panel="photo" aria-labelledby="panel-photo-title" hidden>
+              <div class="panel-head">
+                <h4 class="panel-title" id="panel-photo-title" data-panel-title tabindex="-1"><span class="feature-badge" aria-hidden="true"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 8V5.5A1.5 1.5 0 0 1 5.5 4H8M16 4h2.5A1.5 1.5 0 0 1 20 5.5V8M20 16v2.5a1.5 1.5 0 0 1-1.5 1.5H16M8 20H5.5A1.5 1.5 0 0 1 4 18.5V16"/><path class="a" d="M3 12h18"/><path d="M8 9h8M8 15h5"/></svg></span>사진으로 묻기</h4>
+                <button type="button" class="panel-close" data-panel-close>닫기</button>
+              </div>
+              <p class="panel-text">글자가 보이는 사진 한 장을 고르면 글자를 읽어 답을 찾아요. JPEG·PNG, 5MB 이하만 받아요. 얼굴이나 개인정보가 찍힌 사진은 올리지 마세요. 사진을 고른 뒤 「보내기」를 눌러 주세요.</p>
+              <div class="panel-actions">
+                <button type="button" class="cta" data-action="photo">사진 선택</button>
+              </div>
+            </section>
+            <section class="feature-panel" id="panel-ask" data-panel="ask" aria-labelledby="panel-ask-title" hidden>
+              <div class="panel-head">
+                <h4 class="panel-title" id="panel-ask-title" data-panel-title tabindex="-1"><span class="feature-badge" aria-hidden="true"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M7 3.5h7.5L19 8v12.5H7Z"/><path d="M14.5 3.5V8H19"/><path class="a" d="m11.2 12-2 2.2 2 2.2M14.8 12l2 2.2-2 2.2"/></svg></span>규정 질문</h4>
+                <button type="button" class="panel-close" data-panel-close>닫기</button>
+              </div>
+              <p class="panel-text">궁금한 점을 적으면 근거 조문과 함께 답해요. 근거를 찾지 못하면 지어내지 않고, 찾지 못했다고 알려요.</p>
+              <div class="panel-actions">
+                <button type="button" class="cta" data-action="ask">질문 입력하기</button>
+              </div>
+            </section>
+            <section class="feature-panel" id="panel-calendar" data-panel="calendar" aria-labelledby="panel-calendar-title" hidden>
+              <div class="panel-head">
+                <h4 class="panel-title" id="panel-calendar-title" data-panel-title tabindex="-1"><span class="feature-badge" aria-hidden="true"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 4v16h16"/><path d="M7.5 8h6"/><path class="a" d="M10 12h7"/><path d="M8.5 16h4"/></svg></span>학사 일정</h4>
+                <button type="button" class="panel-close" data-panel-close>닫기</button>
+              </div>
+              <p class="panel-text">종료일이 지나지 않은 수강신청 일정을 날짜순으로 보여 줘요.</p>
+              <div data-panel-content aria-live="polite"></div>
+            </section>
+            <section class="feature-panel" id="panel-campus" data-panel="campus" aria-labelledby="panel-campus-title" hidden>
+              <div class="panel-head">
+                <h4 class="panel-title" id="panel-campus-title" data-panel-title tabindex="-1"><span class="feature-badge" aria-hidden="true"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 9h16M4 15h16M9 4v16M15 4v16"/><circle class="a" cx="12" cy="12" r="3.2"/><circle class="a f" cx="12" cy="12" r="1"/></svg></span>캠퍼스 안내</h4>
+                <button type="button" class="panel-close" data-panel-close>닫기</button>
+              </div>
+              <p class="panel-text">장소를 고르면 용도와 위치를 볼 수 있어요.</p>
+              <div data-panel-content aria-live="polite"></div>
+            </section>
+          </section>
+          <p class="empty-hint">예시 질문을 고르거나 직접 입력해 보세요.</p>
+        </div>
+      </div>
+      <noscript><p class="status">채팅을 사용하려면 브라우저에서 JavaScript를 켜 주세요.</p></noscript>
+      <p class="status" id="status" role="status"></p>
     </section>
   </main>
+      <!-- 테크모 펫과 말풍선. chat.js는 이 줄의 data-pose·data-state만 바꾸고, chat.css가 그 값으로 그림 칸과 움직임을 고른다.
+           펫 버튼은 숨긴 채 시작하고, 안에 든 그림이 로드에 성공해야 보인다. 그림이 없어도 말풍선은 남는다.
+           data-action을 주지 않아 답변을 기다리는 동안에도 눌린다. 진행 알림은 #status가 읽어 주므로 여기에는 알림 역할을 두지 않는다. -->
+      <div class="pet-dock" id="pet-dock" data-pose="guide" data-state="idle">
+        <p class="pet-says">
+          <span id="pet-line">궁금한 점을 물어보세요</span>
+          <span class="pet-dots" id="pet-dots" aria-hidden="true" hidden><span></span><span></span><span></span></span>
+        </p>
+        <button type="button" class="pet" id="pet" aria-label="테크모에게 묻기" data-brand-slot hidden>
+          <img src="/chat-assets/techmo-sprite.png" alt="" width="960" height="192">
+          <span class="pet-float"><span class="pet-hop"><span class="pet-frame"></span></span></span>
+        </button>
+      </div>
+
   <footer class="site-footer">
     <p>교내 대회 출품작 · 가상 학생 데이터로 동작하는 시연입니다</p>
   </footer>
+  </div>
 </body>
 </html>

@@ -34,7 +34,9 @@ test("카드 여섯 개는 모두 패널을 가리키는 버튼이고, 기능을
     const opening = `<button type="button" class="card${soon ? " soon" : ""}" data-feature="${id}"`
       + ` aria-controls="panel-${id}" aria-expanded="false">`;
     assert.ok(cards[index].startsWith(opening), id);
-    assert.ok(cards[index].slice(opening.length).trimStart().startsWith(`<span class="card-title">${title}</span>`), id);
+    const content = cards[index].slice(opening.length).trimStart();
+    assert.match(content, /^<span class="card-heading"><span class="feature-badge" aria-hidden="true">/, id);
+    assert.ok(content.includes(`<span class="card-title">${title}</span>`), id);
     assert.match(cards[index], /<span class="card-text">[^<]+<\/span>/, id);
     assert.equal(cards[index].includes("data-action"), false, id);
     // 서버 자료가 연결된 카드에는 준비 중 표시가 없다.
@@ -58,8 +60,9 @@ test("패널 여섯 개는 숨긴 채 시작하고 제목·닫기·시작 버튼
     assert.equal(html.split(`id="panel-${id}"`).length, 2, id);
 
     // 제목은 열릴 때 초점을 받는다. Tab 순서에는 들지 않는다.
-    const heading = `<h4 class="panel-title" id="panel-${id}-title" data-panel-title tabindex="-1">${title}</h4>`;
-    assert.equal(panel.split(heading).length, 2, id);
+    const heading = new RegExp(`<h4 class="panel-title" id="panel-${id}-title" data-panel-title tabindex="-1">([\\s\\S]*?)<\\/h4>`).exec(panel)?.[1] ?? "";
+    assert.match(heading, /^<span class="feature-badge" aria-hidden="true">/, id);
+    assert.ok(heading.trimEnd().endsWith(title), id);
     assert.equal(panel.split("data-panel-title").length, 2, id);
     assert.equal(panel.split('<button type="button" class="panel-close" data-panel-close>닫기</button>').length, 2, id);
     assert.equal(panel.split("data-panel-close").length, 2, id);
@@ -170,8 +173,8 @@ test("패널은 자리를 차지하는 상자라 펫·말풍선·입력창 위�
     assert.doesNotMatch(body, /(?:^|; )(?:position|z-index|inset|top|bottom|transform): /, selector);
   }
   assert.match(first(".feature-panel"), /^display: grid;/);
-  // 화면에 고정하는 요소는 넓은 화면의 펫 줄 하나뿐이다.
-  assert.deepEqual(rules.filter(([, body]) => body.includes("position: fixed")).map(([selector]) => selector), [".pet-dock"]);
+  // 화면에 고정하는 요소는 넓은 화면의 펫 줄과 공통 배경뿐이다.
+  assert.deepEqual(rules.filter(([, body]) => body.includes("position: fixed")).map(([selector]) => selector), [".pet-dock", ".campus-backdrop"]);
 
   // 닫기와 시작 버튼은 손가락으로 누를 만한 높이다.
   assert.equal(value(first(".panel-close"), "min-height"), "44px");
@@ -254,7 +257,9 @@ test("390px 묶음은 그림을 120px 이하로 줄여 제목 옆에 놓고 카�
     if (selector === "#demo-label") continue;
     assert.doesNotMatch(body, /line-clamp|text-overflow|max-lines/, selector);
   }
-  for (const [selector, body] of narrowRules) assert.doesNotMatch(body, /display: none|visibility|overflow: hidden/, selector);
+  for (const [selector, body] of narrowRules) {
+    assert.doesNotMatch(body, /display: none|visibility|overflow: hidden/, selector);
+  }
 });
 
 test("움직임 줄이기 묶음은 하나뿐이고 도형·펫·대기 점·카드 전환의 움직임을 모두 끈다", () => {
@@ -283,11 +288,11 @@ test("움직임 줄이기 묶음은 하나뿐이고 도형·펫·대기 점·카
 // --- UI_NOTES.md 읽기 ------------------------------------------------------------------------
 
 test("설계 문서가 펫·말풍선·패널·모핑을 지금 화면대로 설명하고, 다른 테스트가 찾는 문구를 남긴다", () => {
-  for (const kept of ["## 테크모 펫과 말풍선", "## 기능 카드와 패널", "## 첫 화면 도형 모핑", "공식 원문 보기"]) {
+  for (const kept of ["## 테크모 펫과 말풍선", "## 기능 카드와 패널", "## 로그인과 카드 움직임", "## 캠퍼스 사진 배경", "공식 원문 보기"]) {
     assert.ok(notes.includes(kept), kept);
   }
   // 화면과 스크립트가 함께 지키는 이름이 문서에도 같은 글자로 적혀 있다.
-  for (const name of ["data-feature", "data-panel", "data-panel-title", "data-panel-close", "data-morph", "feature-morph", "shape-morph"]) {
+  for (const name of ["data-feature", "data-panel", "data-panel-title", "data-panel-close", "data-morph", "feature-morph", "login-rise", "login-float", "card-lift"]) {
     assert.ok(notes.includes(name), name);
   }
   for (const [, title, soon, label] of features) {
