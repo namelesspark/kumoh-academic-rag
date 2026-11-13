@@ -23,6 +23,7 @@ POSTER_LOOKUP = "/api/v1/poster-lookup"
 PHOTO_QUESTION = "/api/v1/photo-question"
 TITLE = "가상 별빛 인턴 설명회"
 EVENT_TEXT = f"{TITLE}\n행사 일시 2031-11-23"
+UNLISTED_TITLE = "가상 달빛 코딩 박람회"
 NOTICE = "https://example.kumoh.ac.kr/ko/sub0101.do?articleNo=101&mode=view"
 NOTICE_QR = "https://example.kumoh.ac.kr/md/sub0101.do?articleNo=102&mode=view"
 PROGRAM_PATH = "/ptfol/imng/icmpNsbjtPgm/findIcmpNsbjtPgmInfo.do?encSddpbSeq=103"
@@ -272,6 +273,79 @@ class PhotoInputTests(unittest.TestCase):
             self.assertEqual(response.status, 200)
             self.assertEqual(response.json()["kind"], "campus")
             self.assertIn(other.name, response.json()["answer"])
+
+    def unrelated_search(self):
+        """무엇을 물어도 무관한 가상 조문을 돌려주는 검색을 앱에 끼운다."""
+        answer = "제112조(바람 열람) 가상의 바람 열람실은 정오에 닫는다."
+        search = Mock(return_value=[SimpleNamespace(
+            chunk=SimpleNamespace(article_path="가상 제112조", start=0, end=len(answer)),
+        )])
+        self.app.state.chat_retrieval = ChatRetrieval(
+            search=search,
+            source=answer,
+            document_title="가상 열람 규정",
+            effective_date=date(2031, 11, 13),
+            source_url="https://example.invalid/regulation",
+        )
+        return search
+
+    def ask(self, recognized_text="", question="", session_id=None):
+        return call_app(self.app, "POST", PHOTO_QUESTION, json_body={
+            "question": question, "recognized_text": recognized_text, "session_id": session_id,
+        })
+
+    def test_unconfirmed_event_question_holds_without_regulation_search(self):
+        search = self.unrelated_search()
+        poster = f"{UNLISTED_TITLE} 11월 23일"
+        for question in ("이 행사 신청 어디서 해?", "설명회 언제야?", "이 특강 누가 들을 수 있어?", "박람회 장소 알려 줘"):
+            for recognized in (poster, UNLISTED_TITLE, ""):
+                for session_id in (None, "s-1"):
+                    with self.subTest(question=question, recognized=recognized, session_id=session_id):
+                        self.assert_hold(self.ask(recognized, question, session_id))
+        search.assert_not_called()
+
+    def test_recognized_text_with_month_day_is_not_searched_as_regulation(self):
+        search = self.unrelated_search()
+        for written in (
+            "11월 23일", "11월23일", "11/23", "11.23", "11-23", "１１월 ２３일",
+            "2031.11.23", "2031년 11월 23일", "마감 11월 20일",
+        ):
+            with self.subTest(written=written):
+                self.assert_hold(self.ask(f"{UNLISTED_TITLE} {written}"))
+                self.assert_hold(self.ask(f"{UNLISTED_TITLE}\n{written} 13:30", session_id="s-1"))
+        search.assert_not_called()
+
+        # 날짜가 아닌 숫자는 지금처럼 판독문만으로 규정을 찾는다.
+        for recognized in ("가상 승인서 제112조", "가상 문의 054-478-7114", "가상 승인서 101호 2031년"):
+            with self.subTest(recognized=recognized):
+                search.reset_mock()
+                self.assertEqual(self.ask(recognized).json()["kind"], "regulation")
+                search.assert_called_once_with(recognized)
+
+    def test_question_without_event_word_searches_question_only(self):
+        search = self.unrelated_search()
+        poster = f"{UNLISTED_TITLE} 11월 23일"
+        for question, recognized in (
+            ("휴학 신청은 어떻게 해?", poster),
+            ("수강신청 정정은 언제까지야?", poster),
+            ("3월 2일까지 휴학 신청 돼?", ""),
+            ("3월 2일까지 휴학 신청 돼?", poster),
+        ):
+            with self.subTest(question=question, recognized=recognized):
+                search.reset_mock()
+                response = self.ask(recognized, question)
+                self.assertEqual(response.status, 200)
+                result = response.json()
+                self.assertEqual(result["kind"], "regulation")
+                self.assertIsNone(result["event"])
+                search.assert_called_once_with(question)
+
+        # 질문만으로 못 찾아도 날짜가 든 판독문을 합쳐 다시 찾지 않는다.
+        hits = search.return_value
+        search.reset_mock()
+        search.side_effect = lambda query: [] if query == "휴학 신청은 어떻게 해?" else hits
+        self.assert_hold(self.ask(poster, "휴학 신청은 어떻게 해?"))
+        search.assert_called_once_with("휴학 신청은 어떻게 해?")
 
     def test_empty_and_overlong_text(self):
         self.assert_hold(self.question("\n", " "))
