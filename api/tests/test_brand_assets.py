@@ -1,8 +1,10 @@
 """가상 그림과 응답만으로 공식 그림 준비와 제공을 확인함."""
 
 from hashlib import sha256
+from html.parser import HTMLParser
 from io import BytesIO
 from pathlib import Path
+import re
 import sys
 import unittest
 from unittest.mock import Mock, patch
@@ -906,6 +908,19 @@ class TestBrandAssetRoutes(unittest.TestCase):
                     response = call_app(web_main.app, "GET", f"/chat-assets/{name}", allow_wait=True)
                     self.assertEqual(response.status, 404)
 
+    def test_requests_from_the_retired_and_current_title_paths(self):
+        # 화면이 옛 주소를 부르면 그림을 준비해 두어도 404다. 새 주소만 그림에 닿는다.
+        png = image_bytes((2, 2))
+        with (
+            patch.object(Path, "is_file", return_value=True),
+            patch.object(web_main, "FileResponse", side_effect=lambda path, *, media_type, headers:
+                         web_main.Response(content=png, media_type=media_type, headers=headers)),
+        ):
+            statuses = {name: call_app(web_main.app, "GET", f"/chat-assets/{name}",
+                                       allow_wait=True).status
+                        for name in (RETIRED_TITLE_NAME, TITLE_NAME)}
+        self.assertEqual(statuses, {RETIRED_TITLE_NAME: 404, TITLE_NAME: 200})
+
     def test_unlisted_photo_names_are_404_without_touching_the_disk(self):
         with patch.object(Path, "is_file", side_effect=AssertionError("읽으면 안 됨")):
             for name in ("campus-other.jpg", "campus-aerial.jpeg", "CAMPUS-AERIAL.JPG",
@@ -913,6 +928,90 @@ class TestBrandAssetRoutes(unittest.TestCase):
                 with self.subTest(name=name):
                     response = call_app(web_main.app, "GET", f"/chat-assets/{name}", allow_wait=True)
                     self.assertEqual(response.status, 404)
+
+
+# 화면 파일에 적힌 `/chat-assets/<파일 이름>` 주소. `?v=` 같은 뒤쪽 값은 이름에 넣지 않는다.
+# 이름은 글자나 숫자로 끝난다. 설명 글에서 주소 뒤에 붙은 마침표를 이름으로 읽지 않기 위해서다.
+_ASSET_ADDRESS = re.compile(r"/chat-assets/([A-Za-z0-9._-]*[A-Za-z0-9])")
+
+
+def asset_names(text):
+    return _ASSET_ADDRESS.findall(text)
+
+
+class AssetReferences(HTMLParser):
+    """HTML 태그의 속성 값에 적힌 화면 파일 주소를 모은다."""
+
+    def __init__(self):
+        super().__init__()
+        self.names = []
+
+    def handle_starttag(self, tag, attrs):
+        for _, value in attrs:
+            self.names.extend(asset_names(value or ""))
+
+
+def html_asset_names(html):
+    parser = AssetReferences()
+    parser.feed(html)
+    parser.close()
+    return parser.names
+
+
+def unlisted(names):
+    """서버가 내주지 않는 이름만 순서대로 돌려준다."""
+    return [name for name in names if name not in web_main.CHAT_WEB_MEDIA_TYPES]
+
+
+class TestScreenAssetReferences(unittest.TestCase):
+    """화면이 요청하는 그림 주소와 서버의 허용 목록이 어긋나지 않는지 본다.
+
+    두 목록은 서로 다른 파일에 따로 적혀 있다. 한쪽 이름만 바뀌면 그림을 준비해 두어도
+    화면의 요청이 404가 된다. 붓글씨 그림 이름을 `title-lettering.png`으로 바꿀 때 이
+    어긋남이 두 번 났다. 그래서 화면 파일을 직접 읽어 허용 목록과 견준다.
+    """
+
+    def test_reader_finds_addresses_in_markup_styles_and_script(self):
+        html = ('<link rel="stylesheet" href="/chat-assets/chat.css?v=abc">'
+                '<img src="/chat-assets/kumoh-signature.png" alt="">'
+                '<img srcset="/chat-assets/a.png 1x, /chat-assets/b.png 2x" alt="">'
+                '<p>/chat-assets/in-text.png</p>')
+        self.assertEqual(html_asset_names(html),
+                         ["chat.css", "kumoh-signature.png", "a.png", "b.png"])
+        self.assertEqual(asset_names('.pet { background: url("/chat-assets/techmo-sprite.png"); }'),
+                         ["techmo-sprite.png"])
+        self.assertEqual(asset_names("fetch('/chat-assets/campus-aerial.jpg'); '/chat-assets/' + name"),
+                         ["campus-aerial.jpg"])
+        self.assertEqual(asset_names("// 그림은 /chat-assets/techmo-sprite.png. 한 장이다."),
+                         ["techmo-sprite.png"])
+
+    def test_retired_title_address_is_reported_and_current_one_is_not(self):
+        # 기존 재현 사례: 화면이 취소한 붓글씨 그림 주소를 그대로 요청한다.
+        retired = f'<img src="/chat-assets/{RETIRED_TITLE_NAME}" alt="졸업까지, 테크모와 함께">'
+        self.assertEqual(unlisted(html_asset_names(retired)), [RETIRED_TITLE_NAME])
+        # 최신 사례: 새 주소는 허용 목록에 있다.
+        current = f'<img src="/chat-assets/{TITLE_NAME}" alt="졸업까지, 테크모와 함께">'
+        self.assertEqual(unlisted(html_asset_names(current)), [])
+        # 스타일과 스크립트에 적힌 주소도 같은 기준으로 본다.
+        self.assertEqual(unlisted(asset_names(f'url("/chat-assets/{RETIRED_TITLE_NAME}")')),
+                         [RETIRED_TITLE_NAME])
+        self.assertEqual(unlisted(asset_names(
+            "'/chat-assets/campus-aerial.jpg', '/chat-assets/campus-other.jpg'")),
+            ["campus-other.jpg"])
+
+    def test_every_address_the_screen_requests_is_served(self):
+        read = lambda *parts: web_main.CHAT_WEB_DIR.joinpath(*parts).read_text(encoding="utf-8")
+        requested = {
+            "index.html": html_asset_names(read("index.html")),
+            "chat.css": asset_names(read("assets", "chat.css")),
+            "chat.js": asset_names(read("assets", "chat.js")),
+        }
+        # 화면은 적어도 스타일·스크립트·로고를 요청한다. 빈 목록이면 읽기가 잘못된 것이다.
+        self.assertTrue({"chat.css", "chat.js", "kumoh-signature.png"} <= set(requested["index.html"]))
+        for source, names in requested.items():
+            with self.subTest(source=source):
+                self.assertEqual(unlisted(names), [],
+                                 f"{source}이 요청하는 주소가 서버 허용 목록에 없습니다.")
 
 
 if __name__ == "__main__":
