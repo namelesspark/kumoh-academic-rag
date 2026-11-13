@@ -289,7 +289,7 @@ function descendants(node) {
 }
 
 const chatPath = "/api/v1/chat";
-const graduationPath = "/api/v1/graduation-demo";
+const graduationPath = "/api/v1/graduation-demo?student_id=demo-d02";
 const photoPath = "/api/v1/photo-input";
 const textPath = "/api/v1/photo-question";
 
@@ -308,7 +308,7 @@ function deferred() {
 const answeredChat = { session_id: "fictional-session", answered: true, answer: "가상 답변입니다.", citations: [] };
 const unansweredChat = { session_id: "fictional-session", answered: false, answer: null, citations: [] };
 const graduationResult = {
-  profile: { label: "가상 학생" },
+  profile: { id: "demo-d02", label: "가상 학생 D02" },
   items: [{ id: "total_credits", label: "학점", status: "met", current: "40학점", required: "40학점", basis: null }],
 };
 const fictionalEvent = { title: "가상 설명회", login_required: false };
@@ -346,7 +346,10 @@ function loadAssistant({ routes = {}, timers = true, sprite = null, motion = { m
   const context = {
     document: {
       querySelector(selector) {
-        if (!elements.has(selector)) elements.set(selector, new FakeElement(selector));
+        if (!elements.has(selector)) {
+          elements.set(selector, new FakeElement(selector));
+          if (selector === "#demo-students") elements.get(selector).hidden = true;
+        }
         return elements.get(selector);
       },
       querySelectorAll: selector => lists[selector] ?? [],
@@ -357,6 +360,9 @@ function loadAssistant({ routes = {}, timers = true, sprite = null, motion = { m
     URL,
     AbortSignal: { timeout: () => undefined },
     async fetch(path) {
+      if (path === "/api/v1/demo-students") return ok({ students: [
+        { id: "demo-d02", label: "가상 학생 D02", scenario: "졸업 요건에 가까움", is_fictional: true },
+      ] });
       requests.push(path);
       const route = routes[path];
       if (route === undefined) throw new Error(`unexpected request: ${path}`);
@@ -377,6 +383,11 @@ function loadAssistant({ routes = {}, timers = true, sprite = null, motion = { m
   runInNewContext(script, context, { filename: "chat.js" });
 
   const page = {
+    async selectStudent() {
+      elements.get("#demo-login").fire("click");
+      await setImmediate();
+      elements.get("#demo-student-list").children[0].fire("click");
+    },
     requests,
     graduation,
     pet,
@@ -535,6 +546,7 @@ test("답변 표시에서 새 대화로 가면 자세는 안내 그대로이고 
 test("졸업 체크: 남은 버튼으로 불러도 같은 규칙을 따르고, 요청 중에는 버튼이 잠겨 요청이 하나만 나간다", async () => {
   const result = deferred();
   const page = loadAssistant({ routes: { [graduationPath]: [result.promise, refused(500)] } });
+  await page.selectStudent();
 
   page.graduation.fire("click");
   assert.deepEqual(shown(page), searching);

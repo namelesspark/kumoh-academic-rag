@@ -22,7 +22,10 @@ class TestChatWeb(unittest.TestCase):
         self.assertIn("frame-ancestors 'none'", response.headers["content-security-policy"])
         self.assertIn('lang="ko"', response.text())
         # 예전 안내 상자의 문구 대신, 화면에 남아 있는 하단 표시의 문구를 본다.
-        self.assertIn("가상 학생 데이터", response.text())
+        self.assertIn("가상 학생 데이터입니다", response.text())
+        self.assertIn('id="demo-login"', response.text())
+        self.assertIn('id="demo-logout"', response.text())
+        self.assertNotIn('type="password"', response.text())
         self.assertEqual(response.headers['cache-control'], 'no-cache')
         for name in ('chat.css', 'chat.js'):
             digest = sha256((CHAT_WEB_DIR / 'assets' / name).read_bytes()).hexdigest()

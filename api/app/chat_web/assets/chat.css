@@ -91,7 +91,15 @@ h1, h2, h3, p { margin-top: 0; }
 .reset { border-color: var(--edge); background: var(--white); color: var(--navy); }
 .reset:not(:disabled):hover { border-color: var(--blue); background: var(--tint); color: var(--navy); }
 
-/* 로그인은 다음 이슈에서 붙인다. 눌리지 않는 자리라 점선 테두리와 문구로 알린다. */
+.demo-account { min-width: 0; max-width: 100%; }
+#demo-identity { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+#demo-identity .hint { flex-basis: 100%; margin: 0; }
+#demo-label, #demo-notice { overflow-wrap: anywhere; }
+#demo-notice { margin: 4px 0 0; font-size: .85rem; }
+#demo-students { margin-top: 8px; padding: 10px; border: 1px solid var(--edge); border-radius: 8px; }
+#demo-student-list { display: grid; gap: 8px; }
+#demo-student-list button { white-space: normal; text-align: left; overflow-wrap: anywhere; }
+.masthead-actions { min-width: 0; max-width: 100%; }
 .login {
   display: inline-flex;
   align-items: center;

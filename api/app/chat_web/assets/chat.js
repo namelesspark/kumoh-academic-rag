@@ -87,6 +87,145 @@ let assistantTimer = null;
 let openedCard = null;
 let panelTransition = null;
 let panelChange = 0;
+const demoLogin = document.querySelector("#demo-login");
+const demoStudents = document.querySelector("#demo-students");
+const demoStudentList = document.querySelector("#demo-student-list");
+const demoIdentity = document.querySelector("#demo-identity");
+const demoLabel = document.querySelector("#demo-label");
+const demoLogout = document.querySelector("#demo-logout");
+const demoNotice = document.querySelector("#demo-notice");
+const studentStorageKey = "demo-student-id";
+let selectedStudent = null;
+let studentGeneration = 0;
+let studentsRequest = null;
+
+function storedStudentId() {
+  try { return window.sessionStorage?.getItem(studentStorageKey); } catch { return null; }
+}
+
+function rememberStudent(id) {
+  try {
+    if (id) window.sessionStorage?.setItem(studentStorageKey, id);
+    else window.sessionStorage?.removeItem(studentStorageKey);
+  } catch { /* 저장 공간을 쓸 수 없어도 현재 탭에서는 선택을 유지한다. */ }
+}
+
+function closeStudents() {
+  demoStudents.hidden = true;
+  demoLogin.setAttribute("aria-expanded", "false");
+}
+
+function selectStudent(student, { restored = false } = {}) {
+  studentGeneration++;
+  selectedStudent = student;
+  rememberStudent(student.id);
+  demoLabel.textContent = student.label;
+  demoLogin.hidden = true;
+  demoIdentity.hidden = false;
+  demoNotice.textContent = "";
+  closeStudents();
+  if (!restored) {
+    demoLogout.focus();
+    if (!busy) celebrate("idle", `${student.label} 이수 내역으로 들어왔어요`);
+  }
+}
+
+function leaveStudent() {
+  studentGeneration++;
+  selectedStudent = null;
+  rememberStudent(null);
+  graduationTurn?.remove();
+  graduationTurn = null;
+  if (!transcript.children.length) {
+    changeFeature(null, { animate: false, focus: false });
+    transcript.append(empty);
+  }
+  demoIdentity.hidden = true;
+  demoLogin.hidden = false;
+  demoLabel.textContent = "";
+  closeStudents();
+  if (!busy) showAssistant("idle");
+}
+
+async function loadStudents() {
+  if (!studentsRequest) {
+    studentsRequest = (async () => {
+      const response = await fetch("/api/v1/demo-students", { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(30_000) });
+      if (!response.ok) throw new Error("Students request failed");
+      const result = await response.json();
+      const students = result?.students;
+      if (!Array.isArray(students) || !students.length || students.some(student =>
+        !student || typeof student.id !== "string" || !/^demo-[a-z0-9-]+$/.test(student.id) ||
+        typeof student.label !== "string" || !student.label.trim() || typeof student.scenario !== "string" || student.is_fictional !== true) ||
+        new Set(students.map(student => student.id)).size !== students.length) throw new Error("Malformed students");
+      return students;
+    })();
+  }
+  try { return await studentsRequest; } finally { studentsRequest = null; }
+}
+
+async function openStudents(message = "") {
+  const generation = ++studentGeneration;
+  demoStudents.hidden = false;
+  demoLogin.setAttribute("aria-expanded", "true");
+  demoNotice.textContent = message || "가상 학생 목록을 불러오는 중…";
+  demoStudentList.replaceChildren();
+  try {
+    const students = await loadStudents();
+    if (generation !== studentGeneration || demoStudents.hidden) return;
+    for (const student of students) {
+      const button = element("button", "reset", `${student.label} · ${student.scenario}`);
+      button.type = "button";
+      button.addEventListener("click", () => {
+        if (generation === studentGeneration && !selectedStudent) selectStudent(student);
+      });
+      demoStudentList.append(button);
+    }
+    demoNotice.textContent = message;
+    demoStudentList.querySelectorAll("button")[0]?.focus();
+  } catch {
+    if (generation !== studentGeneration || demoStudents.hidden) return;
+    demoNotice.textContent = "가상 학생 목록을 불러오지 못했어요. 다시 시도해 주세요.";
+    const retry = element("button", "reset", "다시 시도");
+    retry.type = "button";
+    retry.addEventListener("click", () => void openStudents(message));
+    demoStudentList.replaceChildren(retry);
+    retry.focus();
+  }
+}
+
+demoLogin.addEventListener("click", () => {
+  if (demoStudents.hidden) void openStudents();
+  else closeStudents();
+});
+demoLogout.addEventListener("click", () => {
+  leaveStudent();
+  demoNotice.textContent = "가상 학생에서 나왔어요.";
+  demoLogin.focus();
+});
+demoStudents.addEventListener("keydown", event => {
+  if (event.key !== "Escape") return;
+  event.preventDefault();
+  closeStudents();
+  demoLogin.focus();
+});
+
+async function restoreStudent() {
+  const id = storedStudentId();
+  if (!id) return;
+  const generation = studentGeneration;
+  try {
+    const students = await loadStudents();
+    if (generation !== studentGeneration) return;
+    const student = students.find(item => item.id === id);
+    if (student) selectStudent(student, { restored: true });
+    else rememberStudent(null);
+  } catch {
+    if (generation === studentGeneration) {
+      demoNotice.textContent = "가상 학생을 복원하지 못했어요. 로그인 버튼을 눌러 다시 골라 주세요.";
+    }
+  }
+}
 
 function motionPreference() {
   return window.matchMedia?.("(prefers-reduced-motion: reduce)");
@@ -169,7 +308,7 @@ if (compact.matches) topics.open = false;
 // 펫의 자세·말·대기 점은 여기 한 곳에서만 바꾼다. 그림 주소는 건드리지 않고 data-pose와 data-state만 바꾸므로
 // 늦게 도착한 그림 로드 신호가 지금 보이는 자세를 바꾸지 못한다.
 // 어느 상태로 가든 축하 뒤에 예약해 둔 전환은 먼저 취소한다.
-function showAssistant(state) {
+function showAssistant(state, message) {
   if (assistantTimer !== null) {
     clearTimeout(assistantTimer);
     assistantTimer = null;
@@ -180,20 +319,20 @@ function showAssistant(state) {
   assistant.setAttribute("data-pose", pose);
   // 상태 이름은 쉬는 자세를 평소와 답변 표시에서만 돌리려고 chat.css가 읽는다. 타이머는 쓰지 않는다.
   assistant.setAttribute("data-state", state);
-  assistantLine.textContent = line;
+  assistantLine.textContent = message ?? line;
   assistantDots.hidden = state !== "searching";
 }
 
 // 찾음: 축하를 잠깐 보여 준 뒤 답변 표시로 넘어간다. 타이머가 없는 환경에서는 바로 넘어간다.
-function celebrate() {
-  showAssistant("found");
+function celebrate(nextState = "answer", message) {
+  showAssistant("found", message);
   if (typeof setTimeout !== "function") {
-    showAssistant("answer");
+    showAssistant(nextState);
     return;
   }
   assistantTimer = setTimeout(() => {
     assistantTimer = null;
-    showAssistant("answer");
+    showAssistant(nextState);
   }, celebrateMs);
 }
 
@@ -484,7 +623,14 @@ function biskitRecommendations(recommendation) {
 }
 
 async function checkGraduation() {
+  if (!selectedStudent) {
+    void openStudents("먼저 가상 학생을 골라 주세요");
+    return;
+  }
   if (busy) return;
+  const studentId = selectedStudent.id;
+  const generation = studentGeneration;
+  const current = () => generation === studentGeneration && selectedStudent?.id === studentId;
   empty.remove();
   graduationTurn?.remove();
   const turn = element("div", "turn");
@@ -497,27 +643,36 @@ async function checkGraduation() {
 
   setBusy(true, "졸업 체크 결과를 불러오는 중…");
   try {
-    const response = await fetch("/api/v1/graduation-demo", {
+    const response = await fetch(`/api/v1/graduation-demo?student_id=${encodeURIComponent(studentId)}`, {
       headers: { Accept: "application/json" },
       signal: AbortSignal.timeout(30_000),
     });
+    if (!current()) return;
+    if (response.status === 404) {
+      leaveStudent();
+      void openStudents("먼저 가상 학생을 골라 주세요");
+      return;
+    }
     if (!response.ok) throw new Error("Graduation request failed");
     const result = await response.json();
+    if (!current()) return;
+    if (result?.profile?.id !== studentId) throw new Error("Student mismatch");
     reply.append(...graduationResult(result));
     const recommendations = biskitRecommendations(result.biskit_recommendations);
     if (recommendations) reply.append(recommendations);
     celebrate();
   } catch {
+    if (!current()) return;
     const retry = element("button", "retry", "다시 시도");
     retry.type = "button";
-    retry.addEventListener("click", () => void checkGraduation());
+    retry.addEventListener("click", () => { if (current()) void checkGraduation(); });
     const error = element("div", "error");
     error.append(element("p", null, "졸업 체크 결과를 받지 못했어요."), retry);
     reply.replaceChildren(error);
     showAssistant("error");
   } finally {
     setBusy(false);
-    turn.scrollIntoView?.({ block: "start" });
+    if (current()) turn.scrollIntoView?.({ block: "start" });
   }
 }
 
@@ -1044,6 +1199,8 @@ for (const slot of document.querySelectorAll?.("[data-brand-slot]") ?? []) {
 }
 
 updateSend();
+
+void restoreStudent();
 
 const calendarScope = { year: 2027, semester: 1 };
 function panelTodayInKorea() {

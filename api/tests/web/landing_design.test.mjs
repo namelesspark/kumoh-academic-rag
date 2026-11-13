@@ -247,7 +247,10 @@ test("소개 영역과 카드 6개는 #empty 안에, 상단 띠와 하단 표시
   assert.equal(landing.includes('<div class="card'), false);
 
   const [top, rest] = html.split("<main");
-  assert.match(top, /<button type="button" class="login" disabled>가상 학생 로그인 <span class="soon-label">준비 중<\/span><\/button>/);
+  assert.match(top, /<button[^>]*id="demo-login"[^>]*>가상 학생 로그인<\/button>/);
+  assert.match(top, /id="demo-login"[^>]*aria-expanded="false"/);
+  assert.match(top, /가상 학생 데이터입니다/);
+  assert.doesNotMatch(top, /준비 중/);
   assert.match(top, /id="reset">새 대화</);
   assert.match(rest.split("</main>")[1], /<footer[^>]*>\s*<p>교내 대회 출품작 · 가상 학생 데이터로 동작하는 시연입니다<\/p>/);
 
@@ -384,7 +387,7 @@ const controlsInPage = [...landing.matchAll(
 )].map(match => [match[2].trim(), match[1]]);
 
 const chatPath = "/api/v1/chat";
-const graduationPath = "/api/v1/graduation-demo";
+const graduationPath = "/api/v1/graduation-demo?student_id=demo-d02";
 
 // 가짜 서버. 받은 주소를 적어 두고, 질문에는 근거 없음으로, 졸업 체크에는 실패로 답한다.
 function serving(requests) {
@@ -421,7 +424,10 @@ function loadLanding({ logo = waiting(), techmo = waiting(), fetch } = {}) {
   runInNewContext(script, {
     document: {
       querySelector(selector) {
-        if (!elements.has(selector)) elements.set(selector, new FakeElement(selector));
+        if (!elements.has(selector)) {
+          elements.set(selector, new FakeElement(selector));
+          if (selector === "#demo-students") elements.get(selector).hidden = true;
+        }
         return elements.get(selector);
       },
       querySelectorAll: selector => lists[selector] ?? [],
@@ -431,10 +437,19 @@ function loadLanding({ logo = waiting(), techmo = waiting(), fetch } = {}) {
     window: { matchMedia: () => ({ matches: false }) },
     URL,
     AbortSignal: { timeout: () => undefined },
-    fetch: fetch ?? serving(requests),
+    fetch: (path, options) => path === "/api/v1/demo-students"
+      ? Promise.resolve({ ok: true, json: async () => ({ students: [
+        { id: "demo-d02", label: "가상 학생 D02", scenario: "졸업 요건에 가까움", is_fictional: true },
+      ] }) })
+      : (fetch ?? serving(requests))(path, options),
   }, { filename: "chat.js" });
 
   const shown = {
+    async selectStudent() {
+      elements.get("#demo-login").fire("click");
+      await setImmediate();
+      elements.get("#demo-student-list").children[0].fire("click");
+    },
     requests,
     logo: slots[0],
     techmo: slots[1],
@@ -535,6 +550,7 @@ test("첫 화면의 소개 버튼과 패널 안 시작 버튼은 화면에 이�
 for (const label of ["내 졸업 체크 보기", "졸업 체크 시작", "졸업 체크와 추천 보기"]) {
   test(`${label}를 연달아 눌러도 졸업 체크 요청은 하나만 나가고, 끝난 뒤에는 다시 부를 수 있다`, async () => {
     const shown = loadLanding();
+    await shown.selectStudent();
     shown.control(label).fire("click");
     shown.control(label).fire("click");
     assert.equal(shown.transcript.children.includes(shown.empty), false);

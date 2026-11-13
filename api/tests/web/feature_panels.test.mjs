@@ -84,7 +84,10 @@ function loadPage({ transition, reduced = false, legacy = false, now = "2027-02-
   const document = {
     querySelector(selector) {
       if (selector === "#feature-cards" && legacy) return null;
-      if (!elements.has(selector)) elements.set(selector, new Element());
+      if (!elements.has(selector)) {
+        elements.set(selector, new Element());
+        if (selector === "#demo-students") elements.get(selector).hidden = true;
+      }
       return elements.get(selector);
     },
     querySelectorAll(selector) {
@@ -103,6 +106,9 @@ function loadPage({ transition, reduced = false, legacy = false, now = "2027-02-
       },
     }) },
     fetch: (...args) => {
+      if (args[0] === "/api/v1/demo-students") return Promise.resolve({ ok: true, json: async () => ({ students: [
+        { id: "demo-d02", label: "가상 학생 D02", scenario: "졸업 요건에 가까움", is_fictional: true },
+      ] }) });
       requests.push(args);
       const pending = responses[requests.length - 1] ?? deferred();
       responses[requests.length - 1] = pending;
@@ -120,6 +126,11 @@ function loadPage({ transition, reduced = false, legacy = false, now = "2027-02-
   runInNewContext(script, context);
   const get = selector => elements.get(selector);
   return {
+    async selectStudent() {
+      get("#demo-login").click();
+      await setImmediate();
+      get("#demo-student-list").children[0].click();
+    },
     cards, panels, actions, requests, response, responses, get,
     evaluate: code => runInNewContext(code, context),
     content: index => panels[index].querySelector("[data-panel-content]"),
@@ -361,12 +372,13 @@ test("질문과 사진 시작은 패널을 닫고 실행 대상으로 초점을 
 test("졸업 체크와 추천 시작은 같은 요청을 한 번 보내고 요청 중 모든 시작 버튼을 잠근다", async () => {
   for (const index of [0, 1]) {
     const page = loadPage();
+    await page.selectStudent();
     page.cards[index].click();
     page.start(index);
     assertState(page, null);
     assert.equal(page.focus(), page.get("#question"));
     assert.equal(page.requests.length, 1);
-    assert.equal(page.requests[0][0], "/api/v1/graduation-demo");
+    assert.equal(page.requests[0][0], "/api/v1/graduation-demo?student_id=demo-d02");
     assert.equal(page.actions.every(action => action.disabled), true);
     page.start(index);
     page.start(2);
@@ -510,8 +522,11 @@ test("연결 실패와 본문 해석 실패는 패널 안에서 다시 시도할
 
 test("다른 요청 중 연 패널은 새 요청과 펫 변경 없이 다시 시도를 보여 준다", async () => {
   const page = loadPage();
+  await page.selectStudent();
   page.cards[0].click();
   page.start(0);
+  assert.equal(page.requests[0][0], "/api/v1/graduation-demo?student_id=demo-d02");
+  assert.equal(page.evaluate("busy"), true);
   page.cards[4].click();
   assert.equal(page.requests.length, 1);
   assert.equal(petState(page), "searching");

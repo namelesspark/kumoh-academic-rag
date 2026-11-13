@@ -116,7 +116,10 @@ function loadChat(fetch) {
   runInNewContext(script, {
     document: {
       querySelector(selector) {
-        if (!elements.has(selector)) elements.set(selector, new FakeElement(selector));
+        if (!elements.has(selector)) {
+          elements.set(selector, new FakeElement(selector));
+          if (selector === "#demo-students") elements.get(selector).hidden = true;
+        }
         return elements.get(selector);
       },
       querySelectorAll: selector => (selector === "[data-action]" ? [button] : []),
@@ -126,10 +129,16 @@ function loadChat(fetch) {
     window: { matchMedia: () => ({ matches: false }) },
     URL,
     AbortSignal: { timeout: () => undefined },
-    fetch,
+    fetch: (path, options) => path === "/api/v1/demo-students"
+      ? Promise.resolve({ ok: true, json: async () => ({ students: [
+        { id: "demo-d02", label: "가상 학생 D02", scenario: "졸업 요건에 가까움", is_fictional: true },
+      ] }) })
+      : fetch(path, options),
   }, { filename: "chat.js" });
 
   const page = {
+    login: elements.get("#demo-login"),
+    studentList: elements.get("#demo-student-list"),
     transcript: elements.get("#transcript"),
     empty: elements.get("#empty"),
     button,
@@ -146,7 +155,16 @@ function click(node) {
   node.listeners.get("click")({});
 }
 
+async function selectStudent(page) {
+  if (page.selected) return;
+  click(page.login);
+  await setImmediate();
+  click(page.studentList.children[0]);
+  page.selected = true;
+}
+
 async function pressCheck(page) {
+  await selectStudent(page);
   click(page.button);
   await setImmediate();
 }
@@ -215,7 +233,8 @@ function entry(id, label, status, fields = {}) {
 // 이슈 #40의 「응답 형식」에 고정한 예시 그대로다.
 const issueExample = {
   profile: {
-    label: "가상 학생 홍길동",
+    id: "demo-d02",
+    label: "가상 학생 T01",
     department: "컴퓨터공학전공",
     admission_year: 2023,
     admission_type: "일반 신입학",
@@ -290,11 +309,11 @@ test("버튼 한 번에 요청 한 번을 보내고, 이슈의 예시 응답을 
   const page = loadChat(serving(issueExample, requests));
   await pressCheck(page);
 
-  assert.deepEqual(requests, [["/api/v1/graduation-demo", "GET"]]);
+  assert.deepEqual(requests, [["/api/v1/graduation-demo?student_id=demo-d02", "GET"]]);
   assert.equal(page.transcript.children.includes(page.empty), false);
 
   const [caption] = byTag(page.transcript, "caption");
-  assert.equal(text(caption), "가상 학생 홍길동 · 컴퓨터공학전공 · 2023학년도 입학 · 일반 신입학 · 주전공 단일");
+  assert.equal(text(caption), "가상 학생 T01 · 컴퓨터공학전공 · 2023학년도 입학 · 일반 신입학 · 주전공 단일");
   const headers = byTag(byTag(page.transcript, "thead")[0], "th");
   assert.deepEqual(headers.map(text), ["항목", "상태", "현재 / 기준", "부족·확인할 점", "적용 근거"]);
   assert.ok(headers.every(header => header.scope === "col"));
@@ -420,7 +439,7 @@ test("서버 값은 글자 그대로 넣고 HTML로 해석하지 않는다", asy
     reason: markup,
     basis: { applied_rule: markup, source_title: markup, source_url: null, checked_on: markup },
   });
-  const page = await shown({ profile: { label: markup }, items: [item] });
+  const page = await shown({ profile: { id: "demo-d02", label: markup }, items: [item] });
   const [row] = readRows(page);
 
   assert.equal(text(byTag(page.transcript, "caption")[0]), markup);
@@ -448,7 +467,7 @@ test("서버가 오류 응답을 주면 표 대신 오류 문구를 보여 주�
   click(retry);
   await setImmediate();
 
-  assert.deepEqual(requests, ["/api/v1/graduation-demo", "/api/v1/graduation-demo"]);
+  assert.deepEqual(requests, ["/api/v1/graduation-demo?student_id=demo-d02", "/api/v1/graduation-demo?student_id=demo-d02"]);
   assert.equal(page.transcript.querySelectorAll(".error").length, 0);
   assert.equal(readRows(page).length, 9);
 });
@@ -487,6 +506,7 @@ test("질문을 보내는 중에는 졸업 체크 버튼이 눌리지 않는다"
     return serving(threeItems)(path, options);
   });
 
+  await selectStudent(page);
   page.input.value = "가상 질문";
   page.composer.listeners.get("submit")({ preventDefault() {} });
   assert.equal(page.button.disabled, true);
@@ -498,7 +518,7 @@ test("질문을 보내는 중에는 졸업 체크 버튼이 눌리지 않는다"
   await setImmediate();
   assert.equal(page.button.disabled, false);
   await pressCheck(page);
-  assert.deepEqual(requests, ["/api/v1/chat", "/api/v1/graduation-demo"]);
+  assert.deepEqual(requests, ["/api/v1/chat", "/api/v1/graduation-demo?student_id=demo-d02"]);
   assert.equal(readRows(page).length, 9);
 });
 
@@ -510,6 +530,7 @@ test("결과를 기다리는 동안 다시 눌러도 요청은 한 번이고, �
     return new Promise(resolve => { respond = resolve; });
   });
 
+  await selectStudent(page);
   click(page.button);
   assert.equal(page.button.disabled, true);
   assert.equal(page.reset.disabled, true);
@@ -519,7 +540,7 @@ test("결과를 기다리는 동안 다시 눌러도 요청은 한 번이고, �
   page.composer.listeners.get("submit")({ preventDefault() {} });
   click(page.reset);
   await setImmediate();
-  assert.deepEqual(requests, ["/api/v1/graduation-demo"]);
+  assert.deepEqual(requests, ["/api/v1/graduation-demo?student_id=demo-d02"]);
 
   respond({ ok: true, json: async () => threeItems });
   await setImmediate();
@@ -627,7 +648,7 @@ test("버튼 한 번에 요청 한 번으로 D02의 졸업 표와 추천 카드�
   const page = loadChat(serving(d02(recommending(d02Programs)), requests));
   await pressCheck(page);
 
-  assert.deepEqual(requests, [["/api/v1/graduation-demo", "GET"]]);
+  assert.deepEqual(requests, [["/api/v1/graduation-demo?student_id=demo-d02", "GET"]]);
   const rows = readRows(page);
   assert.equal(rows[1].amount, "480점 / 500점");
   assert.deepEqual(rows[1].note, ["20점 부족"]);
