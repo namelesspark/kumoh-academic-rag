@@ -20,12 +20,11 @@ DEADLINE_DATE = re.compile(
     r"(?:(?:신청|접수)\s*)?마감(?:일)?[\s:：]*"
     r"(?:20[0-9]{2}\s*(?:[./-]|년)\s*)?" + MONTH_DAY
 )
-YEAR_DATE_SPAN = re.compile(
-    r"(?<![0-9])[0-9]{4,}\s*(?:[./-]|년)\s*" + MONTH_DAY
-)
+YEAR_DATE_PREFIX = r"(?:[0-9]{4,}\s*(?:[./-]|년)|[0-9]{2}\s*년)\s*"
+YEAR_DATE_SPAN = re.compile(r"(?<![0-9])" + YEAR_DATE_PREFIX + MONTH_DAY)
 YEARLESS_DATE = re.compile(r"(?<![0-9])" + MONTH_DAY)
 DEADLINE_SUFFIX = re.compile(
-    r"(?<![0-9])(?:[0-9]{4,}\s*(?:[./-]|년)\s*)?" + MONTH_DAY + r"\s*[일.]?\s*까지"
+    r"(?<![0-9])(?:" + YEAR_DATE_PREFIX + r")?" + MONTH_DAY + r"\s*[일.]?\s*까지"
 )
 
 
