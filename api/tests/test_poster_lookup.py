@@ -4,6 +4,7 @@ import asyncio
 import selectors
 import sys
 import unittest
+from dataclasses import replace
 from datetime import date, datetime
 from io import BytesIO
 from pathlib import Path
@@ -148,6 +149,52 @@ class PosterLookupTests(unittest.TestCase):
         self.assertEqual(result["reasons"], ["ambiguous_event"])
         self.assertEqual(result["identified_by"], [])
         self.assertIsNone(result["event"])
+
+    def test_yearless_dates_keep_the_catalog_event_year(self):
+        for value in ("11월 23일", "11.23", "11-23", "11/23", "11 월 23 일"):
+            for prefix in ("", "2027년 미국 인턴 "):
+                with self.subTest(value=value, prefix=prefix):
+                    result = self.lookup(f"{TITLE} {prefix}{value} 신청 마감 11/20")
+                    self.assertEqual(result["event_match"], "confirmed")
+                    self.assertEqual(result["identified_by"], ["text"])
+                    self.assertEqual(result["event"]["event_date"], "2026-11-23")
+                    self.assertEqual(result["event"]["notice_url"], NOTICE)
+
+    def test_yearless_dates_need_every_title_clue(self):
+        result = self.lookup("가상 별빛 인턴 11월 23일")
+        self.assertEqual(result["event_match"], "needs_check")
+        self.assertIsNone(result["event"])
+
+    def test_excludes_full_dates_deadlines_and_number_fragments(self):
+        for value in (
+            "2027-11-23", "2027.11.23", "2027/11/23", "2027년 11월 23일",
+            "27년 11월 23일", "27년 11월 23일까지", "26년 11월 23일",
+            "1999-11-23", "12026-11-23", "마감 11월 23일", "신청 마감일: 11/23",
+            "11월 23일까지", "11.23까지", "11-23까지", "11/23까지",
+            "2026년 11월 23일까지", "2026-11-23까지", "2026.11.23.까지",
+            "111월 23일", "111.23", "11/230", "11월 230일",
+            "13월 23일", "11월 31일", "0/23", "11/0",
+        ):
+            with self.subTest(value=value):
+                result = self.lookup(f"{TITLE} {value}")
+                self.assertEqual(result["event_match"], "needs_check")
+                self.assertIsNone(result["event"])
+
+    def test_yearless_date_with_competing_catalog_years_needs_check(self):
+        other = replace(PROGRAMS[0], title="가상 다음 해 행사", event_on=date(2027, 11, 23))
+        with patch("app.services.poster_lookup.PROGRAMS", (PROGRAMS[0], other)):
+            result = self.lookup(f"{TITLE} 11월 23일")
+        self.assertEqual(result["event_match"], "needs_check")
+        self.assertEqual(result["reasons"], ["ambiguous_event"])
+        self.assertIsNone(result["event"])
+
+    def test_yearless_leap_day_matches_only_a_valid_catalog_date(self):
+        leap_event = replace(PROGRAMS[0], event_on=date(2028, 2, 29))
+        with patch("app.services.poster_lookup.PROGRAMS", (leap_event,)):
+            result = self.lookup(f"{TITLE} 2월 29일")
+            invalid = self.lookup(f"{TITLE} 2월 30일")
+        self.assertEqual(result["event"]["event_date"], "2028-02-29")
+        self.assertEqual(invalid["event_match"], "needs_check")
 
     def test_poster_deadline_keeps_month_day_and_official_deadline(self):
         for deadline in ("11-20", "2026.11.20.", "11월 20일"):
