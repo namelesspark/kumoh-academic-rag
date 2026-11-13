@@ -1,10 +1,14 @@
 """가상 이수 기록을 졸업 기준과 비교한다."""
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from typing import Literal, Mapping, TypeVar
 
+from fastapi import HTTPException
+
 from app.schemas.graduation_demo import (
+    DemoStudent,
+    DemoStudentsResponse,
     GraduationBasis,
     GraduationDemoResponse,
     GraduationDetail,
@@ -82,6 +86,7 @@ class CompletionRecord:
     mileage: int | None = None  # 이미 승인된 점수
     remaining_semesters_2025_03_01: int | None = None
     enrollment_status: str | None = None
+    student_id: str | None = None  # 목록에 올린 가상 학생만 가진다.
 
 
 def _passing_courses(
@@ -222,7 +227,7 @@ def evaluate_graduation(
     cohort = record.cohort
     return GraduationDemoResponse(
         profile=GraduationProfile(
-            label=record.label, department=cohort.department, admission_year=cohort.admission_year,
+            id=record.student_id, label=record.label, department=cohort.department, admission_year=cohort.admission_year,
             admission_type=cohort.admission_type, track=cohort.track, is_fictional=True,
         ),
         items=items,
@@ -277,8 +282,53 @@ DEMO_RECORD = CompletionRecord(
     mileage=480,
     remaining_semesters_2025_03_01=4,
     enrollment_status="undergraduate",
+    student_id="demo-d02",
 )
+# 아래 두 명은 같은 기준에 이수 내역만 다르다. 기준표 문서의 회귀 사례 D03·D04와는 다른 기록이다.
+DEMO_D03_RECORD = replace(
+    DEMO_RECORD,
+    student_id="demo-d03",
+    label="가상 학생 D03",
+    credits={"credits_total": 84, "general_required": 4, "general_elective": 16, "msc": 16, "major": 45},
+    thesis_passed=False,
+    counseling_years=(1, 2, 3, 4),
+    mileage=500,
+)
+DEMO_D04_RECORD = replace(
+    DEMO_RECORD,
+    student_id="demo-d04",
+    label="가상 학생 D04",
+    counseling_years=(1, 2, 3, 4),
+    mileage=380,
+)
+DEMO_SCENARIOS = {
+    "demo-d02": "졸업 요건에 가까움",
+    "demo-d03": "학점이 많이 남음",
+    "demo-d04": "비교과 점수 부족",
+}
+DEFAULT_DEMO_STUDENT_ID = "demo-d02"
+UNKNOWN_STUDENT_MESSAGE = "가상 학생을 찾을 수 없습니다."
 
 
-async def get_graduation_demo() -> GraduationDemoResponse:
-    return evaluate_graduation(DEMO_RULES, DEMO_RECORD, evaluated_at=datetime.now(KST))
+def _demo_records() -> tuple[CompletionRecord, ...]:
+    # 부를 때마다 모듈 값을 읽는다. 테스트가 DEMO_RECORD를 바꿔 끼우면 그 기록을 쓴다.
+    return (DEMO_RECORD, DEMO_D03_RECORD, DEMO_D04_RECORD)
+
+
+async def get_demo_students() -> DemoStudentsResponse:
+    return DemoStudentsResponse(students=[
+        DemoStudent(
+            id=record.student_id, label=record.label,
+            scenario=DEMO_SCENARIOS[record.student_id], is_fictional=True,
+        )
+        for record in _demo_records()
+    ])
+
+
+async def get_graduation_demo(student_id: str = DEFAULT_DEMO_STUDENT_ID) -> GraduationDemoResponse:
+    """고른 가상 학생을 판정한다. 서버는 누가 무엇을 골랐는지 저장하지 않는다."""
+    record = next((record for record in _demo_records() if record.student_id == student_id), None)
+    if record is None:
+        # 받은 값을 문구에 넣지 않는다. 다른 학생으로 바꿔 답하지도 않는다.
+        raise HTTPException(status_code=404, detail=UNKNOWN_STUDENT_MESSAGE)
+    return evaluate_graduation(DEMO_RULES, record, evaluated_at=datetime.now(KST))

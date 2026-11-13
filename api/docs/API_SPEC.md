@@ -82,12 +82,56 @@ Base URL: `/api/v1`
 
 ---
 
+## GET /demo-students
+
+화면에서 고를 수 있는 가상 학생 목록을 읽는다. 전체 주소는 `/api/v1/demo-students`이다. 요청 본문과 조회 조건은 받지 않는다.
+
+목록은 식당 앞 진열장의 음식 모형과 같다. 모형 세 개를 미리 만들어 두고 손님은 그중 하나를 가리키기만 한다. 실제 학생의 기록은 여기에 없다.
+
+```json
+{
+  "students": [
+    { "id": "demo-d02", "label": "가상 학생 D02", "scenario": "졸업 요건에 가까움", "is_fictional": true },
+    { "id": "demo-d03", "label": "가상 학생 D03", "scenario": "학점이 많이 남음", "is_fictional": true },
+    { "id": "demo-d04", "label": "가상 학생 D04", "scenario": "비교과 점수 부족", "is_fictional": true }
+  ]
+}
+```
+
+| 필드 | 값 |
+|---|---|
+| `id` | 졸업 체크 주소의 `student_id`에 그대로 넣는 고정 값 |
+| `label` | 화면에 보일 이름. 가상임이 드러나는 표기만 쓴다 |
+| `scenario` | 그 학생이 보여 주는 상황 한 줄 |
+| `is_fictional` | 항상 `true` |
+
+- 배열 순서는 위 예시로 고정한다.
+- 세 명은 같은 졸업 기준을 쓰고 이수 내역만 다르다. `demo-d03`·`demo-d04`는 [졸업 체크 기준표](GRADUATION_RULES.md)의 회귀 검증 사례 D03·D04와 이름만 비슷한 다른 기록이다.
+- 서버는 누가 어느 학생을 골랐는지 저장하지 않는다. 브라우저에 남기는 작은 기록(쿠키)도 내려보내지 않는다.
+- 이 주소는 읽기 전용이다. 데이터를 보내는 요청(POST)은 `405`다.
+
+---
+
 ## GET /graduation-demo
 
-가상 학생의 컴퓨터공학전공 2023학년도 졸업 체크 결과를 읽는다. 요청 본문과 검색 조건은 받지 않는다.
-전체 주소는 `/api/v1/graduation-demo`이다. [졸업 체크 기준표](GRADUATION_RULES.md)
+가상 학생의 컴퓨터공학전공 2023학년도 졸업 체크 결과를 읽는다. 요청 본문은 받지 않는다.
+전체 주소는 `/api/v1/graduation-demo?student_id=demo-d03`처럼 쓴다. [졸업 체크 기준표](GRADUATION_RULES.md)
 
-- `profile`은 `label`, `department`, `admission_year`, `admission_type`, `track`, `is_fictional`을 담는다.
+| `student_id` | 응답 |
+|---|---|
+| 목록에 있는 값 | 그 학생의 결과. `profile.id`가 요청한 값과 같다 |
+| 생략 | `demo-d02`의 결과 |
+| 목록에 없는 값 (빈 값, 대소문자가 다른 값 포함) | `404`와 `{"detail": "가상 학생을 찾을 수 없습니다."}`. 다른 학생으로 바꿔 답하지 않고, 받은 값을 본문에 되돌려 적지 않는다 |
+
+| 학생 | 드러나는 결과 |
+|---|---|
+| `demo-d02` | 학점 다섯 항목 충족. 진로상담 1회와 마일리지 20점 부족 |
+| `demo-d03` | 총학점 46학점, 전공 30학점, 졸업논문·과제 부족. 마일리지는 충족이라 `biskit_recommendations`가 `null` |
+| `demo-d04` | 학점 다섯 항목 충족. 마일리지 120점 부족이고 추천의 `shortfall_points`도 120 |
+
+기준이 확인되지 않은 전공필수 과목(`required_courses`)은 세 명 모두 `needs_check`다. 이 주소도 쿠키를 내려보내지 않는다.
+
+- `profile`은 `id`, `label`, `department`, `admission_year`, `admission_type`, `track`, `is_fictional`을 담는다.
 - `items`는 `total_credits`(학점), `major_required`(전공필수), `extracurricular`(비교과) 순서다.
 - 학점의 `details`는 `credits_total`, `general_required`, `general_elective`, `msc`, `major` 순서다.
 - 전공필수의 `details`는 `required_courses`, `thesis` 순서다. 비교과는 `career_education`, `counseling`, `mileage` 순서다.

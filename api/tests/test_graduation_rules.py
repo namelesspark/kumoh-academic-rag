@@ -13,7 +13,11 @@ from app.services.graduation_rules import (
     Cohort,
     CompletionRecord,
     CourseAttempt,
+    DEMO_D03_RECORD,
+    DEMO_D04_RECORD,
+    DEMO_RECORD,
     DEMO_RULES,
+    DEMO_SCENARIOS,
     GraduationRules,
     evaluate_graduation,
 )
@@ -240,6 +244,32 @@ class GraduationRulesTest(unittest.TestCase):
         results = rows(record)
         self.assertEqual(results["career_education"].shortfall, "1회 부족")
         self.assertEqual(results["counseling"].shortfall, "1회 부족")
+
+    def test_listed_students_share_the_cohort_and_differ_only_in_records(self):
+        records = (DEMO_RECORD, DEMO_D03_RECORD, DEMO_D04_RECORD)
+        self.assertEqual([record.student_id for record in records], list(DEMO_SCENARIOS))
+        self.assertEqual(len({record.label for record in records}), len(records))
+        for record in records:
+            with self.subTest(student_id=record.student_id):
+                self.assertEqual(record.cohort, DEMO_RULES.cohort)
+                self.assertEqual(evaluate_graduation(DEMO_RULES, record).profile.id, record.student_id)
+                self.assertEqual(rows(record, DEMO_RULES)["required_courses"].status, "needs_check")
+
+        short = {
+            record.student_id: {
+                row.id for row in rows(record, DEMO_RULES).values() if row.status == "short"
+            }
+            for record in records
+        }
+        self.assertEqual(short["demo-d02"], {"extracurricular", "counseling", "mileage"})
+        self.assertEqual(
+            short["demo-d03"], {"total_credits", "credits_total", "major", "major_required", "thesis"},
+        )
+        self.assertEqual(short["demo-d04"], {"extracurricular", "mileage"})
+        self.assertEqual(rows(DEMO_D04_RECORD, DEMO_RULES)["mileage"].shortfall, "120점 부족")
+
+    def test_unlisted_record_has_no_profile_id(self):
+        self.assertIsNone(evaluate_graduation(RULES, RECORD).profile.id)
 
     def test_documented_criteria_match_shipped_rules(self):
         document = (API_DIR / "docs" / "GRADUATION_RULES.md").read_text(encoding="utf-8")
