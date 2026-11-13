@@ -14,6 +14,7 @@ API_DIR = Path(__file__).resolve().parent
 sys.path[:0] = [str(API_DIR), str(API_DIR.parent / "core" / "src")]
 
 from app.main import create_app
+from app.services.chat_relevance import keep_supported
 from app.services.chat_retrieval import ChatRetrieval, RegulationDocument, SearchChunk
 from kumoh_rag_core.chunking import ArticleChunk, chunk_articles
 from kumoh_rag_core.retrieval import BM25Retriever
@@ -49,7 +50,8 @@ def create_regulations_app(
 
     retriever = BM25Retriever(indexed_chunks)
     chat_retrieval = ChatRetrieval(
-        search=retriever.retrieve,
+        # 글자 몇 개만 겹친 후보는 답으로 쓰지 않는다.
+        search=keep_supported(retriever.retrieve),
         document_for_chunk=_owning_document,
         **documents[0],
     )
@@ -70,7 +72,7 @@ def create_regulation_app(
 
     retriever = BM25Retriever(chunks)
     chat_retrieval = ChatRetrieval(
-        search=retriever.retrieve,
+        search=keep_supported(retriever.retrieve),
         source=source,
         document_title=document_title,
         effective_date=effective_date,
