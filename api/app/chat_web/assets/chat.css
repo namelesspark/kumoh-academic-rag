@@ -116,6 +116,7 @@ h1, h2, h3, p { margin-top: 0; }
 .masthead-actions { min-width: 0; max-width: 100%; }
 .login {
   display: inline-flex;
+  white-space: nowrap;
   align-items: center;
   gap: 6px;
   border: 1px dashed var(--edge);
@@ -646,8 +647,8 @@ textarea:hover { border-color: var(--blue); }
 @media (max-width: 680px) {
   .masthead-inner, .layout, .site-footer { width: calc(100% - 24px); }
   .masthead-inner { min-height: 63px; padding-block: 8px; gap: 6px; }
-  .brand { flex: 0 1 64px; font-size: .8rem; }
-  .brand-logo img { width: 64px; height: auto; }
+  .brand { flex: 0 0 140px; font-size: .8rem; }
+  .brand-logo img { width: auto; height: 20px; min-height: 20px; }
   .masthead-actions { gap: 4px; flex: 1; justify-content: flex-end; }
   .demo-account { flex: 0 1 auto; }
   #demo-identity { gap: 4px; }
