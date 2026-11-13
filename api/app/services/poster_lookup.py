@@ -20,6 +20,43 @@ DEADLINE_DATE = re.compile(
     r"(?:(?:신청|접수)\s*)?마감(?:일)?[\s:：]*"
     r"(?:20[0-9]{2}\s*(?:[./-]|년)\s*)?" + MONTH_DAY
 )
+YEAR_DATE_SPAN = re.compile(
+    r"(?<![0-9])[0-9]{4,}\s*(?:[./-]|년)\s*" + MONTH_DAY
+)
+YEARLESS_DATE = re.compile(r"(?<![0-9])" + MONTH_DAY)
+DEADLINE_SUFFIX = re.compile(
+    r"(?<![0-9])(?:[0-9]{4,}\s*(?:[./-]|년)\s*)?" + MONTH_DAY + r"\s*[일.]?\s*까지"
+)
+
+
+def _event_dates(text: str) -> tuple[set[tuple[int, int, int]], set[tuple[int, int]]]:
+    # 마감과 연도 있는 날짜의 자리를 먼저 표시해 월일로 다시 읽지 않는다.
+    deadlines = [
+        match.span()
+        for pattern in (DEADLINE_DATE, DEADLINE_SUFFIX)
+        for match in pattern.finditer(text)
+    ]
+
+    def overlaps(span, excluded):
+        return any(span[0] < end and start < span[1] for start, end in excluded)
+
+    dated = set()
+    for match in EVENT_DATE.finditer(text):
+        if not overlaps(match.span(), deadlines):
+            dated.add((int(match["year"]), *_date_parts(match)))
+
+    excluded = deadlines + [match.span() for match in YEAR_DATE_SPAN.finditer(text)]
+    yearless = set()
+    for match in YEARLESS_DATE.finditer(text):
+        if overlaps(match.span(), excluded):
+            continue
+        month, day = _date_parts(match)
+        try:
+            date(2000, month, day)
+        except ValueError:
+            continue
+        yearless.add((month, day))
+    return dated, yearless
 
 
 def _qr_key(url: str | None) -> tuple[str, str, str, str] | None:
@@ -80,8 +117,7 @@ def match_event_text(
     text: str, today: date, *, qr_codes: tuple[str, ...] = (), text_available: bool = True,
 ) -> PosterLookupResponse:
     text = unicodedata.normalize("NFKC", text)
-    event_text = DEADLINE_DATE.sub("", text)
-    date_parts = {(int(match["year"]), *_date_parts(match)) for match in EVENT_DATE.finditer(event_text)}
+    date_parts, yearless_parts = _event_dates(text)
     compact_text = _compact(text)
     qr_keys = {_qr_key(url) for url in qr_codes} - {None}
     reasons: list[Reason] = []
@@ -92,7 +128,10 @@ def match_event_text(
         event_date = program.event_on
         if (
             event_date is not None
-            and (event_date.year, event_date.month, event_date.day) in date_parts
+            and (
+                (event_date.year, event_date.month, event_date.day) in date_parts
+                or (event_date.month, event_date.day) in yearless_parts
+            )
             and program.poster_keywords
             and all(_compact(word) in compact_text for word in program.poster_keywords)
         ):
