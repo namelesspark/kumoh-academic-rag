@@ -70,11 +70,20 @@ def _poster_deadline(text: str) -> str | None:
 
 
 def match_poster(recognition: Recognition, today: date) -> PosterLookupResponse:
-    text = unicodedata.normalize("NFKC", recognition.text)
+    return match_event_text(
+        recognition.text, today, qr_codes=recognition.qr_codes,
+        text_available=recognition.text_available,
+    )
+
+
+def match_event_text(
+    text: str, today: date, *, qr_codes: tuple[str, ...] = (), text_available: bool = True,
+) -> PosterLookupResponse:
+    text = unicodedata.normalize("NFKC", text)
     event_text = DEADLINE_DATE.sub("", text)
     date_parts = {(int(match["year"]), *_date_parts(match)) for match in EVENT_DATE.finditer(event_text)}
     compact_text = _compact(text)
-    qr_keys = {_qr_key(url) for url in recognition.qr_codes} - {None}
+    qr_keys = {_qr_key(url) for url in qr_codes} - {None}
     reasons: list[Reason] = []
     matches = []
 
@@ -97,7 +106,7 @@ def match_poster(recognition: Recognition, today: date) -> PosterLookupResponse:
 
     if len(matches) != 1:
         reasons.append("ambiguous_event" if matches else "no_readable_clue")
-        if not recognition.text_available:
+        if not text_available:
             reasons.append("text_reader_unavailable")
         return PosterLookupResponse(event_match="needs_check", identified_by=[], reasons=reasons, event=None)
 
