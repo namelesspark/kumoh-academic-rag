@@ -106,10 +106,6 @@ function changeFeature(card, { animate = true, focus = true } = {}) {
   const panel = featurePanels.find(node => node.dataset.panel === card?.dataset.feature);
   if (card && (!panel || !featureList)) return;
   if (animate && card === openedCard) return;
-  if (["calendar", "campus"].includes(previous?.dataset.feature) && assistantTimer !== null) {
-    clearTimeout(assistantTimer);
-    assistantTimer = null;
-  }
   openedCard = card;
   const change = ++panelChange;
   panelTransition?.skipTransition?.();
@@ -216,7 +212,7 @@ function updateSend() {
   photoClear.disabled = busy;
 }
 
-function setBusy(pending, message = "서버에 질문을 보내는 중…", updateAssistant = true) {
+function setBusy(pending, message = "서버에 질문을 보내는 중…") {
   busy = pending;
   statusLine.textContent = pending ? message : "";
   reset.disabled = pending;
@@ -227,17 +223,17 @@ function setBusy(pending, message = "서버에 질문을 보내는 중…", upda
   // 요청이 시작되면 찾는 중으로 바꾼다. 잠금을 풀 때는 요청이 남긴 축하·보류·오류 상태를 그대로 둔다.
   // 결과를 남기지 않고 끝난 요청이 있을 때만 평소로 돌려 대기 점이 남지 않게 한다.
   if (pending) showAssistant("searching");
-  else if (updateAssistant && assistantState === "searching") showAssistant("idle");
+  else if (assistantState === "searching") showAssistant("idle");
   updateSend();
 }
 
 // 사진 요청과 글자 요청이 이어지는 동안 잠금을 한 번만 걸고 한 번만 푼다.
-async function whileBusy(message, work, isCurrent = () => true) {
+async function whileBusy(message, work) {
   setBusy(true, message);
   try {
     await work();
   } finally {
-    setBusy(false, "", isCurrent());
+    setBusy(false);
     scrollToLatest();
   }
 }
@@ -1134,7 +1130,7 @@ async function loadFeaturePanel(panel, change) {
   await whileBusy("안내를 찾는 중…", async () => {
     const calendar = panel.dataset.panel === "calendar";
     const path = calendar ? `/api/v1/academic-calendar/${calendarScope.year}/${calendarScope.semester}` : "/api/v1/campus-guide";
-    const response = await requestJson(path, { method: "GET" }, "서버가 안내를 불러오지 못했어요.");
+    const response = await requestJson(path, { method: "GET", signal: AbortSignal.timeout(30_000) }, "서버가 안내를 불러오지 못했어요.");
     if (!current()) return;
     if (response.failure) {
       content.replaceChildren(failureBox(response.failure, retry));
@@ -1149,5 +1145,5 @@ async function loadFeaturePanel(panel, change) {
       content.replaceChildren(failureBox("서버 안내의 형식이 맞지 않아요.", retry));
       showAssistant("error");
     }
-  }, current);
+  });
 }

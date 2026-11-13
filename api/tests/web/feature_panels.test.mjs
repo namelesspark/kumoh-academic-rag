@@ -114,7 +114,7 @@ function loadPage({ transition, reduced = false, legacy = false, now = "2027-02-
     },
     setTimeout: callback => { timers.set(++timerId, callback); return timerId; },
     clearTimeout: id => timers.delete(id),
-    AbortSignal: { timeout() {} },
+    AbortSignal: { timeout: milliseconds => ({ timeoutMs: milliseconds }) },
     URL,
   };
   runInNewContext(script, context);
@@ -527,19 +527,57 @@ test("다른 요청 중 연 패널은 새 요청과 펫 변경 없이 다시 시
   assert.equal(page.evaluate("busy"), false);
 });
 
-test("닫거나 다른 패널로 옮긴 뒤 도착한 응답은 내용과 펫을 바꾸지 않는다", async () => {
+test("닫거나 다른 패널로 옮긴 뒤 도착한 응답은 내용을 무시하고 펫의 대기를 끝낸다", async () => {
   for (const close of [true, false]) {
     const page = loadPage();
     page.cards[4].click();
     if (close) page.close(4);
     else page.cards[3].click();
     const before = text(page.content(4));
-    const state = petState(page);
     page.finish({ events: [calendarEvent("가상 늦은 일정", "2027-02-11")] });
     await setImmediate();
     assert.equal(text(page.content(4)), before);
-    assert.equal(petState(page), state);
+    assert.equal(petState(page), "idle");
+    assert.equal(page.get("#pet-dots").hidden, true);
     assert.equal(page.evaluate("busy"), false);
+  }
+});
+
+test("일정·장소의 축하 중 닫거나 다른 패널로 옮겨도 답변 표시로 넘어간다", async () => {
+  for (const index of [4, 5]) {
+    for (const close of [true, false]) {
+      const page = loadPage();
+      page.cards[index].click();
+      page.finish(index === 4 ? { events: [calendarEvent("가상 일정", "2027-02-11")] } : { places: [campusPlace()] });
+      await setImmediate();
+      assert.equal(petState(page), "found");
+      if (close) page.close(index);
+      else page.cards[3].click();
+      page.tick();
+      assert.equal(petState(page), "answer");
+      assert.equal(page.get("#pet-dots").hidden, true);
+    }
+  }
+});
+
+test("패널 조회의 제한 시간 실패는 잠금을 풀고 다시 시도할 수 있다", async () => {
+  for (const index of [4, 5]) {
+    const page = loadPage();
+    page.cards[index].click();
+    assert.equal(page.requests[0][1].signal.timeoutMs, 30_000);
+    const error = new Error("fictional request timeout");
+    error.name = "TimeoutError";
+    page.response.reject(error);
+    await setImmediate();
+    assert.equal(page.evaluate("busy"), false);
+    assert.equal(petState(page), "error");
+    assert.equal(page.get("#pet-dots").hidden, true);
+    descendants(page.content(index)).find(node => node.textContent === "다시 시도").click();
+    assert.equal(page.requests.length, 2);
+    page.finish(index === 4 ? { events: [] } : { places: [] });
+    await setImmediate();
+    assert.equal(page.evaluate("busy"), false);
+    assert.equal(petState(page), "hold");
   }
 });
 
