@@ -75,6 +75,26 @@ Render의 두 서비스는 패키지를 설치한 뒤 한글과 영어 글자 �
 
 두 서비스의 빌드 명령은 사진 판독 모델 준비가 성공한 뒤 `python -B api/scripts/prepare_brand_assets.py`를 실행한다. 기존 사진 판독 준비의 실패 처리는 유지한다. 공식 그림은 각각 지문과 크기를 확인하고 화면용 PNG로 만든다. 한 그림을 받지 못해도 빌드는 성공하며, 파일이 없으면 서버가 404로 답해 화면의 그림 자리만 빈다. 서버 실행 중에는 내려받지 않는다. 원본 주소와 처리 기준은 [공식 그림 준비 안내](BRAND_ASSETS.md)에 적었음.
 
+같은 명령이 로그인·메인 화면의 캠퍼스 배경 사진 네 장(`campus-aerial.jpg`, `campus-hill.jpg`, `campus-gate.jpg`, `campus-field.jpg`)도 받는다. 사진은 바이트 수·지문·JPEG 형식·1920×280 크기가 모두 맞을 때만 다시 압축하지 않고 저장한다. 한 장을 받지 못해도 빌드는 성공한다. 그 사진은 서버가 404로 답하고 화면은 남색 바탕으로 동작한다. 빌드 로그에는 사진마다 `campus-aerial.jpg: 준비 완료`나 `준비 실패 (사유)` 한 줄이 남는다.
+
+로그인 화면의 제목 글자 그림 `title-lettering.png`도 이때 만든다. 글꼴 Gugi를 고정한 커밋 주소에서 받아 지문을 확인하고 글자를 그림으로 그린다. 글꼴 파일은 저장하지 않는다. 그림을 만들지 못해도 빌드는 성공하고, 화면은 같은 글귀를 기본 글꼴 제목으로 보여 준다.
+
+## 시연 계정 로그인 확인
+
+로그인 화면은 `POST /api/v1/demo-login`을 부른다. 서버를 화면보다 먼저 올리거나 둘을 함께 올린다. 화면만 먼저 올리면 로그인 요청이 404로 막힌다.
+
+배포 뒤 PowerShell에서 아래 명령으로 확인한다. 계정은 화면이 채워 주는 공개 시연 값이고 실제 학생과 관계가 없다. 값 목록과 응답 형식은 [API 명세](API_SPEC.md)에 적었음.
+
+```powershell
+$login = @{ student_number = "20990002"; password = "demo-d02-pass" } | ConvertTo-Json
+Invoke-RestMethod "$renderUrl/api/v1/demo-login" -Method Post `
+    -ContentType "application/json; charset=utf-8" `
+    -Body ([Text.Encoding]::UTF8.GetBytes($login)) |
+    ConvertTo-Json -Depth 3
+```
+
+응답의 `student.id`가 `demo-d02`인지 본다. 비밀번호를 한 글자 바꾸면 `Invoke-RestMethod`가 401 오류를 내야 한다. 서버는 로그인 상태를 저장하지 않으므로 다시 배포해도 지울 것이 없다.
+
 ## 규정 목록 설정 (선택)
 
 서비스에 환경 변수 `KUMOH_REGULATION_MANIFEST_PATH`를 넣으면 가상 데모 대신 그 목록 파일의 규정들을 검색한다. 환경 변수는 서버를 시작할 때 바깥에서 건네는 이름표 달린 값이다. 식당 문 앞의 메뉴판 거치대와 같다. 메뉴판을 꽂지 않으면 견본 메뉴를 보여 주고, 찢어진 메뉴판을 꽂으면 견본으로 얼버무리지 않고 문을 열지 않는다.
