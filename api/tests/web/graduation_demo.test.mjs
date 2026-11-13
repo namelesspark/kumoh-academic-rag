@@ -115,6 +115,7 @@ function loadChat(fetch) {
   button.dataset = { action: "graduation" };
   runInNewContext(script, {
     document: {
+      addEventListener() {},
       querySelector(selector) {
         if (!elements.has(selector)) {
           elements.set(selector, new FakeElement(selector));

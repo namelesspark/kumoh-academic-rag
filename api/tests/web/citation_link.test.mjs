@@ -52,6 +52,7 @@ async function submitQuestion(citations) {
   const requests = [];
   runInNewContext(script, {
     document: {
+      addEventListener() {},
       querySelector(selector) {
         const node = new FakeElement(selector);
         elements.set(selector, node);

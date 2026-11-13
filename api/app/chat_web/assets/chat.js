@@ -111,7 +111,10 @@ function rememberStudent(id) {
 }
 
 function closeStudents() {
+  studentGeneration++;
   demoStudents.hidden = true;
+  demoNotice.textContent = "";
+  demoStudents.parentElement?.append(demoNotice);
   demoLogin.setAttribute("aria-expanded", "false");
 }
 
@@ -166,6 +169,7 @@ async function loadStudents() {
 
 async function openStudents(message = "") {
   const generation = ++studentGeneration;
+  demoStudents.append(demoNotice);
   demoStudents.hidden = false;
   demoLogin.setAttribute("aria-expanded", "true");
   demoNotice.textContent = message || "가상 학생 목록을 불러오는 중…";
@@ -203,11 +207,24 @@ demoLogout.addEventListener("click", () => {
   demoNotice.textContent = "가상 학생에서 나왔어요.";
   demoLogin.focus();
 });
-demoStudents.addEventListener("keydown", event => {
-  if (event.key !== "Escape") return;
+function dismissStudents(event) {
+  if (event.key !== "Escape" || demoStudents.hidden) return;
   event.preventDefault();
   closeStudents();
   demoLogin.focus();
+}
+demoStudents.addEventListener("keydown", dismissStudents);
+demoLogin.addEventListener("keydown", dismissStudents);
+
+function insideStudents(target) {
+  return target === demoLogin || demoLogin.contains(target) || demoStudents.contains(target);
+}
+// 바깥 클릭은 버튼 동작보다 먼저 확인해 졸업 체크가 연 목록을 다시 닫지 않는다.
+document.addEventListener("click", event => {
+  if (!demoStudents.hidden && !insideStudents(event.target)) closeStudents();
+}, true);
+document.addEventListener("focusin", event => {
+  if (!demoStudents.hidden && !insideStudents(event.target)) closeStudents();
 });
 
 async function restoreStudent() {

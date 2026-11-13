@@ -131,6 +131,24 @@ const pixels = text => {
   return Number.parseInt(text, 10);
 };
 
+test("모바일 로고는 높이 20px 이상과 비율에 맞는 자리를 확보한다", () => {
+  const logo = first(".brand-logo img", narrowRules);
+  const minimumHeight = pixels(value(logo, "min-height"));
+  assert.ok(minimumHeight >= 20);
+  assert.ok(pixels(value(logo, "height")) >= minimumHeight);
+  assert.equal(value(logo, "width"), "auto");
+
+  const brandFlex = value(first(".brand", narrowRules), "flex");
+  assert.match(brandFlex, /^0 0 \d+px$/);
+  const reservedWidth = pixels(brandFlex.split(" ")[2]);
+  assert.ok(reservedWidth >= minimumHeight * 782 / 113);
+});
+
+test("학생 로그인 버튼은 좁은 화면에서도 글자를 한 줄로 유지한다", () => {
+  assert.equal(value(first(".login"), "white-space"), "nowrap");
+  assert.equal(value(first(".masthead-actions"), "flex-wrap"), "nowrap");
+});
+
 test("전환 이름은 CSS가 누른 카드와 열린 패널에만 주고, 패널이 열리면 카드 목록은 보이지 않는다", () => {
   const named = rules.filter(([, body]) => body.includes("view-transition-name"));
   assert.deepEqual(named, [[".card[data-morph], .feature-panel:not([hidden])", "view-transition-name: feature-morph;"]]);
@@ -231,7 +249,11 @@ test("390px 묶음은 그림을 120px 이하로 줄여 제목 옆에 놓고 카�
   const size = selector => Number.parseFloat(`0${value(narrow(selector), "font-size")?.replace("rem", "")}`);
   assert.ok(size(".card-text") >= 0.8 && size(".card-text") < 0.86);
   assert.ok(size(".hero-copy p") >= 0.9 && size(".hero-copy p") < 1);
-  assert.doesNotMatch(styles, /line-clamp|text-overflow|max-lines/);
+  // 상단의 긴 학생 이름만 말줄임하고 설명 글은 끝까지 보여 준다.
+  for (const [selector, body] of rules) {
+    if (selector === "#demo-label") continue;
+    assert.doesNotMatch(body, /line-clamp|text-overflow|max-lines/, selector);
+  }
   for (const [selector, body] of narrowRules) assert.doesNotMatch(body, /display: none|visibility|overflow: hidden/, selector);
 });
 

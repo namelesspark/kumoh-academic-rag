@@ -8,6 +8,7 @@ import { runInNewContext } from "node:vm";
 const read = path => readFileSync(new URL(`../../app/chat_web/${path}`, import.meta.url), "utf8");
 const script = read("assets/chat.js");
 const html = read("index.html");
+const css = read("assets/chat.css");
 const students = [
   { id: "demo-d02", label: "가상 학생 D02", scenario: "졸업 요건에 가까움", is_fictional: true },
   { id: "demo-d03", label: "가상 학생 D03", scenario: "학점이 많이 남음", is_fictional: true },
@@ -73,6 +74,8 @@ class FakeElement {
       : node.tagName === selector);
   }
   querySelector(selector) { return this.querySelectorAll(selector)[0] ?? null; }
+  contains(node) { return node === this || descendants(this).includes(node); }
+  get parentElement() { return this.parent; }
   focus() { this.onFocus?.(this); }
   scrollIntoView() {}
 }
@@ -91,11 +94,16 @@ function graduation(id = "demo-d02") {
 function loadPage({ saved = null, storageFails = false, list = students, listResult = () => ok({ students: list }), result = () => ok(graduation()) } = {}) {
   const elements = new Map();
   const requests = [];
+  const documentListeners = new Map();
+  const documentCapture = new Map();
   const timers = new Map();
   const storage = new Map(saved === null ? [] : [[storageKey, saved]]);
   let nextTimer = 0;
   let focused = null;
-  const create = tag => new FakeElement(tag, node => { focused = node; });
+  const create = tag => new FakeElement(tag, node => {
+    focused = node;
+    documentListeners.get("focusin")?.({ target: node });
+  });
   const get = selector => {
     if (!elements.has(selector)) elements.set(selector, create(selector));
     return elements.get(selector);
@@ -106,6 +114,8 @@ function loadPage({ saved = null, storageFails = false, list = students, listRes
     return button;
   });
   for (const id of ["demo-students", "demo-identity"]) get(`#${id}`).hidden = true;
+  get(".demo-account").append(get("#demo-login"), get("#demo-identity"), get("#demo-students"));
+  get("#demo-students").append(get("#demo-student-list"), get("#demo-notice"));
   const sessionStorage = {
     getItem(key) { if (storageFails) throw new Error("저장소 사용 불가"); return storage.get(key) ?? null; },
     setItem(key, value) { if (storageFails) throw new Error("저장소 사용 불가"); storage.set(key, value); },
@@ -113,6 +123,10 @@ function loadPage({ saved = null, storageFails = false, list = students, listRes
   };
   runInNewContext(script, {
     document: {
+      addEventListener(name, listener, capture = false) {
+        documentListeners.set(name, listener);
+        documentCapture.set(name, capture === true || capture.capture === true);
+      },
       querySelector: get,
       querySelectorAll: selector => selector === "[data-action]" ? buttons : [],
       createElement: create,
@@ -132,6 +146,13 @@ function loadPage({ saved = null, storageFails = false, list = students, listRes
   get("#transcript").append(get("#empty"));
   return {
     get, buttons, requests, storage, timers,
+    dispatch(name, target) { documentListeners.get(name)?.({ target }); },
+    click(node) {
+      const documentClick = () => documentListeners.get("click")?.({ target: node });
+      if (documentCapture.get("click")) documentClick();
+      click(node);
+      if (!documentCapture.get("click")) documentClick();
+    },
     get focused() { return focused; },
     choices: () => get("#demo-student-list").querySelectorAll("button"),
     tables: () => get("#transcript").querySelectorAll("table"),
@@ -396,4 +417,101 @@ test("복원할 목록을 일시적으로 받지 못해도 저장 ID를 유지�
     assert.equal(text(refreshed.get("#demo-label")), "가상 학생 D04");
     assert.equal(refreshed.get("#demo-identity").hidden, false);
   }
+});
+
+test("바깥 클릭은 목록을 닫고 클릭한 곳의 초점을 유지한다", async () => {
+  const page = loadPage();
+  click(page.get("#demo-login"));
+  await flush();
+  const outside = page.get("#question");
+  const previousFocus = page.focused;
+  page.dispatch("click", outside);
+  assert.equal(page.focused, previousFocus);
+  outside.focus();
+  assert.equal(page.get("#demo-students").hidden, true);
+  assert.equal(page.focused, outside);
+  assert.equal(page.get("#demo-login").getAttribute("aria-expanded"), "false");
+});
+
+test("로그인 버튼에서 Escape를 누르면 목록을 닫고 버튼에 초점을 둔다", async () => {
+  const page = loadPage();
+  click(page.get("#demo-login"));
+  await flush();
+  page.get("#demo-login").focus();
+  let prevented = false;
+  page.get("#demo-login").listeners.get("keydown")({ key: "Escape", preventDefault() { prevented = true; } });
+  assert.equal(prevented, true);
+  assert.equal(page.get("#demo-students").hidden, true);
+  assert.equal(page.focused, page.get("#demo-login"));
+});
+
+test("Tab으로 메뉴 밖에 초점이 가면 닫고 메뉴 안 이동은 유지한다", async () => {
+  const page = loadPage();
+  click(page.get("#demo-login"));
+  await flush();
+  page.choices()[1].focus();
+  assert.equal(page.get("#demo-students").hidden, false);
+  page.get("#reset").focus();
+  assert.equal(page.get("#demo-students").hidden, true);
+  assert.equal(page.focused, page.get("#reset"));
+});
+
+test("졸업 체크 클릭이 문서에 전달되어도 방금 연 목록을 유지한다", async () => {
+  const page = loadPage();
+  page.click(page.buttons[0]);
+  await flush();
+  assert.equal(page.get("#demo-students").hidden, false);
+  assert.match(text(page.get("#demo-notice")), /먼저 가상 학생을 골라 주세요/);
+  assert.equal(page.focused, page.choices()[0]);
+});
+
+test("닫은 목록에 늦게 도착한 성공과 실패 응답은 초점을 가져가지 않는다", async () => {
+  for (const succeeds of [true, false]) {
+    let finish;
+    const page = loadPage({ listResult: () => new Promise(resolve => { finish = resolve; }) });
+    click(page.get("#demo-login"));
+    const outside = page.get("#question");
+    page.dispatch("click", outside);
+    outside.focus();
+    finish(succeeds ? ok({ students }) : { ok: false, status: 503 });
+    await flush();
+    assert.equal(page.get("#demo-students").hidden, true);
+    assert.equal(page.choices().length, 0);
+    assert.equal(page.focused, outside);
+    assert.equal(page.get("#demo-login").getAttribute("aria-expanded"), "false");
+  }
+});
+
+test("학생 메뉴는 상단 띠의 높이를 늘리지 않는 위치에 둔다", () => {
+  assert.match(css, /\.demo-account\s*\{[^}]*position:\s*relative/s);
+  assert.match(css, /#demo-students\s*\{[^}]*position:\s*absolute/s);
+  assert.match(css, /#demo-students\s*\{[^}]*overflow-y:\s*auto/s);
+  assert.doesNotMatch(css, /#demo-identity[^}]*flex-basis:\s*100%/s);
+  assert.doesNotMatch(css, /\.demo-account\s*\{[^}]*(?:\{|;)\s*width:\s*100%/s);
+});
+
+test("로딩·오류·미선택 안내는 메뉴 안에 있고 닫은 뒤 안내는 계정 영역에 둔다", async () => {
+  let finish;
+  const page = loadPage({ listResult: () => new Promise(resolve => { finish = resolve; }) });
+  page.click(page.get("#demo-login"));
+  const notice = page.get("#demo-notice");
+  assert.equal(notice.parentElement, page.get("#demo-students"));
+  assert.match(text(notice), /불러오는 중/);
+  finish({ ok: false, status: 503 });
+  await flush();
+  assert.equal(notice.parentElement, page.get("#demo-students"));
+  assert.match(text(notice), /불러오지 못했어요/);
+  page.click(page.get("#demo-login"));
+  assert.equal(notice.parentElement, page.get(".demo-account"));
+  assert.equal(text(notice), "");
+
+  const unselected = loadPage();
+  unselected.click(unselected.buttons[0]);
+  await flush();
+  assert.equal(unselected.get("#demo-notice").parentElement, unselected.get("#demo-students"));
+  assert.match(text(unselected.get("#demo-notice")), /먼저 가상 학생을 골라 주세요/);
+  click(unselected.choices()[1]);
+  click(unselected.get("#demo-logout"));
+  assert.equal(unselected.get("#demo-notice").parentElement, unselected.get(".demo-account"));
+  assert.match(text(unselected.get("#demo-notice")), /가상 학생에서 나왔어요/);
 });
