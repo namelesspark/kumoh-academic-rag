@@ -58,7 +58,240 @@ class FakeResponse(BytesIO):
         return self.url
 
 
+def photo_bytes(color, size=(1920, 280), image_format="JPEG"):
+    """실제 사진과 관계없는 단색 그림. 색이 다르면 바이트와 지문도 다르다."""
+    output = BytesIO()
+    Image.new("RGB", size, color).save(output, format=image_format)
+    return output.getvalue()
+
+
+def fictional_photos(sources):
+    """원본 주소와 이름은 그대로 두고 바이트 수와 지문만 가상 그림의 것으로 바꾼다."""
+    return tuple(
+        assets.CampusPhoto(photo.name, photo.url, len(data), sha256(data).hexdigest())
+        for photo, data in zip(REAL_PHOTOS, sources)
+    )
+
+
+# 이슈 #79의 약속 표. (파일, 원본 경로, 바이트, SHA-256) 순서다.
+PHOTO_TABLE = (
+    ("campus-aerial.jpg", "/_res/ko/img/sub05/bg_subvisual_pc.jpg", 583939,
+     "8faafc7fd7e7aab32534db748751786cac4ce274b7b90502f1458e383bbab710"),
+    ("campus-hill.jpg", "/_res/ko/img/sub01/bg_subvisual_pc.jpg", 436640,
+     "dbc71342b577655fd9e08e2e7e7b50631da92e676a0be8f227bdc80d960326cb"),
+    ("campus-gate.jpg", "/_res/ko/img/sub06/bg_subvisual_pc.jpg", 346802,
+     "69f8c4620bf576cc8290a3bd122db80761a1e5e270edafbf7f77f9ff81cba3c1"),
+    ("campus-field.jpg", "/_res/ko/img/sub04/bg_subvisual_pc.jpg", 299358,
+     "eb5c46f8a47e642e22a2dbbc55248a7eefcffb00d43f997f76459c65445555a5"),
+)
+PHOTO_NAMES = tuple(row[0] for row in PHOTO_TABLE)
+REAL_PHOTOS = assets.CAMPUS_PHOTOS
+PHOTO_COLORS = ("navy", "green", "black", "orange")
+
+
+class TestCampusPhotos(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.sources = tuple(photo_bytes(color) for color in PHOTO_COLORS)
+        cls.photos = fictional_photos(cls.sources)
+        cls.by_url = {photo.url: data for photo, data in zip(cls.photos, cls.sources)}
+
+    def run_main(self, downloader, written, logs):
+        """로고와 테크모는 통과한 것으로 두고 사진 네 장의 처리만 본다."""
+        with (
+            patch.object(assets, "CAMPUS_PHOTOS", self.photos),
+            patch.object(assets, "techmo_sprite_png", return_value=b"sprite"),
+            patch.object(assets, "logo_png", return_value=b"logo"),
+            patch.object(assets, "techmo_png", return_value=b"pose"),
+        ):
+            return assets.main(downloader=downloader,
+                               writer=lambda path, data: written.__setitem__(path.name, data),
+                               report=logs.append)
+
+    def test_constants_match_the_agreed_table(self):
+        self.assertEqual(REAL_PHOTOS, tuple(
+            assets.CampusPhoto(name, "https://www.kumoh.ac.kr" + path, size, digest)
+            for name, path, size, digest in PHOTO_TABLE
+        ))
+        self.assertEqual(assets.PHOTO_DIMENSIONS, (1920, 280))
+        for photo in REAL_PHOTOS:
+            with self.subTest(name=photo.name):
+                assets.check_url(photo.url)
+                self.assertLessEqual(photo.size, assets.MAX_DOWNLOAD)
+                self.assertEqual(web_main.CHAT_WEB_MEDIA_TYPES[photo.name], "image/jpeg")
+
+    def test_verified_photo_is_returned_byte_for_byte(self):
+        for photo, data in zip(self.photos, self.sources):
+            with self.subTest(name=photo.name):
+                # 다시 압축하지 않으므로 받은 바이트와 같은 객체다.
+                self.assertIs(assets.campus_jpeg(data, photo.size, photo.sha256), data)
+
+    def test_html_error_page_and_other_sizes_are_rejected_before_decoding(self):
+        html = b"<html><body>fictional error</body></html>".ljust(143)
+        self.assertEqual(len(html), 143)
+        photo = self.photos[0]
+        with patch.object(assets.Image, "open", side_effect=AssertionError("열면 안 됨")):
+            for data in (html, b"", self.sources[0][:-1], self.sources[0] + b"\x00"):
+                with self.subTest(length=len(data)), self.assertRaises(assets.AssetError) as caught:
+                    assets.campus_jpeg(data, photo.size, photo.sha256)
+                self.assertEqual(str(caught.exception), "사진 바이트 수 불일치")
+            # 길이는 같고 한 바이트만 다른 내용.
+            changed = self.sources[0][:-1] + b"\x00"
+            with self.assertRaises(assets.AssetError) as caught:
+                assets.campus_jpeg(changed, photo.size, photo.sha256)
+            self.assertEqual(str(caught.exception), "사진 지문 불일치")
+            # 바이트 수가 같아도 HTML의 지문은 사진과 다르다.
+            with self.assertRaises(assets.AssetError):
+                assets.campus_jpeg(html, len(html), photo.sha256)
+
+    def test_format_and_dimensions_are_checked_even_when_bytes_and_hash_match(self):
+        html = b"<html><body>fictional error</body></html>".ljust(143)
+        for label, data in (
+            ("png", photo_bytes("navy", image_format="PNG")),
+            ("narrow", photo_bytes("navy", size=(1919, 280))),
+            ("tall", photo_bytes("navy", size=(1920, 281))),
+            ("swapped", photo_bytes("navy", size=(280, 1920))),
+            ("html", html),
+            ("truncated", self.sources[0][: len(self.sources[0]) // 2]),
+        ):
+            with self.subTest(label=label), self.assertRaises(assets.AssetError) as caught:
+                assets.campus_jpeg(data, len(data), sha256(data).hexdigest())
+            self.assertEqual(str(caught.exception), "사진 형식 또는 크기 불일치")
+
+    def test_photo_request_carries_browser_headers_and_its_own_timeout(self):
+        self.assertLess(assets.PHOTO_TOTAL_TIMEOUT, assets.TOTAL_TIMEOUT)
+        # 값이 달라야 사진 요청이 로고용 한도를 잘못 쓰는 실수가 아래 단언에 걸린다.
+        self.assertLess(assets.PHOTO_REQUEST_TIMEOUT, assets.REQUEST_TIMEOUT)
+        for photo in REAL_PHOTOS:
+            with self.subTest(name=photo.name):
+                opener = Mock(return_value=FakeResponse(b"fictional", url=photo.url))
+                self.assertEqual(assets.download(photo.url, opener=opener), b"fictional")
+                (request,), keywords = opener.call_args
+                self.assertEqual(keywords, {"timeout": assets.PHOTO_REQUEST_TIMEOUT})
+                self.assertEqual(request.full_url, photo.url)
+                self.assertEqual(request.get_method(), "GET")
+                self.assertTrue(request.get_header("User-agent").startswith("Mozilla/5.0 "))
+                self.assertEqual(request.get_header("Referer"), "https://www.kumoh.ac.kr/ko/index.do")
+                self.assertEqual(len(request.header_items()), 2)
+
+    def test_logo_and_techmo_requests_are_unchanged(self):
+        for url in (assets.LOGO_URL, assets.TECHMO_URL):
+            with self.subTest(url=url):
+                opener = Mock(return_value=FakeResponse(b"fictional", url=url))
+                assets.download(url, opener=opener)
+                opener.assert_called_once_with(url, timeout=assets.REQUEST_TIMEOUT)
+
+    def test_photo_total_timeout_is_separate_from_the_brand_timeout(self):
+        url = REAL_PHOTOS[0].url
+        respond = lambda *args, **kwargs: FakeResponse(b"123", url=url)
+        for times in ((0, assets.PHOTO_TOTAL_TIMEOUT), (0, 0, assets.PHOTO_TOTAL_TIMEOUT)):
+            with self.subTest(times=times), self.assertRaises(TimeoutError):
+                assets.download(url, opener=respond, clock=Mock(side_effect=times))
+        # 같은 시각이어도 로고는 자기 한도 안이라 끝까지 읽는다.
+        times = iter((0, assets.PHOTO_TOTAL_TIMEOUT, assets.PHOTO_TOTAL_TIMEOUT,
+                      assets.PHOTO_TOTAL_TIMEOUT, assets.PHOTO_TOTAL_TIMEOUT))
+        self.assertEqual(assets.download(assets.LOGO_URL,
+                                         opener=lambda *args, **kwargs: FakeResponse(b"123"),
+                                         clock=lambda: next(times)), b"123")
+
+    def test_photo_download_keeps_size_and_origin_limits(self):
+        url = REAL_PHOTOS[0].url
+        with self.assertRaises(assets.AssetError):
+            assets.download(url, opener=lambda *args, **kwargs: FakeResponse(b"12345", url=url),
+                            limit=4)
+        with self.assertRaises(assets.AssetError):
+            assets.download(url, opener=lambda *args, **kwargs: FakeResponse(
+                b"", url="https://example.invalid/photo.jpg"))
+        opener = Mock()
+        for other in (url + "?size=large", url.replace("sub05", "sub02"),
+                      url.replace("https://", "http://")):
+            with self.subTest(other=other), self.assertRaises(assets.AssetError):
+                assets.download(other, opener=opener)
+        opener.assert_not_called()
+
+    def test_main_stores_four_verified_photos_without_recompression(self):
+        written, logs = {}, []
+        downloader = Mock(side_effect=lambda url: self.by_url.get(url, b"fictional"))
+        self.assertEqual(self.run_main(downloader, written, logs), 0)
+        for name, data in zip(PHOTO_NAMES, self.sources):
+            with self.subTest(name=name):
+                self.assertEqual(written[name], data)
+                self.assertIn(f"{name}: 준비 완료", logs)
+        self.assertEqual(len(logs), 10)
+        # 사진은 주소마다 한 번씩만 받는다.
+        for photo in self.photos:
+            self.assertEqual(sum(call.args == (photo.url,) for call in downloader.call_args_list), 1)
+
+    def test_each_photo_fails_alone_and_keeps_its_previous_file(self):
+        html = b"<html><body>fictional error</body></html>".ljust(143)
+        failures = {
+            "timeout": TimeoutError("fictional timeout"),
+            "html": html,
+            "other photo": self.sources[1],
+            "png": photo_bytes("navy", image_format="PNG"),
+        }
+        for label, outcome in failures.items():
+            for index, failed in enumerate(self.photos):
+                if outcome is self.sources[index]:
+                    continue
+                with self.subTest(label=label, failed=failed.name):
+                    written = {name: b"previous" for name in PHOTO_NAMES}
+                    logs = []
+
+                    def fetch(url):
+                        if url != failed.url:
+                            return self.by_url.get(url, b"fictional")
+                        if isinstance(outcome, Exception):
+                            raise outcome
+                        return outcome
+
+                    self.assertEqual(self.run_main(fetch, written, logs), 0)
+                    self.assertEqual(written[failed.name], b"previous")
+                    for name, data in zip(PHOTO_NAMES, self.sources):
+                        if name != failed.name:
+                            self.assertEqual(written[name], data)
+                    self.assertEqual([line for line in logs if "준비 실패" in line][0].split(":")[0],
+                                     failed.name)
+                    self.assertEqual(sum("준비 실패" in line for line in logs), 1)
+                    self.assertNotIn("fictional timeout", "".join(logs))
+
+    def test_write_failure_of_one_photo_does_not_stop_the_rest(self):
+        written, logs = {"campus-hill.jpg": b"previous"}, []
+
+        def writer(path, data):
+            if path.name == "campus-hill.jpg":
+                raise OSError("fictional write failure")
+            written[path.name] = data
+
+        with patch.object(assets, "CAMPUS_PHOTOS", self.photos), \
+                patch.object(assets, "techmo_sprite_png", return_value=b"sprite"), \
+                patch.object(assets, "logo_png", return_value=b"logo"), \
+                patch.object(assets, "techmo_png", return_value=b"pose"):
+            code = assets.main(downloader=lambda url: self.by_url.get(url, b"fictional"),
+                               writer=writer, report=logs.append)
+        self.assertEqual(code, 0)
+        self.assertEqual(written["campus-hill.jpg"], b"previous")
+        self.assertEqual(written["campus-field.jpg"], self.sources[3])
+        self.assertEqual(sum("준비 실패" in line for line in logs), 1)
+
+    def test_unverified_real_constants_never_reach_the_writer(self):
+        # 진짜 지문에는 가상 그림이 맞을 수 없다. 사진 네 줄 모두 실패하고 종료 코드는 0이다.
+        writer, logs = Mock(), []
+        self.assertEqual(assets.main(downloader=lambda url: self.sources[0],
+                                     writer=writer, report=logs.append), 0)
+        writer.assert_not_called()
+        self.assertEqual(len(logs), 10)
+        self.assertEqual([line.split(":")[0] for line in logs[6:]], list(PHOTO_NAMES))
+        self.assertTrue(all("준비 실패" in line for line in logs))
+
+
 class TestBrandPreparation(unittest.TestCase):
+    def setUp(self):
+        # 이 묶음은 로고와 테크모만 본다. 사진 네 장은 TestCampusPhotos가 맡는다.
+        patcher = patch.object(assets, "CAMPUS_PHOTOS", ())
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def test_sprite_geometry_order_transparency_and_no_upscaling(self):
         sizes = ((468, 414), (140, 183), (140, 181), (159, 145), (159, 170))
         colors = ('red', 'green', 'blue', 'orange', 'purple')
@@ -409,6 +642,41 @@ class TestBrandAssetRoutes(unittest.TestCase):
                     self.assertEqual(response.headers["content-type"], "image/png")
                     self.assertEqual(response.body, png)
                     self.assertEqual(response.headers['cache-control'], 'no-cache')
+
+    def test_missing_campus_photos_return_404(self):
+        with patch.object(Path, "is_file", return_value=False):
+            for name in PHOTO_NAMES:
+                with self.subTest(name=name):
+                    response = call_app(web_main.app, "GET", f"/chat-assets/{name}", allow_wait=True)
+                    self.assertEqual(response.status, 404)
+                    self.assertEqual(response.headers['cache-control'], 'no-cache')
+
+    def test_existing_campus_photos_have_jpeg_media_type(self):
+        jpg = photo_bytes("navy", size=(2, 2))
+
+        def memory_response(path, *, media_type, headers):
+            self.assertIn(path.name, PHOTO_NAMES)
+            return web_main.Response(content=jpg, media_type=media_type, headers=headers)
+
+        with (
+            patch.object(Path, "is_file", return_value=True),
+            patch.object(web_main, "FileResponse", side_effect=memory_response),
+        ):
+            for name in PHOTO_NAMES:
+                with self.subTest(name=name):
+                    response = call_app(web_main.app, "GET", f"/chat-assets/{name}", allow_wait=True)
+                    self.assertEqual(response.status, 200)
+                    self.assertEqual(response.headers["content-type"], "image/jpeg")
+                    self.assertEqual(response.body, jpg)
+                    self.assertEqual(response.headers['cache-control'], 'no-cache')
+
+    def test_unlisted_photo_names_are_404_without_touching_the_disk(self):
+        with patch.object(Path, "is_file", side_effect=AssertionError("읽으면 안 됨")):
+            for name in ("campus-other.jpg", "campus-aerial.jpeg", "CAMPUS-AERIAL.JPG",
+                         "campus-aerial.png"):
+                with self.subTest(name=name):
+                    response = call_app(web_main.app, "GET", f"/chat-assets/{name}", allow_wait=True)
+                    self.assertEqual(response.status, 404)
 
 
 if __name__ == "__main__":

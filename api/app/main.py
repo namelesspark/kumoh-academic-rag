@@ -13,8 +13,8 @@
      JSON은 중괄호와 따옴표로 값을 적는 텍스트 형식이다 (JavaScript Object Notation).
      이 문구도 그대로 내보내지 않고 같은 고정 문구로 바꾼다.
    두 경우 모두 값 검사 라이브러리(pydantic)의 상세 메시지나 내부 예외 문자열은 밖으로 내지 않는다.
-3. 채팅 주소의 자동 생성 설명서(OpenAPI 문서)에서 422를 뺀다. OpenAPI는 서버가 받는 주소와 형식을
-   기계가 읽을 수 있게 적는 표준이다. 위 처리 때문에 이 앱은 422를 내지 않는다.
+3. 채팅과 시연 로그인 주소의 자동 생성 설명서(OpenAPI 문서)에서 422를 뺀다. OpenAPI는 서버가 받는
+   주소와 형식을 기계가 읽을 수 있게 적는 표준이다. 위 처리 때문에 두 주소는 422를 내지 않는다.
 
 실행 방법(수동 기동, 선택):
     uvicorn app.main:app --app-dir api --reload
@@ -42,7 +42,13 @@ CHAT_WEB_MEDIA_TYPES = {
     "techmo-quiet.png": "image/png", "techmo-guide.png": "image/png",
     "techmo-celebrate.png": "image/png",
     "techmo-sprite.png": "image/png",
+    # 캠퍼스 사진 네 장. 배포 준비 때만 받으므로 파일이 없으면 404로 답한다.
+    "campus-aerial.jpg": "image/jpeg", "campus-hill.jpg": "image/jpeg",
+    "campus-gate.jpg": "image/jpeg", "campus-field.jpg": "image/jpeg",
 }
+# 요청 형식 오류를 400으로만 내는 주소들. 자동 설명서에서 422를 지운다.
+# 사진 주소들은 실제로 422를 내므로 여기에 넣지 않는다.
+PATHS_WITHOUT_422 = ("/api/v1/chat", "/api/v1/demo-login")
 
 
 def fingerprint_chat_assets(html: str, css: bytes, script: bytes) -> str:
@@ -123,9 +129,10 @@ def create_app(
     default_openapi = application.openapi
 
     def openapi_without_422() -> dict:
-        """채팅 설명서에 실제 오류 응답인 400만 남긴다."""
+        """채팅과 시연 로그인 설명서에서 이 앱이 내지 않는 422를 지운다."""
         schema = default_openapi()
-        schema["paths"]["/api/v1/chat"]["post"]["responses"].pop("422", None)
+        for path in PATHS_WITHOUT_422:
+            schema["paths"][path]["post"]["responses"].pop("422", None)
         return schema
 
     application.openapi = openapi_without_422

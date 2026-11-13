@@ -1,4 +1,4 @@
-"""배포 준비 때 공식 그림을 검증하고 화면용 PNG를 만든다."""
+"""배포 준비 때 공식 그림을 검증하고 화면용 PNG와 캠퍼스 사진을 준비한다."""
 
 from collections import deque
 from hashlib import sha256
@@ -6,11 +6,12 @@ from io import BytesIO
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from time import monotonic
+from typing import NamedTuple
 from urllib.parse import urlsplit
-from urllib.request import HTTPRedirectHandler, build_opener
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 from zipfile import ZipFile
 
-from PIL import Image
+from PIL import Image, UnidentifiedImageError
 
 ASSET_DIR = Path(__file__).resolve().parents[1] / "app/chat_web/assets"
 LOGO_URL = "https://www.kumoh.ac.kr/ko/sub01_01_08.do?mode=download&articleNo=536069&attachNo=157277"
@@ -31,6 +32,38 @@ TECHMO_CROPS = {
 }
 
 
+class CampusPhoto(NamedTuple):
+    """배경 사진 한 장의 저장 이름, 원본 주소, 바이트 수, 내용 지문(SHA-256)."""
+
+    name: str
+    url: str
+    size: int
+    sha256: str
+
+
+# 2026-11-14에 확인한 값. 화면이 보여 주는 순서와 같다.
+CAMPUS_PHOTOS = (
+    CampusPhoto("campus-aerial.jpg", "https://www.kumoh.ac.kr/_res/ko/img/sub05/bg_subvisual_pc.jpg",
+                583939, "8faafc7fd7e7aab32534db748751786cac4ce274b7b90502f1458e383bbab710"),
+    CampusPhoto("campus-hill.jpg", "https://www.kumoh.ac.kr/_res/ko/img/sub01/bg_subvisual_pc.jpg",
+                436640, "dbc71342b577655fd9e08e2e7e7b50631da92e676a0be8f227bdc80d960326cb"),
+    CampusPhoto("campus-gate.jpg", "https://www.kumoh.ac.kr/_res/ko/img/sub06/bg_subvisual_pc.jpg",
+                346802, "69f8c4620bf576cc8290a3bd122db80761a1e5e270edafbf7f77f9ff81cba3c1"),
+    CampusPhoto("campus-field.jpg", "https://www.kumoh.ac.kr/_res/ko/img/sub04/bg_subvisual_pc.jpg",
+                299358, "eb5c46f8a47e642e22a2dbbc55248a7eefcffb00d43f997f76459c65445555a5"),
+)
+PHOTO_DIMENSIONS = (1920, 280)
+# 사진은 네 장이라 한 장이 빌드를 오래 붙잡지 않게 로고·테크모보다 짧은 한도를 따로 둔다.
+PHOTO_REQUEST_TIMEOUT = 4
+PHOTO_TOTAL_TIMEOUT = 10
+# 학교 서버는 브라우저가 보낸 것처럼 보이지 않는 사진 요청에 143바이트 HTML 오류를 준다.
+PHOTO_HEADERS = {
+    "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                   "(KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"),
+    "Referer": "https://www.kumoh.ac.kr/ko/index.do",
+}
+
+
 class AssetError(ValueError):
     """공개 로그에 남겨도 되는 고정 실패 사유임."""
 
@@ -42,9 +75,10 @@ def check_url(url):
 
 
 class OfficialRedirect(HTTPRedirectHandler):
-    def __init__(self, *, clock=monotonic, deadline=None):
+    def __init__(self, *, clock=monotonic, deadline=None, request_timeout=REQUEST_TIMEOUT):
         self.clock = clock
         self.deadline = deadline
+        self.request_timeout = request_timeout
 
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         check_url(newurl)
@@ -52,17 +86,27 @@ class OfficialRedirect(HTTPRedirectHandler):
             remaining = self.deadline - self.clock()
             if remaining <= 0:
                 raise TimeoutError("주소 이동 전체 시간 초과")
-            req.timeout = min(REQUEST_TIMEOUT, remaining)
+            req.timeout = min(self.request_timeout, remaining)
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
 def download(url, *, opener=None, clock=monotonic, limit=MAX_DOWNLOAD):
-    """공식 주소에서 제한된 크기와 시간 안에 읽는다."""
-    if url not in (LOGO_URL, TECHMO_URL):
+    """공식 주소에서 제한된 크기와 시간 안에 읽는다.
+
+    사진 주소에는 브라우저형 요청 헤더를 붙이고 사진용 시간 한도를 쓴다.
+    로고와 테크모 요청은 전과 같다.
+    """
+    is_photo = any(url == photo.url for photo in CAMPUS_PHOTOS)
+    if not is_photo and url not in (LOGO_URL, TECHMO_URL):
         raise AssetError("허용하지 않은 원본")
-    deadline = clock() + TOTAL_TIMEOUT
-    opener = opener or build_opener(OfficialRedirect(clock=clock, deadline=deadline)).open
-    with opener(url, timeout=REQUEST_TIMEOUT) as response:
+    request_timeout, total_timeout = (
+        (PHOTO_REQUEST_TIMEOUT, PHOTO_TOTAL_TIMEOUT) if is_photo else (REQUEST_TIMEOUT, TOTAL_TIMEOUT)
+    )
+    deadline = clock() + total_timeout
+    opener = opener or build_opener(OfficialRedirect(
+        clock=clock, deadline=deadline, request_timeout=request_timeout)).open
+    target = Request(url, headers=PHOTO_HEADERS) if is_photo else url
+    with opener(target, timeout=request_timeout) as response:
         check_url(response.geturl())
         length = response.headers.get("Content-Length")
         if length is not None and int(length) > limit:
@@ -76,7 +120,7 @@ def download(url, *, opener=None, clock=monotonic, limit=MAX_DOWNLOAD):
             raw = getattr(getattr(response, "fp", None), "raw", None)
             sock = getattr(raw, "_sock", None)
             if sock is not None:
-                sock.settimeout(min(REQUEST_TIMEOUT, remaining))
+                sock.settimeout(min(request_timeout, remaining))
             read = getattr(response, "read1", response.read)
             chunk = read(min(65536, limit + 1 - len(result)))
             if clock() >= deadline:
@@ -151,6 +195,28 @@ def techmo_sprite_png(data):
     return result.getvalue()
 
 
+def campus_jpeg(data, expected_size, expected_hash):
+    """확인해 둔 사진과 한 바이트도 다르지 않을 때만 받은 바이트를 그대로 돌려준다.
+
+    다시 압축하지 않는다. 바이트 수와 지문을 먼저 보므로 143바이트 HTML 오류는 그림을
+    열기 전에 걸린다.
+    """
+    if len(data) != expected_size:
+        raise AssetError("사진 바이트 수 불일치")
+    if sha256(data).hexdigest() != expected_hash:
+        raise AssetError("사진 지문 불일치")
+    try:
+        with Image.open(BytesIO(data)) as image:
+            valid = image.format == "JPEG" and image.size == PHOTO_DIMENSIONS
+            if valid:
+                image.load()
+    except (UnidentifiedImageError, OSError, SyntaxError):
+        valid = False
+    if not valid:
+        raise AssetError("사진 형식 또는 크기 불일치")
+    return data
+
+
 def atomic_write(destination, data):
     """검증한 결과를 임시 파일에 모두 쓴 뒤 교체한다."""
     temporary = None
@@ -173,6 +239,10 @@ def main(*, downloader=download, writer=atomic_write, report=print):
            lambda data, pose=pose: techmo_png(data, pose=pose))
           for pose in ("quiet", "guide", "celebrate")),
         ("techmo-sprite.png", TECHMO_URL, techmo_sprite_png),
+        # 사진은 주소가 서로 달라 한 장씩 따로 받고 따로 검사한다.
+        *((photo.name, photo.url,
+           lambda data, photo=photo: campus_jpeg(data, photo.size, photo.sha256))
+          for photo in CAMPUS_PHOTOS),
     ):
         try:
             if url not in sources:
