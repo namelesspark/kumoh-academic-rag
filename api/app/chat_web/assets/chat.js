@@ -7,7 +7,11 @@ const input = document.querySelector("#question");
 const send = document.querySelector("#send");
 const reset = document.querySelector("#reset");
 const statusLine = document.querySelector("#status");
-const graduationCheck = document.querySelector("#graduation-check");
+const assistant = document.querySelector("#assistant");
+const assistantLine = document.querySelector("#assistant-line");
+const assistantDots = document.querySelector("#assistant-dots");
+// 첫 화면의 버튼과 카드. 요청 중에는 함께 잠근다.
+const landingControls = [...(document.querySelectorAll?.("[data-action]") ?? [])];
 const photoFile = document.querySelector("#photo-file");
 const photoClear = document.querySelector("#photo-clear");
 const photoNote = document.querySelector("#photo-note");
@@ -58,11 +62,54 @@ const graduationStatuses = {
 };
 const graduationColumns = ["항목", "상태", "현재 / 기준", "부족·확인할 점", "적용 근거"];
 
+// 테크모 비서의 상태표. 상태마다 [자세, 한 줄 말]을 정한다. 자세 이름은 chat.css의 .pose-이름과 짝이다.
+const assistantStates = {
+  idle: ["guide", "궁금한 점을 물어보세요"],
+  searching: ["quiet", "쉿, 찾아보는 중이에요…"],
+  found: ["celebrate", "찾았어요! 함께 확인해 봐요"],
+  answer: ["guide", "근거와 함께 안내해 드릴게요"],
+  hold: ["quiet", "확인할 근거가 더 필요해요"],
+  error: ["guide", "잠시 문제가 생겼어요. 다시 시도해 주세요"],
+};
+// 서버가 답변을 한 번에 보내므로, 축하를 이만큼 보여 준 뒤 답변 표시로 넘어간다.
+const celebrateMs = 1_200;
+
 let sessionId = null;
 let busy = false;
 let graduationTurn = null;
+let assistantState = "idle";
+let assistantTimer = null;
 
 if (compact.matches) topics.open = false;
+
+// 비서의 자세·말·대기 점은 여기 한 곳에서만 바꾼다. 그림 주소는 건드리지 않고 data-pose만 바꾸므로
+// 늦게 도착한 그림 로드 신호가 지금 보이는 자세를 바꾸지 못한다.
+// 어느 상태로 가든 축하 뒤에 예약해 둔 전환은 먼저 취소한다.
+function showAssistant(state) {
+  if (assistantTimer !== null) {
+    clearTimeout(assistantTimer);
+    assistantTimer = null;
+  }
+  const [pose, line] = assistantStates[state];
+  assistantState = state;
+  // 같은 자세면 속성 값이 그대로라 줄었다 커지는 전환이 다시 돌지 않는다.
+  assistant.setAttribute("data-pose", pose);
+  assistantLine.textContent = line;
+  assistantDots.hidden = state !== "searching";
+}
+
+// 찾음: 축하를 잠깐 보여 준 뒤 답변 표시로 넘어간다. 타이머가 없는 환경에서는 바로 넘어간다.
+function celebrate() {
+  showAssistant("found");
+  if (typeof setTimeout !== "function") {
+    showAssistant("answer");
+    return;
+  }
+  assistantTimer = setTimeout(() => {
+    assistantTimer = null;
+    showAssistant("answer");
+  }, celebrateMs);
+}
 
 function element(tag, className, text) {
   const node = document.createElement(tag);
@@ -83,10 +130,14 @@ function setBusy(pending, message = "서버에 질문을 보내는 중…") {
   busy = pending;
   statusLine.textContent = pending ? message : "";
   reset.disabled = pending;
-  graduationCheck.disabled = pending;
+  for (const control of landingControls) control.disabled = pending;
   photoFile.disabled = pending;
   for (const retry of transcript.querySelectorAll(".retry")) retry.disabled = pending;
   for (const reask of transcript.querySelectorAll(".reask")) reask.disabled = pending;
+  // 요청이 시작되면 찾는 중으로 바꾼다. 잠금을 풀 때는 요청이 남긴 축하·보류·오류 상태를 그대로 둔다.
+  // 결과를 남기지 않고 끝난 요청이 있을 때만 평소로 돌려 대기 점이 남지 않게 한다.
+  if (pending) showAssistant("searching");
+  else if (assistantState === "searching") showAssistant("idle");
   updateSend();
 }
 
@@ -369,6 +420,7 @@ async function checkGraduation() {
     reply.append(...graduationResult(result));
     const recommendations = biskitRecommendations(result.biskit_recommendations);
     if (recommendations) reply.append(recommendations);
+    celebrate();
   } catch {
     const retry = element("button", "retry", "다시 시도");
     retry.type = "button";
@@ -376,6 +428,7 @@ async function checkGraduation() {
     const error = element("div", "error");
     error.append(element("p", null, "졸업 체크 결과를 받지 못했어요."), retry);
     reply.replaceChildren(error);
+    showAssistant("error");
   } finally {
     setBusy(false);
     turn.scrollIntoView?.({ block: "start" });
@@ -585,6 +638,8 @@ async function answerFromText(question, recognized, answer) {
       const [node, summary] = textAnswer(result);
       answer.append(node);
       photoNote.textContent = summary;
+      if (result.kind === "hold") showAssistant("hold");
+      else celebrate();
       return;
     } catch {
       message = photoMessages.textFailed;
@@ -598,6 +653,7 @@ async function answerFromText(question, recognized, answer) {
     rejected ? null : () => void whileBusy(photoMessages.asking, () => answerFromText(question, recognized, answer)),
   ));
   photoNote.textContent = message;
+  showAssistant("error");
 }
 
 // 읽은 글자를 고치는 칸. 판독문은 입력 칸의 값으로만 넣어 일반 글자로 남는다.
@@ -716,7 +772,10 @@ async function readPhoto(photo, type, question, reply) {
     if (shown) {
       reply.append(shown.answer, shown.panel);
       photoNote.textContent = shown.summary;
+      // 글자 주소로 이어서 물으면 그 결과가 비서 상태를 정한다. 여기서 끝나면 확정은 찾음, 나머지는 보류다.
       if (shown.pending) await answerFromText(shown.pending.question, shown.pending.recognized, shown.answer);
+      else if (result.event_match === "confirmed") celebrate();
+      else showAssistant("hold");
       return;
     }
   }
@@ -728,6 +787,7 @@ async function readPhoto(photo, type, question, reply) {
     rejected ? null : () => void whileBusy(photoMessages.reading, () => readPhoto(photo, type, question, reply)),
   ));
   photoNote.textContent = message;
+  showAssistant("error");
 }
 
 async function ask(question, reply) {
@@ -750,8 +810,10 @@ async function ask(question, reply) {
     if (result.answered) {
       reply.append(element("p", null, result.answer));
       for (const citation of result.citations) reply.append(citationCard(citation));
+      celebrate();
     } else {
       reply.append(element("p", "fallback", "이 질문은 가상 규정에서 근거를 찾지 못했어요."));
+      showAssistant("hold");
     }
   } catch {
     const retry = element("button", "retry", "다시 시도");
@@ -764,6 +826,7 @@ async function ask(question, reply) {
     const error = element("div", "error");
     error.append(element("p", null, "서버 응답을 받지 못했어요."), retry);
     reply.replaceChildren(error);
+    showAssistant("error");
   } finally {
     setBusy(false);
     scrollToLatest();
@@ -826,8 +889,6 @@ composer.addEventListener("submit", event => {
   void whileBusy(photoMessages.reading, () => readPhoto(photo, type, question, reply));
 });
 
-graduationCheck.addEventListener("click", () => void checkGraduation());
-
 photoFile.addEventListener("change", () => {
   photoNote.textContent = "";
   updateSend();
@@ -848,6 +909,7 @@ reset.addEventListener("click", () => {
   photoFile.value = "";
   photoNote.textContent = "";
   input.value = "";
+  showAssistant("idle");
   updateSend();
   input.focus();
 });
@@ -859,7 +921,7 @@ const landingActions = {
   photo: () => photoFile.click(),
   ask: () => input.focus(),
 };
-for (const control of document.querySelectorAll?.("[data-action]") ?? []) {
+for (const control of landingControls) {
   const action = control.dataset?.action;
   if (typeof action !== "string" || !Object.hasOwn(landingActions, action)) continue;
   control.addEventListener("click", () => {
@@ -867,7 +929,7 @@ for (const control of document.querySelectorAll?.("[data-action]") ?? []) {
   });
 }
 
-// 로고와 테크모 그림 자리는 숨긴 채 시작하고, 그림이 실제로 그려질 때만 보인다.
+// 로고, 첫 화면의 테크모, 비서의 자세 그림 자리는 숨긴 채 시작하고, 그림이 실제로 그려질 때만 보인다.
 // complete와 naturalWidth를 함께 보므로 이 스크립트가 로드·실패 신호보다 늦게 실행돼도 결과가 같다.
 // 파일이 없거나(404) 깨졌으면 자리를 숨긴 채 두고, 다른 그림으로 바꾸지 않는다.
 for (const slot of document.querySelectorAll?.("[data-brand-slot]") ?? []) {

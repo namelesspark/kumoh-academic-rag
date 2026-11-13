@@ -110,12 +110,16 @@ function text(node) {
 
 function loadChat(fetch) {
   const elements = new Map();
+  // 예전 안내 상자의 버튼은 없어졌다(#61). 첫 화면에 남은 「내 졸업 체크 보기」 버튼으로 같은 동작을 확인한다.
+  const button = new FakeElement("button");
+  button.dataset = { action: "graduation" };
   runInNewContext(script, {
     document: {
       querySelector(selector) {
         if (!elements.has(selector)) elements.set(selector, new FakeElement(selector));
         return elements.get(selector);
       },
+      querySelectorAll: selector => (selector === "[data-action]" ? [button] : []),
       createElement: tag => new FakeElement(tag),
       createTextNode: value => value,
     },
@@ -128,7 +132,7 @@ function loadChat(fetch) {
   const page = {
     transcript: elements.get("#transcript"),
     empty: elements.get("#empty"),
-    button: elements.get("#graduation-check"),
+    button,
     reset: elements.get("#reset"),
     composer: elements.get("#composer"),
     input: elements.get("#question"),

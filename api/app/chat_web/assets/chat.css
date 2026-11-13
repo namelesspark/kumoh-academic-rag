@@ -137,6 +137,67 @@ h1, h2, h3, p { margin-top: 0; }
 }
 .topics button:hover { color: var(--blue); background: var(--tint); text-decoration: underline; text-underline-offset: 3px; }
 
+/* 예시 질문과 테크모 비서를 한 칸에 세로로 쌓는다. 넓은 화면에서는 채팅 옆, 좁은 화면에서는 채팅 위에 온다. */
+.side { display: grid; gap: 20px; min-width: 0; }
+.assistant { display: flex; flex-direction: column; align-items: center; gap: 10px; min-width: 0; }
+/* 그림 자리는 크기를 고정한다. 그림이 없거나 늦게 와도 말과 채팅이 밀리지 않는다. */
+.assistant-stage { position: relative; flex: none; width: 160px; height: 184px; }
+/* 자세 세 장을 같은 자리에 겹쳐 두고, 비서의 data-pose와 맞는 한 장만 보인다. */
+.pose {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  visibility: hidden;
+  transform-origin: center bottom;
+}
+.pose img { display: block; width: auto; height: auto; max-width: 100%; max-height: 100%; }
+/* 새로 보이는 자세에만 움직임이 붙어, 자세가 바뀔 때 한 번 줄었다 커진다. */
+.assistant[data-pose="quiet"] .pose-quiet,
+.assistant[data-pose="guide"] .pose-guide,
+.assistant[data-pose="celebrate"] .pose-celebrate {
+  visibility: visible;
+  animation: pose-swap .32s ease-out;
+}
+@keyframes pose-swap {
+  0% { transform: scale(1); }
+  40% { transform: scale(.84); }
+  100% { transform: scale(1); }
+}
+.assistant-says {
+  width: 100%;
+  min-height: calc(3em + 22px);
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--white);
+  color: var(--navy);
+  font-size: .9rem;
+  line-height: 1.5;
+  text-align: center;
+  word-break: keep-all;
+}
+.assistant-dots { display: inline-flex; gap: 4px; margin-left: 4px; vertical-align: middle; }
+.assistant-dots span {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--blue);
+  animation: dot-hop 1s ease-in-out infinite;
+}
+.assistant-dots span:nth-child(2) { animation-delay: .15s; }
+.assistant-dots span:nth-child(3) { animation-delay: .3s; }
+@keyframes dot-hop {
+  0%, 60%, 100% { transform: translateY(0); opacity: .5; }
+  30% { transform: translateY(-4px); opacity: 1; }
+}
+/* 움직임 줄이기 설정에서는 자세 전환과 점의 움직임을 끈다. 말과 점은 그대로 보인다. */
+@media (prefers-reduced-motion: reduce) {
+  .pose, .assistant-dots span { animation: none !important; }
+}
+
 .chat {
   display: flex;
   flex-direction: column;
@@ -151,20 +212,9 @@ h1, h2, h3, p { margin-top: 0; }
    :has를 모르는 브라우저에서는 위 높이가 남아 대화 영역 안에서 스크롤된다. */
 .chat:has(> .transcript > .empty) { height: auto; }
 
-.chat-header, .transcript, .composer, .status { padding-inline: 28px; }
-.chat-header {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px 18px;
-  border-bottom: 1px solid var(--line);
-  padding-block: 20px;
-}
+.transcript, .composer, .status { padding-inline: 28px; }
 .check { background: var(--white); color: var(--blue); }
 .check:not(:disabled):hover { background: var(--tint); color: var(--blue); }
-.chat-header h2 { margin-bottom: 5px; font-size: 1.23rem; letter-spacing: -.03em; }
-.chat-header p { margin-bottom: 0; color: var(--muted); font-size: .9rem; line-height: 1.6; }
 
 .transcript {
   flex: 1;
@@ -443,10 +493,14 @@ textarea:hover { border-color: var(--blue); }
   .layout { grid-template-columns: minmax(0, 1fr); gap: 10px; margin-block: 12px; }
   .topics { padding-block: 2px; }
   .topics summary { min-height: 38px; padding-block: 8px; }
-  .chat { height: calc(100dvh - 180px); min-height: 350px; }
-  .chat-header, .transcript, .composer, .status { padding-inline: 15px; }
-  .chat-header, .transcript { padding-block: 15px; }
-  .chat-header h2 { font-size: 1.08rem; }
+  /* 비서는 그림과 말을 한 줄로 낮게 놓는다. 늘어난 높이(줄 56px + 간격 10px)만큼 대화 영역을 줄여 입력창이 화면 안에 남는다. */
+  .side { gap: 10px; }
+  .assistant { flex-direction: row; gap: 10px; }
+  .assistant-stage { width: 48px; height: 56px; }
+  .assistant-says { flex: 1; width: auto; min-width: 0; min-height: 0; padding: 6px 10px; font-size: .86rem; line-height: 1.4; text-align: left; }
+  .chat { height: calc(100dvh - 246px); min-height: 350px; }
+  .transcript, .composer, .status { padding-inline: 15px; }
+  .transcript { padding-block: 15px; }
   .empty { gap: 18px; }
   .hero { flex-direction: column; align-items: stretch; gap: 14px; }
   .hero-copy { flex: none; }

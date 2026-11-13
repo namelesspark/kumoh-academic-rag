@@ -139,9 +139,9 @@ test("글자·링크·입력 안내·준비 중 문구가 기본·마우스 올�
     ["준비 중 문구", ...self(".soon-label")],
     ["예시 질문", [".topics button", "text"], page],
     ["예시 질문(올림)", ...self(".topics button:hover")],
-    ["대화 영역 설명", [".chat-header p", "text"], chat],
-    ["졸업 체크 버튼", ...self(".check")],
-    ["졸업 체크 버튼(올림)", ...self(".check:not(:disabled):hover")],
+    ["테크모 비서의 한 줄 말", ...self(".assistant-says")],
+    ["다시 묻기 버튼", ...self(".check")],
+    ["다시 묻기 버튼(올림)", ...self(".check:not(:disabled):hover")],
     ["소개 제목", [".hero h2", "text"], chat],
     ["소개 설명", [".hero-copy p", "text"], chat],
     ["소개 버튼", ...self(".cta")],
@@ -184,7 +184,7 @@ test("버튼·입력창·카드의 테두리와 키보드 초점 표시가 맞�
     ["새 대화 테두리", [".reset", "edge"], masthead],
     ["새 대화 테두리(올림)", ...self(".reset:not(:disabled):hover", "edge")],
     ["로그인 자리 테두리", [".login", "edge"], masthead],
-    ["졸업 체크 테두리", [".check", "edge"], chat],
+    ["다시 묻기 테두리", [".check", "edge"], chat],
     ["소개 버튼 바탕", [".cta", "fill"], chat],
     ["소개 버튼 바탕(올림)", [".cta:hover", "fill"], chat],
     ["소개 보조 버튼 테두리", [".cta", "edge"], chat],
@@ -247,25 +247,33 @@ test("소개 영역과 카드 6개는 #empty 안에, 상단 띠와 하단 표시
   assert.match(top, /id="reset">새 대화</);
   assert.match(rest.split("</main>")[1], /<footer[^>]*>\s*<p>교내 대회 출품작 · 가상 학생 데이터로 동작하는 시연입니다<\/p>/);
 
-  // test_web.py가 보는 문구와 주소.
-  assert.ok(html.includes("가상 규정"));
+  // test_web.py가 보는 문구와 주소. 예전 안내 상자를 없앤 뒤로는 하단 표시의 문구를 본다(#61).
+  assert.ok(html.includes("가상 학생 데이터"));
   assert.ok(html.includes('href="/chat-assets/chat.css"'));
   assert.ok(html.includes('src="/chat-assets/chat.js"'));
 });
 
-test("두 그림은 숨긴 자리에서 시작하고, 보안 정책이 막는 방식은 쓰지 않는다", () => {
+test("모든 그림은 숨긴 자리에서 시작하고, 보안 정책이 막는 방식은 쓰지 않는다", () => {
   const images = [...html.matchAll(/<img\b[^>]*>/g)].map(match => match[0]);
+  const logo = '<img src="/chat-assets/kumoh-signature.png" alt="국립금오공과대학교" width="782" height="113">';
+  const basic = '<img src="/chat-assets/techmo-basic.png" alt="" width="468" height="414">';
+  // 가운데 세 장은 테크모 비서의 자세 그림이다(#61). 주소와 크기는 이슈의 「두 작업의 약속」 표와 같다.
   assert.deepEqual(images, [
-    '<img src="/chat-assets/kumoh-signature.png" alt="국립금오공과대학교" width="782" height="113">',
-    '<img src="/chat-assets/techmo-basic.png" alt="" width="468" height="414">',
+    logo,
+    '<img src="/chat-assets/techmo-quiet.png" alt="" width="140" height="183">',
+    '<img src="/chat-assets/techmo-guide.png" alt="" width="140" height="181">',
+    '<img src="/chat-assets/techmo-celebrate.png" alt="" width="159" height="145">',
+    basic,
   ]);
 
   const slots = [...html.matchAll(/<\w+[^>]*\bdata-brand-slot\b[^>]*>\s*(<img\b[^>]*>)/g)];
   assert.deepEqual(slots.map(match => match[1]), images, "each image must sit directly in its slot");
   for (const [slot] of slots) assert.match(slot, /\bdata-brand-slot hidden>/);
   // 로고는 상단 띠에, 테크모는 #empty 안에 있어 새 대화가 #empty를 되돌릴 때 함께 돌아온다.
-  assert.equal(html.split("<main")[0].includes(images[0]), true);
-  assert.equal(landing.includes(images[1]), true);
+  assert.equal(html.split("<main")[0].includes(logo), true);
+  assert.equal(landing.includes(basic), true);
+  // 자세 그림은 #empty 밖에 있어 첫 질문을 보낸 뒤에도 남는다.
+  for (const pose of images.slice(1, 4)) assert.equal(landing.includes(pose), false, pose);
 
   // 숨긴 그림에 loading="lazy"를 붙이면 브라우저가 받지 않는다. 속성 onerror, data: 주소, 문서 안 스타일은 보안 정책이 막는다.
   for (const blocked of [/\bloading=/, /\son\w+=/, /data:/, /\sstyle=/, /<style\b/, /https?:\/\//]) {
