@@ -150,8 +150,6 @@ test("글자·링크·입력 안내·준비 중 문구가 기본·마우스 올�
     ["카드 설명", [".card-text", "text"], [".card", "fill"]],
     ["카드 제목(올림)", [".card-title", "text"], ["button.card:hover", "fill"]],
     ["카드 설명(올림)", [".card-text", "text"], ["button.card:hover", "fill"]],
-    ["준비 중 카드 제목", [".card-title", "text"], [".card.soon", "fill"]],
-    ["준비 중 카드 설명", [".card-text", "text"], [".card.soon", "fill"]],
     ["패널 제목", [".panel-title", "text"], [".feature-panel", "fill"]],
     ["패널 설명", [".panel-text", "text"], [".feature-panel", "fill"]],
     ["패널 닫기", ...self(".panel-close")],
@@ -195,7 +193,6 @@ test("버튼·입력창·카드의 테두리와 키보드 초점 표시가 맞�
     ["보내기 바탕(올림)", [".primary:not(:disabled):hover", "fill"], chat],
     ["카드 테두리", [".card", "edge"], chat],
     ["카드 테두리(올림)", ...self("button.card:hover", "edge")],
-    ["준비 중 카드 테두리", [".card", "edge"], [".card.soon", "fill"]],
     ["패널 테두리", [".feature-panel", "edge"], chat],
     ["패널 닫기 테두리", [".panel-close", "edge"], [".feature-panel", "fill"]],
     ["패널 닫기 테두리(올림)", ...self(".panel-close:hover", "edge")],
@@ -221,8 +218,6 @@ test("마우스 올림과 초점은 색 말고도 밑줄·윤곽선으로 드러
     assert.match(declared(selector, ["text-decoration"]), /underline/, selector);
   }
   assert.match(declared(":focus-visible", ["outline"]), /^3px solid /);
-  // 준비 중 카드는 색이 아니라 점선 테두리와 문구로 구분한다.
-  assert.equal(declared(".card.soon", ["border-style"]), "dashed");
   // 그림 자리를 숨기는 hidden 속성이 display 선언에 지지 않아야 한다.
   assert.match(declared("[hidden]", ["display"]), /^none\s*!important$/);
 });
@@ -240,15 +235,13 @@ test("소개 영역과 카드 6개는 #empty 안에, 상단 띠와 하단 표시
     [...landing.matchAll(/<span class="card-title">([^<]+)<\/span>/g)].map(match => match[1]),
     ["졸업 체크", "비교과 추천", "사진으로 묻기", "규정 질문", "학사 일정", "캠퍼스 안내"],
   );
-  // 카드 여섯 개는 모두 패널을 여는 버튼이다(#67). 준비 중인 두 카드는 문구로 상태를 알린다.
+  // 카드 여섯 개는 모두 패널을 여는 버튼이며 준비 중 표시는 로그인에만 남는다.
   const cards = [...landing.matchAll(/<button type="button" class="card(?: soon)?" data-feature="[a-z]+"[^>]*>[\s\S]*?<\/button>/g)]
     .map(match => match[0]);
   assert.equal(cards.length, 6);
   const soon = cards.filter(card => card.startsWith('<button type="button" class="card soon"'));
-  assert.equal(soon.length, 2);
-  for (const card of soon) assert.match(card, /<span class="soon-label">준비 중<\/span>/);
-  assert.match(soon[0], /학사 일정/);
-  assert.match(soon[1], /캠퍼스 안내/);
+  assert.equal(soon.length, 0);
+  assert.doesNotMatch(landing, /준비 중/);
   // 카드는 기능을 바로 부르지 않는다. 버튼이 아닌 카드도 남지 않는다.
   for (const card of cards) assert.doesNotMatch(card, /data-action/);
   assert.equal(landing.includes('<div class="card'), false);

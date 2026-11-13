@@ -106,6 +106,10 @@ function changeFeature(card, { animate = true, focus = true } = {}) {
   const panel = featurePanels.find(node => node.dataset.panel === card?.dataset.feature);
   if (card && (!panel || !featureList)) return;
   if (animate && card === openedCard) return;
+  if (["calendar", "campus"].includes(previous?.dataset.feature) && assistantTimer !== null) {
+    clearTimeout(assistantTimer);
+    assistantTimer = null;
+  }
   openedCard = card;
   const change = ++panelChange;
   panelTransition?.skipTransition?.();
@@ -119,6 +123,7 @@ function changeFeature(card, { animate = true, focus = true } = {}) {
     if (featureList) featureList.hidden = Boolean(card);
     for (const node of featurePanels) node.hidden = node !== panel;
     for (const node of featureCards) node.setAttribute("aria-expanded", String(node === card));
+    if (["calendar", "campus"].includes(card?.dataset.feature)) void loadFeaturePanel(panel, change);
     if (focus) {
       const target = card ? panel.querySelector("[data-panel-title]") : previous;
       target?.focus();
@@ -211,7 +216,7 @@ function updateSend() {
   photoClear.disabled = busy;
 }
 
-function setBusy(pending, message = "서버에 질문을 보내는 중…") {
+function setBusy(pending, message = "서버에 질문을 보내는 중…", updateAssistant = true) {
   busy = pending;
   statusLine.textContent = pending ? message : "";
   reset.disabled = pending;
@@ -222,17 +227,17 @@ function setBusy(pending, message = "서버에 질문을 보내는 중…") {
   // 요청이 시작되면 찾는 중으로 바꾼다. 잠금을 풀 때는 요청이 남긴 축하·보류·오류 상태를 그대로 둔다.
   // 결과를 남기지 않고 끝난 요청이 있을 때만 평소로 돌려 대기 점이 남지 않게 한다.
   if (pending) showAssistant("searching");
-  else if (assistantState === "searching") showAssistant("idle");
+  else if (updateAssistant && assistantState === "searching") showAssistant("idle");
   updateSend();
 }
 
 // 사진 요청과 글자 요청이 이어지는 동안 잠금을 한 번만 걸고 한 번만 푼다.
-async function whileBusy(message, work) {
+async function whileBusy(message, work, isCurrent = () => true) {
   setBusy(true, message);
   try {
     await work();
   } finally {
-    setBusy(false);
+    setBusy(false, "", isCurrent());
     scrollToLatest();
   }
 }
@@ -1043,3 +1048,106 @@ for (const slot of document.querySelectorAll?.("[data-brand-slot]") ?? []) {
 }
 
 updateSend();
+
+const calendarScope = { year: 2027, semester: 1 };
+function panelTodayInKorea() {
+  return new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
+}
+function isPanelDate(value) {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const date = new Date(`${value}T00:00:00Z`);
+  return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value;
+}
+function panelSources(sources) {
+  const box = element("div", "sources");
+  for (const source of Array.isArray(sources) ? sources : []) {
+    if (!source || typeof source.title !== "string") continue;
+    const line = element("p", "hint");
+    const checked = isPanelDate(source.checked_on);
+    line.append((checked && sourceLink(source.url, source.title, "출처")) || element("span", null, source.title));
+    if (checked) line.append(document.createTextNode(" · 확인일 "), dateNode(source.checked_on, true));
+    box.append(line);
+  }
+  box.append(element("p", "hint", "공식 페이지에서 다시 확인해 주세요."));
+  return box;
+}
+function renderCalendar(content, result) {
+  if (!Array.isArray(result?.events) || result.events.some(event => !event || typeof event.audience !== "string" ||
+    !isPanelDate(event.starts_on) || !isPanelDate(event.ends_on) || event.ends_on < event.starts_on)) throw new Error("format");
+  const scope = `${calendarScope.year}학년도 ${calendarScope.semester}학기 수강신청`;
+  content.replaceChildren(element("h5", null, scope));
+  const today = panelTodayInKorea();
+  const events = result.events.filter(event => event.ends_on >= today).sort((a, b) => a.starts_on.localeCompare(b.starts_on));
+  if (!events.length) content.append(element("p", "hint", `${scope}에 남은 일정이 없어요.`));
+  for (const event of events) {
+    const row = element("section", "evidence");
+    const dates = element("p");
+    dates.append(dateNode(event.starts_on, true));
+    if (event.starts_on !== event.ends_on) dates.append(document.createTextNode(" ~ "), dateNode(event.ends_on, true));
+    row.append(element("h5", null, event.audience), dates, panelSources(event.sources));
+    content.append(row);
+  }
+  return events.length;
+}
+function renderCampus(content, result) {
+  if (!Array.isArray(result?.places) || result.places.some(place => !place ||
+    ["id", "name", "purpose", "location"].some(key => typeof place[key] !== "string"))) throw new Error("format");
+  const places = result.places;
+  const list = selected => {
+    content.replaceChildren();
+    if (!places.length) content.append(element("p", "hint", "보여 드릴 장소가 없어요."));
+    for (const place of places) {
+      const button = element("button", "panel-action", `${place.name} · ${place.purpose}`);
+      button.type = "button";
+      button.addEventListener("click", () => detail(place.id));
+      content.append(button);
+      if (selected === place.id) button.focus();
+    }
+  };
+  const detail = id => {
+    const place = places.find(item => item.id === id);
+    const title = element("h5", null, place.name);
+    title.tabIndex = -1;
+    content.replaceChildren(title, element("p", null, place.purpose), element("p", null, `위치 · ${place.location}`));
+    for (const [key, label] of [["map_number", "지도 번호"], ["hours", "운영 시간"], ["audience", "이용 대상"], ["cost", "비용"], ["directions", "찾아가는 길"], ["valid_period", "적용 기간"]]) {
+      if (typeof place[key] === "string" && place[key].trim()) content.append(element("p", null, `${label} · ${place[key]}`));
+    }
+    const back = element("button", "panel-action", "목록으로");
+    back.type = "button";
+    back.addEventListener("click", () => list(id));
+    content.append(panelSources(place.sources), back);
+    title.focus();
+  };
+  list();
+  return places.length;
+}
+async function loadFeaturePanel(panel, change) {
+  const content = panel.querySelector("[data-panel-content]");
+  if (!content) return;
+  const current = () => panelChange === change && openedCard?.dataset.feature === panel.dataset.panel;
+  const retry = () => { if (current()) void loadFeaturePanel(panel, change); };
+  if (busy) {
+    content.replaceChildren(failureBox("다른 요청을 마친 뒤 다시 시도해 주세요.", retry));
+    return;
+  }
+  content.replaceChildren(element("p", "hint", "안내를 찾는 중이에요…"));
+  await whileBusy("안내를 찾는 중…", async () => {
+    const calendar = panel.dataset.panel === "calendar";
+    const path = calendar ? `/api/v1/academic-calendar/${calendarScope.year}/${calendarScope.semester}` : "/api/v1/campus-guide";
+    const response = await requestJson(path, { method: "GET" }, "서버가 안내를 불러오지 못했어요.");
+    if (!current()) return;
+    if (response.failure) {
+      content.replaceChildren(failureBox(response.failure, retry));
+      showAssistant("error");
+      return;
+    }
+    try {
+      const count = calendar ? renderCalendar(content, response.result) : renderCampus(content, response.result);
+      if (count) celebrate();
+      else showAssistant("hold");
+    } catch {
+      content.replaceChildren(failureBox("서버 안내의 형식이 맞지 않아요.", retry));
+      showAssistant("error");
+    }
+  }, current);
+}

@@ -75,17 +75,15 @@
                 </button>
               </li>
               <li>
-                <button type="button" class="card soon" data-feature="calendar" aria-controls="panel-calendar" aria-expanded="false">
+                <button type="button" class="card" data-feature="calendar" aria-controls="panel-calendar" aria-expanded="false">
                   <span class="card-title">학사 일정</span>
-                  <span class="card-text">수강 신청과 시험 일정을 모아 보여 줄 예정이에요.</span>
-                  <span class="soon-label">준비 중</span>
+                  <span class="card-text">확인한 수강신청 일정을 날짜순으로 보여 줘요.</span>
                 </button>
               </li>
               <li>
-                <button type="button" class="card soon" data-feature="campus" aria-controls="panel-campus" aria-expanded="false">
+                <button type="button" class="card" data-feature="campus" aria-controls="panel-campus" aria-expanded="false">
                   <span class="card-title">캠퍼스 안내</span>
-                  <span class="card-text">건물과 시설 위치를 알려 줄 예정이에요.</span>
-                  <span class="soon-label">준비 중</span>
+                  <span class="card-text">장소를 고르면 용도와 위치를 볼 수 있어요.</span>
                 </button>
               </li>
             </ul>
@@ -136,20 +134,16 @@
                 <h4 class="panel-title" id="panel-calendar-title" data-panel-title tabindex="-1">학사 일정</h4>
                 <button type="button" class="panel-close" data-panel-close>닫기</button>
               </div>
-              <p class="panel-text">수강 신청과 시험 일정을 모아 보여 줄 예정이에요. 아직 만드는 중이라 지금은 시작할 수 없어요.</p>
-              <div class="panel-actions">
-                <span class="soon-label">준비 중</span>
-              </div>
+              <p class="panel-text">종료일이 지나지 않은 수강신청 일정을 날짜순으로 보여 줘요.</p>
+              <div data-panel-content aria-live="polite"></div>
             </section>
             <section class="feature-panel" id="panel-campus" data-panel="campus" aria-labelledby="panel-campus-title" hidden>
               <div class="panel-head">
                 <h4 class="panel-title" id="panel-campus-title" data-panel-title tabindex="-1">캠퍼스 안내</h4>
                 <button type="button" class="panel-close" data-panel-close>닫기</button>
               </div>
-              <p class="panel-text">건물과 시설 위치를 알려 줄 예정이에요. 아직 만드는 중이라 지금은 시작할 수 없어요.</p>
-              <div class="panel-actions">
-                <span class="soon-label">준비 중</span>
-              </div>
+              <p class="panel-text">장소를 고르면 용도와 위치를 볼 수 있어요.</p>
+              <div data-panel-content aria-live="polite"></div>
             </section>
           </section>
           <p class="empty-hint">예시 질문을 고르거나 직접 입력해 보세요.</p>

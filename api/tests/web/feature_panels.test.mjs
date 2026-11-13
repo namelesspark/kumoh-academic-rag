@@ -15,12 +15,15 @@ function deferred() {
   return { promise, resolve, reject };
 }
 
-function loadPage({ transition, reduced = false, legacy = false } = {}) {
+function loadPage({ transition, reduced = false, legacy = false, now = "2027-02-10T03:00:00Z" } = {}) {
   let focused;
   let calm = reduced;
   let motionChange;
   const requests = [];
   const response = deferred();
+  const responses = [response];
+  const timers = new Map();
+  let timerId = 0;
   class Element {
     tagName = "BUTTON";
     children = [];
@@ -67,6 +70,7 @@ function loadPage({ transition, reduced = false, legacy = false } = {}) {
       panel.parts.set("[data-panel-title]", new Element());
       panel.parts.get("[data-panel-title]").tabIndex = -1;
       panel.parts.set("[data-panel-close]", new Element());
+      panel.parts.set("[data-panel-content]", new Element());
       if (!["calendar", "campus"].includes(feature)) {
         const start = new Element();
         start.dataset.action = feature === "biskit" ? "graduation" : feature;
@@ -86,11 +90,11 @@ function loadPage({ transition, reduced = false, legacy = false } = {}) {
     querySelectorAll(selector) {
       return ({ "[data-feature]": cards, "[data-panel]": panels, "[data-action]": actions })[selector] ?? [];
     },
-    createElement: () => new Element(),
+    createElement: tag => { const node = new Element(); node.tagName = tag.toUpperCase(); return node; },
     createTextNode: value => value,
   };
   if (transition !== undefined) document.startViewTransition = transition;
-  runInNewContext(script, {
+  const context = {
     document,
     window: { matchMedia: query => ({
       matches: query.includes("reduced-motion") && calm,
@@ -98,13 +102,29 @@ function loadPage({ transition, reduced = false, legacy = false } = {}) {
         if (query.includes("reduced-motion") && type === "change") motionChange = listener;
       },
     }) },
-    fetch: (...args) => { requests.push(args); return response.promise; },
+    fetch: (...args) => {
+      requests.push(args);
+      const pending = responses[requests.length - 1] ?? deferred();
+      responses[requests.length - 1] = pending;
+      return pending.promise;
+    },
+    Date: class extends Date {
+      constructor(...args) { super(...(args.length ? args : [now])); }
+      static now() { return new Date(now).getTime(); }
+    },
+    setTimeout: callback => { timers.set(++timerId, callback); return timerId; },
+    clearTimeout: id => timers.delete(id),
     AbortSignal: { timeout() {} },
     URL,
-  });
+  };
+  runInNewContext(script, context);
   const get = selector => elements.get(selector);
   return {
-    cards, panels, actions, requests, response, get,
+    cards, panels, actions, requests, response, responses, get,
+    evaluate: code => runInNewContext(code, context),
+    content: index => panels[index].querySelector("[data-panel-content]"),
+    finish: (body, index = requests.length - 1) => responses[index].resolve({ ok: true, json: async () => body }),
+    tick: () => { const pending = [...timers.values()]; timers.clear(); pending.forEach(callback => callback()); },
     focus: () => focused,
     reduce: value => { calm = value; motionChange?.({ matches: value }); },
     close: index => panels[index].querySelector("[data-panel-close]").click(),
@@ -360,7 +380,7 @@ test("졸업 체크와 추천 시작은 같은 요청을 한 번 보내고 요�
 
 test("패널을 연 채 질문을 보낸 뒤 새 대화로 돌아오면 카드 목록을 복원한다", async () => {
   const page = loadPage();
-  page.cards[5].click();
+  page.cards[3].click();
   page.get("#question").value = "가상 규정 질문";
   page.get("#composer").listeners.get("submit")({ preventDefault() {} });
   assert.equal(page.requests.length, 1);
@@ -370,6 +390,214 @@ test("패널을 연 채 질문을 보낸 뒤 새 대화로 돌아오면 카드 �
   assertState(page, null);
   assert.equal(page.focus(), page.get("#question"));
   assert.equal(page.get("#transcript").children[0], page.get("#empty"));
+});
+
+function descendants(node) {
+  return typeof node === "string" ? [] : [node, ...node.children.flatMap(descendants)];
+}
+
+function text(node) {
+  if (typeof node === "string") return node;
+  return node.textContent + node.children.map(text).join(" ");
+}
+
+const guideSource = { title: "가상 안내 출처", url: "https://example.invalid/guide", checked_on: "2027-02-01" };
+const calendarEvent = (audience, starts_on, ends_on = starts_on) => ({ audience, starts_on, ends_on, sources: [guideSource] });
+const campusPlace = (id = "fictional-hall") => ({
+  id, name: `가상 장소 ${id}`, purpose: "가상 학생 안내", location: "가상 건물 1층",
+  map_number: null, hours: null, audience: null, cost: null, directions: null, valid_period: null,
+  sources: [guideSource],
+});
+const petState = page => page.get("#pet-dock").attributes.get("data-state");
+const retryButton = page => descendants(page.content(4)).find(node => node.textContent === "다시 시도");
+
+test("학사 일정은 열 때 한 번 조회하고 지난 일정을 빼 시작일순으로 날짜만 표시한다", async () => {
+  const page = loadPage();
+  page.cards[4].click();
+  page.cards[4].click();
+  assert.equal(page.requests.length, 1);
+  assert.equal(page.requests[0][0], "/api/v1/academic-calendar/2027/1");
+  assert.equal(petState(page), "searching");
+  page.finish({ events: [
+    calendarEvent("가상 내일", "2027-02-11"), calendarEvent("가상 어제", "2027-02-09"),
+    calendarEvent("가상 오늘", "2027-02-10"), calendarEvent("가상 진행 중", "2027-02-08", "2027-02-12"),
+  ] });
+  await setImmediate();
+  const shown = text(page.content(4));
+  assert.doesNotMatch(shown, /가상 어제/);
+  assert.ok(shown.indexOf("가상 진행 중") < shown.indexOf("가상 오늘"));
+  assert.ok(shown.indexOf("가상 오늘") < shown.indexOf("가상 내일"));
+  assert.match(shown, /2027년/);
+  assert.doesNotMatch(shown, /\d{1,2}:\d{2}|남은 시간|마감 시각/);
+  assert.equal(petState(page), "found");
+  page.tick();
+  assert.equal(petState(page), "answer");
+});
+
+test("한국 표준시 자정 경계로 오늘 종료 일정의 포함 여부를 바꾼다", async () => {
+  for (const [now, included] of [["2027-02-10T14:59:59Z", true], ["2027-02-10T15:00:00Z", false]]) {
+    const page = loadPage({ now });
+    page.cards[4].click();
+    page.finish({ events: [calendarEvent("가상 경계 일정", "2027-02-10")] });
+    await setImmediate();
+    assert.equal(text(page.content(4)).includes("가상 경계 일정"), included);
+    assert.equal(petState(page), included ? "found" : "hold");
+  }
+});
+
+test("빈 일정은 범위와 남은 일정이 없음을 알리고 답변을 보류한다", async () => {
+  const page = loadPage();
+  page.cards[4].click();
+  page.finish({ events: [] });
+  await setImmediate();
+  assert.match(text(page.content(4)), /2027학년도 1학기/);
+  assert.match(text(page.content(4)), /없/);
+  assert.equal(petState(page), "hold");
+});
+
+test("시작일과 종료일이 같으면 한 번만 적고 범위 일정은 양쪽 날짜를 적는다", async () => {
+  const page = loadPage();
+  page.cards[4].click();
+  page.finish({ events: [calendarEvent("가상 하루", "2027-02-11"), calendarEvent("가상 기간", "2027-02-12", "2027-02-13")] });
+  await setImmediate();
+  const times = descendants(page.content(4)).filter(node => node.tagName === "TIME");
+  assert.equal(times.filter(node => node.dateTime === "2027-02-11").length, 1);
+  assert.equal(times.filter(node => node.dateTime === "2027-02-12").length, 1);
+  assert.equal(times.filter(node => node.dateTime === "2027-02-13").length, 1);
+});
+
+test("연도 없는 날짜·없는 날짜·역순 날짜는 응답 전체를 오류로 처리한다", async () => {
+  for (const invalid of [calendarEvent("가상 잘못된 일정", "02-11"), calendarEvent("가상 잘못된 일정", "2027-02-30"), calendarEvent("가상 잘못된 일정", "2027-02-12", "2027-02-11")]) {
+    const page = loadPage();
+    page.cards[4].click();
+    page.finish({ events: [calendarEvent("가상 정상 일정", "2027-02-11"), invalid] });
+    await setImmediate();
+    assert.equal(petState(page), "error");
+    assert.doesNotMatch(text(page.content(4)), /가상 정상 일정/);
+    assert.ok(retryButton(page));
+  }
+});
+
+test("실패 뒤 다시 시도를 연타해도 한 번 조회하고 성공 후 잠금을 푼다", async () => {
+  const page = loadPage();
+  page.cards[4].click();
+  page.response.resolve({ ok: false, status: 503 });
+  await setImmediate();
+  assert.equal(petState(page), "error");
+  const retry = retryButton(page);
+  assert.ok(retry);
+  retry.click();
+  retry.click();
+  assert.equal(page.requests.length, 2);
+  page.finish({ events: [] });
+  await setImmediate();
+  assert.equal(page.evaluate("busy"), false);
+  assert.equal(petState(page), "hold");
+});
+
+test("연결 실패와 본문 해석 실패는 패널 안에서 다시 시도할 수 있다", async () => {
+  for (const failure of ["network", "body"]) {
+    const page = loadPage();
+    page.cards[4].click();
+    if (failure === "network") page.response.reject(new Error("fictional network failure"));
+    else page.response.resolve({ ok: true, json: async () => { throw new SyntaxError("fictional body failure"); } });
+    await setImmediate();
+    assert.equal(petState(page), "error");
+    assert.ok(retryButton(page));
+    assert.equal(page.evaluate("busy"), false);
+  }
+});
+
+test("다른 요청 중 연 패널은 새 요청과 펫 변경 없이 다시 시도를 보여 준다", async () => {
+  const page = loadPage();
+  page.cards[0].click();
+  page.start(0);
+  page.cards[4].click();
+  assert.equal(page.requests.length, 1);
+  assert.equal(petState(page), "searching");
+  assert.ok(retryButton(page));
+  retryButton(page).click();
+  assert.equal(page.requests.length, 1);
+  page.response.resolve({ ok: false });
+  await setImmediate();
+  retryButton(page).click();
+  assert.equal(page.requests.length, 2);
+  page.finish({ events: [] });
+  await setImmediate();
+  assert.equal(page.evaluate("busy"), false);
+});
+
+test("닫거나 다른 패널로 옮긴 뒤 도착한 응답은 내용과 펫을 바꾸지 않는다", async () => {
+  for (const close of [true, false]) {
+    const page = loadPage();
+    page.cards[4].click();
+    if (close) page.close(4);
+    else page.cards[3].click();
+    const before = text(page.content(4));
+    const state = petState(page);
+    page.finish({ events: [calendarEvent("가상 늦은 일정", "2027-02-11")] });
+    await setImmediate();
+    assert.equal(text(page.content(4)), before);
+    assert.equal(petState(page), state);
+    assert.equal(page.evaluate("busy"), false);
+  }
+});
+
+test("장소 목록은 응답 순서를 지키고 새 요청 없이 상세와 목록의 초점을 옮긴다", async () => {
+  const page = loadPage();
+  page.cards[5].click();
+  assert.equal(page.requests[0][0], "/api/v1/campus-guide");
+  page.finish({ places: [campusPlace("second"), { ...campusPlace("first"), hours: "가상 운영 시간", directions: "https://example.invalid/plain-text" }] });
+  await setImmediate();
+  const buttons = descendants(page.content(5)).filter(node => node.tagName === "button" || node.tagName === "BUTTON").filter(node => node.listeners.has("click"));
+  assert.match(text(buttons[0]), /second/);
+  assert.match(text(buttons[1]), /first/);
+  buttons[1].click();
+  assert.equal(page.requests.length, 1);
+  assert.match(text(page.focus()), /first/);
+  assert.match(text(page.content(5)), /가상 건물 1층/);
+  assert.match(text(page.content(5)), /가상 운영 시간/);
+  assert.doesNotMatch(text(page.content(5)), /확인 필요/);
+  assert.equal(descendants(page.content(5)).filter(node => node.attributes.has("href")).length, 1);
+  const back = descendants(page.content(5)).find(node => node.textContent === "목록으로");
+  assert.ok(back);
+  back.click();
+  assert.match(text(page.focus()), /first/);
+  assert.equal(page.requests.length, 1);
+});
+
+test("장소 목록과 필수 글자 필드의 잘못된 응답은 오류로 처리한다", async () => {
+  for (const result of [{ places: {} }, { places: [{ ...campusPlace(), id: 3 }] }, { places: [{ ...campusPlace(), name: null }] }, { places: [{ ...campusPlace(), purpose: undefined }] }, { places: [{ ...campusPlace(), location: 3 }] }]) {
+    const page = loadPage();
+    page.cards[5].click();
+    page.finish(result);
+    await setImmediate();
+    assert.equal(petState(page), "error");
+    assert.match(text(page.content(5)), /다시 시도/);
+  }
+});
+
+test("빈 장소 목록은 항목을 만들지 않고 답변을 보류한다", async () => {
+  const page = loadPage();
+  page.cards[5].click();
+  page.finish({ places: [] });
+  await setImmediate();
+  assert.equal(petState(page), "hold");
+  assert.match(text(page.content(5)), /없/);
+  assert.equal(descendants(page.content(5)).filter(node => node.listeners.has("click")).length, 0);
+});
+
+test("출처는 안전한 주소와 날짜 확인일을 함께 갖출 때만 링크로 만든다", async () => {
+  const page = loadPage();
+  page.cards[4].click();
+  const sources = [guideSource, { ...guideSource, title: "가상 위험 주소", url: "javascript:alert(1)" }, { ...guideSource, title: "가상 확인일 없음", checked_on: null }];
+  page.finish({ events: [{ ...calendarEvent("가상 링크 일정", "2027-02-11"), sources }] });
+  await setImmediate();
+  const content = page.content(4);
+  assert.equal(descendants(content).filter(node => node.attributes.has("href")).length, 1);
+  assert.match(text(content), /가상 위험 주소/);
+  assert.match(text(content), /가상 확인일 없음/);
+  assert.match(text(content), /공식 페이지에서 다시 확인/);
 });
 
 test("전환 콜백 전에 새 대화를 눌러도 늦은 전환이 패널을 다시 열지 않는다", async () => {
