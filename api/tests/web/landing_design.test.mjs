@@ -139,15 +139,13 @@ test("글자·링크·입력 안내·준비 중 문구가 기본·마우스 올�
     ["준비 중 문구", ...self(".soon-label")],
     ["예시 질문", [".topics button", "text"], page],
     ["예시 질문(올림)", ...self(".topics button:hover")],
-    ["테크모 비서의 한 줄 말", ...self(".assistant-says")],
+    ["테크모 펫의 말풍선", ...self(".pet-says")],
     ["다시 묻기 버튼", ...self(".check")],
     ["다시 묻기 버튼(올림)", ...self(".check:not(:disabled):hover")],
     ["소개 제목", [".hero h2", "text"], chat],
     ["소개 설명", [".hero-copy p", "text"], chat],
     ["소개 버튼", ...self(".cta")],
     ["소개 버튼(올림)", ...self(".cta:hover")],
-    ["소개 보조 버튼", ...self(".cta.secondary")],
-    ["소개 보조 버튼(올림)", ...self(".cta.secondary:hover")],
     ["카드 제목", [".card-title", "text"], [".card", "fill"]],
     ["카드 설명", [".card-text", "text"], [".card", "fill"]],
     ["카드 제목(올림)", [".card-title", "text"], ["button.card:hover", "fill"]],
@@ -187,8 +185,8 @@ test("버튼·입력창·카드의 테두리와 키보드 초점 표시가 맞�
     ["다시 묻기 테두리", [".check", "edge"], chat],
     ["소개 버튼 바탕", [".cta", "fill"], chat],
     ["소개 버튼 바탕(올림)", [".cta:hover", "fill"], chat],
-    ["소개 보조 버튼 테두리", [".cta", "edge"], chat],
-    ["소개 보조 버튼 테두리(올림)", ...self(".cta.secondary:hover", "edge")],
+    ["말풍선 테두리", [".pet-says", "edge"], chat],
+    ["말풍선 테두리(안쪽)", ...self(".pet-says", "edge")],
     ["보내기 바탕", [".primary", "fill"], chat],
     ["보내기 바탕(올림)", [".primary:not(:disabled):hover", "fill"], chat],
     ["카드 테두리", [".card", "edge"], chat],
@@ -257,14 +255,9 @@ test("모든 그림은 숨긴 자리에서 시작하고, 보안 정책이 막는
   const images = [...html.matchAll(/<img\b[^>]*>/g)].map(match => match[0]);
   const logo = '<img src="/chat-assets/kumoh-signature.png" alt="국립금오공과대학교" width="782" height="113">';
   const basic = '<img src="/chat-assets/techmo-basic.png" alt="" width="468" height="414">';
-  // 가운데 세 장은 테크모 비서의 자세 그림이다(#61). 주소와 크기는 이슈의 「두 작업의 약속」 표와 같다.
-  assert.deepEqual(images, [
-    logo,
-    '<img src="/chat-assets/techmo-quiet.png" alt="" width="140" height="183">',
-    '<img src="/chat-assets/techmo-guide.png" alt="" width="140" height="181">',
-    '<img src="/chat-assets/techmo-celebrate.png" alt="" width="159" height="145">',
-    basic,
-  ]);
+  // 마지막 한 장은 테크모 펫의 스프라이트 시트다(#64). 192×192 칸 다섯 개를 가로로 이은 960×192 한 장이다.
+  const sprite = '<img src="/chat-assets/techmo-sprite.png" alt="" width="960" height="192">';
+  assert.deepEqual(images, [logo, basic, sprite]);
 
   const slots = [...html.matchAll(/<\w+[^>]*\bdata-brand-slot\b[^>]*>\s*(<img\b[^>]*>)/g)];
   assert.deepEqual(slots.map(match => match[1]), images, "each image must sit directly in its slot");
@@ -272,8 +265,10 @@ test("모든 그림은 숨긴 자리에서 시작하고, 보안 정책이 막는
   // 로고는 상단 띠에, 테크모는 #empty 안에 있어 새 대화가 #empty를 되돌릴 때 함께 돌아온다.
   assert.equal(html.split("<main")[0].includes(logo), true);
   assert.equal(landing.includes(basic), true);
-  // 자세 그림은 #empty 밖에 있어 첫 질문을 보낸 뒤에도 남는다.
-  for (const pose of images.slice(1, 4)) assert.equal(landing.includes(pose), false, pose);
+  // 스프라이트 시트는 #empty 밖에 있어 첫 질문을 보낸 뒤에도 펫이 남는다.
+  assert.equal(landing.includes(sprite), false);
+  // 예전 자세 그림 세 장은 화면이 더는 부르지 않는다.
+  for (const gone of ["techmo-quiet", "techmo-guide", "techmo-celebrate"]) assert.equal(html.includes(gone), false, gone);
 
   // 숨긴 그림에 loading="lazy"를 붙이면 브라우저가 받지 않는다. 속성 onerror, data: 주소, 문서 안 스타일은 보안 정책이 막는다.
   for (const blocked of [/\bloading=/, /\son\w+=/, /data:/, /\sstyle=/, /<style\b/, /https?:\/\//]) {
@@ -517,12 +512,15 @@ test("그림이 실패한 뒤에도 질문을 보낼 수 있고, 새 대화가 �
 test("첫 화면의 버튼과 카드는 화면에 이미 있는 기능으로만 이어진다", () => {
   assert.deepEqual(controlsInPage, [
     ["내 졸업 체크 보기", "graduation"],
-    ["테크모에게 묻기", "ask"],
     ["졸업 체크", "graduation"],
     ["비교과 추천", "graduation"],
     ["사진으로 묻기", "photo"],
     ["규정 질문", "ask"],
   ]);
+  // 「테크모에게 묻기」 글자 버튼은 없앴다(#64). 그 이름은 펫 버튼의 읽기용 이름으로 한 번만 남는다.
+  assert.equal(landing.includes("테크모에게 묻기"), false);
+  assert.equal(html.split("테크모에게 묻기").length, 2);
+  assert.equal(styles.includes("secondary"), false);
 });
 
 for (const label of ["내 졸업 체크 보기", "졸업 체크", "비교과 추천"]) {
@@ -542,7 +540,7 @@ for (const label of ["내 졸업 체크 보기", "졸업 체크", "비교과 추
   });
 }
 
-test("사진으로 묻기는 기존 사진 선택을 열고, 규정 질문과 테크모에게 묻기는 입력창으로 초점을 옮긴다", () => {
+test("사진으로 묻기는 기존 사진 선택을 열고, 규정 질문은 입력창으로 초점을 옮긴다", () => {
   const shown = loadLanding();
   shown.control("사진으로 묻기").fire("click");
   assert.equal(shown.file.clicked, 1);
@@ -550,8 +548,6 @@ test("사진으로 묻기는 기존 사진 선택을 열고, 규정 질문과 �
 
   shown.control("규정 질문").fire("click");
   assert.equal(shown.input.focused, 1);
-  shown.control("테크모에게 묻기").fire("click");
-  assert.equal(shown.input.focused, 2);
 
   // 요청은 나가지 않고 첫 화면도 그대로다.
   assert.deepEqual(shown.requests, []);

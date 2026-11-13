@@ -24,26 +24,11 @@
     </div>
   </header>
   <main class="layout">
-    <div class="side">
-      <details class="topics" id="topics" open>
-        <summary>예시 질문</summary>
-        <button type="button" data-question="달빛열람증을 누가 내주나요">답변과 근거 조문</button>
-        <button type="button" data-question="얼룩말 풍금">근거를 찾지 못한 경우</button>
-      </details>
-      <!-- 테크모 비서. 자세 그림 세 장을 겹쳐 두고 chat.js가 data-pose만 바꿔 보이는 한 장을 고른다.
-           그림 자리는 숨긴 채 시작하고 로드에 성공한 그림만 보인다. 진행 알림은 #status가 읽어 주므로 여기에는 알림 역할을 두지 않는다. -->
-      <aside class="assistant" id="assistant" data-pose="guide" aria-label="테크모 비서">
-        <div class="assistant-stage" aria-hidden="true">
-          <span class="pose pose-quiet" data-brand-slot hidden><img src="/chat-assets/techmo-quiet.png" alt="" width="140" height="183"></span>
-          <span class="pose pose-guide" data-brand-slot hidden><img src="/chat-assets/techmo-guide.png" alt="" width="140" height="181"></span>
-          <span class="pose pose-celebrate" data-brand-slot hidden><img src="/chat-assets/techmo-celebrate.png" alt="" width="159" height="145"></span>
-        </div>
-        <p class="assistant-says">
-          <span id="assistant-line">궁금한 점을 물어보세요</span>
-          <span class="assistant-dots" id="assistant-dots" aria-hidden="true" hidden><span></span><span></span><span></span></span>
-        </p>
-      </aside>
-    </div>
+    <details class="topics" id="topics" open>
+      <summary>예시 질문</summary>
+      <button type="button" data-question="달빛열람증을 누가 내주나요">답변과 근거 조문</button>
+      <button type="button" data-question="얼룩말 풍금">근거를 찾지 못한 경우</button>
+    </details>
     <section class="chat" aria-labelledby="chat-heading">
       <h2 id="chat-heading" class="sr-only">학사 규정에 질문하기</h2>
       <div id="transcript" class="transcript" role="log" aria-label="대화 내용" tabindex="0">
@@ -54,7 +39,6 @@
               <p>가상 학생의 이수 내역으로 졸업 조건을 계산하고, 규정 질문에는 근거 조문을 붙여 답해요.</p>
               <div class="hero-actions">
                 <button type="button" class="cta" data-action="graduation">내 졸업 체크 보기</button>
-                <button type="button" class="cta secondary" data-action="ask">테크모에게 묻기</button>
               </div>
             </div>
             <div class="hero-art" data-brand-slot hidden>
@@ -109,6 +93,19 @@
       </div>
       <noscript><p class="status">채팅을 사용하려면 브라우저에서 JavaScript를 켜 주세요.</p></noscript>
       <p class="status" id="status" role="status"></p>
+      <!-- 테크모 펫과 말풍선. chat.js는 이 줄의 data-pose·data-state만 바꾸고, chat.css가 그 값으로 그림 칸과 움직임을 고른다.
+           펫 버튼은 숨긴 채 시작하고, 안에 든 그림이 로드에 성공해야 보인다. 그림이 없어도 말풍선은 남는다.
+           data-action을 주지 않아 답변을 기다리는 동안에도 눌린다. 진행 알림은 #status가 읽어 주므로 여기에는 알림 역할을 두지 않는다. -->
+      <div class="pet-dock" id="pet-dock" data-pose="guide" data-state="idle">
+        <p class="pet-says">
+          <span id="pet-line">궁금한 점을 물어보세요</span>
+          <span class="pet-dots" id="pet-dots" aria-hidden="true" hidden><span></span><span></span><span></span></span>
+        </p>
+        <button type="button" class="pet" id="pet" aria-label="테크모에게 묻기" data-brand-slot hidden>
+          <img src="/chat-assets/techmo-sprite.png" alt="" width="960" height="192">
+          <span class="pet-float"><span class="pet-hop"><span class="pet-frame"></span></span></span>
+        </button>
+      </div>
       <form id="composer" class="composer">
         <label for="question" class="sr-only">질문</label>
         <div class="composer-row">

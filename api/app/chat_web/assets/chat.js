@@ -7,10 +7,12 @@ const input = document.querySelector("#question");
 const send = document.querySelector("#send");
 const reset = document.querySelector("#reset");
 const statusLine = document.querySelector("#status");
-const assistant = document.querySelector("#assistant");
-const assistantLine = document.querySelector("#assistant-line");
-const assistantDots = document.querySelector("#assistant-dots");
-// 첫 화면의 버튼과 카드. 요청 중에는 함께 잠근다.
+// 테크모 펫. 자세와 상태는 펫 줄(#pet-dock)에, 한 줄 말과 대기 점은 말풍선에 붙인다.
+const assistant = document.querySelector("#pet-dock");
+const assistantLine = document.querySelector("#pet-line");
+const assistantDots = document.querySelector("#pet-dots");
+const pet = document.querySelector("#pet");
+// 첫 화면의 버튼과 카드. 요청 중에는 함께 잠근다. 펫은 여기에 들지 않아 요청 중에도 눌린다.
 const landingControls = [...(document.querySelectorAll?.("[data-action]") ?? [])];
 const photoFile = document.querySelector("#photo-file");
 const photoClear = document.querySelector("#photo-clear");
@@ -62,7 +64,7 @@ const graduationStatuses = {
 };
 const graduationColumns = ["항목", "상태", "현재 / 기준", "부족·확인할 점", "적용 근거"];
 
-// 테크모 비서의 상태표. 상태마다 [자세, 한 줄 말]을 정한다. 자세 이름은 chat.css의 .pose-이름과 짝이다.
+// 테크모 펫의 상태표. 상태마다 [자세, 한 줄 말]을 정한다. 자세 이름은 chat.css의 data-pose 규칙과 짝이다.
 const assistantStates = {
   idle: ["guide", "궁금한 점을 물어보세요"],
   searching: ["quiet", "쉿, 찾아보는 중이에요…"],
@@ -82,7 +84,7 @@ let assistantTimer = null;
 
 if (compact.matches) topics.open = false;
 
-// 비서의 자세·말·대기 점은 여기 한 곳에서만 바꾼다. 그림 주소는 건드리지 않고 data-pose만 바꾸므로
+// 펫의 자세·말·대기 점은 여기 한 곳에서만 바꾼다. 그림 주소는 건드리지 않고 data-pose와 data-state만 바꾸므로
 // 늦게 도착한 그림 로드 신호가 지금 보이는 자세를 바꾸지 못한다.
 // 어느 상태로 가든 축하 뒤에 예약해 둔 전환은 먼저 취소한다.
 function showAssistant(state) {
@@ -92,8 +94,10 @@ function showAssistant(state) {
   }
   const [pose, line] = assistantStates[state];
   assistantState = state;
-  // 같은 자세면 속성 값이 그대로라 줄었다 커지는 전환이 다시 돌지 않는다.
+  // 같은 자세면 속성 값이 그대로라 눌렸다 튀는 움직임이 다시 돌지 않는다.
   assistant.setAttribute("data-pose", pose);
+  // 상태 이름은 쉬는 자세를 평소와 답변 표시에서만 돌리려고 chat.css가 읽는다. 타이머는 쓰지 않는다.
+  assistant.setAttribute("data-state", state);
   assistantLine.textContent = line;
   assistantDots.hidden = state !== "searching";
 }
@@ -929,7 +933,17 @@ for (const control of landingControls) {
   });
 }
 
-// 로고, 첫 화면의 테크모, 비서의 자세 그림 자리는 숨긴 채 시작하고, 그림이 실제로 그려질 때만 보인다.
+// 펫을 누르면 질문 입력창에 초점을 주고 입력창까지 화면을 옮긴다. 요청 중에도 동작한다.
+// 초점을 줄 때 브라우저가 화면을 바로 옮기지 않게 하고, 옮기는 일은 scrollIntoView 한 곳에 맡긴다.
+// 움직임 줄이기 설정은 누를 때마다 다시 읽어, 사용 중에 바꿔도 부드러운 이동이 꺼진다.
+pet.addEventListener("click", () => {
+  input.focus({ preventScroll: true });
+  const calm = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches === true;
+  input.scrollIntoView?.({ block: "center", behavior: calm ? "auto" : "smooth" });
+});
+
+// 로고, 첫 화면의 테크모, 펫 버튼은 숨긴 채 시작하고, 안에 든 그림이 실제로 받아졌을 때만 보인다.
+// 펫은 스프라이트 시트를 배경으로 그리는데 배경 그림은 로드 신호를 주지 않아, 같은 주소의 그림을 버튼 안에 두고 그 신호를 본다.
 // complete와 naturalWidth를 함께 보므로 이 스크립트가 로드·실패 신호보다 늦게 실행돼도 결과가 같다.
 // 파일이 없거나(404) 깨졌으면 자리를 숨긴 채 두고, 다른 그림으로 바꾸지 않는다.
 for (const slot of document.querySelectorAll?.("[data-brand-slot]") ?? []) {
