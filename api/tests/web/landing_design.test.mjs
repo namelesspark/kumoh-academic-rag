@@ -53,6 +53,11 @@ function colorOf([selector, kind]) {
     assert.ok(variables.has(name), `${selector}: ${name} 변수가 :root에 없다`);
     value = variables.get(name);
   }
+  const rgba = /^rgba\((\d+),(\d+),(\d+),([.\d]+)\)$/.exec(value);
+  if (rgba) {
+    const base = [4, 20, 38], alpha = Number(rgba[4]);
+    value = "#" + rgba.slice(1, 4).map((channel, index) => Math.round(Number(channel) * alpha + base[index] * (1 - alpha)).toString(16).padStart(2, "0")).join("");
+  }
   assert.match(value, /^#[0-9a-f]{6}$/i, `${selector}의 ${kind} 색을 변수에서 읽지 못했다: ${value}`);
   return value.toLowerCase();
 }
@@ -111,19 +116,24 @@ test("확정한 색 값이 변수 한 곳에만 있고, 다른 규칙은 변수�
   assert.deepEqual(literal, [], "colors must be declared once in :root");
 });
 
-test("밝은 청색은 도형 바탕에만, 강조 노랑은 남색 위 글자에만 쓴다", () => {
+test("청색은 바탕·테두리 강조에, 노랑은 남색 위 글자·점·진행 칸에 쓴다", () => {
   const uses = name => rules.flatMap(rule => rule.declarations
     .filter(([, value]) => value.includes(`var(${name})`))
     .map(([property]) => [rule, property]));
 
   const sky = uses("--sky");
   assert.ok(sky.length > 0, "the hero shape must use the bright blue");
-  assert.deepEqual(sky.filter(([, property]) => property !== "background").map(([, property]) => property), []);
+  assert.deepEqual(sky.filter(([, property]) => !["background", "border-color"].includes(property)).map(([, property]) => property), []);
 
   const yellow = uses("--yellow").filter(([rule]) => rule !== rootRule);
   assert.ok(yellow.length > 0);
   for (const [rule, property] of yellow) {
+    if (property === "background") {
+      assert.ok(rule.selectors.every(selector => /(?:intro-badge::before|campus-step)/.test(selector)), rule.selectors.join(", "));
+      continue;
+    }
     assert.equal(property, "color");
+    if (rule.selectors.includes(".login-intro em")) continue; // 사진 위 글자는 덮개 고정과 브라우저 확인으로 검증한다.
     const background = rule.declarations.find(([name]) => name === "background")?.[1];
     assert.equal(background, "var(--navy)", rule.selectors.join(", "));
   }
@@ -167,6 +177,14 @@ test("글자·링크·입력 안내·준비 중 문구가 기본·마우스 올�
     ["근거 링크", [".evidence .source-link", "text"], [".evidence", "fill"]],
     ["내 질문 말풍선", ...self(".question")],
     ["하단 표시", [".site-footer p", "text"], page],
+    ["로그인 입력 글자", ...self("#login-form input")],
+    ["로그인 안내", [".login-help", "text"], [".login-card", "fill"]],
+    ["안전 안내", ...self(".login-safety")],
+    ["계정 학번", ["#demo-student-list strong", "text"], ["#demo-student-list button", "fill"]],
+    ["계정 설명", ...self("#demo-student-list button")],
+    ["로그인 오류", ["#login-error", "text"], [".login-card", "fill"]],
+    ["로그인 말풍선", ...self("#login-pet-line")],
+    ["둘러보기", [".browse-main", "text"], [".login-card", "fill"]],
   ];
   assert.deepEqual(shortfalls(pairs, 4.5), []);
 
@@ -181,9 +199,9 @@ test("버튼·입력창·카드의 테두리와 키보드 초점 표시가 맞�
     ["입력창 테두리", ["textarea", "edge"], chat],
     ["입력창 테두리(안쪽)", ...self("textarea", "edge")],
     ["입력창 테두리(올림)", ["textarea:hover", "edge"], chat],
-    ["새 대화 테두리", [".reset", "edge"], masthead],
+    ["새 대화 테두리(불투명 안쪽)", ...self(".reset", "edge")],
     ["새 대화 테두리(올림)", ...self(".reset:not(:disabled):hover", "edge")],
-    ["로그인 자리 테두리", [".login", "edge"], masthead],
+    ["로그인 자리 테두리(불투명 안쪽)", ...self(".login", "edge")],
     ["다시 묻기 테두리", [".check", "edge"], chat],
     ["소개 버튼 바탕", [".cta", "fill"], chat],
     ["소개 버튼 바탕(올림)", [".cta:hover", "fill"], chat],
@@ -192,7 +210,6 @@ test("버튼·입력창·카드의 테두리와 키보드 초점 표시가 맞�
     ["보내기 바탕", [".primary", "fill"], chat],
     ["보내기 바탕(올림)", [".primary:not(:disabled):hover", "fill"], chat],
     ["카드 테두리", [".card", "edge"], chat],
-    ["카드 테두리(올림)", ...self("button.card:hover", "edge")],
     ["패널 테두리", [".feature-panel", "edge"], chat],
     ["패널 닫기 테두리", [".panel-close", "edge"], [".feature-panel", "fill"]],
     ["패널 닫기 테두리(올림)", ...self(".panel-close:hover", "edge")],
@@ -201,8 +218,22 @@ test("버튼·입력창·카드의 테두리와 키보드 초점 표시가 맞�
     ["초점 표시 · 상단 띠", ring, masthead],
     ["초점 표시 · 올린 카드", ring, ["button.card:hover", "fill"]],
     ["초점 표시 · 올린 버튼", ring, [".check:not(:disabled):hover", "fill"]],
+    ["로그인 입력 테두리", ...self("#login-form input", "edge")],
+    ["시연 계정 테두리", ...self("#demo-student-list button", "edge")],
   ];
   assert.deepEqual(shortfalls(pairs, 3), []);
+});
+
+test("로그인과 보내기 버튼 양 끝 흰 글자는 4.5:1 이상이고 사진 덮개와 그림자를 고정한다", () => {
+  for (const selector of [".login-submit", ".primary", ".primary:not(:disabled):hover"]) {
+    const fill = declared(selector, properties.fill);
+    assert.match(fill, /linear-gradient\(135deg,\s*var\(--blue\),\s*var\(--button-end\)\)/);
+    for (const variable of ["--blue", "--button-end"]) assert.ok(contrast("#ffffff", variables.get(variable)) >= 4.5, `${selector} ${variable}`);
+  }
+  const exact = { "--overlay-sky": "rgba(0,163,217,.20)", "--overlay-top": "rgba(10,37,64,.55)", "--overlay-mid": "rgba(10,37,64,.30)", "--overlay-bottom": "rgba(10,37,64,.72)", "--shadow-text": "rgba(4,20,38,.55)" };
+  for (const [name, value] of Object.entries(exact)) assert.equal(variables.get(name), value);
+  assert.equal(declared(".login-intro", ["text-shadow"]), "0 2px 18px var(--shadow-text)");
+  assert.match(declared(".campus-overlay", properties.fill), /radial-gradient\(120% 90% at 18% 20%/);
 });
 
 test("마우스 올림과 초점은 색 말고도 밑줄·윤곽선으로 드러난다", () => {
@@ -247,7 +278,7 @@ test("소개 영역과 카드 6개는 #empty 안에, 상단 띠와 하단 표시
   assert.equal(landing.includes('<div class="card'), false);
 
   const [top, rest] = html.split("<main");
-  assert.match(top, /<button[^>]*id="demo-login"[^>]*>가상 학생 로그인<\/button>/);
+  assert.match(top, /<button[^>]*id="demo-login"[^>]*>로그인<\/button>/);
   assert.match(top, /id="demo-login"[^>]*aria-expanded="false"/);
   assert.match(top, /가상 학생 데이터입니다/);
   assert.doesNotMatch(top, /준비 중/);
@@ -266,14 +297,14 @@ test("모든 그림은 숨긴 자리에서 시작하고, 보안 정책이 막는
   const basic = '<img src="/chat-assets/techmo-basic.png" alt="" width="468" height="414">';
   // 마지막 한 장은 테크모 펫의 스프라이트 시트다(#64). 192×192 칸 다섯 개를 가로로 이은 960×192 한 장이다.
   const sprite = '<img src="/chat-assets/techmo-sprite.png" alt="" width="960" height="192">';
-  assert.deepEqual(images, [logo, basic, sprite]);
+  assert.deepEqual(images, [sprite, logo, logo, sprite]);
 
   const slots = [...html.matchAll(/<\w+[^>]*\bdata-brand-slot\b[^>]*>\s*(<img\b[^>]*>)/g)];
   assert.deepEqual(slots.map(match => match[1]), images, "each image must sit directly in its slot");
   for (const [slot] of slots) assert.match(slot, /\bdata-brand-slot hidden>/);
-  // 로고는 상단 띠에, 테크모는 #empty 안에 있어 새 대화가 #empty를 되돌릴 때 함께 돌아온다.
+  // 로고는 로그인 카드와 상단 띠에 있고 예전 소개 그림은 새 배치에서 제거했다.
   assert.equal(html.split("<main")[0].includes(logo), true);
-  assert.equal(landing.includes(basic), true);
+  assert.equal(html.includes(basic), false);
   // 스프라이트 시트는 #empty 밖에 있어 첫 질문을 보낸 뒤에도 펫이 남는다.
   assert.equal(landing.includes(sprite), false);
   // 예전 자세 그림 세 장은 화면이 더는 부르지 않는다.
@@ -442,6 +473,7 @@ function loadLanding({ logo = waiting(), techmo = waiting(), fetch } = {}) {
       ? Promise.resolve({ ok: true, json: async () => ({ students: [
         { id: "demo-d02", label: "가상 학생 D02", scenario: "졸업 요건에 가까움", is_fictional: true },
       ] }) })
+      : path === "/api/v1/demo-login" ? Promise.resolve({ status: 200, json: async () => ({ student: { id: "demo-d02", label: "가상 학생 D02", scenario: "졸업 요건에 가까움", is_fictional: true } }) })
       : (fetch ?? serving(requests))(path, options),
   }, { filename: "chat.js" });
 
@@ -449,7 +481,10 @@ function loadLanding({ logo = waiting(), techmo = waiting(), fetch } = {}) {
     async selectStudent() {
       elements.get("#demo-login").fire("click");
       await setImmediate();
-      elements.get("#demo-student-list").children[0].fire("click");
+      elements.get("#student-number").value = "DEMO-D02";
+      elements.get("#student-password").value = "demo-d02-pass";
+      elements.get("#login-form").fire("submit");
+      await setImmediate();
     },
     requests,
     logo: slots[0],
@@ -534,13 +569,12 @@ test("그림이 실패한 뒤에도 질문을 보낼 수 있고, 새 대화가 �
 
 test("첫 화면의 소개 버튼과 패널 안 시작 버튼은 화면에 이미 있는 기능으로만 이어진다", () => {
   assert.deepEqual(controlsInPage, [
-    ["내 졸업 체크 보기", "graduation"],
     ["졸업 체크 시작", "graduation"],
     ["졸업 체크와 추천 보기", "graduation"],
     ["사진 선택", "photo"],
     ["질문 입력하기", "ask"],
   ]);
-  // 기능을 부르는 버튼은 이 다섯 개뿐이다. 정규식이 놓친 data-action이 없는지 개수로 맞춰 본다.
+  // 기능을 부르는 버튼은 패널 안의 네 개뿐이다. 놓친 data-action이 없는지 개수도 맞춰 본다.
   assert.equal(html.split("data-action=").length - 1, controlsInPage.length);
   // 「테크모에게 묻기」 글자 버튼은 없앴다(#64). 그 이름은 펫 버튼의 읽기용 이름으로 한 번만 남는다.
   assert.equal(landing.includes("테크모에게 묻기"), false);
@@ -548,7 +582,7 @@ test("첫 화면의 소개 버튼과 패널 안 시작 버튼은 화면에 이�
   assert.equal(styles.includes("secondary"), false);
 });
 
-for (const label of ["내 졸업 체크 보기", "졸업 체크 시작", "졸업 체크와 추천 보기"]) {
+for (const label of ["졸업 체크 시작", "졸업 체크와 추천 보기"]) {
   test(`${label}를 연달아 눌러도 졸업 체크 요청은 하나만 나가고, 끝난 뒤에는 다시 부를 수 있다`, async () => {
     const shown = loadLanding();
     await shown.selectStudent();

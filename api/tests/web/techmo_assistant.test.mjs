@@ -64,8 +64,8 @@ test("예전 안내 상자가 없고, 채팅 영역 제목은 숨김 제목으�
 
   assert.match(html, /<section class="chat" aria-labelledby="chat-heading">\s*<h2 id="chat-heading" class="sr-only">학사 규정에 질문하기<\/h2>/);
   // 같은 버튼이 두 번 나오지 않는다. 졸업 체크로 가는 길은 소개 영역과 카드에만 남는다.
-  assert.equal(html.split("내 졸업 체크 보기").length, 2);
-  assert.match(landing, /<button type="button" class="cta" data-action="graduation">내 졸업 체크 보기<\/button>/);
+  assert.equal(html.includes("내 졸업 체크 보기"), false);
+  assert.match(landing, /<button type="button" class="cta" data-action="graduation">졸업 체크 시작<\/button>/);
 });
 
 test("왼쪽 칸의 비서와 「테크모에게 묻기」 글자 버튼이 없고, 「규정 질문」 카드는 남는다", () => {
@@ -90,7 +90,7 @@ test("펫 줄은 입력창 바로 앞, 첫 화면(#empty) 밖에 있고 평소 �
   assert.equal(html.split('id="pet-dock"').length, 2);
   // 대화 내용 뒤, 입력창 앞이다. 좁은 화면에서 입력창 위의 낮은 줄이 되고, #empty 밖이라 첫 질문 뒤에도 남는다.
   assert.ok(html.indexOf('id="transcript"') < html.indexOf('id="pet-dock"'));
-  assert.match(html, /<\/button>\s*<\/div>\s*<form id="composer"/);
+  assert.ok(html.indexOf('id="composer"') < html.indexOf('id="transcript"'));
   assert.equal(landing.includes("pet"), false);
 
   assert.match(dockMarkup, /^<div class="pet-dock" id="pet-dock" data-pose="guide" data-state="idle">/);
@@ -153,7 +153,7 @@ test("펫의 움직임 네 가지는 서로 다른 요소·속성에 걸고, 움
     .filter(([, value]) => value !== undefined);
   // 화면 전체에서 움직임을 거는 규칙의 목록이다. 마지막 줄은 첫 화면 도형의 모양 변화(#67)이고,
   // 그 내용은 motion_layout.test.mjs가 따로 확인한다.
-  const allOff = ".pet-float, .pet-hop, .pet-frame, .pet-dots span, .hero-art::before";
+  const allOff = ".pet-float, .pet-hop, .pet-frame, .pet-dots span, .hero-art::before, .login-card, .login-techmo, button.card:hover";
   const transitionOff = "::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*)";
   assert.deepEqual(animated, [
     [".pet-dots span", "dot-hop 1s ease-in-out infinite"],
@@ -165,6 +165,9 @@ test("펫의 움직임 네 가지는 서로 다른 요소·속성에 걸고, 움
     [allOff, "none !important"],
     [transitionOff, "none !important"],
     [".hero-art::before", "shape-morph 12s ease-in-out infinite"],
+    [".login-card", "login-rise .8s ease-out"],
+    [".login-techmo", "login-float 3.6s ease-in-out infinite"],
+    ["button.card:hover", "card-lift .18s ease-out forwards"],
   ]);
   // 움직임 줄이기 묶음은 하나뿐이고, 펫·대기 점·도형과 카드 전환을 함께 끈다.
   assert.equal(styles.split("prefers-reduced-motion").length, 2);
@@ -364,6 +367,7 @@ function loadAssistant({ routes = {}, timers = true, sprite = null, motion = { m
       if (path === "/api/v1/demo-students") return ok({ students: [
         { id: "demo-d02", label: "가상 학생 D02", scenario: "졸업 요건에 가까움", is_fictional: true },
       ] });
+      if (path === "/api/v1/demo-login") return { status: 200, json: async () => ({ student: { id: "demo-d02", label: "가상 학생 D02", scenario: "졸업 요건에 가까움", is_fictional: true } }) };
       requests.push(path);
       const route = routes[path];
       if (route === undefined) throw new Error(`unexpected request: ${path}`);
@@ -387,7 +391,11 @@ function loadAssistant({ routes = {}, timers = true, sprite = null, motion = { m
     async selectStudent() {
       elements.get("#demo-login").fire("click");
       await setImmediate();
-      elements.get("#demo-student-list").children[0].fire("click");
+      elements.get("#student-number").value = "DEMO-D02";
+      elements.get("#student-password").value = "demo-d02-pass";
+      elements.get("#login-form").fire("submit");
+      await setImmediate();
+      page.runTimers();
     },
     requests,
     graduation,

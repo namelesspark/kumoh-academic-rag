@@ -130,7 +130,7 @@ function loadChat(fetch) {
     window: { matchMedia: () => ({ matches: false }) },
     URL,
     AbortSignal: { timeout: () => undefined },
-    fetch: (path, options) => path === "/api/v1/demo-students"
+    fetch: (path, options) => path === "/api/v1/demo-login" ? Promise.resolve({ ok: true, status: 200, json: async () => ({ student: { id: "demo-d02", label: "가상 학생 D02", scenario: "졸업 요건에 가까움", is_fictional: true } }) }) : path === "/api/v1/demo-students"
       ? Promise.resolve({ ok: true, json: async () => ({ students: [
         { id: "demo-d02", label: "가상 학생 D02", scenario: "졸업 요건에 가까움", is_fictional: true },
       ] }) })
@@ -139,7 +139,7 @@ function loadChat(fetch) {
 
   const page = {
     login: elements.get("#demo-login"),
-    studentList: elements.get("#demo-student-list"),
+    studentList: elements.get("#demo-student-list"), loginForm: elements.get("#login-form"), studentNumber: elements.get("#student-number"), studentPassword: elements.get("#student-password"),
     transcript: elements.get("#transcript"),
     empty: elements.get("#empty"),
     button,
@@ -160,7 +160,7 @@ async function selectStudent(page) {
   if (page.selected) return;
   click(page.login);
   await setImmediate();
-  click(page.studentList.children[0]);
+  page.studentNumber.value = "DEMO-D02"; page.studentPassword.value = "demo-d02-pass"; page.loginForm.listeners.get("submit")({ preventDefault() {} }); await setImmediate();
   page.selected = true;
 }
 

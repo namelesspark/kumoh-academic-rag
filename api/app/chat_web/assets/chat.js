@@ -110,14 +110,31 @@ function rememberStudent(id) {
   } catch { /* 저장 공간을 쓸 수 없어도 현재 탭에서는 선택을 유지한다. */ }
 }
 
+const loginScreen = document.querySelector("#login-screen");
+const mainScreen = document.querySelector("#main-screen");
+const loginForm = document.querySelector("#login-form");
+const studentNumber = document.querySelector("#student-number");
+const studentPassword = document.querySelector("#student-password");
+const loginError = document.querySelector("#login-error");
+const loginPet = document.querySelector("#login-pet");
+const loginPetLine = document.querySelector("#login-pet-line");
+const mainGreeting = document.querySelector("#main-greeting");
+const demoAccounts = { "DEMO-D02": "demo-d02-pass", "DEMO-D03": "demo-d03-pass", "DEMO-D04": "demo-d04-pass" };
+function loginMessage(line, pose = "guide") {
+  if (loginPetLine) loginPetLine.textContent = line;
+  loginPet?.setAttribute("data-pose", pose);
+}
+function showScreen(main) {
+  if (loginScreen) loginScreen.hidden = main;
+  if (mainScreen) mainScreen.hidden = !main;
+  document.body?.setAttribute("data-screen", main ? "main" : "login");
+}
 function closeStudents() {
   studentGeneration++;
-  demoStudents.hidden = true;
+  if (demoStudents) demoStudents.hidden = true;
   demoNotice.textContent = "";
-  demoStudents.parentElement?.append(demoNotice);
   demoLogin.setAttribute("aria-expanded", "false");
 }
-
 function selectStudent(student, { restored = false } = {}) {
   studentGeneration++;
   selectedStudent = student;
@@ -125,14 +142,31 @@ function selectStudent(student, { restored = false } = {}) {
   demoLabel.textContent = student.label;
   demoLogin.hidden = true;
   demoIdentity.hidden = false;
-  demoNotice.textContent = "";
-  closeStudents();
-  if (!restored) {
-    demoLogout.focus();
-    if (!busy) celebrate("idle", `${student.label} 이수 내역으로 들어왔어요`);
+  if (mainGreeting) mainGreeting.textContent = `안녕하세요, ${student.label} 님`;
+  if (restored) showScreen(true);
+  else {
+    const generation = studentGeneration;
+    loginMessage(`${student.label} 이수 내역으로 들어왔어요`, "celebrate");
+    celebrate("idle", `${student.label} 이수 내역으로 들어왔어요`, () => {
+      if (generation !== studentGeneration || selectedStudent !== student) return;
+      let applied = false;
+      const apply = () => {
+        if (generation !== studentGeneration || applied) return;
+        applied = true;
+        showScreen(true);
+        demoLogout.focus();
+      };
+      if (!reducedMotion() && typeof document.startViewTransition === "function") {
+        try {
+          const transition = document.startViewTransition(apply);
+          Promise.resolve(transition.ready).catch(apply);
+          Promise.resolve(transition.updateCallbackDone).catch(apply);
+          Promise.resolve(transition.finished).then(apply, apply);
+        } catch { apply(); }
+      } else apply();
+    }, 650);
   }
 }
-
 function leaveStudent() {
   studentGeneration++;
   selectedStudent = null;
@@ -146,87 +180,81 @@ function leaveStudent() {
   demoIdentity.hidden = true;
   demoLogin.hidden = false;
   demoLabel.textContent = "";
-  closeStudents();
-  if (!busy) showAssistant("idle");
+  if (studentNumber) studentNumber.value = "";
+  if (studentPassword) studentPassword.value = "";
+  showAssistant("idle");
+  loginMessage("학번으로 들어와 보세요!");
+  showScreen(false);
 }
-
+function validStudent(student) {
+  return student && /^demo-d0[234]$/.test(student.id) && typeof student.label === "string" &&
+    typeof student.scenario === "string" && student.is_fictional === true;
+}
 async function loadStudents() {
-  if (!studentsRequest) {
-    studentsRequest = (async () => {
-      const response = await fetch("/api/v1/demo-students", { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(30_000) });
-      if (!response.ok) throw new Error("Students request failed");
-      const result = await response.json();
-      const students = result?.students;
-      if (!Array.isArray(students) || !students.length || students.some(student =>
-        !student || typeof student.id !== "string" || !/^demo-[a-z0-9-]+$/.test(student.id) ||
-        typeof student.label !== "string" || !student.label.trim() || typeof student.scenario !== "string" || student.is_fictional !== true) ||
-        new Set(students.map(student => student.id)).size !== students.length) throw new Error("Malformed students");
-      return students;
-    })();
-  }
+  if (!studentsRequest) studentsRequest = (async () => {
+    const response = await fetch("/api/v1/demo-students", { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(30_000) });
+    if (!response.ok) throw new Error("Students request failed");
+    const result = await response.json();
+    if (!Array.isArray(result?.students) || result.students.some(student => !validStudent(student))) throw new Error("Malformed students");
+    return result.students;
+  })();
   try { return await studentsRequest; } finally { studentsRequest = null; }
 }
-
-async function openStudents(message = "") {
-  const generation = ++studentGeneration;
-  demoStudents.append(demoNotice);
-  demoStudents.hidden = false;
-  demoLogin.setAttribute("aria-expanded", "true");
-  demoNotice.textContent = message || "가상 학생 목록을 불러오는 중…";
-  demoStudentList.replaceChildren();
-  try {
-    const students = await loadStudents();
-    if (generation !== studentGeneration || demoStudents.hidden) return;
-    for (const student of students) {
-      const button = element("button", "reset", `${student.label} · ${student.scenario}`);
-      button.type = "button";
-      button.addEventListener("click", () => {
-        if (generation === studentGeneration && !selectedStudent) selectStudent(student);
-      });
-      demoStudentList.append(button);
-    }
-    demoNotice.textContent = message;
-    demoStudentList.querySelectorAll("button")[0]?.focus();
-  } catch {
-    if (generation !== studentGeneration || demoStudents.hidden) return;
-    demoNotice.textContent = "가상 학생 목록을 불러오지 못했어요. 다시 시도해 주세요.";
-    const retry = element("button", "reset", "다시 시도");
-    retry.type = "button";
-    retry.addEventListener("click", () => void openStudents(message));
-    demoStudentList.replaceChildren(retry);
-    retry.focus();
-  }
+function openStudents(message = "") {
+  studentGeneration++;
+  showAssistant("idle");
+  showScreen(false);
+  if (loginError) loginError.textContent = message;
+  loginMessage("학번으로 들어와 보세요!");
+  studentNumber?.focus();
 }
-
-demoLogin.addEventListener("click", () => {
-  if (demoStudents.hidden) void openStudents();
-  else closeStudents();
-});
-demoLogout.addEventListener("click", () => {
-  leaveStudent();
-  demoNotice.textContent = "가상 학생에서 나왔어요.";
-  demoLogin.focus();
-});
-function dismissStudents(event) {
-  if (event.key !== "Escape" || demoStudents.hidden) return;
+demoLogin.addEventListener("click", () => openStudents());
+demoLogout.addEventListener("click", leaveStudent);
+for (const account of document.querySelectorAll?.("[data-demo-account]") ?? []) {
+  account.addEventListener("click", () => {
+    studentGeneration++;
+    showAssistant("idle");
+    const number = account.dataset.demoAccount;
+    if (!Object.hasOwn(demoAccounts, number)) return;
+    studentNumber.value = number;
+    studentPassword.value = demoAccounts[number];
+    if (loginError) loginError.textContent = "";
+    loginMessage("좋아요, 로그인을 눌러 보세요");
+    studentNumber.focus();
+  });
+}
+loginForm?.addEventListener("submit", async event => {
   event.preventDefault();
-  closeStudents();
-  demoLogin.focus();
-}
-demoStudents.addEventListener("keydown", dismissStudents);
-demoLogin.addEventListener("keydown", dismissStudents);
-
-function insideStudents(target) {
-  return target === demoLogin || demoLogin.contains(target) || demoStudents.contains(target);
-}
-// 바깥 클릭은 버튼 동작보다 먼저 확인해 졸업 체크가 연 목록을 다시 닫지 않는다.
-document.addEventListener("click", event => {
-  if (!demoStudents.hidden && !insideStudents(event.target)) closeStudents();
-}, true);
-document.addEventListener("focusin", event => {
-  if (!demoStudents.hidden && !insideStudents(event.target)) closeStudents();
+  const generation = ++studentGeneration;
+  showAssistant("idle");
+  if (loginError) loginError.textContent = "";
+  loginMessage("학번을 확인하고 있어요");
+  try {
+    const response = await fetch("/api/v1/demo-login", {
+      method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ student_number: studentNumber.value, password: studentPassword.value }),
+      signal: AbortSignal.timeout(30_000),
+    });
+    const result = await response.json();
+    if (generation !== studentGeneration) return;
+    if (response.status !== 200 || !validStudent(result?.student)) {
+      if (loginError) loginError.textContent = response.status === 401 ? "학번 또는 비밀번호가 맞지 않아요" : "로그인하지 못했어요. 다시 시도해 주세요.";
+      loginMessage("쉿, 시연 계정으로만 들어올 수 있어요", "quiet");
+      return;
+    }
+    selectStudent(result.student);
+  } catch {
+    if (generation !== studentGeneration) return;
+    if (loginError) loginError.textContent = "서버에 연결하지 못했어요. 다시 시도해 주세요.";
+    loginMessage("쉿, 시연 계정으로만 들어올 수 있어요", "quiet");
+  }
 });
-
+document.querySelector("#browse-main")?.addEventListener("click", () => {
+  leaveStudent();
+  showScreen(true);
+  if (mainGreeting) mainGreeting.textContent = "궁금한 학사 정보를 테크모와 함께 찾아보세요";
+});
+showScreen(false);
 async function restoreStudent() {
   const id = storedStudentId();
   if (!id) return;
@@ -239,7 +267,8 @@ async function restoreStudent() {
     else rememberStudent(null);
   } catch {
     if (generation === studentGeneration) {
-      demoNotice.textContent = "가상 학생을 복원하지 못했어요. 로그인 버튼을 눌러 다시 골라 주세요.";
+      demoNotice.textContent = "가상 학생을 복원하지 못했어요. 다시 로그인해 주세요.";
+      if (loginError) loginError.textContent = demoNotice.textContent;
     }
   }
 }
@@ -261,6 +290,7 @@ function changeFeature(card, { animate = true, focus = true } = {}) {
   const previous = openedCard;
   const panel = featurePanels.find(node => node.dataset.panel === card?.dataset.feature);
   if (card && (!panel || !featureList)) return;
+  if (!selectedStudent && ["graduation", "biskit"].includes(card?.dataset.feature)) { openStudents("이 기능은 시연 계정으로 로그인한 뒤 쓸 수 있어요"); return; }
   if (animate && card === openedCard) return;
   openedCard = card;
   const change = ++panelChange;
@@ -341,16 +371,18 @@ function showAssistant(state, message) {
 }
 
 // 찾음: 축하를 잠깐 보여 준 뒤 답변 표시로 넘어간다. 타이머가 없는 환경에서는 바로 넘어간다.
-function celebrate(nextState = "answer", message) {
+function celebrate(nextState = "answer", message, after, delay = celebrateMs) {
   showAssistant("found", message);
   if (typeof setTimeout !== "function") {
     showAssistant(nextState);
+    after?.();
     return;
   }
   assistantTimer = setTimeout(() => {
     assistantTimer = null;
     showAssistant(nextState);
-  }, celebrateMs);
+    after?.();
+  }, delay);
 }
 
 function element(tag, className, text) {
@@ -1321,3 +1353,132 @@ async function loadFeaturePanel(panel, change) {
     }
   });
 }
+
+// 그래픽 준비가 실패해도 다른 화면 기능은 계속 초기화한다.
+async function initializeCampusBackdrop() {
+  const canvas = document.querySelector("#campus-canvas");
+  if (!canvas || typeof canvas.getContext !== "function" || reducedMotion() ||
+      typeof window.requestAnimationFrame !== "function" || typeof createImageBitmap !== "function") return;
+  let gl;
+  let program = null;
+  let buffer = null;
+  let frame = null;
+  let stopped = false;
+  const bitmaps = [];
+  const textures = [];
+  const fail = () => {
+    stopped = true;
+    if (frame !== null) window.cancelAnimationFrame?.(frame);
+    frame = null;
+    canvas.hidden = true;
+    for (const bitmap of bitmaps) bitmap.close?.();
+    if (gl) {
+      for (const texture of textures) gl.deleteTexture(texture);
+      if (buffer) gl.deleteBuffer?.(buffer);
+      if (program) gl.deleteProgram?.(program);
+    }
+  };
+  try {
+    gl = canvas.getContext("webgl", { alpha: false, antialias: false, depth: false });
+    if (!gl || !gl.getShaderPrecisionFormat(gl.FRAGMENT_SHADER, gl.HIGH_FLOAT)?.precision) return;
+    const vertex = "attribute vec2 p; varying vec2 v; void main(){v=(p+1.0)*0.5;gl_Position=vec4(p,0.0,1.0);}";
+    const fragment = `precision highp float;
+      varying vec2 v; uniform sampler2D a,b; uniform float mixv,t,aspect,imgAspect,panA,panB,still;
+      uniform vec3 drops[16];
+vec2 cover(vec2 uv, float pan){ float win=min(1.0,aspect/imgAspect)*0.94;
+  float x=mix(0.5*win,1.0-0.5*win,pan)+(uv.x-0.5)*win; return vec2(x,0.5+(uv.y-0.5)*0.94); }
+void main(){ vec2 uv=v; vec2 off=vec2(0.0); float light=0.0;
+  for(int i=0;i<16;i++){ float age=t-drops[i].z; if(age<0.0||age>4.0) continue;
+    vec2 d=uv-drops[i].xy; d.x*=aspect; float r=length(d)+1e-4; float front=age*0.26;
+    float env=exp(-age*0.95)*smoothstep(0.30,0.0,abs(r-front))*smoothstep(0.0,0.02,r);
+    float w=cos((r-front)*58.0)*env; off+=(d/r)*w*0.022; light+=w; }
+  off+=still*0.0016*vec2(sin(uv.y*18.0+t*0.9),cos(uv.x*14.0-t*0.7));
+  uv+=off; uv.y=1.0-uv.y;
+  vec3 c=mix(texture2D(a,cover(uv,panA)).rgb,texture2D(b,cover(uv,panB)).rgb,mixv);
+  c+=vec3(0.60,0.85,1.0)*max(light,0.0)*0.34; c-=vec3(0.10,0.07,0.03)*max(-light,0.0)*0.9;
+  gl_FragColor=vec4(c,1.0); }`;
+    const compile = (type, source) => {
+      const shader = gl.createShader(type);
+      gl.shaderSource(shader, source); gl.compileShader(shader);
+      if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) { gl.deleteShader(shader); throw new Error("shader"); }
+      return shader;
+    };
+    program = gl.createProgram();
+    const shaders = [compile(gl.VERTEX_SHADER, vertex), compile(gl.FRAGMENT_SHADER, fragment)];
+    for (const shader of shaders) gl.attachShader(program, shader);
+    gl.linkProgram(program);
+    for (const shader of shaders) gl.deleteShader(shader);
+    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) throw new Error("program");
+    gl.useProgram(program);
+    buffer = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1,1,-1,-1,1,-1,1,1,-1,1,1]), gl.STATIC_DRAW);
+    const position = gl.getAttribLocation(program,"p");
+    gl.enableVertexAttribArray(position); gl.vertexAttribPointer(position,2,gl.FLOAT,false,0,0);
+    const photos = [
+      ["campus-aerial.jpg","양호동 캠퍼스"], ["campus-hill.jpg","디지털관과 금오산 자락"],
+      ["campus-gate.jpg","정문의 밤"], ["campus-field.jpg","대운동장의 저녁"],
+    ];
+    for (const [filename] of photos) {
+      const response = await fetch(`/chat-assets/${filename}`);
+      if (!response.ok) throw new Error("photo");
+      const bitmap = await createImageBitmap(await response.blob()); bitmaps.push(bitmap);
+      const texture = gl.createTexture(); textures.push(texture); gl.bindTexture(gl.TEXTURE_2D,texture);
+      gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+      gl.texImage2D(gl.TEXTURE_2D,0,gl.RGB,gl.RGB,gl.UNSIGNED_BYTE,bitmap);
+    }
+    const uniforms = Object.fromEntries(["a","b","mixv","t","aspect","imgAspect","panA","panB","still","drops[0]"].map(name=>[name,gl.getUniformLocation(program,name)]));
+    gl.uniform1i(uniforms.a,0); gl.uniform1i(uniforms.b,1);
+    gl.uniform1f(uniforms.imgAspect,1920/280); gl.uniform1f(uniforms.still,1);
+    const drops = new Float32Array(48);
+    for (let i=0;i<16;i++) drops[i*3+2]=-1000;
+    let dropIndex=0, elapsed=0, previous=null, automatic=0, lastPointer=-Infinity, lastX=0, lastY=0;
+    const drop = (x,y) => { const i=(dropIndex++%16)*3; drops[i]=x; drops[i+1]=y; drops[i+2]=elapsed; };
+    const pointer = event => {
+      if (reducedMotion() || document.hidden) return;
+      const rect=canvas.getBoundingClientRect();
+      if (event.type === "pointermove" && (elapsed*1000-lastPointer<110 || Math.hypot(event.clientX-lastX,event.clientY-lastY)<46)) return;
+      lastPointer=elapsed*1000; lastX=event.clientX; lastY=event.clientY;
+      drop((event.clientX-rect.left)/rect.width,1-(event.clientY-rect.top)/rect.height);
+    };
+    document.addEventListener("pointermove",pointer,{passive:true});
+    document.addEventListener("pointerdown",pointer,{passive:true});
+    const draw = timestamp => {
+      try {
+      frame=null;
+      if (document.hidden) { previous=null; return; }
+      if (reducedMotion()) { fail(); return; }
+      if (previous !== null) elapsed+=(timestamp-previous)/1000;
+      previous=timestamp;
+      while (automatic<3 && elapsed >= [0.3,0.9,1.5][automatic]) { drop([0.25,0.67,0.44][automatic],[0.65,0.42,0.25][automatic]); automatic++; }
+      const ratio=Math.min(window.devicePixelRatio||1,1.5);
+      const width=Math.max(1,Math.round(window.innerWidth*ratio)), height=Math.max(1,Math.round(window.innerHeight*ratio));
+      if (canvas.width!==width || canvas.height!==height) { canvas.width=width; canvas.height=height; gl.viewport(0,0,width,height); }
+      const cycle=11.2, index=Math.floor(elapsed/cycle)%4, phase=elapsed%cycle;
+      const mix=Math.max(0,Math.min(1,(phase-9)/2.2));
+      gl.uniform1f(uniforms.mixv,mix*mix*(3-2*mix)); gl.uniform1f(uniforms.t,elapsed);
+      gl.uniform1f(uniforms.aspect,width/height);
+      const pan=(number,progress)=>number%2 ? 0.72-0.44*progress : 0.28+0.44*progress;
+      gl.uniform1f(uniforms.panA,pan(index,(phase+2.2)/13.4)); gl.uniform1f(uniforms.panB,pan(index+1,Math.max(0,phase-9)/13.4));
+      gl.uniform3fv(uniforms["drops[0]"],drops);
+      gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D,textures[index]);
+      gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D,textures[(index+1)%4]);
+      gl.drawArrays(gl.TRIANGLES,0,6);
+      const label=document.querySelector("#campus-name"); if (label) label.textContent=photos[index][1];
+      const steps=document.querySelectorAll("[data-campus-step]");
+      for (let i=0;i<steps.length;i++) steps[i].setAttribute("data-current",String(i===index));
+      canvas.hidden=false;
+      frame=window.requestAnimationFrame(draw);
+      } catch { fail(); }
+    };
+    document.addEventListener("visibilitychange",()=>{
+      if (document.hidden) { if(frame!==null) window.cancelAnimationFrame(frame); frame=null; previous=null; }
+      else if(!stopped && frame===null && !reducedMotion()) frame=window.requestAnimationFrame(draw);
+    });
+    canvas.addEventListener("webglcontextlost",event=>{event.preventDefault();fail();});
+    if (!document.hidden) frame=window.requestAnimationFrame(draw);
+  } catch { fail(); }
+}
+void initializeCampusBackdrop();

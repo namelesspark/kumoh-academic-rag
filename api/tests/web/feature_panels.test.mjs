@@ -107,6 +107,7 @@ function loadPage({ transition, reduced = false, legacy = false, now = "2027-02-
       },
     }) },
     fetch: (...args) => {
+      if (args[0] === "/api/v1/demo-login") return Promise.resolve({ ok: true, status: 200, json: async () => ({ student: { id: "demo-d02", label: "가상 학생 D02", scenario: "졸업 요건에 가까움", is_fictional: true } }) });
       if (args[0] === "/api/v1/demo-students") return Promise.resolve({ ok: true, json: async () => ({ students: [
         { id: "demo-d02", label: "가상 학생 D02", scenario: "졸업 요건에 가까움", is_fictional: true },
       ] }) });
@@ -125,12 +126,13 @@ function loadPage({ transition, reduced = false, legacy = false, now = "2027-02-
     URL,
   };
   runInNewContext(script, context);
+  runInNewContext('selectedStudent = { id: "demo-d02", label: "가상 학생 D02", scenario: "졸업 요건에 가까움", is_fictional: true };', context);
   const get = selector => elements.get(selector);
   return {
     async selectStudent() {
       get("#demo-login").click();
       await setImmediate();
-      get("#demo-student-list").children[0].click();
+      get("#student-number").value = "DEMO-D02"; get("#student-password").value = "demo-d02-pass"; get("#login-form").listeners.get("submit")({ preventDefault() {} }); await setImmediate();
     },
     cards, panels, actions, requests, response, responses, get,
     evaluate: code => runInNewContext(code, context),
@@ -151,6 +153,24 @@ function assertState(page, index) {
     assert.equal(card.attributes.get("aria-expanded"), String(current === index));
   });
 }
+
+test("둘러보기의 졸업 체크·비교과 카드는 로그인으로 안내하고 공용 카드는 그대로 연다", () => {
+  for (const index of [0, 1]) {
+    const page = loadPage();
+    page.evaluate("selectedStudent = null");
+    page.cards[index].click();
+    assert.equal(page.get("#login-screen").hidden, false);
+    assert.equal(page.get("#main-screen").hidden, true);
+    assert.equal(page.requests.length, 0);
+    assert.match(page.get("#login-error").textContent, /로그인/);
+  }
+  for (const index of [2, 3, 4, 5]) {
+    const page = loadPage();
+    page.evaluate("selectedStudent = null");
+    page.cards[index].click();
+    assert.equal(page.panels[index].hidden, false);
+  }
+});
 
 function transitions() {
   const pending = [];
