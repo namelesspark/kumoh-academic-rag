@@ -19,7 +19,8 @@ class TestChatWeb(unittest.TestCase):
         self.assertTrue(response.headers["content-type"].startswith("text/html"))
         self.assertIn("frame-ancestors 'none'", response.headers["content-security-policy"])
         self.assertIn('lang="ko"', response.text())
-        self.assertIn("가상 규정", response.text())
+        # 예전 안내 상자의 문구 대신, 화면에 남아 있는 하단 표시의 문구를 본다.
+        self.assertIn("가상 학생 데이터", response.text())
         self.assertIn('href="/chat-assets/chat.css"', response.text())
         self.assertIn('src="/chat-assets/chat.js"', response.text())
 

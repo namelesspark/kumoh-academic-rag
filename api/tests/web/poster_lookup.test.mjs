@@ -99,12 +99,16 @@ function text(node) {
 
 function loadChat(fetch) {
   const elements = new Map();
+  // 예전 안내 상자의 버튼은 없어졌다(#61). 첫 화면에 남은 「내 졸업 체크 보기」 버튼으로 잠금을 확인한다.
+  const graduation = new FakeElement("button");
+  graduation.dataset = { action: "graduation" };
   runInNewContext(script, {
     document: {
       querySelector(selector) {
         if (!elements.has(selector)) elements.set(selector, new FakeElement(selector));
         return elements.get(selector);
       },
+      querySelectorAll: selector => (selector === "[data-action]" ? [graduation] : []),
       createElement: tag => new FakeElement(tag),
       createTextNode: value => value,
     },
@@ -122,7 +126,7 @@ function loadChat(fetch) {
     composer: elements.get("#composer"),
     input: elements.get("#question"),
     send: elements.get("#send"),
-    graduation: elements.get("#graduation-check"),
+    graduation,
     file: elements.get("#photo-file"),
     clear: elements.get("#photo-clear"),
     note: elements.get("#photo-note"),
@@ -257,11 +261,13 @@ test("화면에 현수막 전용 칸이 없고, 입력창에 사진 첨부·첨�
   assert.match(html, /<p[^>]*id="photo-note" role="status">/);
   assert.match(html, /<button type="submit"[^>]*id="send" disabled>/);
   for (const id of [
-    "topics", "reset", "graduation-check", "transcript", "empty", "status", "composer", "question", "send",
+    "topics", "reset", "transcript", "empty", "status", "composer", "question", "send",
     "photo-file", "photo-clear", "photo-note",
   ]) {
     assert.equal(html.split(`id="${id}"`).length, 2, id);
   }
+  // 예전 안내 상자와 그 안의 졸업 체크 버튼은 없앴다(#61).
+  assert.equal(html.includes("graduation-check"), false);
 
   // 사진만 보낼 수 있어야 하므로 질문 칸은 필수 입력이 아니다.
   const [question] = /<textarea id="question"[^>]*>/.exec(html);
