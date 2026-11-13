@@ -14,6 +14,9 @@ const assistantDots = document.querySelector("#pet-dots");
 const pet = document.querySelector("#pet");
 // 첫 화면의 버튼과 카드. 요청 중에는 함께 잠근다. 펫은 여기에 들지 않아 요청 중에도 눌린다.
 const landingControls = [...(document.querySelectorAll?.("[data-action]") ?? [])];
+const featureCards = [...(document.querySelectorAll?.("[data-feature]") ?? [])];
+const featurePanels = [...(document.querySelectorAll?.("[data-panel]") ?? [])];
+const featureList = document.querySelector("#feature-cards");
 const photoFile = document.querySelector("#photo-file");
 const photoClear = document.querySelector("#photo-clear");
 const photoNote = document.querySelector("#photo-note");
@@ -81,6 +84,84 @@ let busy = false;
 let graduationTurn = null;
 let assistantState = "idle";
 let assistantTimer = null;
+let openedCard = null;
+let panelTransition = null;
+let panelChange = 0;
+
+function motionPreference() {
+  return window.matchMedia?.("(prefers-reduced-motion: reduce)");
+}
+
+function reducedMotion() {
+  return motionPreference()?.matches === true;
+}
+
+motionPreference()?.addEventListener?.("change", event => {
+  if (event.matches) panelTransition?.skipTransition?.();
+});
+
+// 이전 전환의 늦은 콜백이 새 조작을 되돌리지 않게 순서를 확인한다.
+function changeFeature(card, { animate = true, focus = true } = {}) {
+  const previous = openedCard;
+  const panel = featurePanels.find(node => node.dataset.panel === card?.dataset.feature);
+  if (card && (!panel || !featureList)) return;
+  if (animate && card === openedCard) return;
+  openedCard = card;
+  const change = ++panelChange;
+  panelTransition?.skipTransition?.();
+  panelTransition = null;
+  for (const node of featureCards) node.removeAttribute("data-morph");
+  const source = card ?? previous;
+  let applied = false;
+  const apply = () => {
+    if (change !== panelChange || applied) return;
+    applied = true;
+    if (featureList) featureList.hidden = Boolean(card);
+    for (const node of featurePanels) node.hidden = node !== panel;
+    for (const node of featureCards) node.setAttribute("aria-expanded", String(node === card));
+    if (focus) {
+      const target = card ? panel.querySelector("[data-panel-title]") : previous;
+      target?.focus();
+    }
+  };
+  if (!animate || reducedMotion() || typeof document.startViewTransition !== "function") {
+    apply();
+    return;
+  }
+  source?.setAttribute("data-morph", "");
+  const cleanup = () => {
+    if (change !== panelChange) return;
+    source?.removeAttribute("data-morph");
+    panelTransition = null;
+  };
+  try {
+    panelTransition = document.startViewTransition(apply);
+    Promise.resolve(panelTransition.ready).catch(apply);
+    Promise.resolve(panelTransition.updateCallbackDone).catch(apply);
+    Promise.resolve(panelTransition.finished).then(() => {
+      apply();
+      cleanup();
+    }, () => {
+      apply();
+      cleanup();
+    });
+  } catch {
+    apply();
+    cleanup();
+  }
+}
+
+for (const card of featureCards) {
+  card.addEventListener("click", () => changeFeature(card));
+}
+for (const panel of featurePanels) {
+  panel.querySelector("[data-panel-close]")?.addEventListener("click", () => changeFeature(null));
+  panel.addEventListener("keydown", event => {
+    if (event.key !== "Escape" || panel.hidden) return;
+    event.preventDefault();
+    changeFeature(null);
+  });
+}
 
 if (compact.matches) topics.open = false;
 
@@ -906,6 +987,7 @@ photoClear.addEventListener("click", () => {
 
 reset.addEventListener("click", () => {
   if (busy) return;
+  changeFeature(null, { animate: false, focus: false });
   sessionId = null;
   graduationTurn = null;
   transcript.replaceChildren(empty);
@@ -922,14 +1004,17 @@ reset.addEventListener("click", () => {
 // 졸업 체크는 checkGraduation이 요청 중 잠금을 직접 확인하므로 연달아 눌러도 요청은 하나만 나간다.
 const landingActions = {
   graduation: () => void checkGraduation(),
-  photo: () => photoFile.click(),
+  photo: () => { photoFile.focus(); photoFile.click(); },
   ask: () => input.focus(),
 };
 for (const control of landingControls) {
   const action = control.dataset?.action;
   if (typeof action !== "string" || !Object.hasOwn(landingActions, action)) continue;
   control.addEventListener("click", () => {
-    if (!busy) landingActions[action]();
+    if (busy) return;
+    changeFeature(null, { animate: false, focus: false });
+    if (action === "graduation") input.focus();
+    landingActions[action]();
   });
 }
 
@@ -938,7 +1023,7 @@ for (const control of landingControls) {
 // 움직임 줄이기 설정은 누를 때마다 다시 읽어, 사용 중에 바꿔도 부드러운 이동이 꺼진다.
 pet.addEventListener("click", () => {
   input.focus({ preventScroll: true });
-  const calm = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches === true;
+  const calm = reducedMotion();
   input.scrollIntoView?.({ block: "center", behavior: calm ? "auto" : "smooth" });
 });
 
