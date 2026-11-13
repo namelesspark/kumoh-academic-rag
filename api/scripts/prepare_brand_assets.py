@@ -22,6 +22,12 @@ MAX_ENTRY = 1024 * 1024
 REQUEST_TIMEOUT = 5
 TOTAL_TIMEOUT = 20
 WHITE_TOLERANCE = 25
+TECHMO_CROPS = {
+    "basic": (144, 142, 611, 555),
+    "quiet": (742, 111, 881, 293),
+    "guide": (742, 430, 881, 610),
+    "celebrate": (947, 129, 1105, 273),
+}
 
 
 class AssetError(ValueError):
@@ -99,14 +105,15 @@ def logo_png(data, expected_hash=LOGO_HASH):
     raise AssetError("로고 지문 불일치")
 
 
-def techmo_png(data, expected_hash=TECHMO_HASH):
+def techmo_png(data, expected_hash=TECHMO_HASH, *, pose="basic"):
     """가장자리와 이어진 흰색만 지워 눈의 흰자를 보존한다."""
     if sha256(data).hexdigest() != expected_hash:
         raise AssetError("테크모 지문 불일치")
     with Image.open(BytesIO(data)) as source:
         if source.format != "JPEG" or source.size != (1198, 767):
             raise AssetError("테크모 형식 또는 크기 불일치")
-        image = source.crop((144, 142, 612, 556)).convert("RGBA")
+        left, top, right, bottom = TECHMO_CROPS[pose]
+        image = source.crop((left, top, right + 1, bottom + 1)).convert("RGBA")
     width, height = image.size
     pixels = image.load()
     pending = deque([(x, y) for x in range(width) for y in (0, height - 1)] +
@@ -140,12 +147,24 @@ def atomic_write(destination, data):
 
 
 def main(*, downloader=download, writer=atomic_write, report=print):
+    sources = {}
     for name, url, convert in (
         ("kumoh-signature.png", LOGO_URL, logo_png),
         ("techmo-basic.png", TECHMO_URL, techmo_png),
+        *((f"techmo-{pose}.png", TECHMO_URL,
+           lambda data, pose=pose: techmo_png(data, pose=pose))
+          for pose in ("quiet", "guide", "celebrate")),
     ):
         try:
-            writer(ASSET_DIR / name, convert(downloader(url)))
+            if url not in sources:
+                try:
+                    sources[url] = downloader(url)
+                except Exception as error:
+                    sources[url] = error
+            data = sources[url]
+            if isinstance(data, Exception):
+                raise data
+            writer(ASSET_DIR / name, convert(data))
             report(f"{name}: 준비 완료")
         except Exception as error:
             # 외부 응답·주소·파일 경로는 로그에 옮기지 않는다.

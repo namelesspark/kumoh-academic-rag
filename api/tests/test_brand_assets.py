@@ -17,6 +17,12 @@ from app import main as web_main
 from asgi_harness import call_app
 from api.scripts import prepare_brand_assets as assets
 
+BRAND_NAMES = ("kumoh-signature.png", "techmo-basic.png", "techmo-quiet.png",
+               "techmo-guide.png", "techmo-celebrate.png")
+POSE_CASES = (("quiet", (742, 111, 881, 293), (140, 183)),
+              ("guide", (742, 430, 881, 610), (140, 181)),
+              ("celebrate", (947, 129, 1105, 273), (159, 145)))
+
 
 def image_bytes(size, image_format="PNG"):
     image = Image.new("RGB", size, "white")
@@ -24,6 +30,10 @@ def image_bytes(size, image_format="PNG"):
         draw = ImageDraw.Draw(image)
         draw.rectangle((240, 240, 340, 340), fill="black")
         draw.rectangle((260, 260, 320, 320), fill="white")
+        for _, (left, top, right, bottom), _ in POSE_CASES:
+            draw.rectangle((left + 20, top + 20, left + 90, top + 90), fill="black")
+            draw.rectangle((left + 40, top + 40, left + 70, top + 70), fill="white")
+            draw.rectangle((right - 4, bottom - 4, right + 4, bottom + 4), fill="black")
     output = BytesIO()
     image.save(output, format=image_format)
     return output.getvalue()
@@ -84,6 +94,20 @@ class TestBrandPreparation(unittest.TestCase):
             self.assertEqual(image.getpixel((0, 0))[3], 0)
             self.assertEqual(image.getpixel((290 - 144, 290 - 142))[3], 255)
             self.assertEqual(image.getpixel((245 - 144, 245 - 142))[3], 255)
+
+    def test_pose_crops_include_end_pixels_and_preserve_enclosed_white(self):
+        jpg = image_bytes((1198, 767), "JPEG")
+        for pose, box, size in POSE_CASES:
+            with self.subTest(pose=pose):
+                result = assets.techmo_png(jpg, sha256(jpg).hexdigest(), pose=pose)
+                with Image.open(BytesIO(result)) as image:
+                    self.assertEqual(image.format, "PNG")
+                    self.assertEqual(image.size, size)
+                    self.assertEqual(image.getpixel((0, 0))[3], 0)
+                    self.assertEqual(image.getpixel((25, 25))[3], 255)
+                    self.assertEqual(image.getpixel((55, 55))[3], 255)
+                    self.assertGreater(min(image.getpixel((55, 55))[:3]), 230)
+                    self.assertEqual(image.getpixel((size[0] - 1, size[1] - 1))[3], 255)
 
     def test_techmo_hash_and_dimensions_are_checked(self):
         jpg = image_bytes((1198, 767), "JPEG")
@@ -161,18 +185,21 @@ class TestBrandPreparation(unittest.TestCase):
         written = {}
         logs = []
         original_logo, original_techmo = assets.logo_png, assets.techmo_png
+        downloader = Mock(side_effect=lambda url: archive_bytes(png) if url == assets.LOGO_URL else jpg)
         with (
             patch.object(assets, "logo_png", lambda data: original_logo(data, sha256(png).hexdigest())),
-            patch.object(assets, "techmo_png", lambda data: original_techmo(data, sha256(jpg).hexdigest())),
+            patch.object(assets, "techmo_png", lambda data, **kwargs: original_techmo(data, sha256(jpg).hexdigest(), **kwargs)),
         ):
             code = assets.main(
-                downloader=lambda url: archive_bytes(png) if url == assets.LOGO_URL else jpg,
+                downloader=downloader,
                 writer=lambda path, data: written.__setitem__(path.name, data),
                 report=logs.append,
             )
         self.assertEqual(code, 0)
-        self.assertEqual(set(written), {"kumoh-signature.png", "techmo-basic.png"})
-        self.assertEqual(len(logs), 2)
+        self.assertEqual(set(written), set(BRAND_NAMES))
+        self.assertEqual(len(logs), 5)
+        self.assertEqual(downloader.call_count, 2)
+        self.assertEqual(sum(call.args == (assets.TECHMO_URL,) for call in downloader.call_args_list), 1)
 
     def test_one_failure_keeps_previous_file_and_other_asset_succeeds(self):
         for failed_url in (assets.LOGO_URL, assets.TECHMO_URL):
@@ -195,8 +222,60 @@ class TestBrandPreparation(unittest.TestCase):
                 self.assertEqual(code, 0)
                 failed_name = "kumoh-signature.png" if failed_url == assets.LOGO_URL else "techmo-basic.png"
                 self.assertTrue(written[failed_name].startswith(b"previous"))
-                self.assertEqual(sum("준비 실패" in line for line in logs), 1)
-                self.assertEqual(sum("준비 완료" in line for line in logs), 1)
+                failures = 1 if failed_url == assets.LOGO_URL else 4
+                self.assertEqual(sum("준비 실패" in line for line in logs), failures)
+                self.assertEqual(sum("준비 완료" in line for line in logs), 5 - failures)
+
+    def test_pose_failure_preserves_previous_file_and_rerun_recovers(self):
+        written = {name: b"previous" for name in BRAND_NAMES}
+        logs = []
+
+        def convert(data, *, pose="basic"):
+            if pose == "quiet":
+                raise assets.AssetError("가상 자세 변환 실패")
+            return pose.encode("ascii")
+
+        def writer(path, data):
+            written[path.name] = data
+
+        with (
+            patch.object(assets, "logo_png", return_value=b"logo"),
+            patch.object(assets, "techmo_png", side_effect=convert),
+        ):
+            self.assertEqual(assets.main(downloader=lambda url: b"fictional", writer=writer,
+                                         report=logs.append), 0)
+        self.assertEqual(written["techmo-quiet.png"], b"previous")
+        self.assertEqual(written["techmo-guide.png"], b"guide")
+        self.assertEqual(written["techmo-celebrate.png"], b"celebrate")
+        self.assertEqual(sum("준비 실패" in line for line in logs), 1)
+        with (
+            patch.object(assets, "logo_png", return_value=b"logo"),
+            patch.object(assets, "techmo_png", side_effect=lambda data, *, pose="basic": pose.encode("ascii")),
+        ):
+            for _ in range(2):
+                self.assertEqual(assets.main(downloader=lambda url: b"fictional", writer=writer,
+                                             report=lambda line: None), 0)
+        self.assertEqual(written["techmo-quiet.png"], b"quiet")
+        self.assertEqual(set(written), set(BRAND_NAMES))
+
+    def test_pose_write_failure_does_not_stop_later_poses(self):
+        written = {"techmo-guide.png": b"previous guide"}
+        logs = []
+
+        def writer(path, data):
+            if path.name == "techmo-guide.png":
+                raise OSError("fictional write failure")
+            written[path.name] = data
+
+        with (
+            patch.object(assets, "logo_png", return_value=b"logo"),
+            patch.object(assets, "techmo_png", return_value=b"pose"),
+        ):
+            self.assertEqual(assets.main(downloader=lambda url: b"fictional", writer=writer,
+                                         report=logs.append), 0)
+        self.assertEqual(written["techmo-guide.png"], b"previous guide")
+        self.assertEqual(written["techmo-celebrate.png"], b"pose")
+        self.assertEqual(sum("준비 실패" in line for line in logs), 1)
 
     def test_invalid_source_never_reaches_writer_and_returns_zero(self):
         writer = Mock()
@@ -204,7 +283,7 @@ class TestBrandPreparation(unittest.TestCase):
         self.assertEqual(assets.main(downloader=lambda url: b"fictional invalid source",
                                      writer=writer, report=logs.append), 0)
         writer.assert_not_called()
-        self.assertEqual(len(logs), 2)
+        self.assertEqual(len(logs), 5)
         self.assertTrue(all("준비 실패" in line for line in logs))
 
     def test_failure_reason_is_specific_without_external_exception_text(self):
@@ -215,7 +294,7 @@ class TestBrandPreparation(unittest.TestCase):
         logs.clear()
         assets.main(downloader=Mock(side_effect=OSError("private detail")),
                     writer=Mock(), report=logs.append)
-        self.assertEqual(len(logs), 2)
+        self.assertEqual(len(logs), 5)
         self.assertTrue(all("OSError" in line and "private detail" not in line for line in logs))
 
     def test_atomic_write_replaces_only_after_complete_write(self):
@@ -254,25 +333,25 @@ class TestBrandPreparation(unittest.TestCase):
 class TestBrandAssetRoutes(unittest.TestCase):
     def test_missing_brand_assets_return_404(self):
         with patch.object(Path, "is_file", return_value=False):
-            for name in ("kumoh-signature.png", "techmo-basic.png"):
+            for name in BRAND_NAMES:
                 with self.subTest(name=name):
-                    response = call_app(web_main.app, "GET", f"/chat-assets/{name}")
+                    response = call_app(web_main.app, "GET", f"/chat-assets/{name}", allow_wait=True)
                     self.assertEqual(response.status, 404)
 
     def test_existing_brand_assets_have_png_media_type(self):
         png = image_bytes((2, 2))
 
         def memory_response(path, *, media_type):
-            self.assertIn(path.name, ("kumoh-signature.png", "techmo-basic.png"))
+            self.assertIn(path.name, BRAND_NAMES)
             return web_main.Response(content=png, media_type=media_type)
 
         with (
             patch.object(Path, "is_file", return_value=True),
             patch.object(web_main, "FileResponse", side_effect=memory_response),
         ):
-            for name in ("kumoh-signature.png", "techmo-basic.png"):
+            for name in BRAND_NAMES:
                 with self.subTest(name=name):
-                    response = call_app(web_main.app, "GET", f"/chat-assets/{name}")
+                    response = call_app(web_main.app, "GET", f"/chat-assets/{name}", allow_wait=True)
                     self.assertEqual(response.status, 200)
                     self.assertEqual(response.headers["content-type"], "image/png")
                     self.assertEqual(response.body, png)

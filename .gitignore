@@ -62,6 +62,9 @@ secrets/
 /api/.poster-ocr/
 /api/app/chat_web/assets/kumoh-signature.png
 /api/app/chat_web/assets/techmo-basic.png
+/api/app/chat_web/assets/techmo-quiet.png
+/api/app/chat_web/assets/techmo-guide.png
+/api/app/chat_web/assets/techmo-celebrate.png
 *.traineddata
 *.gguf
 *.safetensors

@@ -38,6 +38,8 @@ CHAT_WEB_DIR = Path(__file__).with_name("chat_web")
 CHAT_WEB_MEDIA_TYPES = {
     "chat.css": "text/css", "chat.js": "text/javascript",
     "kumoh-signature.png": "image/png", "techmo-basic.png": "image/png",
+    "techmo-quiet.png": "image/png", "techmo-guide.png": "image/png",
+    "techmo-celebrate.png": "image/png",
 }
 
 
