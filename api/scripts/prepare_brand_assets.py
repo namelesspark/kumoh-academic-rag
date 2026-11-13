@@ -27,6 +27,7 @@ TECHMO_CROPS = {
     "quiet": (742, 111, 881, 293),
     "guide": (742, 430, 881, 610),
     "celebrate": (947, 129, 1105, 273),
+    "concert": (947, 441, 1105, 610),
 }
 
 
@@ -133,6 +134,23 @@ def techmo_png(data, expected_hash=TECHMO_HASH, *, pose="basic"):
     return result.getvalue()
 
 
+def techmo_sprite_png(data):
+    """다섯 자세를 같은 칸에 놓고 발끝 높이를 맞춘 한 장을 만듦."""
+    sheet = Image.new("RGBA", (960, 192))
+    for index, pose in enumerate(TECHMO_CROPS):
+        with Image.open(BytesIO(techmo_png(data, pose=pose))) as source:
+            visible = source.getbbox()
+            if visible is None:
+                raise AssetError("테크모 자세가 비어 있음")
+            image = source.crop(visible)
+        image.thumbnail((184, 184), Image.Resampling.LANCZOS)
+        x = index * 192 + (192 - image.width) // 2
+        sheet.alpha_composite(image, (x, 188 - image.height))
+    result = BytesIO()
+    sheet.save(result, format="PNG")
+    return result.getvalue()
+
+
 def atomic_write(destination, data):
     """검증한 결과를 임시 파일에 모두 쓴 뒤 교체한다."""
     temporary = None
@@ -154,6 +172,7 @@ def main(*, downloader=download, writer=atomic_write, report=print):
         *((f"techmo-{pose}.png", TECHMO_URL,
            lambda data, pose=pose: techmo_png(data, pose=pose))
           for pose in ("quiet", "guide", "celebrate")),
+        ("techmo-sprite.png", TECHMO_URL, techmo_sprite_png),
     ):
         try:
             if url not in sources:

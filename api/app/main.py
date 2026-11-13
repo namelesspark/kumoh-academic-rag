@@ -20,6 +20,7 @@
     uvicorn app.main:app --app-dir api --reload
 """
 
+from hashlib import sha256
 from pathlib import Path
 
 from fastapi import FastAPI, Request
@@ -40,7 +41,18 @@ CHAT_WEB_MEDIA_TYPES = {
     "kumoh-signature.png": "image/png", "techmo-basic.png": "image/png",
     "techmo-quiet.png": "image/png", "techmo-guide.png": "image/png",
     "techmo-celebrate.png": "image/png",
+    "techmo-sprite.png": "image/png",
 }
+
+
+def fingerprint_chat_assets(html: str, css: bytes, script: bytes) -> str:
+    """화면의 두 파일 주소에 내용 지문을 붙임."""
+    for name, content in (("chat.css", css), ("chat.js", script)):
+        address = f"/chat-assets/{name}"
+        if html.count(address) != 1:
+            raise ValueError(f"{name} 주소는 정확히 한 번 있어야 함")
+        html = html.replace(address, f"{address}?v={sha256(content).hexdigest()}")
+    return html
 
 
 def create_app(
@@ -48,6 +60,11 @@ def create_app(
 ) -> FastAPI:
     """앱 객체를 만들어 돌려준다."""
 
+    chat_html = fingerprint_chat_assets(
+        (CHAT_WEB_DIR / "index.html").read_text(encoding="utf-8"),
+        (CHAT_WEB_DIR / "assets/chat.css").read_bytes(),
+        (CHAT_WEB_DIR / "assets/chat.js").read_bytes(),
+    )
     application = FastAPI(title="kumoh-rag API", version="0.1.0")
     application.state.chat_retrieval = chat_retrieval
     application.state.chunk_count = chunk_count
@@ -56,15 +73,16 @@ def create_app(
     application.include_router(api_v1_router)
 
     @application.get("/", include_in_schema=False)
-    async def chat_page() -> FileResponse:
-        return FileResponse(
-            CHAT_WEB_DIR / "index.html",
+    async def chat_page() -> Response:
+        return Response(
+            content=chat_html, media_type="text/html",
             headers={
                 "Content-Security-Policy": (
                     "default-src 'self'; object-src 'none'; base-uri 'none'; "
                     "frame-ancestors 'none'; form-action 'self'"
                 ),
                 "X-Content-Type-Options": "nosniff",
+                "Cache-Control": "no-cache",
             },
         )
 
@@ -72,11 +90,11 @@ def create_app(
     async def chat_asset(name: str) -> FileResponse:
         media_type = CHAT_WEB_MEDIA_TYPES.get(name)
         if media_type is None:
-            raise HTTPException(status_code=404)
+            raise HTTPException(status_code=404, headers={"Cache-Control": "no-cache"})
         path = CHAT_WEB_DIR / "assets" / name
         if not path.is_file():
-            raise HTTPException(status_code=404)
-        return FileResponse(path, media_type=media_type)
+            raise HTTPException(status_code=404, headers={"Cache-Control": "no-cache"})
+        return FileResponse(path, media_type=media_type, headers={"Cache-Control": "no-cache"})
 
     # --- 400 통일 ------------------------------------------------------------
 

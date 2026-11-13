@@ -65,6 +65,7 @@ secrets/
 /api/app/chat_web/assets/techmo-quiet.png
 /api/app/chat_web/assets/techmo-guide.png
 /api/app/chat_web/assets/techmo-celebrate.png
+/api/app/chat_web/assets/techmo-sprite.png
 *.traineddata
 *.gguf
 *.safetensors
