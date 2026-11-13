@@ -82,6 +82,7 @@ function loadPage({ transition, reduced = false, legacy = false, now = "2027-02-
     }
   }
   const document = {
+    addEventListener() {},
     querySelector(selector) {
       if (selector === "#feature-cards" && legacy) return null;
       if (!elements.has(selector)) {

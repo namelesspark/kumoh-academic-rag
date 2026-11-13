@@ -231,7 +231,11 @@ test("390px 묶음은 그림을 120px 이하로 줄여 제목 옆에 놓고 카�
   const size = selector => Number.parseFloat(`0${value(narrow(selector), "font-size")?.replace("rem", "")}`);
   assert.ok(size(".card-text") >= 0.8 && size(".card-text") < 0.86);
   assert.ok(size(".hero-copy p") >= 0.9 && size(".hero-copy p") < 1);
-  assert.doesNotMatch(styles, /line-clamp|text-overflow|max-lines/);
+  // 상단의 긴 학생 이름만 말줄임하고 설명 글은 끝까지 보여 준다.
+  for (const [selector, body] of rules) {
+    if (selector === "#demo-label") continue;
+    assert.doesNotMatch(body, /line-clamp|text-overflow|max-lines/, selector);
+  }
   for (const [selector, body] of narrowRules) assert.doesNotMatch(body, /display: none|visibility|overflow: hidden/, selector);
 });
 

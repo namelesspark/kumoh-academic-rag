@@ -423,6 +423,7 @@ function loadLanding({ logo = waiting(), techmo = waiting(), fetch } = {}) {
 
   runInNewContext(script, {
     document: {
+      addEventListener() {},
       querySelector(selector) {
         if (!elements.has(selector)) {
           elements.set(selector, new FakeElement(selector));

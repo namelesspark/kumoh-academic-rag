@@ -345,6 +345,7 @@ function loadAssistant({ routes = {}, timers = true, sprite = null, motion = { m
 
   const context = {
     document: {
+      addEventListener() {},
       querySelector(selector) {
         if (!elements.has(selector)) {
           elements.set(selector, new FakeElement(selector));
