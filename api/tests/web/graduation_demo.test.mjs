@@ -160,7 +160,7 @@ async function selectStudent(page) {
   if (page.selected) return;
   click(page.login);
   await setImmediate();
-  page.studentNumber.value = "DEMO-D02"; page.studentPassword.value = "demo-d02-pass"; page.loginForm.listeners.get("submit")({ preventDefault() {} }); await setImmediate();
+  page.studentNumber.value = "20990002"; page.studentPassword.value = "demo-d02-pass"; page.loginForm.listeners.get("submit")({ preventDefault() {} }); await setImmediate();
   page.selected = true;
 }
 

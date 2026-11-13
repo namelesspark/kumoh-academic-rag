@@ -2,6 +2,7 @@
 
 import sys
 from hashlib import sha256
+from html.parser import HTMLParser
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -25,7 +26,26 @@ class TestChatWeb(unittest.TestCase):
         self.assertIn("가상 학생 데이터입니다", response.text())
         self.assertIn('id="demo-login"', response.text())
         self.assertIn('id="demo-logout"', response.text())
-        self.assertNotIn('type="password"', response.text())
+        class PasswordFields(HTMLParser):
+            def __init__(self):
+                super().__init__()
+                self.form_id = None
+                self.fields = []
+
+            def handle_starttag(self, tag, attrs):
+                attributes = dict(attrs)
+                if tag == "form":
+                    self.form_id = attributes.get("id")
+                if tag == "input" and attributes.get("type") == "password":
+                    self.fields.append((self.form_id, attributes.get("autocomplete")))
+
+            def handle_endtag(self, tag):
+                if tag == "form":
+                    self.form_id = None
+
+        password_fields = PasswordFields()
+        password_fields.feed(response.text())
+        self.assertEqual(password_fields.fields, [("login-form", "off")])
         self.assertEqual(response.headers['cache-control'], 'no-cache')
         for name in ('chat.css', 'chat.js'):
             digest = sha256((CHAT_WEB_DIR / 'assets' / name).read_bytes()).hexdigest()

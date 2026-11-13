@@ -90,6 +90,7 @@ test("펫 줄은 입력창 바로 앞, 첫 화면(#empty) 밖에 있고 평소 �
   assert.equal(html.split('id="pet-dock"').length, 2);
   // 대화 내용 뒤, 입력창 앞이다. 좁은 화면에서 입력창 위의 낮은 줄이 되고, #empty 밖이라 첫 질문 뒤에도 남는다.
   assert.ok(html.indexOf('id="transcript"') < html.indexOf('id="pet-dock"'));
+  assert.ok(html.indexOf("</main>") < html.indexOf('id="pet-dock"'), "유리 판의 backdrop-filter가 고정 펫의 위치 기준을 바꾸지 않게 판 밖에 둔다");
   assert.ok(html.indexOf('id="composer"') < html.indexOf('id="transcript"'));
   assert.equal(landing.includes("pet"), false);
 
@@ -391,7 +392,7 @@ function loadAssistant({ routes = {}, timers = true, sprite = null, motion = { m
     async selectStudent() {
       elements.get("#demo-login").fire("click");
       await setImmediate();
-      elements.get("#student-number").value = "DEMO-D02";
+      elements.get("#student-number").value = "20990002";
       elements.get("#student-password").value = "demo-d02-pass";
       elements.get("#login-form").fire("submit");
       await setImmediate();

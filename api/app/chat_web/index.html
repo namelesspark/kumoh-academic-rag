@@ -16,9 +16,9 @@
   <section id="login-screen" class="login-screen" aria-labelledby="login-title">
     <div class="login-intro">
       <p class="intro-badge">국립금오공과대학교 학사 안내</p>
-      <h1>졸업까지 남은 조건,<br><em>테크모</em>가 같이 확인해요</h1>
-      <p class="intro-description">가상 학생의 이수 내역으로 졸업 조건을 계산하고, 규정 질문에는 근거 조문을 붙여 답해요.</p>
-      <div class="feature-pills"><span>졸업 체크</span><span>비교과 추천</span><span>사진으로 묻기</span><span>규정 질문</span><span>학사 일정</span><span>캠퍼스 안내</span></div>
+      <span class="calligraphy-title" data-brand-slot hidden><img src="/chat-assets/calligraphy-title.png" alt="졸업까지, 테크모와 함께"></span>
+      <h1 class="calligraphy-fallback">졸업까지,<span><em>테크모</em>와 함께</span></h1>
+      <p class="intro-description">근거 조문과 함께 답하는 금오공대 학사 안내</p>
     </div>
     <div class="login-card">
       <div id="login-pet" class="login-pet" data-pose="guide">
@@ -29,7 +29,7 @@
       <h2 id="login-title">로그인</h2>
       <p class="login-help">시연 계정으로 이수 내역을 확인해 보세요.</p>
       <form id="login-form">
-        <label for="student-number">학번</label><input id="student-number" name="student_number" type="text" autocomplete="off" maxlength="64" required>
+        <label for="student-number">학번</label><input id="student-number" name="student_number" type="text" inputmode="numeric" autocomplete="off" maxlength="8" placeholder="예: 20990002" required>
         <label for="student-password">비밀번호</label><input id="student-password" name="password" type="password" autocomplete="off" maxlength="64" required>
         <p class="login-safety">시연 전용 계정입니다. 실제 학번이나 비밀번호를 입력하지 마세요.</p>
         <button class="login-submit" id="login-submit" type="submit">로그인</button>
@@ -38,9 +38,9 @@
       <section id="demo-students" aria-label="시연 계정">
         <p class="login-help">시연 계정 · 누르면 채워집니다</p>
         <div id="demo-student-list">
-          <button type="button" data-demo-account="DEMO-D02"><strong>DEMO-D02</strong><span>졸업 요건에 가까움</span></button>
-          <button type="button" data-demo-account="DEMO-D03"><strong>DEMO-D03</strong><span>학점이 많이 남음</span></button>
-          <button type="button" data-demo-account="DEMO-D04"><strong>DEMO-D04</strong><span>비교과 점수 부족</span></button>
+          <button type="button" data-demo-account="20990002"><strong>20990002</strong><span>졸업 요건에 가까움</span></button>
+          <button type="button" data-demo-account="20990003"><strong>20990003</strong><span>학점이 많이 남음</span></button>
+          <button type="button" data-demo-account="20990004"><strong>20990004</strong><span>비교과 점수 부족</span></button>
         </div>
       </section>
       <button type="button" class="browse-main" id="browse-main">로그인 없이 둘러보기</button>
@@ -202,6 +202,8 @@
       </div>
       <noscript><p class="status">채팅을 사용하려면 브라우저에서 JavaScript를 켜 주세요.</p></noscript>
       <p class="status" id="status" role="status"></p>
+    </section>
+  </main>
       <!-- 테크모 펫과 말풍선. chat.js는 이 줄의 data-pose·data-state만 바꾸고, chat.css가 그 값으로 그림 칸과 움직임을 고른다.
            펫 버튼은 숨긴 채 시작하고, 안에 든 그림이 로드에 성공해야 보인다. 그림이 없어도 말풍선은 남는다.
            data-action을 주지 않아 답변을 기다리는 동안에도 눌린다. 진행 알림은 #status가 읽어 주므로 여기에는 알림 역할을 두지 않는다. -->
@@ -216,8 +218,6 @@
         </button>
       </div>
 
-    </section>
-  </main>
   <footer class="site-footer">
     <p>교내 대회 출품작 · 가상 학생 데이터로 동작하는 시연입니다</p>
   </footer>

@@ -132,7 +132,7 @@ function loadPage({ transition, reduced = false, legacy = false, now = "2027-02-
     async selectStudent() {
       get("#demo-login").click();
       await setImmediate();
-      get("#student-number").value = "DEMO-D02"; get("#student-password").value = "demo-d02-pass"; get("#login-form").listeners.get("submit")({ preventDefault() {} }); await setImmediate();
+      get("#student-number").value = "20990002"; get("#student-password").value = "demo-d02-pass"; get("#login-form").listeners.get("submit")({ preventDefault() {} }); await setImmediate();
     },
     cards, panels, actions, requests, response, responses, get,
     evaluate: code => runInNewContext(code, context),

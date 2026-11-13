@@ -255,7 +255,6 @@ test("390px 묶음은 그림을 120px 이하로 줄여 제목 옆에 놓고 카�
     assert.doesNotMatch(body, /line-clamp|text-overflow|max-lines/, selector);
   }
   for (const [selector, body] of narrowRules) {
-    if (selector === ".feature-pills") { assert.equal(body, "display: none;"); continue; }
     assert.doesNotMatch(body, /display: none|visibility|overflow: hidden/, selector);
   }
 });

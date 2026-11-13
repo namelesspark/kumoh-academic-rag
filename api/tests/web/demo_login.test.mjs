@@ -10,7 +10,9 @@ test("시연 계정 세 개와 비밀번호 입력란, 둘러보기 진입을 �
   assert.match(html, /type="password"/);
   assert.match(html, /id="browse-main"/);
   assert.match(html, /로그인 없이 둘러보기/);
-  for (const id of ["D02", "D03", "D04"]) assert.match(html, new RegExp(`data-demo-account="DEMO-${id}"`));
+  for (const number of ["20990002", "20990003", "20990004"]) assert.match(html, new RegExp(`data-demo-account="${number}"`));
+  const numberInput = /<input\b[^>]*id="student-number"[^>]*>/.exec(html)?.[0] ?? "";
+  for (const attribute of ['inputmode="numeric"', 'maxlength="8"', 'placeholder="예: 20990002"']) assert.ok(numberInput.includes(attribute));
   for (const line of ["학번으로 들어와 보세요!", "좋아요, 로그인을 눌러 보세요", "쉿, 시연 계정으로만 들어올 수 있어요"]) {
     assert.ok((html + script).includes(line));
   }

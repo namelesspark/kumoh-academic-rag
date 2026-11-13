@@ -119,7 +119,11 @@ const loginError = document.querySelector("#login-error");
 const loginPet = document.querySelector("#login-pet");
 const loginPetLine = document.querySelector("#login-pet-line");
 const mainGreeting = document.querySelector("#main-greeting");
-const demoAccounts = { "DEMO-D02": "demo-d02-pass", "DEMO-D03": "demo-d03-pass", "DEMO-D04": "demo-d04-pass" };
+const demoAccounts = {
+  "20990002": "demo-d02-pass",
+  "20990003": "demo-d03-pass",
+  "20990004": "demo-d04-pass",
+};
 function loginMessage(line, pose = "guide") {
   if (loginPetLine) loginPetLine.textContent = line;
   loginPet?.setAttribute("data-pose", pose);
@@ -228,6 +232,11 @@ loginForm?.addEventListener("submit", async event => {
   const generation = ++studentGeneration;
   showAssistant("idle");
   if (loginError) loginError.textContent = "";
+  if (!Object.hasOwn(demoAccounts, studentNumber.value)) {
+    if (loginError) loginError.textContent = "학번 또는 비밀번호가 맞지 않아요";
+    loginMessage("쉿, 시연 계정으로만 들어올 수 있어요", "quiet");
+    return;
+  }
   loginMessage("학번을 확인하고 있어요");
   try {
     const response = await fetch("/api/v1/demo-login", {
@@ -1389,13 +1398,13 @@ vec2 cover(vec2 uv, float pan){ float win=min(1.0,aspect/imgAspect)*0.94;
   float x=mix(0.5*win,1.0-0.5*win,pan)+(uv.x-0.5)*win; return vec2(x,0.5+(uv.y-0.5)*0.94); }
 void main(){ vec2 uv=v; vec2 off=vec2(0.0); float light=0.0;
   for(int i=0;i<16;i++){ float age=t-drops[i].z; if(age<0.0||age>4.0) continue;
-    vec2 d=uv-drops[i].xy; d.x*=aspect; float r=length(d)+1e-4; float front=age*0.26;
-    float env=exp(-age*0.95)*smoothstep(0.30,0.0,abs(r-front))*smoothstep(0.0,0.02,r);
-    float w=cos((r-front)*58.0)*env; off+=(d/r)*w*0.022; light+=w; }
+    vec2 d=uv-drops[i].xy; d.x*=aspect; float r=length(d)+1e-4; float front=age*0.22;
+    float env=exp(-age*1.15)*smoothstep(0.22,0.0,abs(r-front))*smoothstep(0.0,0.05,r);
+    float w=cos((r-front)*30.0)*env; off+=(d/r)*w*0.013; light+=w; }
   off+=still*0.0016*vec2(sin(uv.y*18.0+t*0.9),cos(uv.x*14.0-t*0.7));
   uv+=off; uv.y=1.0-uv.y;
   vec3 c=mix(texture2D(a,cover(uv,panA)).rgb,texture2D(b,cover(uv,panB)).rgb,mixv);
-  c+=vec3(0.60,0.85,1.0)*max(light,0.0)*0.34; c-=vec3(0.10,0.07,0.03)*max(-light,0.0)*0.9;
+  c+=vec3(0.70,0.90,1.0)*max(light,0.0)*0.16; c-=vec3(0.06,0.05,0.03)*max(-light,0.0)*0.45;
   gl_FragColor=vec4(c,1.0); }`;
     const compile = (type, source) => {
       const shader = gl.createShader(type);
@@ -1418,22 +1427,42 @@ void main(){ vec2 uv=v; vec2 off=vec2(0.0); float light=0.0;
       ["campus-aerial.jpg","양호동 캠퍼스"], ["campus-hill.jpg","디지털관과 금오산 자락"],
       ["campus-gate.jpg","정문의 밤"], ["campus-field.jpg","대운동장의 저녁"],
     ];
-    for (const [filename] of photos) {
+    const loadTexture = async (index) => {
+      const [filename] = photos[index];
       const response = await fetch(`/chat-assets/${filename}`);
       if (!response.ok) throw new Error("photo");
-      const bitmap = await createImageBitmap(await response.blob()); bitmaps.push(bitmap);
-      const texture = gl.createTexture(); textures.push(texture); gl.bindTexture(gl.TEXTURE_2D,texture);
+      const bitmap = await createImageBitmap(await response.blob());
+      if (stopped) { bitmap.close?.(); return; }
+      bitmaps.push(bitmap);
+      const texture = gl.createTexture();
+      gl.bindTexture(gl.TEXTURE_2D,texture);
       gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);
       gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
       gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);
       gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
       gl.texImage2D(gl.TEXTURE_2D,0,gl.RGB,gl.RGB,gl.UNSIGNED_BYTE,bitmap);
-    }
+      textures[index] = texture;
+    };
+    await loadTexture(0);
+    void Promise.all(photos.slice(1).map((_, index) => loadTexture(index + 1))).catch(fail);
     const uniforms = Object.fromEntries(["a","b","mixv","t","aspect","imgAspect","panA","panB","still","drops[0]"].map(name=>[name,gl.getUniformLocation(program,name)]));
     gl.uniform1i(uniforms.a,0); gl.uniform1i(uniforms.b,1);
     gl.uniform1f(uniforms.imgAspect,1920/280); gl.uniform1f(uniforms.still,1);
     const drops = new Float32Array(48);
     for (let i=0;i<16;i++) drops[i*3+2]=-1000;
+    const HOLD = 9;
+    const FADE = 3.2;
+    const period = HOLD + FADE;
+    const life = HOLD + 2 * FADE;
+    const clamp = value => Math.max(0, Math.min(1, value));
+    const pan = (number, local) => {
+      const progress = clamp(local / life);
+      return number % 2 === 0 ? 0.28 + progress * 0.44 : 0.72 - progress * 0.44;
+    };
+    let cycleNumber = 0;
+    let photoNumber = 0;
+    let appearedAt = -FADE;
+    let fadeAllowed = null;
     let dropIndex=0, elapsed=0, previous=null, automatic=0, lastPointer=-Infinity, lastX=0, lastY=0;
     const drop = (x,y) => { const i=(dropIndex++%16)*3; drops[i]=x; drops[i+1]=y; drops[i+2]=elapsed; };
     const pointer = event => {
@@ -1456,19 +1485,35 @@ void main(){ vec2 uv=v; vec2 off=vec2(0.0); float light=0.0;
       const ratio=Math.min(window.devicePixelRatio||1,1.5);
       const width=Math.max(1,Math.round(window.innerWidth*ratio)), height=Math.max(1,Math.round(window.innerHeight*ratio));
       if (canvas.width!==width || canvas.height!==height) { canvas.width=width; canvas.height=height; gl.viewport(0,0,width,height); }
-      const cycle=11.2, index=Math.floor(elapsed/cycle)%4, phase=elapsed%cycle;
-      const mix=Math.max(0,Math.min(1,(phase-9)/2.2));
-      gl.uniform1f(uniforms.mixv,mix*mix*(3-2*mix)); gl.uniform1f(uniforms.t,elapsed);
+      const cycle = Math.floor(elapsed / period);
+      while (cycleNumber < cycle) {
+        const nextReady = Boolean(textures[(photoNumber + 1) % photos.length]);
+        if (fadeAllowed ?? nextReady) {
+          photoNumber++;
+          appearedAt = cycleNumber * period + HOLD;
+        }
+        cycleNumber++;
+        fadeAllowed = null;
+      }
+      const phase = elapsed - cycle * period;
+      const index = photoNumber % photos.length;
+      const nextIndex = (photoNumber + 1) % photos.length;
+      if (phase >= HOLD && fadeAllowed === null) fadeAllowed = Boolean(textures[nextIndex]);
+      const progress = fadeAllowed ? clamp((phase - HOLD) / FADE) : 0;
+      const mix = progress * progress * (3 - 2 * progress);
+      gl.uniform1f(uniforms.mixv, mix);
+      gl.uniform1f(uniforms.t,elapsed);
       gl.uniform1f(uniforms.aspect,width/height);
-      const pan=(number,progress)=>number%2 ? 0.72-0.44*progress : 0.28+0.44*progress;
-      gl.uniform1f(uniforms.panA,pan(index,(phase+2.2)/13.4)); gl.uniform1f(uniforms.panB,pan(index+1,Math.max(0,phase-9)/13.4));
+      gl.uniform1f(uniforms.panA, pan(photoNumber, elapsed - appearedAt));
+      gl.uniform1f(uniforms.panB, pan(photoNumber + 1, phase - HOLD));
       gl.uniform3fv(uniforms["drops[0]"],drops);
       gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D,textures[index]);
-      gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D,textures[(index+1)%4]);
+      gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D,textures[nextIndex] ?? textures[index]);
       gl.drawArrays(gl.TRIANGLES,0,6);
-      const label=document.querySelector("#campus-name"); if (label) label.textContent=photos[index][1];
+      const shownIndex = mix > 0.5 ? nextIndex : index;
+      const label=document.querySelector("#campus-name"); if (label) label.textContent=photos[shownIndex][1];
       const steps=document.querySelectorAll("[data-campus-step]");
-      for (let i=0;i<steps.length;i++) steps[i].setAttribute("data-current",String(i===index));
+      for (let i=0;i<steps.length;i++) steps[i].setAttribute("data-current",String(i===shownIndex));
       canvas.hidden=false;
       frame=window.requestAnimationFrame(draw);
       } catch { fail(); }

@@ -45,8 +45,9 @@ function declared(selector, names) {
 }
 
 // 선언 값에서 변수를 따라가 실제 색 값(#rrggbb)을 얻는다. 변수 없이 적은 색은 받지 않는다.
-function colorOf([selector, kind]) {
+function colorOf([selector, kind], base = "#041426") {
   let value = declared(selector, properties[kind]);
+  if (value === "transparent" && kind === "fill") return colorOf([".layout", "fill"], base);
   for (let hops = 0; hops < 5; hops += 1) {
     const name = /var\((--[\w-]+)\)/.exec(value)?.[1];
     if (!name) break;
@@ -55,8 +56,9 @@ function colorOf([selector, kind]) {
   }
   const rgba = /^rgba\((\d+),(\d+),(\d+),([.\d]+)\)$/.exec(value);
   if (rgba) {
-    const base = [4, 20, 38], alpha = Number(rgba[4]);
-    value = "#" + rgba.slice(1, 4).map((channel, index) => Math.round(Number(channel) * alpha + base[index] * (1 - alpha)).toString(16).padStart(2, "0")).join("");
+    const backing = [1, 3, 5].map(start => parseInt(base.slice(start, start + 2), 16));
+    const alpha = Number(rgba[4]);
+    value = "#" + rgba.slice(1, 4).map((channel, index) => Math.round(Number(channel) * alpha + backing[index] * (1 - alpha)).toString(16).padStart(2, "0")).join("");
   }
   assert.match(value, /^#[0-9a-f]{6}$/i, `${selector}의 ${kind} 색을 변수에서 읽지 못했다: ${value}`);
   return value.toLowerCase();
@@ -77,10 +79,10 @@ function contrast(first, second) {
 
 // 기준에 못 미치는 조합을 한꺼번에 모아 보여 준다.
 function shortfalls(pairs, minimum) {
-  return pairs
-    .map(([label, front, back]) => [label, contrast(colorOf(front), colorOf(back))])
+  return ["#041426", "#ffffff"].flatMap(base => pairs
+    .map(([label, front, back]) => [`${label} (${base})`, contrast(colorOf(front, base), colorOf(back, base))])
     .filter(([, ratio]) => ratio < minimum)
-    .map(([label, ratio]) => `${label} ${ratio.toFixed(2)}:1`);
+    .map(([label, ratio]) => `${label} ${ratio.toFixed(2)}:1`));
 }
 
 const chat = [".chat", "fill"];
@@ -169,10 +171,10 @@ test("글자·링크·입력 안내·준비 중 문구가 기본·마우스 올�
     ["입력 안내 글자", ["textarea::placeholder", "text"], ["textarea", "fill"]],
     ["보내기", ...self(".primary")],
     ["보내기(올림)", ...self(".primary:not(:disabled):hover")],
-    ["입력창 아래 안내", [".composer p", "text"], chat],
+    ["입력창 아래 안내", [".composer p", "text"], [".composer", "fill"]],
     ["진행 알림", [".status", "text"], chat],
-    ["첨부 제거", [".attach-clear", "text"], chat],
-    ["다시 시도", [".retry", "text"], chat],
+    ["첨부 제거", [".attach-clear", "text"], [".composer", "fill"]],
+    ["다시 시도", [".retry", "text"], [".reply", "fill"]],
     ["다시 시도(오류 상자 안)", [".retry", "text"], [".error", "fill"]],
     ["근거 링크", [".evidence .source-link", "text"], [".evidence", "fill"]],
     ["내 질문 말풍선", ...self(".question")],
@@ -185,6 +187,10 @@ test("글자·링크·입력 안내·준비 중 문구가 기본·마우스 올�
     ["로그인 오류", ["#login-error", "text"], [".login-card", "fill"]],
     ["로그인 말풍선", ...self("#login-pet-line")],
     ["둘러보기", [".browse-main", "text"], [".login-card", "fill"]],
+    ["로그인 제목·학번 라벨", [":root", "text"], [".login-card", "fill"]],
+    ["상단 안내", [".login-help", "text"], masthead],
+    ["밝은 판의 안내", [".empty-hint", "text"], [".layout", "fill"]],
+    ["답변", ...self(".reply")],
   ];
   assert.deepEqual(shortfalls(pairs, 4.5), []);
 
@@ -196,7 +202,6 @@ test("글자·링크·입력 안내·준비 중 문구가 기본·마우스 올�
 test("버튼·입력창·카드의 테두리와 키보드 초점 표시가 맞닿은 배경과 3:1 이상이다", () => {
   const ring = [":focus-visible", "ring"];
   const pairs = [
-    ["입력창 테두리", ["textarea", "edge"], chat],
     ["입력창 테두리(안쪽)", ...self("textarea", "edge")],
     ["입력창 테두리(올림)", ["textarea:hover", "edge"], chat],
     ["새 대화 테두리(불투명 안쪽)", ...self(".reset", "edge")],
@@ -205,13 +210,10 @@ test("버튼·입력창·카드의 테두리와 키보드 초점 표시가 맞�
     ["다시 묻기 테두리", [".check", "edge"], chat],
     ["소개 버튼 바탕", [".cta", "fill"], chat],
     ["소개 버튼 바탕(올림)", [".cta:hover", "fill"], chat],
-    ["말풍선 테두리", [".pet-says", "edge"], chat],
     ["말풍선 테두리(안쪽)", ...self(".pet-says", "edge")],
     ["보내기 바탕", [".primary", "fill"], chat],
     ["보내기 바탕(올림)", [".primary:not(:disabled):hover", "fill"], chat],
-    ["카드 테두리", [".card", "edge"], chat],
-    ["패널 테두리", [".feature-panel", "edge"], chat],
-    ["패널 닫기 테두리", [".panel-close", "edge"], [".feature-panel", "fill"]],
+    ["패널 닫기 테두리(불투명 안쪽)", ...self(".panel-close", "edge")],
     ["패널 닫기 테두리(올림)", ...self(".panel-close:hover", "edge")],
     ["초점 표시 · 화면 바탕", ring, page],
     ["초점 표시 · 대화 영역", ring, chat],
@@ -234,6 +236,47 @@ test("로그인과 보내기 버튼 양 끝 흰 글자는 4.5:1 이상이고 사
   for (const [name, value] of Object.entries(exact)) assert.equal(variables.get(name), value);
   assert.equal(declared(".login-intro", ["text-shadow"]), "0 2px 18px var(--shadow-text)");
   assert.match(declared(".campus-overlay", properties.fill), /radial-gradient\(120% 90% at 18% 20%/);
+});
+
+test("유리 바탕의 투명도와 약한 흐림을 유지하고 글이 많은 영역은 읽기 쉽게 받친다", () => {
+  const glass = {
+    ".login-card": ["--glass-card", "rgba(255,255,255,.74)", "blur(7px) saturate(1.25)"],
+    ".masthead": ["--glass-band", "rgba(255,255,255,.72)", "blur(7px) saturate(1.25)"],
+    ".layout": ["--glass-panel", "rgba(245,249,252,.72)", "blur(7px) saturate(1.2)"],
+    ".card": ["--glass-feature", "rgba(255,255,255,.80)"],
+    ".feature-panel": ["--glass-feature", "rgba(255,255,255,.80)"],
+    ".composer": ["--glass-composer", "rgba(255,255,255,.92)"],
+    "#demo-student-list button": ["--glass-account", "rgba(255,255,255,.82)"],
+    ".reply": ["--glass-dense", "rgba(255,255,255,.90)"],
+    ".graduation table": ["--glass-dense", "rgba(255,255,255,.90)"],
+  };
+  for (const [selector, [variable, value, filter]] of Object.entries(glass)) {
+    assert.equal(variables.get(variable), value, selector);
+    assert.equal(declared(selector, properties.fill), `var(${variable})`, selector);
+    if (filter) assert.equal(declared(selector, ["backdrop-filter"]), filter, selector);
+  }
+  assert.equal(declared(".chat", properties.fill), "transparent");
+  assert.equal(declared("#login-form input", properties.fill), "var(--white)");
+  assert.equal(declared(".composer", properties.edge), "1.5px solid var(--edge)");
+  for (const [variable, value] of Object.entries({
+    "--glass-card-edge": "rgba(255,255,255,.6)",
+    "--glass-band-edge": "rgba(255,255,255,.5)",
+    "--glass-panel-edge": "rgba(255,255,255,.55)",
+    "--glass-feature-edge": "rgba(255,255,255,.75)",
+  })) assert.equal(variables.get(variable), value);
+});
+
+test("붓글씨 그림과 같은 글귀의 대체 제목을 제공하고 기능 알약을 없앤다", () => {
+  assert.match(html, /class="calligraphy-title" data-brand-slot hidden><img src="\/chat-assets\/calligraphy-title.png" alt="졸업까지, 테크모와 함께">/);
+  assert.match(html, /<h1 class="calligraphy-fallback">졸업까지,<span><em>테크모<\/em>와 함께<\/span><\/h1>/);
+  assert.match(html, /근거 조문과 함께 답하는 금오공대 학사 안내/);
+  assert.doesNotMatch(html, /feature-pills/);
+  assert.equal(declared(".calligraphy-fallback span", ["padding-left"]), ".55em");
+  assert.equal(declared(".intro-description", ["font-size"]), "17px");
+  assert.equal(variables.get("--intro-ink"), "rgba(255,255,255,.88)");
+  assert.match(styles, /\.calligraphy-title\s*\{[^}]*width:\s*clamp\(300px, 46vw, 620px\)/);
+  assert.match(styles, /@media \(max-width: 390px\)\s*\{\s*\.calligraphy-title\s*\{\s*width: 86vw/);
+  assert.equal(declared(".calligraphy-title:not([hidden]) + .calligraphy-fallback", ["display"]), "none");
 });
 
 test("마우스 올림과 초점은 색 말고도 밑줄·윤곽선으로 드러난다", () => {
@@ -297,7 +340,8 @@ test("모든 그림은 숨긴 자리에서 시작하고, 보안 정책이 막는
   const basic = '<img src="/chat-assets/techmo-basic.png" alt="" width="468" height="414">';
   // 마지막 한 장은 테크모 펫의 스프라이트 시트다(#64). 192×192 칸 다섯 개를 가로로 이은 960×192 한 장이다.
   const sprite = '<img src="/chat-assets/techmo-sprite.png" alt="" width="960" height="192">';
-  assert.deepEqual(images, [sprite, logo, logo, sprite]);
+  const calligraphy = '<img src="/chat-assets/calligraphy-title.png" alt="졸업까지, 테크모와 함께">';
+  assert.deepEqual(images, [calligraphy, sprite, logo, logo, sprite]);
 
   const slots = [...html.matchAll(/<\w+[^>]*\bdata-brand-slot\b[^>]*>\s*(<img\b[^>]*>)/g)];
   assert.deepEqual(slots.map(match => match[1]), images, "each image must sit directly in its slot");
@@ -481,7 +525,7 @@ function loadLanding({ logo = waiting(), techmo = waiting(), fetch } = {}) {
     async selectStudent() {
       elements.get("#demo-login").fire("click");
       await setImmediate();
-      elements.get("#student-number").value = "DEMO-D02";
+      elements.get("#student-number").value = "20990002";
       elements.get("#student-password").value = "demo-d02-pass";
       elements.get("#login-form").fire("submit");
       await setImmediate();

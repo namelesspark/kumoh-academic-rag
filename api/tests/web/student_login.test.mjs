@@ -91,7 +91,7 @@ function graduation(id = "demo-d02") {
   };
 }
 
-function loadPage({ startViewTransition, saved = null, storageFails = false, list = students, listResult = () => ok({ students: list }), loginResult = (_path, options) => ok({ student: students.find(student => student.id === JSON.parse(options.body).student_number.toLowerCase()) }), result = () => ok(graduation()) } = {}) {
+function loadPage({ startViewTransition, saved = null, storageFails = false, list = students, listResult = () => ok({ students: list }), loginResult = (_path, options) => ok({ student: students.find(student => `2099000${student.id.slice(-1)}` === JSON.parse(options.body).student_number) }), result = () => ok(graduation()) } = {}) {
   const elements = new Map();
   const requests = [];
   const documentListeners = new Map();
@@ -115,7 +115,7 @@ function loadPage({ startViewTransition, saved = null, storageFails = false, lis
   });
   const accounts = students.map(student => {
     const button = create("button");
-    button.dataset.demoAccount = student.id.toUpperCase();
+    button.dataset.demoAccount = `2099000${student.id.slice(-1)}`;
     return button;
   });
   for (const id of ["demo-students", "demo-identity"]) get(`#${id}`).hidden = true;
@@ -168,7 +168,7 @@ function loadPage({ startViewTransition, saved = null, storageFails = false, lis
 function click(node) { node.listeners.get("click")({}); }
 async function select(page, index = 0) {
   const student = students[index];
-  page.get("#student-number").value = student.id.toUpperCase();
+  page.get("#student-number").value = `2099000${student.id.slice(-1)}`;
   page.get("#student-password").value = `${student.id}-pass`;
   page.get("#login-form").listeners.get("submit")({ preventDefault() {} });
   await flush();
@@ -186,7 +186,7 @@ test("시연 계정 버튼은 두 칸만 채우고 로그인 요청이나 저장
   const page = loadPage();
   for (const [index, account] of page.accounts.entries()) {
     click(account);
-    assert.equal(page.get("#student-number").value, students[index].id.toUpperCase());
+    assert.equal(page.get("#student-number").value, `2099000${students[index].id.slice(-1)}`);
     assert.equal(page.get("#student-password").value, `${students[index].id}-pass`);
     assert.equal(page.requests.length, 0);
     assert.equal(page.storage.size, 0);
@@ -210,13 +210,13 @@ test("로그아웃해도 일반 질문 대화는 남긴다", async () => {
 test("서버가 성공하기 전에는 학생과 탭 저장값을 정하지 않는다", async () => {
   let finish;
   const page = loadPage({ loginResult: () => new Promise(resolve => { finish = resolve; }) });
-  page.get("#student-number").value = "DEMO-D02";
+  page.get("#student-number").value = "20990002";
   page.get("#student-password").value = "demo-d02-pass";
   page.get("#login-form").listeners.get("submit")({ preventDefault() {} });
   assert.equal(page.storage.size, 0);
   assert.equal(page.requests[0].path, "/api/v1/demo-login");
   assert.equal(page.requests[0].options.method, "POST");
-  assert.deepEqual(JSON.parse(page.requests[0].options.body), { student_number: "DEMO-D02", password: "demo-d02-pass" });
+  assert.deepEqual(JSON.parse(page.requests[0].options.body), { student_number: "20990002", password: "demo-d02-pass" });
   finish(ok({ student: students[0] }));
   await flush();
   assert.deepEqual([...page.storage], [[storageKey, "demo-d02"]]);
@@ -230,16 +230,30 @@ test("서버가 성공하기 전에는 학생과 탭 저장값을 정하지 않�
   assert.equal(text(page.get("#demo-label")), students[0].label);
 });
 
-test("입력값의 공백과 대소문자를 그대로 보내고 불일치는 로그인 화면에 남긴다", async () => {
+test("허용된 시연 학번의 비밀번호를 그대로 보내고 불일치는 로그인 화면에 남긴다", async () => {
   const page = loadPage({ loginResult: () => ({ ok: false, status: 401, json: async () => ({ detail: "학번 또는 비밀번호가 맞지 않아요" }) }) });
-  page.get("#student-number").value = " demo-d02 ";
+  page.get("#student-number").value = "20990002";
   page.get("#student-password").value = " 다른 비밀번호 ";
   page.get("#login-form").listeners.get("submit")({ preventDefault() {} });
   await flush();
-  assert.deepEqual(JSON.parse(page.requests[0].options.body), { student_number: " demo-d02 ", password: " 다른 비밀번호 " });
+  assert.deepEqual(JSON.parse(page.requests[0].options.body), { student_number: "20990002", password: " 다른 비밀번호 " });
   assert.equal(page.storage.size, 0);
   assert.match(text(page.get("#login-error")), /학번 또는 비밀번호가 맞지 않아요/);
   assert.match(text(page.get("#login-pet-line")), /쉿, 시연 계정으로만 들어올 수 있어요/);
+});
+
+test("세 시연 학번 밖의 값은 서버로 보내지 않고 같은 불일치 문구를 표시한다", async () => {
+  for (const number of ["", "20990001", "20990005", "20990099", "2099000", "209900020", " 20990002", "20990002 ", "DEMO-D02", "2099가002"]) {
+    const page = loadPage();
+    page.get("#student-number").value = number;
+    page.get("#student-password").value = "가상 비밀번호";
+    page.get("#login-form").listeners.get("submit")({ preventDefault() {} });
+    await flush();
+    assert.equal(page.requests.length, 0, number);
+    assert.equal(page.storage.size, 0);
+    assert.equal(page.get("#login-screen").hidden, false);
+    assert.equal(text(page.get("#login-error")), "학번 또는 비밀번호가 맞지 않아요");
+  }
 });
 
 test("둘러보기는 저장하지 않고 메인으로 가며 개인 기능은 로그인을 안내한다", async () => {
@@ -278,7 +292,7 @@ test("둘러보기와 로그아웃 뒤 늦은 로그인 응답은 이전 화면�
   for (const destination of ["#browse-main", "#demo-logout"]) {
     let finish;
     const page = loadPage({ loginResult: () => new Promise(resolve => { finish = resolve; }) });
-    page.get("#student-number").value = "DEMO-D02";
+    page.get("#student-number").value = "20990002";
     page.get("#student-password").value = "demo-d02-pass";
     page.get("#login-form").listeners.get("submit")({ preventDefault() {} });
     click(page.get(destination));
@@ -294,7 +308,7 @@ test("재제출 뒤 먼저 도착한 이전 계정 응답은 버린다", async (
   const pending = [];
   const page = loadPage({ loginResult: () => new Promise(resolve => pending.push(resolve)) });
   for (const student of students.slice(0, 2)) {
-    page.get("#student-number").value = student.id.toUpperCase();
+    page.get("#student-number").value = `2099000${student.id.slice(-1)}`;
     page.get("#student-password").value = `${student.id}-pass`;
     page.get("#login-form").listeners.get("submit")({ preventDefault() {} });
   }
@@ -308,7 +322,7 @@ test("재제출 뒤 먼저 도착한 이전 계정 응답은 버린다", async (
 
 test("취소한 축하 타이머를 직접 불러도 화면이 돌아가지 않는다", async () => {
   const page = loadPage();
-  page.get("#student-number").value = "DEMO-D02";
+  page.get("#student-number").value = "20990002";
   page.get("#student-password").value = "demo-d02-pass";
   page.get("#login-form").listeners.get("submit")({ preventDefault() {} });
   await flush();
