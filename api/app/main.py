@@ -35,7 +35,10 @@ from app.services.chat_retrieval import ChatRetrieval
 # 400 응답에 담는 유일한 문구. 테스트도 이 상수를 import해서 비교한다.
 VALIDATION_ERROR_MESSAGE = "요청 형식이 올바르지 않습니다."
 CHAT_WEB_DIR = Path(__file__).with_name("chat_web")
-CHAT_WEB_MEDIA_TYPES = {"chat.css": "text/css", "chat.js": "text/javascript"}
+CHAT_WEB_MEDIA_TYPES = {
+    "chat.css": "text/css", "chat.js": "text/javascript",
+    "kumoh-signature.png": "image/png", "techmo-basic.png": "image/png",
+}
 
 
 def create_app(
@@ -68,7 +71,10 @@ def create_app(
         media_type = CHAT_WEB_MEDIA_TYPES.get(name)
         if media_type is None:
             raise HTTPException(status_code=404)
-        return FileResponse(CHAT_WEB_DIR / "assets" / name, media_type=media_type)
+        path = CHAT_WEB_DIR / "assets" / name
+        if not path.is_file():
+            raise HTTPException(status_code=404)
+        return FileResponse(path, media_type=media_type)
 
     # --- 400 통일 ------------------------------------------------------------
 

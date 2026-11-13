@@ -60,6 +60,8 @@ secrets/
 /core/models/
 /api/models/
 /api/.poster-ocr/
+/api/app/chat_web/assets/kumoh-signature.png
+/api/app/chat_web/assets/techmo-basic.png
 *.traineddata
 *.gguf
 *.safetensors

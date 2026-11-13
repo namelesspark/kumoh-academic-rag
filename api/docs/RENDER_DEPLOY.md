@@ -12,7 +12,13 @@ Render 대시보드에서 **New → Blueprint**를 고르고 `namelesspark/kumoh
 | Start Command | `python -m uvicorn api.serve:app --host 0.0.0.0 --port $PORT --workers 1` |
 | Health Check Path | `/api/v1/health` |
 
-Web Service를 직접 설정할 때도 같은 값을 입력한다. 저장소 루트에서 시작해야 `api/`의 웹 앱과 `core/`의 검색 모듈을 함께 불러올 수 있다. [Render 서비스 루트 설정](https://render.com/docs/monorepo-support#setting-a-root-directory)
+표의 Build Command는 `render.yaml`에 적힌 첫 줄이다. 바로 다음 들여쓴 줄의 이미지 준비 명령까지 이어서 실행한다. YAML은 이 두 줄을 공백 하나로 이어 붙인다. 수동으로 Web Service를 설정할 때는 아래 전체 명령을 Build Command에 넣는다.
+
+```sh
+pip install -r api/requirements.txt && python -B api/scripts/prepare_poster_ocr.py && python -B api/scripts/prepare_brand_assets.py
+```
+
+나머지 설정은 표와 같은 값을 입력한다. 저장소 루트에서 시작해야 `api/`의 웹 앱과 `core/`의 검색 모듈을 함께 불러올 수 있다. [Render 서비스 루트 설정](https://render.com/docs/monorepo-support#setting-a-root-directory)
 
 배포 로그에서 서버 시작을 확인한 뒤 PowerShell에서 아래 명령을 실행한다. `$renderUrl`에는 대시보드에 표시된 서비스 주소를 넣는다.
 
@@ -64,6 +70,10 @@ Render의 두 서비스는 패키지를 설치한 뒤 한글과 영어 글자 �
 | --- | --- |
 | `kor.traineddata` | `6b85e11d9bbf07863b97b3523b1b112844c43e713df8b66418a081fd1060b3b2` |
 | `eng.traineddata` | `7d4322bd2a7749724879683fc3912cb542f19906c83bcc1a52132556427170b2` |
+
+## 공식 로고와 테크모 준비
+
+두 서비스의 빌드 명령은 사진 판독 모델 준비가 성공한 뒤 `python -B api/scripts/prepare_brand_assets.py`를 실행한다. 기존 사진 판독 준비의 실패 처리는 유지한다. 공식 그림은 각각 지문과 크기를 확인하고 화면용 PNG로 만든다. 한 그림을 받지 못해도 빌드는 성공하며, 파일이 없으면 서버가 404로 답해 화면의 그림 자리만 빈다. 서버 실행 중에는 내려받지 않는다. 원본 주소와 처리 기준은 [공식 그림 준비 안내](BRAND_ASSETS.md)에 적었음.
 
 ## 규정 목록 설정 (선택)
 

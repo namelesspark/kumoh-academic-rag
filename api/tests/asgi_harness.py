@@ -25,7 +25,41 @@
 
 import asyncio
 import json
+import selectors
+import time
 from dataclasses import dataclass, field
+
+
+class _InMemorySelector(selectors.SelectSelector):
+    def select(self, timeout=None):
+        if timeout is None or timeout > 0:
+            time.sleep(0.001)
+        return []
+
+
+class _InMemoryLoop(asyncio.SelectorEventLoop):
+    """소켓 없이 메모리 안의 작업과 파일 읽기 완료를 기다림."""
+
+    def __init__(self):
+        super().__init__(_InMemorySelector())
+
+    def _make_self_pipe(self):
+        self._ssock = None
+        self._csock = None
+
+    def _close_self_pipe(self):
+        pass
+
+
+def _run_without_sockets(coro):
+    loop = _InMemoryLoop()
+    try:
+        return loop.run_until_complete(coro)
+    finally:
+        try:
+            loop.run_until_complete(loop.shutdown_asyncgens())
+        finally:
+            loop.close()
 
 
 @dataclass
@@ -130,7 +164,7 @@ def call_app(
     coro = app(scope, receive, send)
 
     if allow_wait:
-        asyncio.run(coro)
+        _run_without_sockets(coro)
     else:
         try:
             yielded = coro.send(None)
