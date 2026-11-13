@@ -11,11 +11,12 @@ from hashlib import sha256
 from hmac import compare_digest
 
 
-# (학번, 비밀번호, 학생 목록의 id). 이슈 #79의 약속 표와 같은 값이다.
+# (학번, 비밀번호, 학생 목록의 id). 이슈 #79에서 합의한 값이다.
+# 학번은 실제 학번처럼 2로 시작하는 여덟 자리다. 실제 학생과 겹치지 않게 입학연도가 없는 2099를 쓴다.
 DEMO_ACCOUNTS = (
-    ("DEMO-D02", "demo-d02-pass", "demo-d02"),
-    ("DEMO-D03", "demo-d03-pass", "demo-d03"),
-    ("DEMO-D04", "demo-d04-pass", "demo-d04"),
+    ("20990002", "demo-d02-pass", "demo-d02"),
+    ("20990003", "demo-d03-pass", "demo-d03"),
+    ("20990004", "demo-d04-pass", "demo-d04"),
 )
 LOGIN_FAILED_MESSAGE = "학번 또는 비밀번호가 맞지 않아요"
 

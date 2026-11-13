@@ -1,4 +1,4 @@
-"""배포 준비 때 공식 그림을 검증하고 화면용 PNG와 캠퍼스 사진을 준비한다."""
+"""배포 준비 때 공식 그림을 검증하고 화면용 PNG, 캠퍼스 사진, 붓글씨 제목 그림을 준비한다."""
 
 from collections import deque
 from hashlib import sha256
@@ -11,7 +11,7 @@ from urllib.parse import urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 from zipfile import ZipFile
 
-from PIL import Image, UnidentifiedImageError
+from PIL import Image, ImageDraw, ImageFont, UnidentifiedImageError
 
 ASSET_DIR = Path(__file__).resolve().parents[1] / "app/chat_web/assets"
 LOGO_URL = "https://www.kumoh.ac.kr/ko/sub01_01_08.do?mode=download&articleNo=536069&attachNo=157277"
@@ -64,24 +64,60 @@ PHOTO_HEADERS = {
 }
 
 
+class BrushTitle(NamedTuple):
+    """붓글씨 제목 그림의 저장 이름과, 글자를 그릴 글꼴의 주소·바이트 수·지문(SHA-256)."""
+
+    name: str
+    url: str
+    size: int
+    sha256: str
+
+
+OFFICIAL_HOST = "www.kumoh.ac.kr"
+FONT_HOST = "raw.githubusercontent.com"
+# East Sea Dokdo Regular. SIL Open Font License 1.1, Copyright (c) YoonDesign Inc.
+# 글꼴 파일은 그림을 그릴 때만 메모리에서 쓰고 저장하거나 화면에 내려 주지 않는다.
+BRUSH_TITLES = (
+    BrushTitle(
+        "calligraphy-title.png",
+        "https://raw.githubusercontent.com/google/fonts/16680f8688ffcd467d2eb2146a9ce0343404581d"
+        "/ofl/eastseadokdo/EastSeaDokdo-Regular.ttf",
+        3178684, "8cebb39d375134fdbcedef9bf4ec4f6c3f02c39ed0aacd6e83f7a0f435e593b2"),
+)
+MAX_FONT_DOWNLOAD = 4 * 1024 * 1024
+TITLE_FONT_SIZE = 264
+TITLE_LINE_HEIGHT = 0.98  # 글자 크기의 배수
+TITLE_INDENT = 0.55  # 둘째 줄을 오른쪽으로 들이는 양. 글자 크기의 배수
+TITLE_MARGIN = 16
+TITLE_WHITE = (255, 255, 255)
+TITLE_YELLOW = (255, 209, 0)  # #FFD100
+# 줄마다 (글자, 색) 조각을 왼쪽부터 이어 그린다.
+TITLE_LINES = (
+    (("졸업까지,", TITLE_WHITE),),
+    (("테크모", TITLE_YELLOW), ("와 함께", TITLE_WHITE)),
+)
+
+
 class AssetError(ValueError):
     """공개 로그에 남겨도 되는 고정 실패 사유임."""
 
 
-def check_url(url):
+def check_url(url, host=OFFICIAL_HOST):
     parsed = urlsplit(url)
-    if (parsed.scheme != "https" or parsed.netloc != "www.kumoh.ac.kr"):
+    if (parsed.scheme != "https" or parsed.netloc != host):
         raise AssetError("허용하지 않은 주소")
 
 
 class OfficialRedirect(HTTPRedirectHandler):
-    def __init__(self, *, clock=monotonic, deadline=None, request_timeout=REQUEST_TIMEOUT):
+    def __init__(self, *, clock=monotonic, deadline=None, request_timeout=REQUEST_TIMEOUT,
+                 host=OFFICIAL_HOST):
         self.clock = clock
         self.deadline = deadline
         self.request_timeout = request_timeout
+        self.host = host
 
     def redirect_request(self, req, fp, code, msg, headers, newurl):
-        check_url(newurl)
+        check_url(newurl, self.host)
         if self.deadline is not None:
             remaining = self.deadline - self.clock()
             if remaining <= 0:
@@ -90,24 +126,29 @@ class OfficialRedirect(HTTPRedirectHandler):
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
-def download(url, *, opener=None, clock=monotonic, limit=MAX_DOWNLOAD):
-    """공식 주소에서 제한된 크기와 시간 안에 읽는다.
+def download(url, *, opener=None, clock=monotonic, limit=None):
+    """허용한 주소에서 제한된 크기와 시간 안에 읽는다.
 
     사진 주소에는 브라우저형 요청 헤더를 붙이고 사진용 시간 한도를 쓴다.
+    글꼴 주소는 글꼴 저장소 안에서만 받고 글꼴용 크기 한도를 쓴다.
     로고와 테크모 요청은 전과 같다.
     """
     is_photo = any(url == photo.url for photo in CAMPUS_PHOTOS)
-    if not is_photo and url not in (LOGO_URL, TECHMO_URL):
+    is_font = any(url == title.url for title in BRUSH_TITLES)
+    if not is_photo and not is_font and url not in (LOGO_URL, TECHMO_URL):
         raise AssetError("허용하지 않은 원본")
+    host = FONT_HOST if is_font else OFFICIAL_HOST
+    if limit is None:
+        limit = MAX_FONT_DOWNLOAD if is_font else MAX_DOWNLOAD
     request_timeout, total_timeout = (
         (PHOTO_REQUEST_TIMEOUT, PHOTO_TOTAL_TIMEOUT) if is_photo else (REQUEST_TIMEOUT, TOTAL_TIMEOUT)
     )
     deadline = clock() + total_timeout
     opener = opener or build_opener(OfficialRedirect(
-        clock=clock, deadline=deadline, request_timeout=request_timeout)).open
+        clock=clock, deadline=deadline, request_timeout=request_timeout, host=host)).open
     target = Request(url, headers=PHOTO_HEADERS) if is_photo else url
     with opener(target, timeout=request_timeout) as response:
-        check_url(response.geturl())
+        check_url(response.geturl(), host)
         length = response.headers.get("Content-Length")
         if length is not None and int(length) > limit:
             raise AssetError("받는 크기 초과")
@@ -217,6 +258,58 @@ def campus_jpeg(data, expected_size, expected_hash):
     return data
 
 
+def render_title(font, lines=None):
+    """글자를 투명 바탕에 그리고, 글자가 실제로 차지한 영역에 여백만 남겨 PNG로 돌려준다.
+
+    색을 곧바로 칠하면 글자 가장자리의 반투명 점이 어둡게 섞인다. 그래서 색마다 글자
+    모양(농도)만 먼저 그린 뒤, 단색 판의 투명도로 끼워 넣는다.
+    """
+    lines = TITLE_LINES if lines is None else lines
+    size = font.size
+    pad = size  # 붓글씨는 획이 글자 칸 밖으로 삐치므로 넉넉히 둔 뒤 잘라 낸다.
+    widths = [index * TITLE_INDENT * size + sum(font.getlength(text) for text, _ in line)
+              for index, line in enumerate(lines)]
+    canvas = (int(max(widths)) + 2 * pad,
+              int((len(lines) - 1) * TITLE_LINE_HEIGHT * size + size) + 2 * pad)
+    shapes = {}
+    for index, line in enumerate(lines):
+        x = pad + index * TITLE_INDENT * size
+        y = pad + index * TITLE_LINE_HEIGHT * size
+        for text, color in line:
+            shape = shapes.setdefault(color, Image.new("L", canvas, 0))
+            ImageDraw.Draw(shape).text((x, y), text, fill=255, font=font)
+            x += font.getlength(text)
+    image = Image.new("RGBA", canvas, (*TITLE_WHITE, 0))
+    for color, shape in shapes.items():
+        layer = Image.new("RGBA", canvas, (*color, 0))
+        layer.putalpha(shape)
+        image = Image.alpha_composite(image, layer)
+    visible = image.getchannel("A").getbbox()
+    if visible is None:
+        raise AssetError("붓글씨가 비어 있음")
+    left, top, right, bottom = visible
+    if min(left, top, canvas[0] - right, canvas[1] - bottom) < TITLE_MARGIN:
+        raise AssetError("붓글씨가 그림 밖으로 나감")
+    image = image.crop((left - TITLE_MARGIN, top - TITLE_MARGIN,
+                        right + TITLE_MARGIN, bottom + TITLE_MARGIN))
+    result = BytesIO()
+    image.save(result, format="PNG")
+    return result.getvalue()
+
+
+def calligraphy_png(data, expected_size, expected_hash):
+    """확인해 둔 글꼴과 한 바이트도 다르지 않을 때만 그 글꼴로 제목 그림을 그린다."""
+    if len(data) != expected_size:
+        raise AssetError("글꼴 바이트 수 불일치")
+    if sha256(data).hexdigest() != expected_hash:
+        raise AssetError("글꼴 지문 불일치")
+    try:
+        font = ImageFont.truetype(BytesIO(data), TITLE_FONT_SIZE)
+    except (OSError, ValueError):
+        raise AssetError("글꼴을 열 수 없음") from None
+    return render_title(font)
+
+
 def atomic_write(destination, data):
     """검증한 결과를 임시 파일에 모두 쓴 뒤 교체한다."""
     temporary = None
@@ -243,6 +336,10 @@ def main(*, downloader=download, writer=atomic_write, report=print):
         *((photo.name, photo.url,
            lambda data, photo=photo: campus_jpeg(data, photo.size, photo.sha256))
           for photo in CAMPUS_PHOTOS),
+        # 붓글씨 제목은 글꼴을 받아 그림으로 그린다. 글꼴 파일은 저장하지 않는다.
+        *((title.name, title.url,
+           lambda data, title=title: calligraphy_png(data, title.size, title.sha256))
+          for title in BRUSH_TITLES),
     ):
         try:
             if url not in sources:

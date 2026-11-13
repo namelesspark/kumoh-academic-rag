@@ -77,6 +77,8 @@ Render의 두 서비스는 패키지를 설치한 뒤 한글과 영어 글자 �
 
 같은 명령이 로그인·메인 화면의 캠퍼스 배경 사진 네 장(`campus-aerial.jpg`, `campus-hill.jpg`, `campus-gate.jpg`, `campus-field.jpg`)도 받는다. 사진은 바이트 수·지문·JPEG 형식·1920×280 크기가 모두 맞을 때만 다시 압축하지 않고 저장한다. 한 장을 받지 못해도 빌드는 성공한다. 그 사진은 서버가 404로 답하고 화면은 남색 바탕으로 동작한다. 빌드 로그에는 사진마다 `campus-aerial.jpg: 준비 완료`나 `준비 실패 (사유)` 한 줄이 남는다.
 
+로그인 화면의 붓글씨 제목 그림 `calligraphy-title.png`도 이때 만든다. 글꼴 East Sea Dokdo를 고정한 커밋 주소에서 받아 지문을 확인하고 글자를 그림으로 그린다. 글꼴 파일은 저장하지 않는다. 그림을 만들지 못해도 빌드는 성공하고, 화면은 같은 글귀를 기본 글꼴 제목으로 보여 준다.
+
 ## 시연 계정 로그인 확인
 
 로그인 화면은 `POST /api/v1/demo-login`을 부른다. 서버를 화면보다 먼저 올리거나 둘을 함께 올린다. 화면만 먼저 올리면 로그인 요청이 404로 막힌다.
@@ -84,7 +86,7 @@ Render의 두 서비스는 패키지를 설치한 뒤 한글과 영어 글자 �
 배포 뒤 PowerShell에서 아래 명령으로 확인한다. 계정은 화면이 채워 주는 공개 시연 값이고 실제 학생과 관계가 없다. 값 목록과 응답 형식은 [API 명세](API_SPEC.md)에 적었음.
 
 ```powershell
-$login = @{ student_number = "DEMO-D02"; password = "demo-d02-pass" } | ConvertTo-Json
+$login = @{ student_number = "20990002"; password = "demo-d02-pass" } | ConvertTo-Json
 Invoke-RestMethod "$renderUrl/api/v1/demo-login" -Method Post `
     -ContentType "application/json; charset=utf-8" `
     -Body ([Text.Encoding]::UTF8.GetBytes($login)) |

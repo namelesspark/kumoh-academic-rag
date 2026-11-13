@@ -19,11 +19,11 @@ ENDPOINT = "/api/v1/demo-login"
 STUDENTS_ENDPOINT = "/api/v1/demo-students"
 LOGIN_FAILED = {"detail": "학번 또는 비밀번호가 맞지 않아요"}
 BAD_REQUEST = {"detail": "요청 형식이 올바르지 않습니다."}
-# 약속 표의 (학번, 비밀번호, 학생 id, 상황).
+# 합의한 (학번, 비밀번호, 학생 id, 상황). 학번은 입학연도가 없는 2099로 시작해 실제 학생과 겹치지 않는다.
 ACCOUNTS = (
-    ("DEMO-D02", "demo-d02-pass", "demo-d02", "졸업 요건에 가까움"),
-    ("DEMO-D03", "demo-d03-pass", "demo-d03", "학점이 많이 남음"),
-    ("DEMO-D04", "demo-d04-pass", "demo-d04", "비교과 점수 부족"),
+    ("20990002", "demo-d02-pass", "demo-d02", "졸업 요건에 가까움"),
+    ("20990003", "demo-d03-pass", "demo-d03", "학점이 많이 남음"),
+    ("20990004", "demo-d04-pass", "demo-d04", "비교과 점수 부족"),
 )
 
 
@@ -67,30 +67,40 @@ class DemoLoginTest(unittest.TestCase):
                 self.assertIs(body["student"]["is_fictional"], True)
                 self.assertEqual(response.headers["cache-control"], "no-store")
                 self.assertNotIn("set-cookie", response.headers)
-                # 받은 비밀번호를 응답에 되돌려 적지 않는다.
+                # 받은 학번과 비밀번호를 응답에 되돌려 적지 않는다.
                 self.assertNotIn(password, response.text())
+                self.assertNotIn(student_number, response.text())
 
     def test_wrong_values_get_one_fixed_401(self):
         cases = (
-            ("DEMO-D02", "wrong"),
-            ("DEMO-X99", "demo-d02-pass"),
+            ("20990002", "wrong"),
+            ("20990001", "demo-d02-pass"),
+            ("20990005", "demo-d02-pass"),
+            # 예전 시연 학번과 학생 id는 학번이 아니다.
+            ("DEMO-D02", "demo-d02-pass"),
+            # 여덟 자리와 모양만 비슷한 값.
+            ("2099002", "demo-d02-pass"),
+            ("020990002", "demo-d02-pass"),
+            ("2099-0002", "demo-d02-pass"),
+            ("20990002.0", "demo-d02-pass"),
             # 다른 계정의 비밀번호.
-            ("DEMO-D02", "demo-d03-pass"),
-            ("DEMO-D03", "demo-d02-pass"),
+            ("20990002", "demo-d03-pass"),
+            ("20990003", "demo-d02-pass"),
             # 빈 값.
             ("", ""),
-            ("DEMO-D02", ""),
+            ("20990002", ""),
             ("", "demo-d02-pass"),
             # 서버는 공백을 떼거나 대소문자를 맞추지 않는다.
             ("demo-d02", "demo-d02-pass"),
-            ("DEMO-D02", "DEMO-D02-PASS"),
-            (" DEMO-D02", "demo-d02-pass"),
-            ("DEMO-D02 ", "demo-d02-pass"),
-            ("DEMO-D02", "demo-d02-pass "),
-            ("DEMO-D02", "demo-d02-pass\n"),
+            ("20990002", "DEMO-D02-PASS"),
+            ("20990002", "Demo-d02-pass"),
+            (" 20990002", "demo-d02-pass"),
+            ("20990002 ", "demo-d02-pass"),
+            ("20990002", "demo-d02-pass "),
+            ("20990002", "demo-d02-pass\n"),
             # 학생 id와 학번을 섞어 쓴 값, 두 칸을 바꿔 쓴 값.
-            ("demo-d02-pass", "DEMO-D02"),
-            ("DEMO-D02\x00demo-d02-pass", ""),
+            ("demo-d02-pass", "20990002"),
+            ("20990002\x00demo-d02-pass", ""),
             # 길이 한도인 64자는 형식에 맞으므로 계정과 견준다.
             ("가" * 64, "나" * 64),
         )
@@ -102,9 +112,11 @@ class DemoLoginTest(unittest.TestCase):
         # 문자열을 그대로 견주면 ASCII 밖의 글자에서 TypeError가 난다.
         for student_number, password in (
             ("가상학번", "비밀번호"),
-            ("DEMO-D02", "데모-d02-pass"),
-            ("ＤＥＭＯ-Ｄ０２", "demo-d02-pass"),
-            ("DEMO-D02", "🙂"),
+            ("20990002", "데모-d02-pass"),
+            # 전각 숫자와 아라비아-인도 숫자는 같은 수처럼 보여도 다른 글자다.
+            ("２０９９０００２", "demo-d02-pass"),
+            ("٢٠٩٩٠٠٠٢", "demo-d02-pass"),
+            ("20990002", "🙂"),
         ):
             with self.subTest(student_number=student_number, password=password):
                 self.assert_rejected(self.login(student_number, password))
@@ -125,33 +137,34 @@ class DemoLoginTest(unittest.TestCase):
         self.assertIsNone(match_demo_account("\ud800", "\udfff"))
 
     def test_malformed_requests_get_the_fixed_400(self):
-        valid = {"student_number": "DEMO-D02", "password": "demo-d02-pass"}
+        valid = {"student_number": "20990002", "password": "demo-d02-pass"}
         bodies = (
             # 65자 이상.
             {**valid, "student_number": "A" * 65},
             {**valid, "password": "가" * 65},
             # 문자열이 아닌 값.
-            {**valid, "student_number": 20230001},
+            # 숫자로 보낸 학번은 맞는 계정이어도 문자열이 아니므로 형식 오류다.
+            {**valid, "student_number": 20990002},
             {**valid, "password": None},
             {**valid, "password": ["demo-d02-pass"]},
             {**valid, "student_number": True},
             # 빠진 필드.
-            {"student_number": "DEMO-D02"},
+            {"student_number": "20990002"},
             {"password": "demo-d02-pass"},
             {},
             # 다른 필드.
             {**valid, "student_id": "demo-d02"},
             {**valid, "remember": True},
             # 객체가 아닌 본문.
-            ["DEMO-D02", "demo-d02-pass"],
-            "DEMO-D02",
+            ["20990002", "demo-d02-pass"],
+            "20990002",
         )
         for body in bodies:
             with self.subTest(body=body):
                 self.assert_bad_request(call_app(self.app, "POST", ENDPOINT, json_body=body))
 
     def test_broken_bodies_get_the_fixed_400(self):
-        for raw in (b"", b'{"student_number": "DEMO-D02"', b"\xff", b"student_number=DEMO-D02"):
+        for raw in (b"", b'{"student_number": "20990002"', b"\xff", b"student_number=20990002"):
             with self.subTest(raw=raw):
                 self.assert_bad_request(call_app(
                     self.app, "POST", ENDPOINT, raw_body=raw,
@@ -161,7 +174,7 @@ class DemoLoginTest(unittest.TestCase):
     def test_values_in_the_address_are_not_read(self):
         # 값은 요청 본문에만 싣는다. 주소 뒤에 붙인 값으로는 로그인하지 못한다.
         async def with_query(scope, receive, send):
-            query = b"student_number=DEMO-D02&password=demo-d02-pass"
+            query = b"student_number=20990002&password=demo-d02-pass"
             await self.app({**scope, "query_string": query}, receive, send)
 
         self.assert_bad_request(call_app(with_query, "POST", ENDPOINT))
@@ -194,10 +207,11 @@ class MatchDemoAccountTest(unittest.TestCase):
         for student_number, password, student_id, _ in ACCOUNTS:
             with self.subTest(student_number=student_number):
                 self.assertEqual(match_demo_account(student_number, password), student_id)
-                self.assertIsNone(match_demo_account(student_number.lower(), password))
+                self.assertRegex(student_number, r"^2099000[0-9]$")
+                self.assertIsNone(match_demo_account(student_number[:-1], password))
                 self.assertIsNone(match_demo_account(student_number, password.upper()))
                 self.assertIsNone(match_demo_account(student_number + " ", password))
-        self.assertIsNone(match_demo_account("DEMO-D02", "demo-d04-pass"))
+        self.assertIsNone(match_demo_account("20990002", "demo-d04-pass"))
         self.assertIsNone(match_demo_account("", ""))
         self.assertIsNone(match_demo_account("한글", "한글"))
 
