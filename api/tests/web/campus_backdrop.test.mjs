@@ -29,12 +29,14 @@ test("셰이더 핵심의 물결·합성 수식과 uniform을 유지한다", () 
   for (const expression of [
     "float win=min(1.0,aspect/imgAspect)*0.94;",
     "for(int i=0;i<16;i++)",
-    "float front=age*0.22;",
-    "exp(-age*1.15)*smoothstep(0.22,0.0,abs(r-front))*smoothstep(0.0,0.05,r)",
-    "cos((r-front)*30.0)*env",
-    "off+=(d/r)*w*0.013;",
-    "c+=vec3(0.70,0.90,1.0)*max(light,0.0)*0.16;",
-    "c-=vec3(0.06,0.05,0.03)*max(-light,0.0)*0.45;",
+    "if(age<0.0||age>1.8) continue;",
+    "float front=age*0.085;",
+    "exp(-age*2.2)*smoothstep(0.075,0.0,abs(r-front))*smoothstep(0.0,0.012,r)",
+    "cos((r-front)*70.0)*env",
+    "off+=(d/r)*w*0.0075;",
+    "off+=still*0.0008*vec2(sin(uv.y*18.0+t*0.9),cos(uv.x*14.0-t*0.7));",
+    "c+=vec3(0.70,0.92,1.0)*max(light,0.0)*0.10;",
+    "c-=vec3(0.08,0.06,0.03)*max(-light,0.0)*0.18;",
     "uv.y=1.0-uv.y;",
     "texture2D(a,cover(uv,panA)).rgb",
     "texture2D(b,cover(uv,panB)).rgb",
@@ -47,6 +49,7 @@ test("셰이더 핵심의 물결·합성 수식과 uniform을 유지한다", () 
 
 async function backdrop({ unavailable = false, reduced = false, brokenPhoto = false, brokenShader = false, delayedPhoto = null } = {}) {
   const listeners = new Map(), pending = new Map(), uniforms = new Map(), requests = [], parameters = [];
+  const windowListeners = new Map();
   let finishPhoto;
   const delayed = new Promise(resolve => { finishPhoto = resolve; });
   let next = 0, draws = 0;
@@ -73,6 +76,7 @@ async function backdrop({ unavailable = false, reduced = false, brokenPhoto = fa
     window: { innerWidth: 1280, innerHeight: 800, devicePixelRatio: 3,
       requestAnimationFrame: fn => { pending.set(++next, fn); return next; },
       cancelAnimationFrame: id => pending.delete(id),
+      addEventListener: (name, listener, options) => windowListeners.set(name, { listener, options }),
     },
     fetch: async path => {
       requests.push(path);
@@ -89,7 +93,23 @@ async function backdrop({ unavailable = false, reduced = false, brokenPhoto = fa
   return { canvas, uniforms, requests, parameters, pending, document, label, steps, draws: () => draws,
     async finishPhoto() { finishPhoto(); await setImmediate(); },
     tick(time) { const callbacks = [...pending.values()]; pending.clear(); for (const fn of callbacks) fn(time); },
-    fire(name, event = {}) { listeners.get(name)?.({ type: name, preventDefault() {}, ...event }); },
+    fire(name, event = {}) {
+      const dispatched = { type: name, preventDefault() {}, ...event };
+      windowListeners.get(name)?.listener(dispatched);
+      listeners.get(name)?.(dispatched);
+    },
+    dispatchOnTarget(name, event, targetListener) {
+      const registered = windowListeners.get(name);
+      assert.ok(registered, "포인터를 window에서 받는다");
+      assert.equal(registered.options.capture, true, "패널의 전파 중단 전에 받는다");
+      assert.equal(registered.options.passive, true);
+      let stopped = false;
+      const dispatched = { type: name, ...event, stopPropagation() { stopped = true; } };
+      if (registered.options.capture) registered.listener(dispatched);
+      targetListener(dispatched);
+      if (!stopped && !registered.options.capture) registered.listener(dispatched);
+      return stopped;
+    },
   };
 }
 
@@ -176,6 +196,39 @@ test("초기 물방울 세 개와 포인터 간격·거리를 그리기 시각�
   page.fire("pointerdown", { clientX: 301, clientY: 301 });
   page.tick(1800);
   assert.equal(page.uniforms.get("drops[0]").filter((value, i) => i % 3 === 2 && value >= 0).length, 6);
+});
+
+test("위쪽 20% 입력란의 포인터도 window에서 먼저 받아 물방울 y를 0.8로 보낸다", async () => {
+  const page = await backdrop();
+  page.tick(0);
+  const stopped = page.dispatchOnTarget("pointerdown", { clientX: 256, clientY: 160 }, event => event.stopPropagation());
+  page.tick(1);
+  const drops = page.uniforms.get("drops[0]");
+  assert.equal(stopped, true, "입력란이 이벤트 전파를 멈췄다");
+  assert.ok(Math.abs(drops[0] - 0.2) < 1e-6);
+  assert.ok(Math.abs(drops[1] - 0.8) < 1e-6);
+  assert.equal(drops[2], 0);
+});
+
+test("움직임은 70ms와 26px를 모두 채워야 하고 누르기는 간격과 무관하다", async () => {
+  const page = await backdrop();
+  const count = () => page.uniforms.get("drops[0]").filter((value, index) => index % 3 === 2 && value >= 0).length;
+  page.tick(0);
+  page.fire("pointermove", { clientX: 100, clientY: 100 });
+  page.tick(69);
+  assert.equal(count(), 1);
+  page.fire("pointermove", { clientX: 126, clientY: 100 });
+  page.tick(70);
+  assert.equal(count(), 1, "26px를 채워도 69ms에서는 넣지 않는다");
+  page.fire("pointermove", { clientX: 125, clientY: 100 });
+  page.tick(70);
+  assert.equal(count(), 1, "70ms를 채워도 25px에서는 넣지 않는다");
+  page.fire("pointermove", { clientX: 126, clientY: 100 });
+  page.tick(71);
+  assert.equal(count(), 2);
+  page.dispatchOnTarget("pointerdown", { clientX: 127, clientY: 100 }, event => event.stopPropagation());
+  page.tick(72);
+  assert.equal(count(), 3);
 });
 
 test("가려진 시간은 제외하고 재개하며 그래픽·사진 실패와 움직임 줄이기는 정지 배경을 남긴다", async () => {

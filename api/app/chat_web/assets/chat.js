@@ -1397,14 +1397,14 @@ async function initializeCampusBackdrop() {
 vec2 cover(vec2 uv, float pan){ float win=min(1.0,aspect/imgAspect)*0.94;
   float x=mix(0.5*win,1.0-0.5*win,pan)+(uv.x-0.5)*win; return vec2(x,0.5+(uv.y-0.5)*0.94); }
 void main(){ vec2 uv=v; vec2 off=vec2(0.0); float light=0.0;
-  for(int i=0;i<16;i++){ float age=t-drops[i].z; if(age<0.0||age>4.0) continue;
-    vec2 d=uv-drops[i].xy; d.x*=aspect; float r=length(d)+1e-4; float front=age*0.22;
-    float env=exp(-age*1.15)*smoothstep(0.22,0.0,abs(r-front))*smoothstep(0.0,0.05,r);
-    float w=cos((r-front)*30.0)*env; off+=(d/r)*w*0.013; light+=w; }
-  off+=still*0.0016*vec2(sin(uv.y*18.0+t*0.9),cos(uv.x*14.0-t*0.7));
+  for(int i=0;i<16;i++){ float age=t-drops[i].z; if(age<0.0||age>1.8) continue;
+    vec2 d=uv-drops[i].xy; d.x*=aspect; float r=length(d)+1e-4; float front=age*0.085;
+    float env=exp(-age*2.2)*smoothstep(0.075,0.0,abs(r-front))*smoothstep(0.0,0.012,r);
+    float w=cos((r-front)*70.0)*env; off+=(d/r)*w*0.0075; light+=w; }
+  off+=still*0.0008*vec2(sin(uv.y*18.0+t*0.9),cos(uv.x*14.0-t*0.7));
   uv+=off; uv.y=1.0-uv.y;
   vec3 c=mix(texture2D(a,cover(uv,panA)).rgb,texture2D(b,cover(uv,panB)).rgb,mixv);
-  c+=vec3(0.70,0.90,1.0)*max(light,0.0)*0.16; c-=vec3(0.06,0.05,0.03)*max(-light,0.0)*0.45;
+  c+=vec3(0.70,0.92,1.0)*max(light,0.0)*0.10; c-=vec3(0.08,0.06,0.03)*max(-light,0.0)*0.18;
   gl_FragColor=vec4(c,1.0); }`;
     const compile = (type, source) => {
       const shader = gl.createShader(type);
@@ -1463,17 +1463,32 @@ void main(){ vec2 uv=v; vec2 off=vec2(0.0); float light=0.0;
     let photoNumber = 0;
     let appearedAt = -FADE;
     let fadeAllowed = null;
-    let dropIndex=0, elapsed=0, previous=null, automatic=0, lastPointer=-Infinity, lastX=0, lastY=0;
-    const drop = (x,y) => { const i=(dropIndex++%16)*3; drops[i]=x; drops[i+1]=y; drops[i+2]=elapsed; };
-    const pointer = event => {
-      if (reducedMotion() || document.hidden) return;
-      const rect=canvas.getBoundingClientRect();
-      if (event.type === "pointermove" && (elapsed*1000-lastPointer<110 || Math.hypot(event.clientX-lastX,event.clientY-lastY)<46)) return;
-      lastPointer=elapsed*1000; lastX=event.clientX; lastY=event.clientY;
-      drop((event.clientX-rect.left)/rect.width,1-(event.clientY-rect.top)/rect.height);
+    let dropIndex = 0;
+    let elapsed = 0;
+    let previous = null;
+    let automatic = 0;
+    let lastPointer = -Infinity;
+    let lastX = 0;
+    let lastY = 0;
+    const drop = (x, y) => {
+      const index = (dropIndex++ % 16) * 3;
+      drops[index] = x;
+      drops[index + 1] = y;
+      drops[index + 2] = elapsed;
     };
-    document.addEventListener("pointermove",pointer,{passive:true});
-    document.addEventListener("pointerdown",pointer,{passive:true});
+    const pointer = event => {
+      if (stopped || reducedMotion() || document.hidden) return;
+      const tooSoon = elapsed * 1000 - lastPointer < 70;
+      const tooClose = Math.hypot(event.clientX - lastX, event.clientY - lastY) < 26;
+      if (event.type === "pointermove" && (tooSoon || tooClose)) return;
+      lastPointer = elapsed * 1000;
+      lastX = event.clientX;
+      lastY = event.clientY;
+      drop(event.clientX / window.innerWidth, 1 - event.clientY / window.innerHeight);
+    };
+    // 먼저 받는 단계에서 들어야 입력란이나 패널이 전파를 멈춰도 포인터 자리에 물결을 남긴다.
+    window.addEventListener("pointermove", pointer, { passive: true, capture: true });
+    window.addEventListener("pointerdown", pointer, { passive: true, capture: true });
     const draw = timestamp => {
       try {
       frame=null;

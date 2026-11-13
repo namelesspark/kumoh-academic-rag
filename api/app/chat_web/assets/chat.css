@@ -8,30 +8,30 @@
   --navy: #0A2540;
   --yellow: #FFD100;
   --edge: #8A8D8F;
-  --muted: #39485a;
-  --line: #d7dee8;
-  --tint: #E6F3FA;
-  --good: #1d5f35;
-  --good-bg: #eaf6ee;
-  --bad: #842d28;
-  --bad-bg: #fff5f4;
-  --bad-line: #d7a6a6;
-  --warn: #6b4700;
-  --warn-bg: #fff7e0;
-  --warn-line: #b98a1c;
-  --warn-panel: #fffcf3;
+  --muted: rgba(214,232,245,.86);
+  --line: rgba(140,220,255,.60);
+  --tint: #163b5b;
+  --good: #a9edc3;
+  --good-bg: #103c2c;
+  --bad: #ffb4a8;
+  --bad-bg: #492127;
+  --bad-line: #df9c9a;
+  --warn: #ffe9a8;
+  --warn-bg: #473a15;
+  --warn-line: #e0c070;
+  --warn-panel: #332d20;
   --button-end: #0077b8;
-  --glass-card: rgba(255,255,255,.74);
-  --glass-band: rgba(255,255,255,.72);
-  --glass-panel: rgba(245,249,252,.72);
-  --glass-feature: rgba(255,255,255,.80);
-  --glass-composer: rgba(255,255,255,.92);
-  --glass-account: rgba(255,255,255,.82);
-  --glass-dense: rgba(255,255,255,.90);
-  --glass-card-edge: rgba(255,255,255,.6);
-  --glass-band-edge: rgba(255,255,255,.5);
-  --glass-panel-edge: rgba(255,255,255,.55);
-  --glass-feature-edge: rgba(255,255,255,.75);
+  --glass-card: rgba(12,44,78,.90);
+  --glass-band: rgba(8,30,54,.72);
+  --glass-panel: rgba(10,36,64,.84);
+  --glass-feature: rgba(255,255,255,.10);
+  --glass-composer: rgba(255,255,255,.94);
+  --glass-account: rgba(255,255,255,.08);
+  --glass-dense: rgba(8,28,50,.82);
+  --glass-card-edge: rgba(140,220,255,.70);
+  --glass-band-edge: rgba(140,220,255,.75);
+  --glass-panel-edge: rgba(140,220,255,.70);
+  --glass-feature-edge: rgba(140,220,255,.70);
   --intro-ink: rgba(255,255,255,.88);
   --glass-pill: rgba(255,255,255,.14);
   --glass-edge: rgba(255,255,255,.28);
@@ -41,19 +41,48 @@
   --overlay-bottom: rgba(10,37,64,.72);
   --shadow-dark: #041426;
   --shadow-text: rgba(4,20,38,.55);
-  --shadow-card: rgba(4,20,38,.45);
+  --shadow-card: rgba(2,12,24,.6);
   --shadow-panel: rgba(4,20,38,.35);
   --shadow-input: rgba(4,20,38,.18);
-  --shadow-button: rgba(0,91,150,.35);
-  --focus-wash: rgba(0,163,217,.22);
-  --safety-bg: #fff6d6;
-  --safety-edge: #f0d67a;
-  --safety-ink: #6b4a00;
-  color-scheme: light;
+  --shadow-button: rgba(0,120,190,.45);
+  --focus-wash: rgba(0,163,217,.30);
+  --safety-bg: rgba(255,209,0,.12);
+  --safety-edge: rgba(255,209,0,.75);
+  --safety-ink: #ffe9a8;
+  --ink: #eaf4fb;
+  --label-ink: #cfe6f5;
+  --help-ink: rgba(214,232,245,.82);
+  --card-ink: #eef7fd;
+  --card-copy: rgba(214,232,245,.86);
+  --account-copy: rgba(214,232,245,.8);
+  --link-ink: #8fdcff;
+  --browse-ink: #9be0ff;
+  --focus-ink: #7fd6ff;
+  --input-wash: rgba(255,255,255,.10);
+  --input-focus: rgba(255,255,255,.16);
+  --input-edge: rgba(170,215,240,.95);
+  --input-placeholder: rgba(214,232,245,.90);
+  --composer-edge: rgba(140,220,255,.6);
+  --composer-ink: #0f2233;
+  --composer-muted: #39485a;
+  --card-end: rgba(6,24,44,.82);
+  --band-end: rgba(8,30,54,.70);
+  --panel-end: rgba(6,24,44,.80);
+  --control-start: #0a6fb0;
+  --control-end: #007bb5;
+  --control-edge: rgba(160,225,255,.95);
+  --account-hover: rgba(0,163,217,.22);
+  --feature-hover: rgba(0,163,217,.20);
+  --drawing-ink: rgba(140,220,255,.9);
+  --drawing-line: rgba(140,220,255,.55);
+  --icon-bright: #35c4f2;
+  --icon-shadow: rgba(0,60,110,.45);
+  --safety-symbol: #1b1400;
+  color-scheme: dark;
   /* 첫 화면 보안 정책이 외부 글꼴을 막으므로 기기에 깔린 글꼴만 쓴다. */
   font-family: Pretendard, "Apple SD Gothic Neo", "Malgun Gothic", "맑은 고딕", "Noto Sans KR", system-ui, sans-serif;
-  color: var(--navy);
-  background: var(--paper);
+  color: var(--ink);
+  background: var(--navy);
 }
 
 * { box-sizing: border-box; }
@@ -67,7 +96,7 @@ button:disabled { cursor: default; opacity: .65; }
 h1, h2, h3, p { margin-top: 0; }
 
 .masthead {
-  color: var(--navy);
+  color: var(--ink);
   background: var(--white);
   border-bottom: 1px solid var(--line);
 }
@@ -117,8 +146,8 @@ h1, h2, h3, p { margin-top: 0; }
   text-underline-offset: 3px;
 }
 
-.reset { border-color: var(--edge); background: var(--white); color: var(--navy); }
-.reset:not(:disabled):hover { border-color: var(--blue); background: var(--tint); color: var(--navy); }
+.reset { border-color: var(--edge); background: var(--white); color: var(--ink); }
+.reset:not(:disabled):hover { border-color: var(--link-ink); background: var(--tint); color: var(--ink); }
 
 .demo-account { position: relative; min-width: 0; max-width: 100%; }
 #demo-identity { display: flex; flex-wrap: nowrap; align-items: center; gap: 8px; }
@@ -185,9 +214,9 @@ h1, h2, h3, p { margin-top: 0; }
   border-bottom: 1px solid var(--line);
   text-align: left;
   background: transparent;
-  color: var(--navy);
+  color: var(--ink);
 }
-.topics button:hover { color: var(--blue); background: var(--tint); text-decoration: underline; text-underline-offset: 3px; }
+.topics button:hover { color: var(--link-ink); background: var(--tint); text-decoration: underline; text-underline-offset: 3px; }
 
 /* 테크모 펫과 말풍선. 기본 배치는 입력창 바로 앞의 낮은 줄이다. 줄이 자리를 차지하므로 입력창을 덮지 않고,
    입력창이 화면 아래로 밀려나 있을 때는 화면 아래 가장자리에 붙어 떠 있는다(position: sticky).
@@ -212,7 +241,7 @@ h1, h2, h3, p { margin-top: 0; }
   border: 1px solid var(--edge);
   border-radius: 12px;
   background: var(--white);
-  color: var(--navy);
+  color: var(--ink);
   font-size: .88rem;
   line-height: 1.45;
   word-break: keep-all;
@@ -349,8 +378,8 @@ h1, h2, h3, p { margin-top: 0; }
 .chat:has(> .transcript > .empty) { height: auto; }
 
 .transcript, .composer, .status { padding-inline: 28px; }
-.check { background: var(--white); color: var(--blue); }
-.check:not(:disabled):hover { background: var(--tint); color: var(--blue); }
+.check { background: var(--white); color: var(--link-ink); }
+.check:not(:disabled):hover { background: var(--tint); color: var(--link-ink); }
 
 .transcript {
   flex: 1;
@@ -368,7 +397,7 @@ h1, h2, h3, p { margin-top: 0; }
 .hero-copy { flex: 1 1 320px; min-width: 0; }
 .hero h2 {
   margin-bottom: 12px;
-  color: var(--navy);
+  color: var(--ink);
   font-size: clamp(1.4rem, 1.05rem + 1.5vw, 2rem);
   line-height: 1.3;
   letter-spacing: -.03em;
@@ -377,7 +406,7 @@ h1, h2, h3, p { margin-top: 0; }
 .hero-copy p { margin-bottom: 18px; color: var(--muted); line-height: 1.6; word-break: keep-all; }
 .hero-actions { display: flex; flex-wrap: wrap; gap: 10px; }
 .cta { background: var(--blue); color: var(--white); }
-.cta:hover { border-color: var(--navy); background: var(--navy); color: var(--white); }
+.cta:hover { border-color: var(--ink); background: var(--navy); color: var(--white); }
 
 /* 밝은 청색은 테크모가 서는 도형에만 쓴다. 흰색과 약 2.9:1이라 글자·테두리·초점 표시에는 쓰지 않는다. */
 .hero-art { position: relative; flex: 0 1 240px; min-width: 0; }
@@ -417,15 +446,15 @@ h1, h2, h3, p { margin-top: 0; }
   border: 1px solid var(--edge);
   border-radius: 12px;
   background: var(--white);
-  color: var(--navy);
+  color: var(--ink);
   text-align: left;
   word-break: keep-all;
 }
-.card-title { color: var(--navy); font-size: 1rem; font-weight: 700; }
+.card-title { color: var(--ink); font-size: 1rem; font-weight: 700; }
 .card-text { color: var(--muted); font-size: .86rem; line-height: 1.5; }
 /* 카드 여섯 개는 모두 패널을 여는 버튼이라 화살표가 붙는다. 준비 중 카드는 점선 테두리와 문구로 구분한다. */
 button.card .card-title::after { content: "›"; margin-left: 6px; }
-button.card:hover { border-color: var(--blue); background: var(--tint); }
+button.card:hover { border-color: var(--link-ink); background: var(--tint); }
 button.card:hover .card-title { text-decoration: underline; text-underline-offset: 3px; }
 .card.soon { border-style: dashed; background: var(--paper); }
 .card.soon .soon-label { margin-top: auto; }
@@ -439,11 +468,11 @@ button.card:hover .card-title { text-decoration: underline; text-underline-offse
   border: 1px solid var(--edge);
   border-radius: 12px;
   background: var(--white);
-  color: var(--navy);
+  color: var(--ink);
   word-break: keep-all;
 }
 .panel-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
-.panel-title { align-self: center; margin: 0; color: var(--navy); font-size: 1.15rem; line-height: 1.35; }
+.panel-title { align-self: center; margin: 0; color: var(--ink); font-size: 1.15rem; line-height: 1.35; }
 .panel-text { margin: 0; color: var(--muted); line-height: 1.6; }
 .panel-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
 [data-panel-content] { display: grid; gap: 12px; min-width: 0; overflow-wrap: anywhere; }
@@ -455,14 +484,14 @@ button.card:hover .card-title { text-decoration: underline; text-underline-offse
   border: 1px solid var(--edge);
   border-radius: 8px;
   background: var(--white);
-  color: var(--navy);
+  color: var(--ink);
   font-weight: 700;
   white-space: nowrap;
 }
 .panel-close:hover {
-  border-color: var(--blue);
+  border-color: var(--link-ink);
   background: var(--tint);
-  color: var(--navy);
+  color: var(--ink);
   text-decoration: underline;
   text-underline-offset: 3px;
 }
@@ -503,7 +532,7 @@ button.card:hover .card-title { text-decoration: underline; text-underline-offse
   background: var(--paper);
 }
 
-.evidence h3 { color: var(--blue); font-size: .81rem; margin-bottom: 7px; }
+.evidence h3 { color: var(--link-ink); font-size: .81rem; margin-bottom: 7px; }
 .evidence p, .evidence blockquote { margin: 0; }
 .evidence .date { color: var(--muted); font-size: .83rem; }
 .evidence blockquote { margin-top: 9px; }
@@ -512,7 +541,7 @@ button.card:hover .card-title { text-decoration: underline; text-underline-offse
   position: relative;
   display: inline-block;
   margin-top: 9px;
-  color: var(--blue);
+  color: var(--link-ink);
   text-decoration: underline;
   text-underline-offset: 3px;
 }
@@ -520,7 +549,7 @@ button.card:hover .card-title { text-decoration: underline; text-underline-offse
 .reply.graduation { max-width: none; }
 .table-scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 6px; }
 .graduation table { width: 100%; min-width: 620px; border-collapse: collapse; font-size: .88rem; line-height: 1.5; }
-.graduation caption { padding: 10px 12px; text-align: left; font-weight: 700; color: var(--navy); }
+.graduation caption { padding: 10px 12px; text-align: left; font-weight: 700; color: var(--ink); }
 .graduation th, .graduation td {
   padding: 8px 12px;
   border-top: 1px solid var(--line);
@@ -537,7 +566,7 @@ button.card:hover .card-title { text-decoration: underline; text-underline-offse
 .graduation .source-link { margin-top: 3px; }
 .graduation .notice { margin: 8px 0 0; color: var(--muted); font-size: .8rem; }
 .biskit { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); font-size: .88rem; line-height: 1.5; }
-.biskit h3 { margin-bottom: 2px; color: var(--navy); font-size: 1rem; }
+.biskit h3 { margin-bottom: 2px; color: var(--ink); font-size: 1rem; }
 .biskit p { margin: 0; }
 .biskit .programs { display: grid; gap: 10px; margin: 10px 0 0; padding: 0; list-style: none; }
 .biskit .program {
@@ -564,14 +593,14 @@ button.card:hover .card-title { text-decoration: underline; text-underline-offse
   line-height: 1.55;
 }
 .poster-result.unconfirmed { border-inline-start-color: var(--warn-line); background: var(--warn-panel); }
-.poster-result h3 { margin-bottom: 4px; color: var(--navy); font-size: 1rem; }
+.poster-result h3 { margin-bottom: 4px; color: var(--ink); font-size: 1rem; }
 .poster-result p { margin: 0; }
 .poster-result .mismatch, .poster-result .state { margin-top: 5px; }
 .poster-result .source, .poster-result .mileage, .poster-result .hint { color: var(--muted); font-size: .84rem; }
 .poster-result .links { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; margin-block: 8px 6px; }
 .poster-result .links .source-link { margin-top: 0; }
 .question .attachment { display: block; font-size: .8rem; opacity: .85; }
-.text-answer h3 { margin-bottom: 4px; color: var(--blue); font-size: .81rem; }
+.text-answer h3 { margin-bottom: 4px; color: var(--link-ink); font-size: .81rem; }
 .text-answer p { margin: 0; white-space: pre-wrap; }
 .text-answer .sources { margin: 8px 0 0; padding: 0; list-style: none; font-size: .88rem; }
 .text-answer .hint { color: var(--muted); }
@@ -583,7 +612,7 @@ button.card:hover .card-title { text-decoration: underline; text-underline-offse
   font-size: .88rem;
   line-height: 1.5;
 }
-.reading h3 { margin-bottom: 4px; color: var(--navy); font-size: .88rem; }
+.reading h3 { margin-bottom: 4px; color: var(--ink); font-size: .88rem; }
 .reading p { margin: 0; }
 .reading .source { color: var(--muted); font-size: .8rem; }
 .reading .field { display: block; margin-top: 7px; }
@@ -617,7 +646,7 @@ button.card:hover .card-title { text-decoration: underline; text-underline-offse
   padding: 0;
   border: 0;
   background: transparent;
-  color: var(--blue);
+  color: var(--link-ink);
   text-decoration: underline;
   text-underline-offset: 3px;
 }
@@ -627,18 +656,18 @@ button.card:hover .card-title { text-decoration: underline; text-underline-offse
 .composer { border-top: 1px solid var(--line); padding-block: 15px 18px; }
 .composer-row { display: flex; gap: 9px; align-items: end; }
 .attach-row { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 10px; margin-top: 6px; }
-.attach-row label { font-size: .86rem; font-weight: 700; color: var(--navy); }
+.attach-row label { font-size: .86rem; font-weight: 700; color: var(--ink); }
 .attach-row input { flex: 1; min-width: 0; min-height: 44px; padding-block: 9px; font: inherit; font-size: .86rem; }
 .attach-clear {
   min-height: 44px;
   padding: 0 4px;
   border: 0;
   background: transparent;
-  color: var(--blue);
+  color: var(--link-ink);
   text-decoration: underline;
   text-underline-offset: 3px;
 }
-.composer .photo-note { color: var(--navy); font-size: .86rem; }
+.composer .photo-note { color: var(--ink); font-size: .86rem; }
 .composer .photo-note:empty { margin: 0; }
 textarea {
   width: 100%;
@@ -650,13 +679,13 @@ textarea {
   border: 1px solid var(--edge);
   border-radius: 8px;
   background: var(--white);
-  color: var(--navy);
+  color: var(--ink);
 }
 /* 입력 안내 글자색을 브라우저 기본값에 맡기지 않는다. 일부 브라우저는 기본으로 흐리게 하므로 opacity도 고정한다. */
 textarea::placeholder { color: var(--muted); opacity: 1; }
-textarea:hover { border-color: var(--blue); }
+textarea:hover { border-color: var(--link-ink); }
 .primary { background: var(--blue); color: var(--white); }
-.primary:not(:disabled):hover { border-color: var(--navy); background: var(--navy); color: var(--white); }
+.primary:not(:disabled):hover { border-color: var(--ink); background: var(--navy); color: var(--white); }
 .composer p { margin: 7px 0 0; color: var(--muted); font-size: .78rem; line-height: 1.5; }
 
 .site-footer { margin-block: 0 24px; text-align: center; }
@@ -734,46 +763,46 @@ body { background: var(--navy); isolation: isolate; }
 .intro-badge::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--yellow); }
 .login-intro h1 { margin: 18px 0; font-size: clamp(34px,4.6vw,58px); font-weight: 800; line-height: 1.22; letter-spacing: -.045em; word-break: keep-all; }
 .login-intro em { color: var(--yellow); font-style: normal; }
-.calligraphy-title { display: block; width: clamp(300px, 46vw, 620px); max-width: 100%; margin: 18px 0; }
-.calligraphy-title img { display: block; width: 100%; height: auto; }
-.calligraphy-fallback span { display: block; padding-left: .55em; }
-.calligraphy-title:not([hidden]) + .calligraphy-fallback { display: none; }
+.title-lettering { display: block; width: clamp(280px, 40vw, 507px); max-width: 100%; margin: 18px 0; }
+.title-lettering img { display: block; width: 100%; height: auto; }
+.title-fallback span { display: block; padding-left: 0; }
+.title-lettering:not([hidden]) + .title-fallback { display: none; }
 .intro-description { font-size: 17px; line-height: 1.7; color: var(--intro-ink); word-break: keep-all; }
-.login-card { position: relative; min-width: 0; margin-top: 61px; padding: 24px 32px; border-radius: 28px; background: var(--glass-card); border: 1px solid var(--glass-card-edge); backdrop-filter: blur(7px) saturate(1.25); box-shadow: 0 30px 80px var(--shadow-card); animation: login-rise .8s ease-out; }
+.login-card { position: relative; min-width: 0; margin-top: 61px; padding: 24px 32px; border-radius: 28px; color: var(--ink); background: linear-gradient(160deg, var(--glass-card), var(--card-end)); border: 1px solid var(--glass-card-edge); backdrop-filter: blur(1.5px) saturate(1.2); box-shadow: 0 30px 80px var(--shadow-card); animation: login-rise .8s ease-out; }
 @keyframes login-rise { from { opacity: 0; transform: translateY(28px); } to { opacity: 1; transform: translateY(0); } }
 .login-brand img { display: block; width: auto; height: 30px; max-width: 100%; }
 .login-card h2 { margin: 14px 0 7px; font-size: 22px; }
 .login-help { margin: 0 0 12px; color: var(--muted); font-size: .86rem; line-height: 1.5; }
 #login-form { display: grid; gap: 4px; }
 #login-form label { font-size: .85rem; font-weight: 700; }
-#login-form input { min-width: 0; width: 100%; height: 46px; padding: 0 12px; border: 1.5px solid var(--edge); border-radius: 10px; background: var(--white); color: var(--navy); font: inherit; }
-#login-form input:focus { border-color: var(--blue); outline: none; box-shadow: 0 0 0 4px var(--focus-wash); }
+#login-form input { min-width: 0; width: 100%; height: 46px; padding: 0 12px; border: 1.5px solid var(--input-edge); border-radius: 10px; background: var(--input-wash); color: var(--white); font: inherit; }
+#login-form input:focus { border-color: var(--link-ink); outline: none; box-shadow: 0 0 0 4px var(--focus-wash); }
 .login-safety { margin: 4px 0; padding: 8px 10px; border: 1px solid var(--safety-edge); border-radius: 10px; background: var(--safety-bg); color: var(--safety-ink); font-size: .76rem; line-height: 1.5; }
-.login-submit { width: 100%; min-height: 48px; border: 0; border-radius: 10px; background: linear-gradient(135deg,var(--blue),var(--button-end)); color: var(--white); font-weight: 700; box-shadow: 0 10px 24px var(--shadow-button); }
+.login-submit { width: 100%; min-height: 48px; border: 0; border-radius: 10px; background: linear-gradient(135deg,var(--control-start),var(--control-end)); color: var(--white); font-weight: 700; box-shadow: 0 10px 24px var(--shadow-button); }
 #login-error { min-height: 20px; margin: 0; color: var(--bad); font-size: .8rem; line-height: 1.5; }
 #demo-students { position: static; display: block; width: auto; max-height: none; overflow: visible; margin-top: 8px; padding: 12px 0 0; border: 0; border-top: 1px dashed var(--edge); border-radius: 0; background: transparent; box-shadow: none; }
 #demo-student-list { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 6px; }
-#demo-student-list button { min-width: 0; min-height: 56px; padding: 8px 5px; border: 1px solid var(--blue); border-radius: 8px; background: var(--glass-account); color: var(--navy); text-align: center; }
-#demo-student-list strong { display: block; color: var(--blue); font-family: ui-monospace, Consolas, monospace; font-size: .8rem; }
+#demo-student-list button { min-width: 0; min-height: 56px; padding: 8px 5px; border: 1px solid var(--blue); border-radius: 8px; background: var(--glass-account); color: var(--account-copy); text-align: center; }
+#demo-student-list strong { display: block; color: var(--link-ink); font-family: ui-monospace, Consolas, monospace; font-size: .8rem; }
 #demo-student-list button span { display: block; margin-top: 5px; font-size: .67rem; line-height: 1.4; }
-.browse-main { display: block; min-height: 44px; margin: 10px auto -8px; padding: 8px; border: 0; background: transparent; color: var(--navy); text-decoration: underline; text-underline-offset: 4px; }
+.browse-main { display: block; min-height: 44px; margin: 10px auto -8px; padding: 8px; border: 0; background: transparent; color: var(--ink); text-decoration: underline; text-underline-offset: 4px; }
 .login-pet { position: absolute; right: -30px; top: -92px; display: flex; align-items: center; gap: 10px; }
-#login-pet-line { max-width: 225px; margin: 0; padding: 10px 14px; border: 1px solid var(--edge); border-radius: 14px; background: var(--white); color: var(--navy); font-size: .82rem; line-height: 1.5; }
+#login-pet-line { max-width: 225px; margin: 0; padding: 10px 14px; border: 1px solid var(--edge); border-radius: 14px; background: var(--glass-dense); color: var(--ink); font-size: .82rem; line-height: 1.5; }
 .login-techmo { display: block; width: 112px; flex: none; animation: login-float 3.6s ease-in-out infinite; }
 .login-techmo img { display: none; }
 .login-pet[data-pose="quiet"] .pet-frame { background-position: 25% 0; }
 .login-pet[data-pose="guide"] .pet-frame { background-position: 50% 0; }
 .login-pet[data-pose="celebrate"] .pet-frame { background-position: 75% 0; }
 @keyframes login-float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-8px); } }
-.masthead { background: var(--glass-band); border-bottom-color: var(--glass-band-edge); backdrop-filter: blur(7px) saturate(1.25); }
+.masthead { color: var(--ink); background: linear-gradient(180deg, var(--glass-band), var(--band-end)); border-bottom-color: var(--glass-band-edge); backdrop-filter: blur(7px) saturate(1.25); }
 .brand-logo img { height: 30px; }
 .main-welcome { width: min(1120px,calc(100% - 48px)); margin: 0 auto; min-height: 300px; padding: 40px 0 120px; color: var(--white); text-shadow: 0 2px 18px var(--shadow-text); }
 .main-welcome h2 { margin-bottom: 12px; font-size: clamp(30px,4vw,50px); font-weight: 800; line-height: 1.25; }
 .main-welcome p { font-size: 17px; line-height: 1.6; }
-.layout { width: 100%; margin: -96px auto 0; padding: 0 max(24px,calc((100% - 1120px)/2)) 40px; grid-template-columns: minmax(0,1fr); gap: 0; border-radius: 32px 32px 0 0; background: var(--glass-panel); border: 1px solid var(--glass-panel-edge); border-bottom: 0; backdrop-filter: blur(7px) saturate(1.2); box-shadow: 0 -20px 60px var(--shadow-panel); }
+.layout { width: 100%; margin: -96px auto 0; padding: 0 max(24px,calc((100% - 1120px)/2)) 40px; grid-template-columns: minmax(0,1fr); gap: 0; border-radius: 32px 32px 0 0; background: linear-gradient(180deg, var(--glass-panel), var(--panel-end)); border: 1px solid var(--glass-panel-edge); border-bottom: 0; backdrop-filter: none; box-shadow: 0 -20px 60px var(--shadow-panel); }
 .topics { order: 2; margin-top: 24px; }
 .chat, .chat:has(> .transcript > .empty) { height: auto; min-height: 380px; border: 0; border-radius: 0; background: transparent; }
-.composer { order: -1; margin-top: -62px; padding: 20px; border: 1.5px solid var(--edge); border-radius: 18px; background: var(--glass-composer); box-shadow: 0 16px 40px var(--shadow-input); }
+.composer { order: -1; margin-top: -62px; padding: 20px; border: 1.5px solid var(--composer-edge); border-radius: 18px; background: var(--glass-composer); color: var(--composer-ink); box-shadow: inset 0 0 0 1px var(--blue), 0 16px 40px var(--shadow-input); }
 .composer textarea { border-width: 1.5px; }
 .primary { background: linear-gradient(135deg,var(--blue),var(--button-end)); }
 .primary:not(:disabled):hover { background: linear-gradient(135deg,var(--blue),var(--button-end)); }
@@ -781,9 +810,9 @@ body { background: var(--navy); isolation: isolate; }
 .cards { gap: 16px; }
 .card { border: 1px solid var(--glass-feature-edge); border-radius: 20px; padding: 22px; min-height: 140px; background: var(--glass-feature); }
 .feature-panel { border: 1px solid var(--glass-feature-edge); background: var(--glass-feature); }
-.reply { padding: 18px; border-radius: 18px; background: var(--glass-dense); color: var(--navy); }
+.reply { padding: 18px; border-radius: 18px; background: var(--glass-dense); color: var(--ink); }
 .graduation table { background: var(--glass-dense); }
-button.card:hover { border-color: var(--sky); background: var(--glass-feature); animation: card-lift .18s ease-out forwards; }
+button.card:hover { border-color: var(--focus-ink); background: var(--feature-hover); animation: card-lift .18s ease-out forwards; }
 @keyframes card-lift { from { transform: translateY(0); } to { transform: translateY(-4px); } }
 .site-footer { width: 100%; margin: 0; padding: 12px 24px 30px; background: var(--paper); }
 @media (max-width: 880px) {
@@ -809,5 +838,62 @@ button.card:hover { border-color: var(--sky); background: var(--glass-feature); 
   .campus-caption { left: 16px; bottom: 14px; }
 }
 @media (max-width: 390px) {
-  .calligraphy-title { width: 86vw; }
+  .title-lettering { width: 78vw; }
+}
+
+/* 남색 유리의 글자와 밝은 질문창은 각각의 바탕에 맞춰 대비를 유지한다. */
+.login-help { color: var(--help-ink); }
+#login-form label { color: var(--label-ink); }
+#login-form input::placeholder { color: var(--input-placeholder); opacity: 1; }
+.login-submit, .primary { border: 1px solid var(--control-edge); box-shadow: 0 10px 28px var(--shadow-button); color: var(--white); }
+.login-safety::before { content: "!"; display: inline-grid; place-items: center; width: 18px; height: 18px; margin-right: 7px; border-radius: 50%; background: var(--yellow); color: var(--safety-symbol); font-weight: 800; }
+#demo-student-list button { border-color: var(--glass-feature-edge); }
+#demo-student-list strong { color: var(--link-ink); }
+#demo-student-list button:hover { background: var(--account-hover); border-color: var(--focus-ink); }
+.browse-main { color: var(--browse-ink); }
+.reset, .login, .check, .panel-close { background: var(--input-wash); border-color: var(--input-edge); color: var(--white); }
+.reset:not(:disabled):hover, .check:not(:disabled):hover, .panel-close:hover { background: var(--feature-hover); border-color: var(--focus-ink); color: var(--white); }
+.cta, .cta:hover { background: linear-gradient(135deg,var(--control-start),var(--control-end)); border-color: var(--control-edge); color: var(--white); }
+.card-title, .panel-title { color: var(--card-ink); }
+.card-text, .panel-text { color: var(--card-copy); }
+.feature-panel, .card { color: var(--ink); }
+:focus-visible { outline-color: var(--focus-ink); }
+.composer :focus-visible { outline-color: var(--blue); }
+.composer p, .composer textarea::placeholder { color: var(--composer-muted); }
+.composer textarea, .composer .photo-note, .attach-row label, .attach-row input { color: var(--composer-ink); }
+.composer textarea { background: var(--white); color-scheme: light; }
+.attach-clear { color: var(--blue); }
+.reply, .question, .evidence, .biskit .program, .poster-result, .reading, .fallback, .pet-says, .pet-says::after { background: var(--glass-dense); color: var(--ink); border-color: var(--line); }
+.evidence h3, .text-answer h3, .evidence .source-link, .graduation .source-link, .poster-result .source-link { color: var(--link-ink); }
+.graduation caption, .biskit h3, .poster-result h3, .reading h3 { color: var(--ink); }
+.graduation th, .graduation td { border-color: var(--line); }
+.graduation thead th, .graduation .item th, .graduation .item td { background: var(--glass-dense); color: var(--ink); }
+.pet-dock { background: transparent; }
+.pet-dots span { background: var(--link-ink); }
+.demo-account > #demo-notice { background: var(--glass-dense); }
+.site-footer { color: var(--ink); background: var(--glass-dense); }
+.brand-logo, .login-brand { width: fit-content; padding: 7px 12px; border-radius: 12px; background: var(--glass-composer); }
+.drawing-dimension { width: fit-content; max-width: 100%; margin-bottom: 12px; padding-bottom: 10px; border-bottom: 1px solid var(--drawing-line); color: var(--drawing-ink); font-family: ui-monospace, Consolas, monospace; font-size: 11px; letter-spacing: .22em; }
+.title-ticks { width: clamp(280px, 40vw, 507px); max-width: 100%; height: 13px; margin: 14px 0 20px; border-bottom: 1px solid var(--drawing-line); background: repeating-linear-gradient(90deg,var(--drawing-line) 0 1px,transparent 1px 24px); }
+.card-heading, .panel-title { display: flex; align-items: center; gap: 12px; }
+.feature-badge { display: inline-grid; place-items: center; flex: none; width: 42px; height: 42px; border-radius: 6px 50% 50% 50%; background: radial-gradient(120% 120% at 68% 70%,var(--icon-bright) 0%,var(--sky) 38%,var(--blue) 100%); box-shadow: 0 6px 14px var(--icon-shadow); }
+.feature-badge svg { width: 23px; height: 23px; fill: none; stroke: var(--white); stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.feature-badge .a { stroke: var(--yellow); }
+.feature-badge .f { fill: var(--yellow); }
+.source-link { color: var(--link-ink); }
+.reading textarea { background: var(--glass-dense); color: var(--ink); }
+.reading textarea::placeholder { color: var(--muted); }
+
+.masthead { color: var(--ink); background: linear-gradient(180deg, var(--glass-band), var(--band-end)); border-bottom-color: var(--glass-band-edge); backdrop-filter: blur(1.5px) saturate(1.2); }
+.layout { background: linear-gradient(180deg, var(--glass-panel), var(--panel-end)); backdrop-filter: none; }
+.primary, .primary:not(:disabled):hover { background: linear-gradient(135deg,var(--control-start),var(--control-end)); border-color: var(--control-edge); }
+#login-form input:focus { border-color: var(--focus-ink); background: var(--input-focus); outline: none; box-shadow: 0 0 0 4px var(--focus-wash); }
+@media (max-width: 680px) {
+  .brand { flex: 0 0 162px; }
+  .masthead-actions { flex: 1 1 0; min-width: 0; }
+  .demo-account { flex: 1 1 0; min-width: 0; }
+  #demo-identity { flex-wrap: wrap; gap: 0 4px; }
+  .demo-person { flex: 1 1 100%; }
+  #demo-identity .hint { white-space: normal; line-height: 1.25; overflow-wrap: anywhere; }
+  #demo-label { font-size: .75rem; }
 }

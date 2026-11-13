@@ -80,7 +80,7 @@ test("왼쪽 칸의 비서와 「테크모에게 묻기」 글자 버튼이 없�
   // 카드는 패널을 여는 버튼이 됐다(#67). 기능은 패널 안의 시작 버튼이 부른다.
   assert.match(
     landing,
-    /<button type="button" class="card" data-feature="ask" aria-controls="panel-ask" aria-expanded="false">\s*<span class="card-title">규정 질문<\/span>/,
+    /<button type="button" class="card" data-feature="ask" aria-controls="panel-ask" aria-expanded="false">\s*<span class="card-heading"><span class="feature-badge" aria-hidden="true">[\s\S]*?<\/svg><\/span>\s*<span class="card-title">규정 질문<\/span>/,
   );
   assert.match(landing, /<button type="button" class="cta" data-action="ask">질문 입력하기<\/button>/);
 });
