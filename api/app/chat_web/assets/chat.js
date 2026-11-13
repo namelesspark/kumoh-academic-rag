@@ -126,7 +126,7 @@ function selectStudent(student, { restored = false } = {}) {
   closeStudents();
   if (!restored) {
     demoLogout.focus();
-    celebrate("idle", `${student.label} 이수 내역으로 들어왔어요`);
+    if (!busy) celebrate("idle", `${student.label} 이수 내역으로 들어왔어요`);
   }
 }
 
@@ -136,11 +136,15 @@ function leaveStudent() {
   rememberStudent(null);
   graduationTurn?.remove();
   graduationTurn = null;
+  if (!transcript.children.length) {
+    changeFeature(null, { animate: false, focus: false });
+    transcript.append(empty);
+  }
   demoIdentity.hidden = true;
   demoLogin.hidden = false;
   demoLabel.textContent = "";
   closeStudents();
-  showAssistant("idle");
+  if (!busy) showAssistant("idle");
 }
 
 async function loadStudents() {
@@ -218,8 +222,7 @@ async function restoreStudent() {
     else rememberStudent(null);
   } catch {
     if (generation === studentGeneration) {
-      rememberStudent(null);
-      demoNotice.textContent = "가상 학생을 다시 골라 주세요.";
+      demoNotice.textContent = "가상 학생을 복원하지 못했어요. 로그인 버튼을 눌러 다시 골라 주세요.";
     }
   }
 }

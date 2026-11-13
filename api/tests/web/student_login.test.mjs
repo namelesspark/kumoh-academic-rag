@@ -146,6 +146,11 @@ async function select(page, index = 0) {
   await flush();
 }
 
+function ask(page) {
+  page.get("#question").value = "가상 질문";
+  page.get("#composer").listeners.get("submit")({ preventDefault() {} });
+}
+
 test("로그인 목록에 가상 표기와 상황이 보이고 개인정보 입력란을 만들지 않는다", async () => {
   assert.doesNotMatch(html + script, /type\s*=\s*["']password["']/i);
   assert.doesNotMatch(html, /<input[^>]*(?:학번|계정|password|student[-_]?number)/i);
@@ -264,6 +269,7 @@ test("학생별 요청은 한 번만 보내고 로그아웃하면 결과를 지�
   assert.match(text(page.tables()[0]), /가상 학생 D03/);
   click(page.get("#demo-logout"));
   assert.equal(page.tables().length, 0);
+  assert.deepEqual(page.get("#transcript").children, [page.get("#empty")]);
 });
 
 test("응답 학생이 다르면 결과를 숨기고 재시도하며 404면 선택과 저장 ID를 지운다", async () => {
@@ -284,6 +290,45 @@ test("응답 학생이 다르면 결과를 숨기고 재시도하며 404면 선�
   assert.equal(missing.get("#demo-identity").hidden, true);
   assert.equal(missing.get("#demo-students").hidden, false);
   assert.match(text(missing.get("#demo-notice")), /골라 주세요/);
+  assert.deepEqual(missing.get("#transcript").children, [missing.get("#empty")]);
+});
+
+test("학생 결과를 지워도 다른 질문은 남기고 첫 화면을 덧붙이지 않는다", async () => {
+  for (const missing of [false, true]) {
+    const page = loadPage({ result: path => path === "/api/v1/chat"
+      ? ok({ session_id: "fictional-session", answered: false })
+      : missing ? { ok: false, status: 404 } : ok(graduation()) });
+    await select(page);
+    ask(page);
+    await flush();
+    const questionTurn = page.get("#transcript").children[0];
+    click(page.buttons[0]);
+    await flush();
+    if (!missing) click(page.get("#demo-logout"));
+    assert.deepEqual(page.get("#transcript").children, [questionTurn]);
+    assert.match(text(questionTurn), /가상 질문/);
+    assert.equal(page.get("#empty").parent, null);
+  }
+});
+
+test("일반 질문을 기다리는 중 학생을 고르거나 나가도 펫의 대기 상태를 유지한다", async () => {
+  for (const leaving of [false, true]) {
+    let finish;
+    const page = loadPage({ result: () => new Promise(resolve => { finish = resolve; }) });
+    if (leaving) await select(page);
+    ask(page);
+    const dock = page.get("#pet-dock");
+    const waitingLine = text(page.get("#pet-line"));
+    assert.equal(dock.getAttribute("data-state"), "searching");
+    if (leaving) click(page.get("#demo-logout"));
+    else await select(page);
+    assert.equal(dock.getAttribute("data-state"), "searching");
+    assert.equal(text(page.get("#pet-line")), waitingLine);
+    assert.equal(page.timers.size, 0);
+    finish(ok({ session_id: "fictional-session", answered: false }));
+    await flush();
+    assert.equal(dock.getAttribute("data-state"), "hold");
+  }
 });
 
 test("나간 뒤 늦게 온 응답과 예전 재시도는 이전 학생 결과를 만들지 않는다", async () => {
@@ -335,4 +380,20 @@ test("탭 저장소가 막혀도 선택한 학생으로 조회하고 나갈 수 
   click(page.get("#demo-logout"));
   assert.equal(page.get("#demo-identity").hidden, true);
   assert.equal(page.tables().length, 0);
+});
+
+test("복원할 목록을 일시적으로 받지 못해도 저장 ID를 유지해 다음 새로고침에서 복원한다", async () => {
+  for (const failure of ["network", "server"]) {
+    const page = loadPage({ saved: "demo-d04", listResult: () => {
+      if (failure === "network") throw new Error("가상 연결 실패");
+      return { ok: false, status: 503 };
+    } });
+    await flush();
+    assert.deepEqual([...page.storage], [[storageKey, "demo-d04"]]);
+    assert.equal(page.get("#demo-identity").hidden, true);
+    const refreshed = loadPage({ saved: page.storage.get(storageKey) });
+    await flush();
+    assert.equal(text(refreshed.get("#demo-label")), "가상 학생 D04");
+    assert.equal(refreshed.get("#demo-identity").hidden, false);
+  }
 });
