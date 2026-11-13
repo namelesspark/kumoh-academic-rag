@@ -1,7 +1,7 @@
-// 테크모 비서 화면 테스트 (#61). 브라우저와 서버를 띄우지 않고 실제 index.html·chat.css·chat.js 파일을 읽어,
+// 테크모 펫 화면 테스트 (#64, 상태 규칙은 #61). 브라우저와 서버를 띄우지 않고 실제 index.html·chat.css·chat.js 파일을 읽어,
 // 가짜 화면 객체·가짜 서버 요청 함수(fetch)·가짜 타이머로 chat.js를 그대로 실행한다.
-// 자세 그림 파일은 쓰지 않는다. 그림이 없어도 통과해야 하기 때문이다. 질문·응답·사진 바이트는 모두 가상 값이다.
-// 1280px·390px 배치와 실제 움직임은 브라우저에서 따로 확인한다.
+// 스프라이트 시트(여러 자세를 한 장에 나란히 붙인 그림) 파일은 쓰지 않는다. 그림이 없어도 통과해야 하기 때문이다.
+// 질문·응답·사진 바이트는 모두 가상 값이다. 1280px·390px 배치와 실제 움직임·초점·스크롤은 브라우저에서 따로 확인한다.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { setImmediate } from "node:timers/promises";
@@ -20,12 +20,40 @@ const found = ["celebrate", "찾았어요! 함께 확인해 봐요", "점 숨김
 const answer = ["guide", "근거와 함께 안내해 드릴게요", "점 숨김"];
 const hold = ["quiet", "확인할 근거가 더 필요해요", "점 숨김"];
 const failed = ["guide", "잠시 문제가 생겼어요. 다시 시도해 주세요", "점 숨김"];
-const poseNames = ["quiet", "guide", "celebrate"];
+// 스프라이트 시트의 칸 순서와 그 칸을 고르는 가로 위치. 이슈 #64의 「두 작업이 지키는 약속」과 같다.
+const frames = [["basic", "0"], ["quiet", "25%"], ["guide", "50%"], ["celebrate", "75%"], ["concert", "100%"]];
+const spriteUrl = "/chat-assets/techmo-sprite.png";
 
 // --- index.html과 chat.css 읽기 --------------------------------------------------------------
 
 const landing = /<div id="empty"[\s\S]*?(?=<noscript>)/.exec(html)?.[0] ?? "";
-const assistantMarkup = /<aside class="assistant"[\s\S]*?<\/aside>/.exec(html)?.[0] ?? "";
+const dockMarkup = /<div class="pet-dock"[\s\S]*?<\/div>/.exec(html)?.[0] ?? "";
+const petMarkup = /<button[^>]*\bid="pet"[\s\S]*?<\/button>/.exec(dockMarkup)?.[0] ?? "";
+
+// "머리말 { ... }" 묶음의 안쪽 글자를 돌려준다. 중괄호 짝을 세어 @media와 @keyframes 안의 규칙까지 담는다.
+function block(header) {
+  const start = styles.indexOf(header);
+  assert.notEqual(start, -1, header);
+  const open = styles.indexOf("{", start);
+  let depth = 0;
+  for (let index = open; index < styles.length; index += 1) {
+    if (styles[index] === "{") depth += 1;
+    else if (styles[index] === "}") depth -= 1;
+    if (depth === 0) return styles.slice(open + 1, index).replace(/\s+/g, " ").trim();
+  }
+  throw new Error(`${header}: 닫는 중괄호가 없다`);
+}
+
+// [선택자, 선언 글자] 목록. @media 안의 규칙도 같은 목록에 들어온다.
+const rules = [...styles.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map(([, selector, body]) => [
+  selector.replace(/\s+/g, " ").trim(),
+  body.replace(/\s+/g, " ").trim(),
+]);
+// 선택자가 정확히 같은 규칙 가운데 파일에서 가장 먼저 나오는 것의 선언. 화면 너비 조건 밖의 기본 규칙이 먼저 온다.
+const first = selector => rules.find(([name]) => name === selector)?.[1] ?? "";
+const wide = block("@media (min-width: 961px)");
+const narrow = block("@media (max-width: 680px)");
+const calm = block("@media (prefers-reduced-motion: reduce)");
 
 test("예전 안내 상자가 없고, 채팅 영역 제목은 숨김 제목으로 남는다", () => {
   for (const gone of ["chat-header", "graduation-check", "chat-title", "가상 학생 졸업 체크"]) {
@@ -40,64 +68,121 @@ test("예전 안내 상자가 없고, 채팅 영역 제목은 숨김 제목으�
   assert.match(landing, /<button type="button" class="cta" data-action="graduation">내 졸업 체크 보기<\/button>/);
 });
 
-test("비서는 채팅보다 앞, 첫 화면(#empty) 밖에 있고 평소 상태로 시작한다", () => {
-  assert.notEqual(assistantMarkup, "");
-  assert.equal(html.split('id="assistant"').length, 2);
-  // 문서 순서가 채팅보다 앞이라 좁은 화면에서 채팅 위에 온다. #empty 밖이라 첫 질문 뒤에도 남는다.
-  assert.ok(html.indexOf('id="assistant"') < html.indexOf('<section class="chat"'));
-  assert.equal(landing.includes("assistant"), false);
-
-  assert.match(assistantMarkup, /<aside class="assistant" id="assistant" data-pose="guide" aria-label="테크모 비서">/);
-  assert.match(assistantMarkup, new RegExp(`<span id="assistant-line">${idle[1]}</span>`));
-  assert.match(
-    assistantMarkup,
-    /<span class="assistant-dots" id="assistant-dots" aria-hidden="true" hidden><span><\/span><span><\/span><span><\/span><\/span>/,
-  );
-  // 진행 알림은 #status가 읽어 준다. 비서까지 알림 영역이면 화면 낭독기가 같은 일을 두 번 읽는다.
-  assert.doesNotMatch(assistantMarkup, /role="status"|aria-live/);
-});
-
-test("자세 그림 세 장을 약속한 주소와 크기로 겹쳐 두고, 보이는 한 장은 data-pose로만 고른다", () => {
-  const sizes = { quiet: [140, 183], guide: [140, 181], celebrate: [159, 145] };
-  for (const name of poseNames) {
-    const [width, height] = sizes[name];
-    assert.ok(
-      assistantMarkup.includes(
-        `<span class="pose pose-${name}" data-brand-slot hidden><img src="/chat-assets/techmo-${name}.png" alt="" width="${width}" height="${height}"></span>`,
-      ),
-      name,
-    );
-    assert.ok(styles.includes(`.assistant[data-pose="${name}"] .pose-${name}`), name);
+test("왼쪽 칸의 비서와 「테크모에게 묻기」 글자 버튼이 없고, 「규정 질문」 카드는 남는다", () => {
+  for (const gone of ["assistant", "테크모 비서", 'class="side"', "cta secondary", "techmo-quiet", "techmo-guide", "techmo-celebrate"]) {
+    assert.equal(html.includes(gone), false, gone);
   }
-  assert.match(styles, /\.pose\s*\{[^}]*position:\s*absolute;[^}]*visibility:\s*hidden;/);
-  // 그림 주소를 바꿔 끼우는 코드는 없다.
-  for (const blocked of [".src =", "techmo-quiet", "techmo-guide", "techmo-celebrate"]) {
-    assert.equal(script.includes(blocked), false, blocked);
-  }
+  for (const gone of [".assistant", ".side", ".pose", "pose-swap"]) assert.equal(styles.includes(gone), false, gone);
+  // 예시 질문은 다시 본문 격자의 첫 칸에 바로 놓인다.
+  assert.match(html, /<main class="layout">\s*<details class="topics" id="topics" open>/);
+
+  assert.equal(landing.includes("테크모에게 묻기"), false);
+  assert.match(landing, /<button type="button" class="card" data-action="ask">\s*<span class="card-title">규정 질문<\/span>/);
 });
 
-test("그림 자리 크기를 고정하고, 좁은 화면에서는 그림과 말을 한 줄로 낮게 놓는다", () => {
-  const [wide, narrow] = styles.split("@media (max-width: 680px)");
-  assert.notEqual(narrow, undefined);
-  assert.match(wide, /\.assistant-stage\s*\{[^}]*width:\s*160px;\s*height:\s*184px;/);
-  assert.match(wide, /\.assistant\s*\{[^}]*flex-direction:\s*column;/);
-  assert.match(narrow, /\.assistant-stage\s*\{\s*width:\s*48px;\s*height:\s*56px;/);
-  assert.match(narrow, /\.assistant\s*\{[^}]*flex-direction:\s*row;/);
-});
+test("펫 줄은 입력창 바로 앞, 첫 화면(#empty) 밖에 있고 평소 상태로 시작한다", () => {
+  assert.notEqual(dockMarkup, "");
+  assert.equal(html.split('id="pet-dock"').length, 2);
+  // 대화 내용 뒤, 입력창 앞이다. 좁은 화면에서 입력창 위의 낮은 줄이 되고, #empty 밖이라 첫 질문 뒤에도 남는다.
+  assert.ok(html.indexOf('id="transcript"') < html.indexOf('id="pet-dock"'));
+  assert.match(html, /<\/button>\s*<\/div>\s*<form id="composer"/);
+  assert.equal(landing.includes("pet"), false);
 
-test("움직임은 자세 전환과 대기 점 두 곳뿐이고, 움직임 줄이기 설정에서는 둘 다 끈다", () => {
-  const animations = [...styles.matchAll(/animation:\s*([^;]+);/g)].map(match => match[1].trim());
-  assert.equal(animations.length, 3);
-  assert.match(animations[0], /^pose-swap /);
-  assert.match(animations[1], /^dot-hop .* infinite$/);
-  assert.equal(animations[2], "none !important");
-
+  assert.match(dockMarkup, /^<div class="pet-dock" id="pet-dock" data-pose="guide" data-state="idle">/);
+  assert.match(dockMarkup, new RegExp(`<span id="pet-line">${idle[1]}</span>`));
   assert.match(
-    styles,
-    /@media \(prefers-reduced-motion: reduce\)\s*\{\s*\.pose, \.assistant-dots span\s*\{\s*animation:\s*none\s*!important;\s*\}\s*\}/,
+    dockMarkup,
+    /<span class="pet-dots" id="pet-dots" aria-hidden="true" hidden><span><\/span><span><\/span><span><\/span><\/span>/,
   );
-  // 줄었다 커지는 전환: 원래 크기에서 줄었다가 원래 크기로 돌아온다.
-  assert.match(styles, /@keyframes pose-swap\s*\{\s*0%\s*\{\s*transform:\s*scale\(1\);\s*\}\s*40%\s*\{\s*transform:\s*scale\(\.\d+\);\s*\}\s*100%\s*\{\s*transform:\s*scale\(1\);\s*\}\s*\}/);
+  // 진행 알림은 #status가 읽어 준다. 말풍선까지 알림 영역이면 화면 낭독기가 같은 일을 두 번 읽는다.
+  assert.doesNotMatch(dockMarkup, /role="status"|aria-live/);
+});
+
+test("펫은 이름이 「테크모에게 묻기」인 버튼이고, 요청 중에 잠기는 표시(data-action)가 없다", () => {
+  const [opening] = /^<button[^>]*>/.exec(petMarkup) ?? [""];
+  assert.equal(opening, '<button type="button" class="pet" id="pet" aria-label="테크모에게 묻기" data-brand-slot hidden>');
+  assert.equal(html.split('id="pet"').length, 2);
+  // 스프라이트 시트가 받아졌는지 보는 그림이 버튼 바로 안에 있다. 버튼은 숨긴 채 시작한다.
+  assert.ok(petMarkup.slice(opening.length).trimStart().startsWith(`<img src="${spriteUrl}" alt="" width="960" height="192">`));
+  // 떠 있기·튀기·그림 칸은 서로 다른 요소다.
+  assert.ok(petMarkup.includes('<span class="pet-float"><span class="pet-hop"><span class="pet-frame"></span></span></span>'));
+  // 화면 보안 정책이 막는 style 속성과 스크립트의 그림 주소 교체는 쓰지 않는다.
+  assert.doesNotMatch(html, /\sstyle=/);
+  for (const blocked of [".src =", "techmo-", ".style"]) assert.equal(script.includes(blocked), false, blocked);
+});
+
+test("그림 칸은 스프라이트 한 장의 배경 위치로만 고른다: 0·25·50·75·100%", () => {
+  assert.equal(styles.split(spriteUrl).length, 2);
+  assert.ok(first(".pet-frame").includes(`background: url("${spriteUrl}") 50% 0 / 500% 100% no-repeat;`));
+  assert.match(first(".pet-frame"), /width: 100%; aspect-ratio: 1;/);
+  for (const [name, x] of frames) {
+    assert.equal(first(`.pet-dock[data-pose="${name}"] .pet-frame`), `background-position: ${x} 0;`, name);
+  }
+  // 로드 확인용 그림은 화면에 그리지 않는다.
+  assert.equal(first(".pet img"), "display: none;");
+});
+
+test("기본 배치는 입력창 앞에 붙는 낮은 줄이고, 넓은 화면에서만 오른쪽 아래에 고정하며 그만큼 본문 칸을 비운다", () => {
+  // 기본: 줄이 자리를 차지하므로 입력창을 덮지 않고, 입력창이 화면 밖이면 화면 아래에 붙는다.
+  assert.match(first(".pet-dock"), /^position: sticky; bottom: 0;/);
+  assert.match(first(".pet"), /^flex: none; width: 56px;/);
+  assert.match(first(".pet-says"), /flex: 1; min-width: 0;/);
+
+  // 넓은 화면: 본문 격자의 셋째 칸(168px)을 비우고, 같은 너비의 펫을 본문 오른쪽 끝에 맞춰 고정한다.
+  assert.ok(wide.includes(".layout { grid-template-columns: 212px minmax(0, 1fr) 168px; }"));
+  assert.match(
+    wide,
+    /\.pet-dock \{ position: fixed; right: max\(24px, calc\(\(100% - 1120px\) \/ 2\)\); bottom: 24px;[^}]*\bwidth: 168px;/,
+  );
+  assert.ok(wide.includes(".pet { width: 128px; }"));
+
+  // 좁은 화면: 배치 방식은 기본 그대로 두고 크기만 줄인다. 대화 영역 높이는 펫 줄을 뺀 예전 값으로 돌아온다.
+  assert.doesNotMatch(narrow, /\.pet-dock \{[^}]*position/);
+  assert.ok(narrow.includes(".pet { width: 48px; }"));
+  assert.ok(narrow.includes(".chat { height: calc(100dvh - 180px); min-height: 350px; }"));
+});
+
+test("움직임 네 가지는 서로 다른 요소·속성에 걸고, 움직임 줄이기 설정에서는 모두 끈다", () => {
+  const animated = rules
+    .map(([selector, body]) => [selector, /(?:^|; )animation: ([^;]+);/.exec(body)?.[1]])
+    .filter(([, value]) => value !== undefined);
+  assert.deepEqual(animated, [
+    [".pet-dots span", "dot-hop 1s ease-in-out infinite"],
+    [".pet-float", "pet-float 1.8s ease-in-out infinite alternate"],
+    ['.pet-dock[data-pose="quiet"] .pet-hop', "pet-hop-quiet .4s ease-out"],
+    ['.pet-dock[data-pose="guide"] .pet-hop', "pet-hop-guide .4s ease-out"],
+    ['.pet-dock[data-pose="celebrate"] .pet-hop', "pet-hop-celebrate .4s ease-out"],
+    ['.pet-dock[data-state="idle"] .pet-frame, .pet-dock[data-state="answer"] .pet-frame', "pet-rest 24s step-end infinite"],
+    [".pet-float, .pet-hop, .pet-frame, .pet-dots span", "none !important"],
+  ]);
+  assert.equal(calm, ".pet-float, .pet-hop, .pet-frame, .pet-dots span { animation: none !important; }");
+
+  // 떠 있기: 제자리에서 조금 올라갔다 내려온다.
+  assert.equal(block("@keyframes pet-float"), "from { transform: translateY(0); } to { transform: translateY(-5%); }");
+  // 눌렸다 튀기: 자세마다 이름만 다르고 내용은 같다. 이름이 같으면 자세가 바뀌어도 다시 돌지 않는다.
+  const hop = block("@keyframes pet-hop-quiet");
+  assert.match(hop, /^0% \{ transform: scale\(1, 1\); \} 30% \{ transform: scale\(1\.\d+, \.\d+\); \} .*100% \{ transform: scale\(1, 1\); \}$/);
+  assert.equal(block("@keyframes pet-hop-guide"), hop);
+  assert.equal(block("@keyframes pet-hop-celebrate"), hop);
+
+  // 쉬는 자세: 안내 칸에서 시작해 음악회 칸과 기본형 칸을 잠깐 보이고 안내 칸으로 끝난다. 배경 위치만 바꾼다.
+  const rest = block("@keyframes pet-rest");
+  assert.deepEqual(
+    [...rest.matchAll(/background-position: ([^;]+);/g)].map(match => match[1]),
+    ["50% 0", "100% 0", "50% 0", "0 0", "50% 0"],
+  );
+  assert.equal(rest.includes("transform"), false);
+  assert.ok(rest.startsWith("0%, 44% {"));
+});
+
+test("쉬는 자세와 부드러운 이동에 스크립트 타이머나 문서 전체 스크롤 설정을 쓰지 않는다", () => {
+  // 타이머는 축하 뒤 전환 하나뿐이다. 쉬는 자세는 chat.css의 움직임 규칙이 맡는다.
+  assert.equal(script.split("setTimeout(").length, 2);
+  assert.equal(script.includes("setInterval"), false);
+  // 부드러운 이동은 펫을 누를 때만 고르고, 움직임 줄이기 설정을 그때 읽는다.
+  // 대화 칸의 overscroll-behavior는 다른 속성이라 세지 않는다.
+  assert.doesNotMatch(styles, /(?<!over)scroll-behavior/);
+  assert.equal(script.split('"(prefers-reduced-motion: reduce)"').length, 2);
 });
 
 // --- chat.js 실행 ----------------------------------------------------------------------------
@@ -113,6 +198,9 @@ class FakeElement {
   parent = null;
   hidden = false;
   image = null;
+  // 초점과 화면 이동을 부를 때 받은 선택 값을 차례로 적어 둔다.
+  focuses = [];
+  scrolls = [];
 
   constructor(tagName) {
     this.tagName = tagName;
@@ -168,9 +256,13 @@ class FakeElement {
     return selector === "img" ? this.image : null;
   }
 
-  scrollIntoView() {}
+  scrollIntoView(options) {
+    this.scrolls.push(options);
+  }
 
-  focus() {}
+  focus(options) {
+    this.focuses.push(options);
+  }
 
   click() {}
 }
@@ -218,7 +310,9 @@ const holdAnswer = { kind: "hold", answer: null, sources: [], event: null, hold_
 
 // routes는 주소별 응답이다. 값이 배열이면 부를 때마다 앞에서부터 하나씩 꺼내 쓴다.
 // timers를 false로 주면 타이머 함수가 없는 환경을 흉내 낸다. 기존 화면 테스트들의 가짜 화면이 그렇다.
-function loadAssistant({ routes = {}, timers = true, poses = null } = {}) {
+// sprite는 스프라이트 시트 그림의 가상 로드 상태다. 주면 펫 버튼이 index.html처럼 숨긴 그림 자리로 시작한다.
+// motion은 움직임 줄이기 설정을 묻는 matchMedia가 돌려줄 값이다.
+function loadAssistant({ routes = {}, timers = true, sprite = null, motion = { matches: false } } = {}) {
   const requests = [];
   const elements = new Map();
   const pending = new Map();
@@ -226,14 +320,15 @@ function loadAssistant({ routes = {}, timers = true, poses = null } = {}) {
 
   const graduation = new FakeElement("button");
   graduation.dataset = { action: "graduation" };
-  const slots = (poses ?? []).map(state => {
-    const slot = new FakeElement("slot");
-    slot.hidden = true;
-    slot.image = Object.assign(new FakeElement("img"), state);
-    slot.append(slot.image);
-    return slot;
-  });
-  const lists = { "[data-action]": [graduation], "[data-brand-slot]": slots };
+  // 펫 버튼은 data-action이 없어 [data-action] 목록에 들지 않는다. 그림 자리 목록에는 든다.
+  const pet = new FakeElement("button");
+  elements.set("#pet", pet);
+  if (sprite) {
+    pet.hidden = true;
+    pet.image = Object.assign(new FakeElement("img"), sprite);
+    pet.append(pet.image);
+  }
+  const lists = { "[data-action]": [graduation], "[data-brand-slot]": sprite ? [pet] : [] };
 
   const context = {
     document: {
@@ -245,7 +340,7 @@ function loadAssistant({ routes = {}, timers = true, poses = null } = {}) {
       createElement: tag => new FakeElement(tag),
       createTextNode: value => value,
     },
-    window: { matchMedia: () => ({ matches: false }) },
+    window: { matchMedia: query => (query.includes("prefers-reduced-motion") ? motion : { matches: false }) },
     URL,
     AbortSignal: { timeout: () => undefined },
     async fetch(path) {
@@ -271,10 +366,10 @@ function loadAssistant({ routes = {}, timers = true, poses = null } = {}) {
   const page = {
     requests,
     graduation,
-    slots,
-    assistant: elements.get("#assistant"),
-    line: elements.get("#assistant-line"),
-    dots: elements.get("#assistant-dots"),
+    pet,
+    assistant: elements.get("#pet-dock"),
+    line: elements.get("#pet-line"),
+    dots: elements.get("#pet-dots"),
     transcript: elements.get("#transcript"),
     empty: elements.get("#empty"),
     reset: elements.get("#reset"),
@@ -294,6 +389,7 @@ function loadAssistant({ routes = {}, timers = true, poses = null } = {}) {
   };
   // index.html의 처음 모습을 가짜 화면에 옮긴다.
   page.assistant.setAttribute("data-pose", idle[0]);
+  page.assistant.setAttribute("data-state", "idle");
   page.line.textContent = idle[1];
   page.dots.hidden = true;
   page.transcript.append(page.empty);
@@ -303,6 +399,9 @@ function loadAssistant({ routes = {}, timers = true, poses = null } = {}) {
 function shown(page) {
   return [page.assistant.attributes.get("data-pose"), page.line.textContent, page.dots.hidden ? "점 숨김" : "점 보임"];
 }
+
+// 쉬는 자세를 평소와 답변 표시에서만 돌리려고 chat.css가 읽는 상태 이름.
+const stateOf = page => page.assistant.attributes.get("data-state");
 
 function ask(page, question) {
   page.input.value = question;
@@ -513,14 +612,93 @@ test("읽은 글자 재질문: 축하를 기다리는 중에 다시 물으면 �
   assert.deepEqual(shown(page), hold);
 });
 
-test("자세 그림이 없거나 깨져도 그림 자리만 숨고 말·질문·재시도·새 대화는 동작한다", async () => {
-  const missing = () => ({ complete: true, naturalWidth: 0 });
+test("상태 이름도 함께 바뀌어, 쉬는 자세가 평소와 답변 표시에서만 돈다", async () => {
+  const reply = deferred();
+  const page = loadAssistant({ routes: { [chatPath]: [reply.promise, ok(unansweredChat), refused(500)] } });
+  assert.equal(stateOf(page), "idle");
+
+  ask(page, "가상 질문 하나");
+  assert.equal(stateOf(page), "searching");
+  reply.resolve(ok(answeredChat));
+  await setImmediate();
+  assert.equal(stateOf(page), "found");
+  page.runTimers();
+  assert.equal(stateOf(page), "answer");
+
+  ask(page, "가상 질문 둘");
+  await setImmediate();
+  assert.equal(stateOf(page), "hold");
+  ask(page, "가상 질문 셋");
+  await setImmediate();
+  assert.equal(stateOf(page), "error");
+
+  page.reset.fire("click");
+  assert.equal(stateOf(page), "idle");
+  // chat.css는 이 두 상태에만 쉬는 자세를 건다. 오류는 자세가 안내로 같아도 쉬지 않는다.
+  const resting = rules.filter(([, body]) => body.includes("pet-rest")).map(([selector]) => selector);
+  assert.deepEqual(resting, ['.pet-dock[data-state="idle"] .pet-frame, .pet-dock[data-state="answer"] .pet-frame']);
+});
+
+test("펫을 누르면 입력창에 초점을 주고 입력창까지 부드럽게 옮기며, 요청은 보내지 않는다", () => {
+  const page = loadAssistant();
+  page.pet.fire("click");
+
+  assert.equal(page.input.focuses.length, 1);
+  // 초점이 화면을 바로 옮기지 않게 하고, 옮기는 일은 scrollIntoView 한 번에 맡긴다.
+  assert.equal(page.input.focuses[0].preventScroll, true);
+  assert.equal(page.input.scrolls.length, 1);
+  assert.equal(page.input.scrolls[0].block, "center");
+  assert.equal(page.input.scrolls[0].behavior, "smooth");
+  assert.deepEqual(page.requests, []);
+  assert.deepEqual(shown(page), idle);
+  assert.equal(page.transcript.children[0], page.empty);
+});
+
+test("답변을 기다리는 중에도 펫은 잠기지 않고 입력창으로 초점을 옮긴다", async () => {
+  const reply = deferred();
+  const page = loadAssistant({ routes: { [chatPath]: reply.promise } });
+  ask(page, "가상 질문");
+  assert.equal(page.graduation.disabled, true);
+  assert.notEqual(page.pet.disabled, true);
+
+  page.pet.fire("click");
+  assert.equal(page.input.focuses.length, 1);
+  assert.equal(page.input.scrolls.length, 1);
+  // 찾는 중 상태와 나가 있는 요청은 그대로다.
+  assert.deepEqual(shown(page), searching);
+  assert.deepEqual(page.requests, [chatPath]);
+
+  reply.resolve(ok(answeredChat));
+  await setImmediate();
+  assert.deepEqual(shown(page), found);
+});
+
+test("움직임 줄이기 설정이 켜져 있으면 펫을 눌러도 부드럽게 옮기지 않고, 설정은 누를 때마다 다시 읽는다", () => {
+  const motion = { matches: true };
+  const page = loadAssistant({ motion });
+  page.pet.fire("click");
+  assert.equal(page.input.scrolls[0].behavior, "auto");
+
+  // 사용 중에 설정을 끄면 다음에 누를 때 반영된다.
+  motion.matches = false;
+  page.pet.fire("click");
+  assert.equal(page.input.scrolls[1].behavior, "smooth");
+  assert.equal(page.input.focuses.length, 2);
+
+  // 설정 값을 돌려주지 않는 환경에서는 평소처럼 옮긴다.
+  const bare = loadAssistant({ motion: null });
+  bare.pet.fire("click");
+  assert.equal(bare.input.scrolls[0].behavior, "smooth");
+});
+
+test("스프라이트 시트가 없거나 깨져도 펫 버튼만 숨고 말풍선·질문·재시도·새 대화는 동작한다", async () => {
   const page = loadAssistant({
-    poses: [missing(), missing(), missing()],
+    sprite: { complete: true, naturalWidth: 0 },
     routes: { [chatPath]: [refused(500), ok(answeredChat)] },
   });
-  for (const slot of page.slots) slot.image.fire("error");
-  assert.deepEqual(page.slots.map(slot => slot.hidden), [true, true, true]);
+  page.pet.image.fire("error");
+  // 보이지 않는 버튼에 초점이 가지 않게 버튼째 숨긴다.
+  assert.equal(page.pet.hidden, true);
 
   ask(page, "가상 질문");
   assert.deepEqual(shown(page), searching);
@@ -535,28 +713,32 @@ test("자세 그림이 없거나 깨져도 그림 자리만 숨고 말·질문·
 
   page.reset.fire("click");
   assert.deepEqual(shown(page), idle);
-  assert.deepEqual(page.slots.map(slot => slot.hidden), [true, true, true]);
+  assert.equal(page.pet.hidden, true);
   // 그림을 다른 것으로 바꿔 끼우지 않는다.
-  for (const slot of page.slots) {
-    assert.equal(slot.image.src, undefined);
-    assert.equal(slot.image.attributes.size, 0);
-  }
+  assert.equal(page.pet.image.src, undefined);
+  assert.equal(page.pet.image.attributes.size, 0);
 });
 
-test("늦게 도착한 그림 로드 신호는 그 그림 자리만 보이게 하고, 지금 자세는 바꾸지 못한다", async () => {
-  const waiting = () => ({ complete: false, naturalWidth: 0 });
-  const page = loadAssistant({ poses: [waiting(), waiting(), waiting()], routes: { [chatPath]: ok(answeredChat) } });
+test("늦게 도착한 스프라이트 로드 신호는 펫 버튼만 보이게 하고, 지금 자세는 바꾸지 못한다", async () => {
+  const page = loadAssistant({ sprite: { complete: false, naturalWidth: 0 }, routes: { [chatPath]: ok(answeredChat) } });
+  assert.equal(page.pet.hidden, true);
   ask(page, "가상 질문");
   await setImmediate();
   assert.deepEqual(shown(page), found);
+  assert.equal(page.pet.hidden, true);
 
-  // 정숙 그림이 축하 상태에서야 도착한다.
-  const [quiet] = page.slots;
-  Object.assign(quiet.image, { complete: true, naturalWidth: 140 });
-  quiet.image.fire("load");
-  assert.deepEqual(page.slots.map(slot => slot.hidden), [false, true, true]);
+  // 스프라이트 시트가 축하 상태에서야 도착한다.
+  Object.assign(page.pet.image, { complete: true, naturalWidth: 960 });
+  page.pet.image.fire("load");
+  assert.equal(page.pet.hidden, false);
   assert.deepEqual(shown(page), found);
   assert.deepEqual(page.delays(), [1200]);
+});
+
+test("스크립트가 늦게 실행돼도 이미 받아 둔 스프라이트 시트면 펫 버튼이 바로 보인다", () => {
+  const page = loadAssistant({ sprite: { complete: true, naturalWidth: 960 } });
+  assert.equal(page.pet.hidden, false);
+  assert.deepEqual(shown(page), idle);
 });
 
 test("타이머가 없는 환경에서도 오류 없이 답변 표시까지 간다", async () => {

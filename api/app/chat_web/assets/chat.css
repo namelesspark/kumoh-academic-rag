@@ -137,65 +137,146 @@ h1, h2, h3, p { margin-top: 0; }
 }
 .topics button:hover { color: var(--blue); background: var(--tint); text-decoration: underline; text-underline-offset: 3px; }
 
-/* 예시 질문과 테크모 비서를 한 칸에 세로로 쌓는다. 넓은 화면에서는 채팅 옆, 좁은 화면에서는 채팅 위에 온다. */
-.side { display: grid; gap: 20px; min-width: 0; }
-.assistant { display: flex; flex-direction: column; align-items: center; gap: 10px; min-width: 0; }
-/* 그림 자리는 크기를 고정한다. 그림이 없거나 늦게 와도 말과 채팅이 밀리지 않는다. */
-.assistant-stage { position: relative; flex: none; width: 160px; height: 184px; }
-/* 자세 세 장을 같은 자리에 겹쳐 두고, 비서의 data-pose와 맞는 한 장만 보인다. */
-.pose {
-  position: absolute;
-  inset: 0;
+/* 테크모 펫과 말풍선. 기본 배치는 입력창 바로 앞의 낮은 줄이다. 줄이 자리를 차지하므로 입력창을 덮지 않고,
+   입력창이 화면 아래로 밀려나 있을 때는 화면 아래 가장자리에 붙어 떠 있는다(position: sticky).
+   961px부터는 아래 @media 규칙이 오른쪽 아래 고정 배치로 바꾼다. */
+.pet-dock {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
   display: flex;
-  align-items: flex-end;
-  justify-content: center;
-  visibility: hidden;
-  transform-origin: center bottom;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 28px;
+  border-top: 1px solid var(--line);
+  background: var(--white);
 }
-.pose img { display: block; width: auto; height: auto; max-width: 100%; max-height: 100%; }
-/* 새로 보이는 자세에만 움직임이 붙어, 자세가 바뀔 때 한 번 줄었다 커진다. */
-.assistant[data-pose="quiet"] .pose-quiet,
-.assistant[data-pose="guide"] .pose-guide,
-.assistant[data-pose="celebrate"] .pose-celebrate {
-  visibility: visible;
-  animation: pose-swap .32s ease-out;
-}
-@keyframes pose-swap {
-  0% { transform: scale(1); }
-  40% { transform: scale(.84); }
-  100% { transform: scale(1); }
-}
-.assistant-says {
-  width: 100%;
-  min-height: calc(3em + 22px);
+.pet-says {
+  position: relative;
+  flex: 1;
+  min-width: 0;
   margin: 0;
-  padding: 10px 12px;
-  border: 1px solid var(--line);
+  padding: 7px 12px;
+  border: 1px solid var(--edge);
   border-radius: 12px;
   background: var(--white);
   color: var(--navy);
-  font-size: .9rem;
-  line-height: 1.5;
-  text-align: center;
+  font-size: .88rem;
+  line-height: 1.45;
   word-break: keep-all;
 }
-.assistant-dots { display: inline-flex; gap: 4px; margin-left: 4px; vertical-align: middle; }
-.assistant-dots span {
+/* 말풍선 꼬리. 네모를 45도 돌려 두 변만 테두리를 그린다. 펫 쪽(오른쪽)을 가리킨다. */
+.pet-says::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  right: -6px;
+  width: 10px;
+  height: 10px;
+  margin-top: -5px;
+  border: solid var(--edge);
+  border-width: 1px 1px 0 0;
+  background: var(--white);
+  transform: rotate(45deg);
+}
+.pet-dots { display: inline-flex; gap: 4px; margin-left: 4px; vertical-align: middle; }
+.pet-dots span {
   width: 6px;
   height: 6px;
   border-radius: 50%;
   background: var(--blue);
   animation: dot-hop 1s ease-in-out infinite;
 }
-.assistant-dots span:nth-child(2) { animation-delay: .15s; }
-.assistant-dots span:nth-child(3) { animation-delay: .3s; }
+.pet-dots span:nth-child(2) { animation-delay: .15s; }
+.pet-dots span:nth-child(3) { animation-delay: .3s; }
 @keyframes dot-hop {
   0%, 60%, 100% { transform: translateY(0); opacity: .5; }
   30% { transform: translateY(-4px); opacity: 1; }
 }
-/* 움직임 줄이기 설정에서는 자세 전환과 점의 움직임을 끈다. 말과 점은 그대로 보인다. */
+
+/* 펫은 누르는 버튼이다. 크기를 고정해 그림이 늦게 와도 말풍선과 입력창이 밀리지 않는다. */
+.pet { flex: none; width: 56px; padding: 0; border: 0; border-radius: 14px; background: transparent; }
+/* 버튼 안의 그림은 스프라이트 시트가 실제로 받아졌는지 확인하는 데만 쓴다. 화면에는 아래 배경 그림이 보인다. */
+.pet img { display: none; }
+.pet-float, .pet-hop, .pet-frame { display: block; }
+/* 스프라이트 시트는 같은 크기 칸 다섯 개를 가로로 이은 한 장이다(기본형·정숙·안내·축하·음악회).
+   배경을 칸 다섯 개 너비로 깔고 가로 위치만 0·25·50·75·100%로 옮겨 한 칸씩 보여 준다. */
+.pet-frame {
+  width: 100%;
+  aspect-ratio: 1;
+  background: url("/chat-assets/techmo-sprite.png") 50% 0 / 500% 100% no-repeat;
+}
+.pet-dock[data-pose="basic"] .pet-frame { background-position: 0 0; }
+.pet-dock[data-pose="quiet"] .pet-frame { background-position: 25% 0; }
+.pet-dock[data-pose="guide"] .pet-frame { background-position: 50% 0; }
+.pet-dock[data-pose="celebrate"] .pet-frame { background-position: 75% 0; }
+.pet-dock[data-pose="concert"] .pet-frame { background-position: 100% 0; }
+
+/* 움직임 세 가지는 서로 다른 요소에 건다. 한 요소에 겹치면 뒤 규칙이 앞 규칙을 덮기 때문이다.
+   떠 있기는 .pet-float, 눌렸다 튀기는 .pet-hop, 쉬는 자세는 .pet-frame의 배경 위치다. */
+.pet-float { animation: pet-float 1.8s ease-in-out infinite alternate; }
+@keyframes pet-float {
+  from { transform: translateY(0); }
+  to { transform: translateY(-5%); }
+}
+/* 자세가 바뀔 때 한 번 눌렸다 튄다. 요소가 하나라 애니메이션 이름이 같으면 다시 돌지 않으므로,
+   내용이 같은 움직임 규칙을 자세마다 다른 이름으로 둔다. */
+.pet-hop { transform-origin: center bottom; }
+.pet-dock[data-pose="quiet"] .pet-hop { animation: pet-hop-quiet .4s ease-out; }
+.pet-dock[data-pose="guide"] .pet-hop { animation: pet-hop-guide .4s ease-out; }
+.pet-dock[data-pose="celebrate"] .pet-hop { animation: pet-hop-celebrate .4s ease-out; }
+@keyframes pet-hop-quiet {
+  0% { transform: scale(1, 1); }
+  30% { transform: scale(1.1, .84); }
+  60% { transform: scale(.95, 1.07); }
+  100% { transform: scale(1, 1); }
+}
+@keyframes pet-hop-guide {
+  0% { transform: scale(1, 1); }
+  30% { transform: scale(1.1, .84); }
+  60% { transform: scale(.95, 1.07); }
+  100% { transform: scale(1, 1); }
+}
+@keyframes pet-hop-celebrate {
+  0% { transform: scale(1, 1); }
+  30% { transform: scale(1.1, .84); }
+  60% { transform: scale(.95, 1.07); }
+  100% { transform: scale(1, 1); }
+}
+/* 쉬는 자세. 평소와 답변 표시 상태가 이어지면 24초마다 음악회 칸과 기본형 칸을 2초쯤 보였다가 안내 칸으로 돌아온다.
+   step-end라 칸 사이를 미끄러지지 않고 한 번에 바뀐다. 질문을 보내면 상태가 바뀌어 멈춘다. */
+.pet-dock[data-state="idle"] .pet-frame,
+.pet-dock[data-state="answer"] .pet-frame { animation: pet-rest 24s step-end infinite; }
+@keyframes pet-rest {
+  0%, 44% { background-position: 50% 0; }
+  45%, 52% { background-position: 100% 0; }
+  53%, 90% { background-position: 50% 0; }
+  91%, 98% { background-position: 0 0; }
+  99%, 100% { background-position: 50% 0; }
+}
+/* 움직임 줄이기 설정에서는 떠 있기·튀기·쉬는 자세·대기 점을 모두 끈다.
+   답변 상태에 따라 정지 그림 칸이 바뀌는 것과 말·점 표시는 그대로 남는다. */
 @media (prefers-reduced-motion: reduce) {
-  .pose, .assistant-dots span { animation: none !important; }
+  .pet-float, .pet-hop, .pet-frame, .pet-dots span { animation: none !important; }
+}
+/* 넓은 화면: 펫을 화면 오른쪽 아래에 고정한다. 본문 격자에 펫 너비만큼 빈 셋째 칸을 두고
+   펫의 오른쪽 끝을 본문 오른쪽 끝에 맞추므로 채팅 칸과 겹치지 않는다. 말풍선은 펫 위에 온다. */
+@media (min-width: 961px) {
+  .layout { grid-template-columns: 212px minmax(0, 1fr) 168px; }
+  .pet-dock {
+    position: fixed;
+    right: max(24px, calc((100% - 1120px) / 2));
+    bottom: 24px;
+    flex-direction: column;
+    gap: 12px;
+    width: 168px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+  }
+  .pet-says { flex: none; width: 100%; text-align: center; }
+  .pet-says::after { top: auto; right: auto; bottom: -6px; left: 50%; margin: 0 0 0 -5px; border-width: 0 1px 1px 0; }
+  .pet { width: 128px; }
 }
 
 .chat {
@@ -242,8 +323,6 @@ h1, h2, h3, p { margin-top: 0; }
 .hero-actions { display: flex; flex-wrap: wrap; gap: 10px; }
 .cta { background: var(--blue); color: var(--white); }
 .cta:hover { border-color: var(--navy); background: var(--navy); color: var(--white); }
-.cta.secondary { background: var(--white); color: var(--blue); }
-.cta.secondary:hover { border-color: var(--blue); background: var(--tint); color: var(--blue); }
 
 /* 밝은 청색은 테크모가 서는 도형에만 쓴다. 흰색과 약 2.9:1이라 글자·테두리·초점 표시에는 쓰지 않는다. */
 .hero-art { position: relative; flex: 0 1 240px; min-width: 0; }
@@ -493,13 +572,12 @@ textarea:hover { border-color: var(--blue); }
   .layout { grid-template-columns: minmax(0, 1fr); gap: 10px; margin-block: 12px; }
   .topics { padding-block: 2px; }
   .topics summary { min-height: 38px; padding-block: 8px; }
-  /* 비서는 그림과 말을 한 줄로 낮게 놓는다. 늘어난 높이(줄 56px + 간격 10px)만큼 대화 영역을 줄여 입력창이 화면 안에 남는다. */
-  .side { gap: 10px; }
-  .assistant { flex-direction: row; gap: 10px; }
-  .assistant-stage { width: 48px; height: 56px; }
-  .assistant-says { flex: 1; width: auto; min-width: 0; min-height: 0; padding: 6px 10px; font-size: .86rem; line-height: 1.4; text-align: left; }
-  .chat { height: calc(100dvh - 246px); min-height: 350px; }
-  .transcript, .composer, .status { padding-inline: 15px; }
+  /* 펫 줄은 대화 영역 안에 있어 영역 높이를 늘리지 않는다. 대화 내용 칸이 그 줄 높이만큼 줄어든다. */
+  .chat { height: calc(100dvh - 180px); min-height: 350px; }
+  .transcript, .composer, .status, .pet-dock { padding-inline: 15px; }
+  .pet-dock { gap: 10px; }
+  .pet { width: 48px; }
+  .pet-says { padding: 6px 10px; font-size: .86rem; line-height: 1.4; }
   .transcript { padding-block: 15px; }
   .empty { gap: 18px; }
   .hero { flex-direction: column; align-items: stretch; gap: 14px; }
