@@ -1,31 +1,49 @@
+/* 색 값은 이 블록에만 적는다. 아래 규칙은 변수 이름으로만 색을 쓰고,
+   landing_design.test.mjs가 변수를 따라가 글자 4.5:1, 테두리·초점 표시 3:1을 계산한다. */
 :root {
-  color-scheme: light;
-  font-family: Inter, "맑은 고딕", system-ui, sans-serif;
-  color: #17243a;
-  background: #f3f5f8;
-  --ink: #17243a;
+  --white: #ffffff;
+  --paper: #F5F9FC;
+  --sky: #00A3D9;
+  --blue: #005B96;
+  --navy: #0A2540;
+  --yellow: #FFD100;
+  --edge: #8A8D8F;
   --muted: #526178;
   --line: #d7dee8;
-  --navy: #14294a;
-  --blue: #205095;
-  --light-blue: #edf3fd;
+  --tint: #E6F3FA;
+  --good: #1d5f35;
+  --good-bg: #eaf6ee;
+  --bad: #842d28;
+  --bad-bg: #fff5f4;
+  --bad-line: #d7a6a6;
+  --warn: #6b4700;
+  --warn-bg: #fff7e0;
+  --warn-line: #b98a1c;
+  --warn-panel: #fffcf3;
+  color-scheme: light;
+  /* 첫 화면 보안 정책이 외부 글꼴을 막으므로 기기에 깔린 글꼴만 쓴다. */
+  font-family: Pretendard, "Apple SD Gothic Neo", "Malgun Gothic", "맑은 고딕", "Noto Sans KR", system-ui, sans-serif;
+  color: var(--navy);
+  background: var(--paper);
 }
 
 * { box-sizing: border-box; }
+/* 아래 규칙이 display를 정해도 hidden 속성이 이기게 한다. 그림 자리와 첨부 제거 버튼이 여기에 기댄다. */
+[hidden] { display: none !important; }
 body { margin: 0; }
 button, textarea { font: inherit; }
 button { cursor: pointer; }
 button:disabled { cursor: default; opacity: .65; }
-:focus-visible { outline: 3px solid #3b6cac; outline-offset: 2px; }
+:focus-visible { outline: 3px solid var(--blue); outline-offset: 2px; }
 h1, h2, h3, p { margin-top: 0; }
 
 .masthead {
-  color: white;
-  background: var(--navy);
-  border-bottom: 3px solid #6e9bd4;
+  color: var(--navy);
+  background: var(--white);
+  border-bottom: 1px solid var(--line);
 }
 
-.masthead-inner, .layout {
+.masthead-inner, .layout, .site-footer {
   width: min(1120px, calc(100% - 48px));
   margin-inline: auto;
 }
@@ -33,31 +51,76 @@ h1, h2, h3, p { margin-top: 0; }
 .masthead-inner {
   min-height: 76px;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 8px 12px;
+  padding-block: 10px;
 }
 
-.masthead h1 { margin: 0; font-size: 1.25rem; letter-spacing: -.035em; }
-.reset, .primary {
+.brand { display: flex; align-items: center; min-width: 0; margin: 0; font-size: 1.25rem; letter-spacing: -.035em; }
+.brand-logo { display: block; min-width: 0; }
+.brand-logo img { display: block; width: auto; height: 40px; max-width: 100%; }
+/* 로고가 보이면 글자 이름은 화면에서만 감춘다. 화면 낭독기는 그대로 읽는다. */
+.brand-logo:not([hidden]) + .brand-name {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.masthead-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-left: auto; }
+
+.reset, .primary, .check, .cta, .login {
   min-height: 44px;
   padding-inline: 14px;
-  border: 1px solid #9daec5;
-  border-radius: 6px;
-  background: transparent;
-  color: white;
+  border: 1px solid var(--blue);
+  border-radius: 8px;
+  font-weight: 700;
   white-space: nowrap;
 }
 
-.reset:focus-visible { outline-color: white; }
-.reset:not(:disabled):hover { background: #263d61; }
+/* 마우스를 올린 상태는 색과 함께 밑줄로도 알린다. */
+.reset:not(:disabled):hover, .primary:not(:disabled):hover, .check:not(:disabled):hover, .cta:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.reset { border-color: var(--edge); background: var(--white); color: var(--navy); }
+.reset:not(:disabled):hover { border-color: var(--blue); background: var(--tint); color: var(--navy); }
+
+/* 로그인은 다음 이슈에서 붙인다. 눌리지 않는 자리라 점선 테두리와 문구로 알린다. */
+.login {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px dashed var(--edge);
+  background: var(--white);
+  color: var(--muted);
+  font-weight: 400;
+  font-size: .9rem;
+}
+.login:disabled { opacity: 1; }
+
+.soon-label {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--navy);
+  color: var(--yellow);
+  font-size: .76rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
 
 .layout {
   display: grid;
   grid-template-columns: 212px minmax(0, 1fr);
   align-items: start;
-  gap: 25px;
-  margin-block: 28px;
+  gap: 24px;
+  margin-block: 24px;
 }
 
 .topics { border-top: 2px solid var(--navy); padding-block: 11px; }
@@ -70,20 +133,23 @@ h1, h2, h3, p { margin-top: 0; }
   border-bottom: 1px solid var(--line);
   text-align: left;
   background: transparent;
-  color: var(--ink);
+  color: var(--navy);
 }
-.topics button:hover { color: var(--blue); background: var(--light-blue); }
+.topics button:hover { color: var(--blue); background: var(--tint); text-decoration: underline; text-underline-offset: 3px; }
 
 .chat {
   display: flex;
   flex-direction: column;
   min-width: 0;
   min-height: 380px;
-  height: min(720px, calc(100dvh - 135px));
+  height: min(720px, calc(100dvh - 190px));
   border: 1px solid var(--line);
-  border-radius: 10px;
-  background: white;
+  border-radius: 12px;
+  background: var(--white);
 }
+/* 첫 화면에서는 소개 영역과 카드가 잘리지 않게 높이를 풀어 페이지가 스크롤되게 한다.
+   :has를 모르는 브라우저에서는 위 높이가 남아 대화 영역 안에서 스크롤된다. */
+.chat:has(> .transcript > .empty) { height: auto; }
 
 .chat-header, .transcript, .composer, .status { padding-inline: 28px; }
 .chat-header {
@@ -93,22 +159,12 @@ h1, h2, h3, p { margin-top: 0; }
   justify-content: space-between;
   gap: 10px 18px;
   border-bottom: 1px solid var(--line);
-  padding-block: 22px;
+  padding-block: 20px;
 }
-.check {
-  min-height: 44px;
-  padding-inline: 14px;
-  border: 1px solid var(--blue);
-  border-radius: 6px;
-  background: white;
-  color: var(--blue);
-  font-weight: 700;
-  white-space: nowrap;
-}
-.check:not(:disabled):hover { background: var(--light-blue); }
+.check { background: var(--white); color: var(--blue); }
+.check:not(:disabled):hover { background: var(--tint); color: var(--blue); }
 .chat-header h2 { margin-bottom: 5px; font-size: 1.23rem; letter-spacing: -.03em; }
-.chat-header p, .empty { color: var(--muted); font-size: .9rem; line-height: 1.6; }
-.chat-header p { margin-bottom: 0; }
+.chat-header p { margin-bottom: 0; color: var(--muted); font-size: .9rem; line-height: 1.6; }
 
 .transcript {
   flex: 1;
@@ -120,6 +176,70 @@ h1, h2, h3, p { margin-top: 0; }
 }
 
 .transcript:focus-visible { outline-offset: -3px; }
+
+.empty { display: grid; gap: 24px; }
+.hero { display: flex; align-items: center; gap: 24px; }
+.hero-copy { flex: 1 1 320px; min-width: 0; }
+.hero h2 {
+  margin-bottom: 12px;
+  color: var(--navy);
+  font-size: clamp(1.4rem, 1.05rem + 1.5vw, 2rem);
+  line-height: 1.3;
+  letter-spacing: -.03em;
+  word-break: keep-all;
+}
+.hero-copy p { margin-bottom: 18px; color: var(--muted); line-height: 1.6; word-break: keep-all; }
+.hero-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.cta { background: var(--blue); color: var(--white); }
+.cta:hover { border-color: var(--navy); background: var(--navy); color: var(--white); }
+.cta.secondary { background: var(--white); color: var(--blue); }
+.cta.secondary:hover { border-color: var(--blue); background: var(--tint); color: var(--blue); }
+
+/* 밝은 청색은 테크모가 서는 도형에만 쓴다. 흰색과 약 2.9:1이라 글자·테두리·초점 표시에는 쓰지 않는다. */
+.hero-art { position: relative; flex: 0 1 240px; min-width: 0; }
+.hero-art::before {
+  content: "";
+  position: absolute;
+  inset: 24% 4% 0;
+  border-radius: 46% 54% 42% 58% / 58% 56% 44% 42%;
+  background: var(--sky);
+}
+.hero-art img { position: relative; display: block; width: 100%; height: auto; }
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.cards li { display: flex; min-width: 0; }
+.card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  width: 100%;
+  min-height: 112px;
+  padding: 16px;
+  border: 1px solid var(--edge);
+  border-radius: 12px;
+  background: var(--white);
+  color: var(--navy);
+  text-align: left;
+  word-break: keep-all;
+}
+.card-title { color: var(--navy); font-size: 1rem; font-weight: 700; }
+.card-text { color: var(--muted); font-size: .86rem; line-height: 1.5; }
+/* 누를 수 있는 카드는 실선 테두리와 화살표로, 준비 중 카드는 점선 테두리와 문구로 구분한다. */
+button.card .card-title::after { content: "›"; margin-left: 6px; }
+button.card:hover { border-color: var(--blue); background: var(--tint); }
+button.card:hover .card-title { text-decoration: underline; text-underline-offset: 3px; }
+.card.soon { border-style: dashed; background: var(--paper); }
+.card.soon .soon-label { margin-top: auto; }
+.empty-hint { margin: 0; color: var(--muted); font-size: .9rem; line-height: 1.6; }
+
 .turn + .turn { margin-top: 25px; }
 .question {
   width: fit-content;
@@ -127,7 +247,7 @@ h1, h2, h3, p { margin-top: 0; }
   margin: 0 0 17px auto;
   padding: 10px 14px;
   border-radius: 8px 8px 2px 8px;
-  color: white;
+  color: var(--white);
   background: var(--navy);
   white-space: pre-wrap;
   line-height: 1.55;
@@ -141,7 +261,7 @@ h1, h2, h3, p { margin-top: 0; }
   border: 1px solid var(--line);
   border-inline-start: 3px solid var(--blue);
   border-radius: 4px;
-  background: #f8fafd;
+  background: var(--paper);
 }
 
 .evidence h3 { color: var(--blue); font-size: .81rem; margin-bottom: 7px; }
@@ -168,12 +288,12 @@ h1, h2, h3, p { margin-top: 0; }
   text-align: left;
   vertical-align: top;
 }
-.graduation thead th { color: var(--muted); font-size: .8rem; background: #f8fafd; white-space: nowrap; }
-.graduation .item th, .graduation .item td { background: var(--light-blue); border-top-color: #b9c8de; }
+.graduation thead th { color: var(--muted); font-size: .8rem; background: var(--paper); white-space: nowrap; }
+.graduation .item th, .graduation .item td { background: var(--tint); border-top-color: var(--line); }
 .graduation .detail th { padding-left: 26px; font-weight: 400; }
 .graduation td p { margin: 0; }
 .graduation .amount { white-space: nowrap; }
-.graduation .shortfall { color: #842d28; font-weight: 700; }
+.graduation .shortfall { color: var(--bad); font-weight: 700; }
 .graduation .source { color: var(--muted); font-size: .8rem; }
 .graduation .source-link { margin-top: 3px; }
 .graduation .notice { margin: 8px 0 0; color: var(--muted); font-size: .8rem; }
@@ -186,7 +306,7 @@ h1, h2, h3, p { margin-top: 0; }
   border: 1px solid var(--line);
   border-inline-start: 3px solid var(--blue);
   border-radius: 4px;
-  background: #f8fafd;
+  background: var(--paper);
 }
 .biskit h4 { margin: 0 0 3px; font-size: .92rem; }
 .biskit .checks { display: flex; flex-wrap: wrap; gap: 6px; margin-block: 5px; }
@@ -200,11 +320,11 @@ h1, h2, h3, p { margin-top: 0; }
   border: 1px solid var(--line);
   border-inline-start: 3px solid var(--blue);
   border-radius: 4px;
-  background: #f8fafd;
+  background: var(--paper);
   font-size: .92rem;
   line-height: 1.55;
 }
-.poster-result.unconfirmed { border-inline-start-color: #b98a1c; background: #fffcf3; }
+.poster-result.unconfirmed { border-inline-start-color: var(--warn-line); background: var(--warn-panel); }
 .poster-result h3 { margin-bottom: 4px; color: var(--navy); font-size: 1rem; }
 .poster-result p { margin: 0; }
 .poster-result .mismatch, .poster-result .state { margin-top: 5px; }
@@ -219,7 +339,7 @@ h1, h2, h3, p { margin-top: 0; }
 .reading {
   margin-top: 12px;
   padding: 11px 14px;
-  border: 1px dashed #a7b4c7;
+  border: 1px dashed var(--edge);
   border-radius: 4px;
   font-size: .88rem;
   line-height: 1.5;
@@ -230,7 +350,7 @@ h1, h2, h3, p { margin-top: 0; }
 .reading .field { display: block; margin-top: 7px; }
 .reading .field span { display: block; color: var(--muted); font-size: .8rem; }
 .reading textarea { max-height: 220px; font-size: .9rem; }
-.reading .reading-note { margin-top: 6px; color: #6b4700; }
+.reading .reading-note { margin-top: 6px; color: var(--warn); }
 .reading .reading-note:empty { margin: 0; }
 .reading .reask { margin-block: 8px 4px; }
 .badge {
@@ -242,16 +362,16 @@ h1, h2, h3, p { margin-top: 0; }
   font-weight: 700;
   white-space: nowrap;
 }
-.badge.met { color: #1d5f35; background: #eaf6ee; }
-.badge.short { color: #842d28; background: #fff5f4; }
-.badge.needs-check { color: #6b4700; background: #fff7e0; }
+.badge.met { color: var(--good); background: var(--good-bg); }
+.badge.short { color: var(--bad); background: var(--bad-bg); }
+.badge.needs-check { color: var(--warn); background: var(--warn-bg); }
 .fallback, .error {
   padding: 10px 13px;
   border: 1px solid var(--line);
   border-radius: 6px;
-  background: #f5f7fa;
+  background: var(--paper);
 }
-.error { color: #842d28; background: #fff5f4; border-color: #d7a6a6; }
+.error { color: var(--bad); background: var(--bad-bg); border-color: var(--bad-line); }
 .retry {
   min-height: 44px;
   margin-top: 3px;
@@ -279,7 +399,7 @@ h1, h2, h3, p { margin-top: 0; }
   text-decoration: underline;
   text-underline-offset: 3px;
 }
-.composer .photo-note { color: var(--ink); font-size: .86rem; }
+.composer .photo-note { color: var(--navy); font-size: .86rem; }
 .composer .photo-note:empty { margin: 0; }
 textarea {
   width: 100%;
@@ -288,13 +408,20 @@ textarea {
   max-height: 100px;
   padding: 10px;
   resize: vertical;
-  border: 1px solid #a7b4c7;
-  border-radius: 6px;
-  color: var(--ink);
+  border: 1px solid var(--edge);
+  border-radius: 8px;
+  background: var(--white);
+  color: var(--navy);
 }
-.primary { border-color: var(--navy); background: var(--navy); }
-.primary:not(:disabled):hover { background: var(--blue); }
+/* 입력 안내 글자색을 브라우저 기본값에 맡기지 않는다. 일부 브라우저는 기본으로 흐리게 하므로 opacity도 고정한다. */
+textarea::placeholder { color: var(--muted); opacity: 1; }
+textarea:hover { border-color: var(--blue); }
+.primary { background: var(--blue); color: var(--white); }
+.primary:not(:disabled):hover { border-color: var(--navy); background: var(--navy); color: var(--white); }
 .composer p { margin: 7px 0 0; color: var(--muted); font-size: .78rem; line-height: 1.5; }
+
+.site-footer { margin-block: 0 24px; text-align: center; }
+.site-footer p { margin: 0; color: var(--muted); font-size: .82rem; line-height: 1.5; word-break: keep-all; }
 
 .sr-only {
   position: absolute;
@@ -308,15 +435,26 @@ textarea {
 }
 
 @media (max-width: 680px) {
-  .masthead-inner, .layout { width: calc(100% - 24px); }
-  .masthead-inner { min-height: 63px; }
-  .masthead h1 { font-size: 1.08rem; }
+  .masthead-inner, .layout, .site-footer { width: calc(100% - 24px); }
+  .masthead-inner { min-height: 63px; padding-block: 8px; }
+  .brand { font-size: 1.08rem; }
+  .brand-logo img { height: 30px; }
+  .login { padding-inline: 10px; font-size: .82rem; }
   .layout { grid-template-columns: minmax(0, 1fr); gap: 10px; margin-block: 12px; }
   .topics { padding-block: 2px; }
   .topics summary { min-height: 38px; padding-block: 8px; }
-  .chat { height: calc(100dvh - 140px); min-height: 350px; }
+  .chat { height: calc(100dvh - 180px); min-height: 350px; }
   .chat-header, .transcript, .composer, .status { padding-inline: 15px; }
   .chat-header, .transcript { padding-block: 15px; }
   .chat-header h2 { font-size: 1.08rem; }
+  .empty { gap: 18px; }
+  .hero { flex-direction: column; align-items: stretch; gap: 14px; }
+  .hero-copy { flex: none; }
+  .hero-art { flex: none; align-self: center; width: min(190px, 60%); }
+  .hero-actions .cta { flex: 1 1 140px; white-space: normal; }
+  /* 390px에서는 두 줄, 320px에서는 한 줄로 떨어진다. */
+  .cards { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+  .card { min-height: 0; padding: 14px; }
   .composer { padding-bottom: max(13px, env(safe-area-inset-bottom)); }
+  .site-footer { margin-bottom: 14px; }
 }

@@ -852,4 +852,33 @@ reset.addEventListener("click", () => {
   input.focus();
 });
 
+// 첫 화면의 버튼과 카드. 새 요청을 만들지 않고 이미 있는 기능만 부른다.
+// 졸업 체크는 checkGraduation이 요청 중 잠금을 직접 확인하므로 연달아 눌러도 요청은 하나만 나간다.
+const landingActions = {
+  graduation: () => void checkGraduation(),
+  photo: () => photoFile.click(),
+  ask: () => input.focus(),
+};
+for (const control of document.querySelectorAll?.("[data-action]") ?? []) {
+  const action = control.dataset?.action;
+  if (typeof action !== "string" || !Object.hasOwn(landingActions, action)) continue;
+  control.addEventListener("click", () => {
+    if (!busy) landingActions[action]();
+  });
+}
+
+// 로고와 테크모 그림 자리는 숨긴 채 시작하고, 그림이 실제로 그려질 때만 보인다.
+// complete와 naturalWidth를 함께 보므로 이 스크립트가 로드·실패 신호보다 늦게 실행돼도 결과가 같다.
+// 파일이 없거나(404) 깨졌으면 자리를 숨긴 채 두고, 다른 그림으로 바꾸지 않는다.
+for (const slot of document.querySelectorAll?.("[data-brand-slot]") ?? []) {
+  const image = slot.querySelector("img");
+  if (!image) continue;
+  const settle = () => {
+    slot.hidden = !(image.complete && image.naturalWidth > 0);
+  };
+  image.addEventListener("load", settle);
+  image.addEventListener("error", settle);
+  settle();
+}
+
 updateSend();
