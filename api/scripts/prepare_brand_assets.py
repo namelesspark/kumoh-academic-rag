@@ -1,4 +1,4 @@
-"""배포 준비 때 공식 그림을 검증하고 화면용 PNG, 캠퍼스 사진, 붓글씨 제목 그림을 준비한다."""
+"""배포 준비 때 공식 그림을 검증하고 화면용 PNG, 캠퍼스 사진, 제목 글자 그림을 준비한다."""
 
 from collections import deque
 from hashlib import sha256
@@ -64,8 +64,8 @@ PHOTO_HEADERS = {
 }
 
 
-class BrushTitle(NamedTuple):
-    """붓글씨 제목 그림의 저장 이름과, 글자를 그릴 글꼴의 주소·바이트 수·지문(SHA-256)."""
+class TitleImage(NamedTuple):
+    """제목 그림의 저장 이름과, 글자를 그릴 글꼴의 주소·바이트 수·지문(SHA-256)."""
 
     name: str
     url: str
@@ -75,19 +75,18 @@ class BrushTitle(NamedTuple):
 
 OFFICIAL_HOST = "www.kumoh.ac.kr"
 FONT_HOST = "raw.githubusercontent.com"
-# East Sea Dokdo Regular. SIL Open Font License 1.1, Copyright (c) YoonDesign Inc.
+# Gugi Regular. SIL Open Font License 1.1, Copyright (c) 2017 by TAE System & Typefaces Co.
 # 글꼴 파일은 그림을 그릴 때만 메모리에서 쓰고 저장하거나 화면에 내려 주지 않는다.
-BRUSH_TITLES = (
-    BrushTitle(
-        "calligraphy-title.png",
+TITLE_IMAGES = (
+    TitleImage(
+        "title-lettering.png",
         "https://raw.githubusercontent.com/google/fonts/16680f8688ffcd467d2eb2146a9ce0343404581d"
-        "/ofl/eastseadokdo/EastSeaDokdo-Regular.ttf",
-        3178684, "8cebb39d375134fdbcedef9bf4ec4f6c3f02c39ed0aacd6e83f7a0f435e593b2"),
+        "/ofl/gugi/Gugi-Regular.ttf",
+        990856, "c0b1f979979cfc309fb2438fa9464f96173353e0c4842cc7a5919658184ed9d3"),
 )
-MAX_FONT_DOWNLOAD = 4 * 1024 * 1024
-TITLE_FONT_SIZE = 264
-TITLE_LINE_HEIGHT = 0.98  # 글자 크기의 배수
-TITLE_INDENT = 0.55  # 둘째 줄을 오른쪽으로 들이는 양. 글자 크기의 배수
+MAX_FONT_DOWNLOAD = 2 * 1024 * 1024
+TITLE_FONT_SIZE = 172
+TITLE_LINE_HEIGHT = 1.12  # 글자 크기의 배수
 TITLE_MARGIN = 16
 TITLE_WHITE = (255, 255, 255)
 TITLE_YELLOW = (255, 209, 0)  # #FFD100
@@ -134,7 +133,7 @@ def download(url, *, opener=None, clock=monotonic, limit=None):
     로고와 테크모 요청은 전과 같다.
     """
     is_photo = any(url == photo.url for photo in CAMPUS_PHOTOS)
-    is_font = any(url == title.url for title in BRUSH_TITLES)
+    is_font = any(url == title.url for title in TITLE_IMAGES)
     if not is_photo and not is_font and url not in (LOGO_URL, TECHMO_URL):
         raise AssetError("허용하지 않은 원본")
     host = FONT_HOST if is_font else OFFICIAL_HOST
@@ -266,14 +265,14 @@ def render_title(font, lines=None):
     """
     lines = TITLE_LINES if lines is None else lines
     size = font.size
-    pad = size  # 붓글씨는 획이 글자 칸 밖으로 삐치므로 넉넉히 둔 뒤 잘라 낸다.
-    widths = [index * TITLE_INDENT * size + sum(font.getlength(text) for text, _ in line)
-              for index, line in enumerate(lines)]
+    pad = size  # 획이 글자 칸 밖으로 나가도 잘리지 않게 넉넉히 둔 뒤 잘라 낸다.
+    widths = [sum(font.getlength(text) for text, _ in line) for line in lines]
     canvas = (int(max(widths)) + 2 * pad,
               int((len(lines) - 1) * TITLE_LINE_HEIGHT * size + size) + 2 * pad)
     shapes = {}
     for index, line in enumerate(lines):
-        x = pad + index * TITLE_INDENT * size
+        # 줄은 모두 같은 왼쪽 끝에서 시작한다.
+        x = pad
         y = pad + index * TITLE_LINE_HEIGHT * size
         for text, color in line:
             shape = shapes.setdefault(color, Image.new("L", canvas, 0))
@@ -286,10 +285,10 @@ def render_title(font, lines=None):
         image = Image.alpha_composite(image, layer)
     visible = image.getchannel("A").getbbox()
     if visible is None:
-        raise AssetError("붓글씨가 비어 있음")
+        raise AssetError("제목 글자가 비어 있음")
     left, top, right, bottom = visible
     if min(left, top, canvas[0] - right, canvas[1] - bottom) < TITLE_MARGIN:
-        raise AssetError("붓글씨가 그림 밖으로 나감")
+        raise AssetError("제목 글자가 그림 밖으로 나감")
     image = image.crop((left - TITLE_MARGIN, top - TITLE_MARGIN,
                         right + TITLE_MARGIN, bottom + TITLE_MARGIN))
     result = BytesIO()
@@ -297,7 +296,7 @@ def render_title(font, lines=None):
     return result.getvalue()
 
 
-def calligraphy_png(data, expected_size, expected_hash):
+def title_png(data, expected_size, expected_hash):
     """확인해 둔 글꼴과 한 바이트도 다르지 않을 때만 그 글꼴로 제목 그림을 그린다."""
     if len(data) != expected_size:
         raise AssetError("글꼴 바이트 수 불일치")
@@ -336,10 +335,10 @@ def main(*, downloader=download, writer=atomic_write, report=print):
         *((photo.name, photo.url,
            lambda data, photo=photo: campus_jpeg(data, photo.size, photo.sha256))
           for photo in CAMPUS_PHOTOS),
-        # 붓글씨 제목은 글꼴을 받아 그림으로 그린다. 글꼴 파일은 저장하지 않는다.
+        # 제목은 글꼴을 받아 그림으로 그린다. 글꼴 파일은 저장하지 않는다.
         *((title.name, title.url,
-           lambda data, title=title: calligraphy_png(data, title.size, title.sha256))
-          for title in BRUSH_TITLES),
+           lambda data, title=title: title_png(data, title.size, title.sha256))
+          for title in TITLE_IMAGES),
     ):
         try:
             if url not in sources:

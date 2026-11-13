@@ -1,4 +1,4 @@
-# 공식 로고·테크모·캠퍼스 사진 준비
+# 공식 로고·테크모·캠퍼스 사진·제목 그림 준비
 
 첫 화면에 쓸 그림은 배포 준비 때만 받는다. PNG와 JPG는 저장소에 넣지 않으며 서버와 테스트는 그림을 내려받지 않는다. 저장소 루트에서 `python -B api/scripts/prepare_brand_assets.py`를 실행한다.
 
@@ -63,32 +63,32 @@
 
 학교가 사진을 바꾸면 지문이 달라져 준비가 실패한다. 그때는 새 사진을 눈으로 확인한 뒤 표와 스크립트의 바이트 수·지문을 함께 고친다.
 
-## 붓글씨 제목 그림
+## 제목 글자 그림
 
-로그인 화면 왼쪽의 제목은 글자를 그림으로 그려 `calligraphy-title.png` 한 장으로 둔다. 간판 가게에서 글씨를 받아 와 간판만 거는 것과 같다. 붓(글꼴 파일)은 가게에 두고 화면에는 완성한 간판만 내려 준다.
+로그인 화면 왼쪽의 제목은 글자를 그림으로 그려 `title-lettering.png` 한 장으로 둔다. 간판 가게에서 글씨를 받아 와 간판만 거는 것과 같다. 글씨 틀(글꼴 파일)은 가게에 두고 화면에는 완성한 간판만 내려 준다.
 
 | 항목 | 값 |
 | --- | --- |
-| 글꼴 | East Sea Dokdo Regular |
-| 저작권 | Copyright (c) YoonDesign Inc. All Rights Reserved. |
-| 라이선스 | [SIL Open Font License 1.1](https://github.com/google/fonts/blob/16680f8688ffcd467d2eb2146a9ce0343404581d/ofl/eastseadokdo/OFL.txt) |
-| 출처 | [google/fonts 커밋 `16680f8688ffcd467d2eb2146a9ce0343404581d`](https://github.com/google/fonts/tree/16680f8688ffcd467d2eb2146a9ce0343404581d/ofl/eastseadokdo) |
-| 받는 주소 | https://raw.githubusercontent.com/google/fonts/16680f8688ffcd467d2eb2146a9ce0343404581d/ofl/eastseadokdo/EastSeaDokdo-Regular.ttf |
-| 바이트 | 3178684 |
-| 지문(SHA-256) | `8cebb39d375134fdbcedef9bf4ec4f6c3f02c39ed0aacd6e83f7a0f435e593b2` |
+| 글꼴 | Gugi Regular |
+| 저작권 | Copyright (c) 2017 by TAE System & Typefaces Co.. All rights reserved. |
+| 라이선스 | [SIL Open Font License 1.1](https://github.com/google/fonts/blob/16680f8688ffcd467d2eb2146a9ce0343404581d/ofl/gugi/OFL.txt) |
+| 출처 | [google/fonts 커밋 `16680f8688ffcd467d2eb2146a9ce0343404581d`](https://github.com/google/fonts/tree/16680f8688ffcd467d2eb2146a9ce0343404581d/ofl/gugi) |
+| 받는 주소 | https://raw.githubusercontent.com/google/fonts/16680f8688ffcd467d2eb2146a9ce0343404581d/ofl/gugi/Gugi-Regular.ttf |
+| 바이트 | 990856 |
+| 지문(SHA-256) | `c0b1f979979cfc309fb2438fa9464f96173353e0c4842cc7a5919658184ed9d3` |
 
 - **글귀** — 두 줄 「졸업까지,」 / 「테크모와 함께」. "테크모" 세 글자만 `#FFD100`, 나머지는 흰색이다.
-- **그리기** — 글자 크기 264px, 줄 간격은 글자 크기의 0.98배, 둘째 줄은 글자 크기의 0.55배만큼 오른쪽으로 들인다. 투명 바탕에 그린 뒤 글자가 실제로 차지한 영역에 16px 여백만 남기고 잘라 PNG로 저장한다.
-- **받기** — 글꼴은 3MB가 넘어 크기 한도를 4MiB로 따로 둔다. 주소 이동은 `https://raw.githubusercontent.com` 안에서만 허용한다. 바이트 수와 지문이 모두 맞을 때만 글꼴을 연다.
+- **그리기** — 글자 크기 172px, 줄 간격은 글자 크기의 1.12배, 두 줄 모두 들여쓰기 없이 같은 왼쪽 끝에서 시작한다. 투명 바탕에 그린 뒤 글자가 실제로 차지한 영역에 16px 여백만 남기고 잘라 PNG로 저장한다. 시안에서 같은 값으로 그린 결과는 1014×376이다.
+- **받기** — 글꼴용 크기 한도를 로고·사진의 1MiB와 따로 2MiB로 둔다. 주소 이동은 `https://raw.githubusercontent.com` 안에서만 허용한다. 바이트 수와 지문이 모두 맞을 때만 글꼴을 연다.
 - **글꼴은 내려 주지 않는다** — 글꼴 파일은 그림을 그릴 때만 메모리에서 쓰고 디스크에 저장하지 않는다. 서버의 허용 파일 목록에도 없다. 저장소에도 넣지 않는다.
 - **실패 처리** — 글꼴을 받지 못하거나 지문이 다르면 기존 그림을 그대로 두고 종료 코드 0으로 끝낸다. 그림이 없으면 서버가 404로 답하고 화면은 같은 글귀를 기본 글꼴 제목으로 보여 준다.
-- **서버 응답** — `/chat-assets/calligraphy-title.png`을 `image/png`로 낸다.
+- **서버 응답** — `/chat-assets/title-lettering.png`을 `image/png`로 낸다.
 
 이 라이선스는 글꼴로 만든 문서(여기서는 PNG)에는 같은 라이선스를 요구하지 않는다. 글꼴 파일을 함께 나눠 주지 않으므로 라이선스 사본을 저장소에 넣지 않고 위 표로 출처를 밝힌다.
 
 ## 검증
 
-추가 의존성이나 외부 복사 코드 없이 기존 Pillow와 파이썬 표준 라이브러리를 사용한다. 붓글씨 그리기 검사는 Pillow에 들어 있는 기본 글꼴과 영문 글귀로 한다. 가상 이미지와 가짜 응답만 사용하는 검증 명령은 다음과 같음.
+추가 의존성이나 외부 복사 코드 없이 기존 Pillow와 파이썬 표준 라이브러리를 사용한다. 제목 글자 그리기 검사는 Pillow에 들어 있는 기본 글꼴과 영문 글귀로 한다. 가상 이미지와 가짜 응답만 사용하는 검증 명령은 다음과 같음.
 
 ```text
 node --test api/tests/web/citation_link.test.mjs api/tests/web/graduation_demo.test.mjs api/tests/web/landing_design.test.mjs api/tests/web/photo_input.test.mjs api/tests/web/poster_lookup.test.mjs api/tests/web/techmo_assistant.test.mjs

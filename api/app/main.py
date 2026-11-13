@@ -42,8 +42,8 @@ CHAT_WEB_MEDIA_TYPES = {
     "techmo-quiet.png": "image/png", "techmo-guide.png": "image/png",
     "techmo-celebrate.png": "image/png",
     "techmo-sprite.png": "image/png",
-    # 로그인 화면의 붓글씨 제목 그림. 글꼴 파일은 이 목록에 넣지 않는다.
-    "calligraphy-title.png": "image/png",
+    # 로그인 화면의 제목 글자 그림. 글꼴 파일은 이 목록에 넣지 않는다.
+    "title-lettering.png": "image/png",
     # 캠퍼스 사진 네 장. 배포 준비 때만 받으므로 파일이 없으면 404로 답한다.
     "campus-aerial.jpg": "image/jpeg", "campus-hill.jpg": "image/jpeg",
     "campus-gate.jpg": "image/jpeg", "campus-field.jpg": "image/jpeg",
