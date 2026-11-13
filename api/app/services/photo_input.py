@@ -64,9 +64,6 @@ async def answer_photo_question(
     query_text = _place_text(primary_text)
     matches = [place for place in places if _place_text(place.name) in query_text]
     if question and recognized_text and not matches:
-        regulation = _regulation(retrieval, question, request.session_id)
-        if regulation is not None:
-            return regulation
         query_text = _place_text(recognized_text)
         matches = [place for place in places if _place_text(place.name) in query_text]
 
@@ -84,7 +81,9 @@ async def answer_photo_question(
                 kind="campus", answer=f"{place.name} · {place.location}", sources=sources,
             )
 
-    query = f"{question}\n{recognized_text}" if question and recognized_text else primary_text
-    return _regulation(retrieval, query, request.session_id) or PhotoQuestionResponse(
+    regulation = _regulation(retrieval, primary_text, request.session_id)
+    if regulation is None and question and recognized_text:
+        regulation = _regulation(retrieval, f"{question}\n{recognized_text}", request.session_id)
+    return regulation or PhotoQuestionResponse(
         kind="hold", hold_reason="공식 자료에서 답을 확인하지 못했습니다. 질문이나 읽은 글자를 확인해 주세요.",
     )

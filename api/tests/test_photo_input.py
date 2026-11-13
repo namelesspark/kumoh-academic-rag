@@ -243,6 +243,36 @@ class PhotoInputTests(unittest.TestCase):
         self.places.return_value = [PLACE, other]
         self.assert_hold(self.question("가상관 또는 가상별관", "어디야?"))
 
+    def test_recognized_places_take_priority_over_unrelated_regulation_hit(self):
+        answer = "가상 승인서를 제출합니다."
+        search = Mock(return_value=[SimpleNamespace(
+            chunk=SimpleNamespace(article_path="가상 제1조", start=0, end=len(answer)),
+        )])
+        self.app.state.chat_retrieval = ChatRetrieval(
+            search=search,
+            source=answer,
+            document_title="가상 안내 규정",
+            effective_date=date(2031, 11, 13),
+            source_url="https://example.invalid/regulation",
+        )
+        other = PLACE.model_copy(update={"id": "fictional-annex", "name": "가상별관"})
+        self.places.return_value = [PLACE, other]
+
+        with self.subTest(places="one"):
+            response = self.question("가상관 101호", "여기 어디야?")
+            self.assertEqual(response.status, 200)
+            self.assertEqual(response.json()["kind"], "campus")
+            self.assertIn(PLACE.name, response.json()["answer"])
+
+        with self.subTest(places="multiple"):
+            self.assert_hold(self.question("가상관 또는 가상별관", "여기 어디야?"))
+
+        with self.subTest(places="explicit"):
+            response = self.question("가상관 101호", "가상별관은 어디야?")
+            self.assertEqual(response.status, 200)
+            self.assertEqual(response.json()["kind"], "campus")
+            self.assertIn(other.name, response.json()["answer"])
+
     def test_empty_and_overlong_text(self):
         self.assert_hold(self.question("\n", " "))
         self.assert_hold(self.question("가" * 2000))
