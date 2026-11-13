@@ -254,10 +254,13 @@ h1, h2, h3, p { margin-top: 0; }
   91%, 98% { background-position: 0 0; }
   99%, 100% { background-position: 50% 0; }
 }
-/* 움직임 줄이기 설정에서는 떠 있기·튀기·쉬는 자세·대기 점을 모두 끈다.
-   답변 상태에 따라 정지 그림 칸이 바뀌는 것과 말·점 표시는 그대로 남는다. */
+/* 움직임 줄이기 설정에서는 떠 있기·튀기·쉬는 자세·대기 점과 첫 화면 도형의 모양 변화를 모두 끈다.
+   답변 상태에 따라 정지 그림 칸이 바뀌는 것과 말·점 표시는 그대로 남는다.
+   카드와 패널을 이어 그리는 전환(View Transitions)도 끈다. chat.js가 전환을 시작하지 않지만,
+   사용 중에 설정을 바꾼 순간에도 움직이지 않게 여기서 한 번 더 막는다. */
 @media (prefers-reduced-motion: reduce) {
-  .pet-float, .pet-hop, .pet-frame, .pet-dots span { animation: none !important; }
+  .pet-float, .pet-hop, .pet-frame, .pet-dots span, .hero-art::before { animation: none !important; }
+  ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation: none !important; }
 }
 /* 넓은 화면: 펫을 화면 오른쪽 아래에 고정한다. 본문 격자에 펫 너비만큼 빈 셋째 칸을 두고
    펫의 오른쪽 끝을 본문 오른쪽 끝에 맞추므로 채팅 칸과 겹치지 않는다. 말풍선은 펫 위에 온다. */
@@ -332,6 +335,13 @@ h1, h2, h3, p { margin-top: 0; }
   inset: 24% 4% 0;
   border-radius: 46% 54% 42% 58% / 58% 56% 44% 42%;
   background: var(--sky);
+  animation: shape-morph 12s ease-in-out infinite;
+}
+/* 도형이 심볼마크의 구슬 꼴과 네모꼴 사이를 12초에 한 번 오간다. 모서리 둥글기(border-radius)만 바꾸고
+   크기·위치와 테크모 그림은 건드리지 않는다. 움직임 줄이기 설정에서는 위 규칙이 꺼서 구슬 꼴로 멈춘다. */
+@keyframes shape-morph {
+  0%, 100% { border-radius: 46% 54% 42% 58% / 58% 56% 44% 42%; }
+  50% { border-radius: 18% 18% 18% 18% / 24% 24% 24% 24%; }
 }
 .hero-art img { position: relative; display: block; width: 100%; height: auto; }
 
@@ -361,13 +371,59 @@ h1, h2, h3, p { margin-top: 0; }
 }
 .card-title { color: var(--navy); font-size: 1rem; font-weight: 700; }
 .card-text { color: var(--muted); font-size: .86rem; line-height: 1.5; }
-/* 누를 수 있는 카드는 실선 테두리와 화살표로, 준비 중 카드는 점선 테두리와 문구로 구분한다. */
+/* 카드 여섯 개는 모두 패널을 여는 버튼이라 화살표가 붙는다. 준비 중 카드는 점선 테두리와 문구로 구분한다. */
 button.card .card-title::after { content: "›"; margin-left: 6px; }
 button.card:hover { border-color: var(--blue); background: var(--tint); }
 button.card:hover .card-title { text-decoration: underline; text-underline-offset: 3px; }
 .card.soon { border-style: dashed; background: var(--paper); }
 .card.soon .soon-label { margin-top: auto; }
 .empty-hint { margin: 0; color: var(--muted); font-size: .9rem; line-height: 1.6; }
+
+/* 기능 패널. 카드 목록이 있던 자리에 글 흐름대로 놓인다. 화면 위에 띄우지 않으므로 펫·말풍선·입력창을 가리지 않는다. */
+.feature-panel {
+  display: grid;
+  gap: 12px;
+  padding: 18px 20px 20px;
+  border: 1px solid var(--edge);
+  border-radius: 12px;
+  background: var(--white);
+  color: var(--navy);
+  word-break: keep-all;
+}
+.panel-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.panel-title { align-self: center; margin: 0; color: var(--navy); font-size: 1.15rem; line-height: 1.35; }
+.panel-text { margin: 0; color: var(--muted); line-height: 1.6; }
+.panel-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.panel-close {
+  flex: none;
+  min-height: 44px;
+  padding-inline: 14px;
+  border: 1px solid var(--edge);
+  border-radius: 8px;
+  background: var(--white);
+  color: var(--navy);
+  font-weight: 700;
+  white-space: nowrap;
+}
+.panel-close:hover {
+  border-color: var(--blue);
+  background: var(--tint);
+  color: var(--navy);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+/* 패널이 열려 있는 동안 카드 목록은 보이지 않는다. chat.js가 목록을 숨기지만,
+   두 요소가 함께 보이는 순간이 생기지 않게 여기서도 같은 상태를 만든다. */
+.features:has(> .feature-panel:not([hidden])) > .cards { display: none; }
+/* 좁은 화면의 펫 줄은 화면 아래에 붙어 떠 있어 그 밑의 내용을 가린다. 초점을 받아 화면에 들어오는
+   버튼과 패널 제목이 그 줄 밑에 숨지 않게, 화면을 옮길 때 아래쪽에 펫 줄 높이만큼 여유를 둔다. */
+.empty button, .panel-title { scroll-margin-block: 12px 120px; }
+
+/* 카드가 패널로 커지는 전환. 브라우저는 바뀌기 전후 화면에서 이름이 같은 요소를 하나로 이어 그린다
+   (View Transitions). chat.js는 누른 카드에 data-morph를 붙였다 뗄 뿐이고, 이름은 여기서만 준다.
+   같은 이름이 한 화면에 둘 보이면 브라우저가 전환을 건너뛰므로, 누른 카드 하나와 열린 패널 하나에만 준다. */
+.card[data-morph], .feature-panel:not([hidden]) { view-transition-name: feature-morph; }
+::view-transition-group(feature-morph) { animation-duration: .32s; animation-timing-function: ease-in-out; }
 
 .turn + .turn { margin-top: 25px; }
 .question {
@@ -579,14 +635,26 @@ textarea:hover { border-color: var(--blue); }
   .pet { width: 48px; }
   .pet-says { padding: 6px 10px; font-size: .86rem; line-height: 1.4; }
   .transcript { padding-block: 15px; }
-  .empty { gap: 18px; }
-  .hero { flex-direction: column; align-items: stretch; gap: 14px; }
-  .hero-copy { flex: none; }
-  .hero-art { flex: none; align-self: center; width: min(190px, 60%); }
-  .hero-actions .cta { flex: 1 1 140px; white-space: normal; }
-  /* 390px에서는 두 줄, 320px에서는 한 줄로 떨어진다. */
-  .cards { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
-  .card { min-height: 0; padding: 14px; }
+  /* 소개 영역을 낮춰 질문 입력창이 더 위로 오게 한다. 글은 자르지 않고 크기·간격·배치만 줄인다. */
+  .empty { gap: 14px; }
+  /* 그림을 제목 오른쪽에 작게 놓는다. 소개 글 묶음(.hero-copy)의 상자를 없애 제목·설명·버튼을 그림과 같은 줄 흐름에 세우고,
+     순서(order)로 제목 → 그림 → 설명 → 버튼을 만든다. 폭이 모자라면(200% 확대 등) 그림이 다음 줄로 내려간다. */
+  .hero { flex-wrap: wrap; gap: 8px 10px; }
+  .hero-copy { display: contents; }
+  .hero h2 { flex: 1 1 150px; min-width: 0; margin: 0; font-size: 1.25rem; }
+  .hero-art { order: 1; flex: none; width: 88px; }
+  .hero-copy p { order: 2; flex: 1 1 100%; margin: 0; font-size: .92rem; line-height: 1.55; }
+  .hero-actions { order: 3; flex: 1 1 100%; margin-top: 2px; }
+  .hero-actions .cta, .panel-actions .cta { flex: 1 1 140px; white-space: normal; }
+  /* 390px에서는 두 줄, 320px에서는 한 줄로 떨어진다. 그보다 좁으면 칸이 화면 폭을 넘지 않게 줄어든다. */
+  .cards { grid-template-columns: repeat(auto-fit, minmax(min(150px, 100%), 1fr)); gap: 8px; }
+  .card { min-height: 0; gap: 4px; padding: 10px; }
+  .card-text { font-size: .8rem; line-height: 1.45; }
+  /* 준비 중 문구를 설명 글 끝에 이어 붙여 한 줄을 아낀다. */
+  .card.soon { display: block; }
+  .card.soon .card-title { display: block; margin-bottom: 4px; }
+  .card.soon .soon-label { margin: 0 0 0 4px; }
+  .feature-panel { padding: 14px; }
   .composer { padding-bottom: max(13px, env(safe-area-inset-bottom)); }
   .site-footer { margin-bottom: 14px; }
 }

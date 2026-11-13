@@ -152,6 +152,10 @@ test("글자·링크·입력 안내·준비 중 문구가 기본·마우스 올�
     ["카드 설명(올림)", [".card-text", "text"], ["button.card:hover", "fill"]],
     ["준비 중 카드 제목", [".card-title", "text"], [".card.soon", "fill"]],
     ["준비 중 카드 설명", [".card-text", "text"], [".card.soon", "fill"]],
+    ["패널 제목", [".panel-title", "text"], [".feature-panel", "fill"]],
+    ["패널 설명", [".panel-text", "text"], [".feature-panel", "fill"]],
+    ["패널 닫기", ...self(".panel-close")],
+    ["패널 닫기(올림)", ...self(".panel-close:hover")],
     ["첫 화면 안내", [".empty-hint", "text"], chat],
     ["입력 글자", ...self("textarea")],
     ["입력 안내 글자", ["textarea::placeholder", "text"], ["textarea", "fill"]],
@@ -192,6 +196,9 @@ test("버튼·입력창·카드의 테두리와 키보드 초점 표시가 맞�
     ["카드 테두리", [".card", "edge"], chat],
     ["카드 테두리(올림)", ...self("button.card:hover", "edge")],
     ["준비 중 카드 테두리", [".card", "edge"], [".card.soon", "fill"]],
+    ["패널 테두리", [".feature-panel", "edge"], chat],
+    ["패널 닫기 테두리", [".panel-close", "edge"], [".feature-panel", "fill"]],
+    ["패널 닫기 테두리(올림)", ...self(".panel-close:hover", "edge")],
     ["초점 표시 · 화면 바탕", ring, page],
     ["초점 표시 · 대화 영역", ring, chat],
     ["초점 표시 · 상단 띠", ring, masthead],
@@ -209,6 +216,7 @@ test("마우스 올림과 초점은 색 말고도 밑줄·윤곽선으로 드러
     ".cta:hover",
     ".topics button:hover",
     "button.card:hover .card-title",
+    ".panel-close:hover",
   ]) {
     assert.match(declared(selector, ["text-decoration"]), /underline/, selector);
   }
@@ -232,13 +240,18 @@ test("소개 영역과 카드 6개는 #empty 안에, 상단 띠와 하단 표시
     [...landing.matchAll(/<span class="card-title">([^<]+)<\/span>/g)].map(match => match[1]),
     ["졸업 체크", "비교과 추천", "사진으로 묻기", "규정 질문", "학사 일정", "캠퍼스 안내"],
   );
-  // 준비 중인 두 카드는 버튼이 아니고, 문구로 상태를 알린다.
-  const soon = [...landing.matchAll(/<div class="card soon">[\s\S]*?<\/div>/g)].map(match => match[0]);
+  // 카드 여섯 개는 모두 패널을 여는 버튼이다(#67). 준비 중인 두 카드는 문구로 상태를 알린다.
+  const cards = [...landing.matchAll(/<button type="button" class="card(?: soon)?" data-feature="[a-z]+"[^>]*>[\s\S]*?<\/button>/g)]
+    .map(match => match[0]);
+  assert.equal(cards.length, 6);
+  const soon = cards.filter(card => card.startsWith('<button type="button" class="card soon"'));
   assert.equal(soon.length, 2);
   for (const card of soon) assert.match(card, /<span class="soon-label">준비 중<\/span>/);
   assert.match(soon[0], /학사 일정/);
   assert.match(soon[1], /캠퍼스 안내/);
-  assert.equal(landing.split('<button type="button" class="card"').length, 5);
+  // 카드는 기능을 바로 부르지 않는다. 버튼이 아닌 카드도 남지 않는다.
+  for (const card of cards) assert.doesNotMatch(card, /data-action/);
+  assert.equal(landing.includes('<div class="card'), false);
 
   const [top, rest] = html.split("<main");
   assert.match(top, /<button type="button" class="login" disabled>가상 학생 로그인 <span class="soon-label">준비 중<\/span><\/button>/);
@@ -371,7 +384,8 @@ const waiting = () => ({ complete: false, naturalWidth: 0 });
 const drawn = width => ({ complete: true, naturalWidth: width });
 const broken = () => ({ complete: true, naturalWidth: 0 });
 
-// 실제 index.html에 적힌 버튼과 카드를 그대로 가짜 요소로 옮긴다. [이름, 동작] 순서쌍이다.
+// 실제 index.html에 적힌 소개 버튼과 패널 안 시작 버튼을 그대로 가짜 요소로 옮긴다. [이름, 동작] 순서쌍이다.
+// 카드는 data-action이 없어 여기에 들지 않는다. 카드가 패널을 여닫는 동작은 feature_panels.test.mjs가 본다.
 const controlsInPage = [...landing.matchAll(
   /<button type="button" class="[^"]*" data-action="([^"]+)">\s*(?:<span class="card-title">)?([^<]+)/g,
 )].map(match => [match[2].trim(), match[1]]);
@@ -509,21 +523,23 @@ test("그림이 실패한 뒤에도 질문을 보낼 수 있고, 새 대화가 �
   assert.equal(shown.input.value, "");
 });
 
-test("첫 화면의 버튼과 카드는 화면에 이미 있는 기능으로만 이어진다", () => {
+test("첫 화면의 소개 버튼과 패널 안 시작 버튼은 화면에 이미 있는 기능으로만 이어진다", () => {
   assert.deepEqual(controlsInPage, [
     ["내 졸업 체크 보기", "graduation"],
-    ["졸업 체크", "graduation"],
-    ["비교과 추천", "graduation"],
-    ["사진으로 묻기", "photo"],
-    ["규정 질문", "ask"],
+    ["졸업 체크 시작", "graduation"],
+    ["졸업 체크와 추천 보기", "graduation"],
+    ["사진 선택", "photo"],
+    ["질문 입력하기", "ask"],
   ]);
+  // 기능을 부르는 버튼은 이 다섯 개뿐이다. 정규식이 놓친 data-action이 없는지 개수로 맞춰 본다.
+  assert.equal(html.split("data-action=").length - 1, controlsInPage.length);
   // 「테크모에게 묻기」 글자 버튼은 없앴다(#64). 그 이름은 펫 버튼의 읽기용 이름으로 한 번만 남는다.
   assert.equal(landing.includes("테크모에게 묻기"), false);
   assert.equal(html.split("테크모에게 묻기").length, 2);
   assert.equal(styles.includes("secondary"), false);
 });
 
-for (const label of ["내 졸업 체크 보기", "졸업 체크", "비교과 추천"]) {
+for (const label of ["내 졸업 체크 보기", "졸업 체크 시작", "졸업 체크와 추천 보기"]) {
   test(`${label}를 연달아 눌러도 졸업 체크 요청은 하나만 나가고, 끝난 뒤에는 다시 부를 수 있다`, async () => {
     const shown = loadLanding();
     shown.control(label).fire("click");
@@ -540,13 +556,13 @@ for (const label of ["내 졸업 체크 보기", "졸업 체크", "비교과 추
   });
 }
 
-test("사진으로 묻기는 기존 사진 선택을 열고, 규정 질문은 입력창으로 초점을 옮긴다", () => {
+test("「사진 선택」은 기존 사진 선택을 열고, 「질문 입력하기」는 입력창으로 초점을 옮긴다", () => {
   const shown = loadLanding();
-  shown.control("사진으로 묻기").fire("click");
+  shown.control("사진 선택").fire("click");
   assert.equal(shown.file.clicked, 1);
   assert.equal(shown.input.focused, 0);
 
-  shown.control("규정 질문").fire("click");
+  shown.control("질문 입력하기").fire("click");
   assert.equal(shown.input.focused, 1);
 
   // 요청은 나가지 않고 첫 화면도 그대로다.

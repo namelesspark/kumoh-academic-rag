@@ -77,7 +77,12 @@ test("왼쪽 칸의 비서와 「테크모에게 묻기」 글자 버튼이 없�
   assert.match(html, /<main class="layout">\s*<details class="topics" id="topics" open>/);
 
   assert.equal(landing.includes("테크모에게 묻기"), false);
-  assert.match(landing, /<button type="button" class="card" data-action="ask">\s*<span class="card-title">규정 질문<\/span>/);
+  // 카드는 패널을 여는 버튼이 됐다(#67). 기능은 패널 안의 시작 버튼이 부른다.
+  assert.match(
+    landing,
+    /<button type="button" class="card" data-feature="ask" aria-controls="panel-ask" aria-expanded="false">\s*<span class="card-title">규정 질문<\/span>/,
+  );
+  assert.match(landing, /<button type="button" class="cta" data-action="ask">질문 입력하기<\/button>/);
 });
 
 test("펫 줄은 입력창 바로 앞, 첫 화면(#empty) 밖에 있고 평소 상태로 시작한다", () => {
@@ -142,10 +147,14 @@ test("기본 배치는 입력창 앞에 붙는 낮은 줄이고, 넓은 화면�
   assert.ok(narrow.includes(".chat { height: calc(100dvh - 180px); min-height: 350px; }"));
 });
 
-test("움직임 네 가지는 서로 다른 요소·속성에 걸고, 움직임 줄이기 설정에서는 모두 끈다", () => {
+test("펫의 움직임 네 가지는 서로 다른 요소·속성에 걸고, 움직임 줄이기 설정에서는 화면의 움직임을 모두 끈다", () => {
   const animated = rules
     .map(([selector, body]) => [selector, /(?:^|; )animation: ([^;]+);/.exec(body)?.[1]])
     .filter(([, value]) => value !== undefined);
+  // 화면 전체에서 움직임을 거는 규칙의 목록이다. 마지막 줄은 첫 화면 도형의 모양 변화(#67)이고,
+  // 그 내용은 motion_layout.test.mjs가 따로 확인한다.
+  const allOff = ".pet-float, .pet-hop, .pet-frame, .pet-dots span, .hero-art::before";
+  const transitionOff = "::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*)";
   assert.deepEqual(animated, [
     [".pet-dots span", "dot-hop 1s ease-in-out infinite"],
     [".pet-float", "pet-float 1.8s ease-in-out infinite alternate"],
@@ -153,9 +162,13 @@ test("움직임 네 가지는 서로 다른 요소·속성에 걸고, 움직임 
     ['.pet-dock[data-pose="guide"] .pet-hop', "pet-hop-guide .4s ease-out"],
     ['.pet-dock[data-pose="celebrate"] .pet-hop', "pet-hop-celebrate .4s ease-out"],
     ['.pet-dock[data-state="idle"] .pet-frame, .pet-dock[data-state="answer"] .pet-frame', "pet-rest 24s step-end infinite"],
-    [".pet-float, .pet-hop, .pet-frame, .pet-dots span", "none !important"],
+    [allOff, "none !important"],
+    [transitionOff, "none !important"],
+    [".hero-art::before", "shape-morph 12s ease-in-out infinite"],
   ]);
-  assert.equal(calm, ".pet-float, .pet-hop, .pet-frame, .pet-dots span { animation: none !important; }");
+  // 움직임 줄이기 묶음은 하나뿐이고, 펫·대기 점·도형과 카드 전환을 함께 끈다.
+  assert.equal(styles.split("prefers-reduced-motion").length, 2);
+  assert.equal(calm, `${allOff} { animation: none !important; } ${transitionOff} { animation: none !important; }`);
 
   // 떠 있기: 제자리에서 조금 올라갔다 내려온다.
   assert.equal(block("@keyframes pet-float"), "from { transform: translateY(0); } to { transform: translateY(-5%); }");
