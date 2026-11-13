@@ -10,8 +10,17 @@
 <body>
   <header class="masthead">
     <div class="masthead-inner">
-      <h1>금오공대 학사 안내</h1>
-      <button type="button" class="reset" id="reset">새 대화</button>
+      <h1 class="brand">
+        <!-- 그림 자리는 숨긴 채 시작한다. chat.js가 로드 성공을 확인한 뒤에만 보이게 바꾼다. -->
+        <span class="brand-logo" data-brand-slot hidden>
+          <img src="/chat-assets/kumoh-signature.png" alt="국립금오공과대학교" width="782" height="113">
+        </span>
+        <span class="brand-name">금오공대 학사 안내</span>
+      </h1>
+      <div class="masthead-actions">
+        <button type="button" class="login" disabled>가상 학생 로그인 <span class="soon-label">준비 중</span></button>
+        <button type="button" class="reset" id="reset">새 대화</button>
+      </div>
     </div>
   </header>
   <main class="layout">
@@ -29,7 +38,65 @@
         <button type="button" class="check" id="graduation-check">가상 학생 졸업 체크</button>
       </header>
       <div id="transcript" class="transcript" role="log" aria-label="대화 내용" tabindex="0">
-        <p id="empty" class="empty">예시 질문을 고르거나 직접 입력해 보세요.</p>
+        <div id="empty" class="empty">
+          <section class="hero" aria-labelledby="hero-title">
+            <div class="hero-copy">
+              <h2 id="hero-title">졸업까지 남은 조건, 테크모가 같이 확인해요</h2>
+              <p>가상 학생의 이수 내역으로 졸업 조건을 계산하고, 규정 질문에는 근거 조문을 붙여 답해요.</p>
+              <div class="hero-actions">
+                <button type="button" class="cta" data-action="graduation">내 졸업 체크 보기</button>
+                <button type="button" class="cta secondary" data-action="ask">테크모에게 묻기</button>
+              </div>
+            </div>
+            <div class="hero-art" data-brand-slot hidden>
+              <img src="/chat-assets/techmo-basic.png" alt="" width="468" height="414">
+            </div>
+          </section>
+          <section class="features" aria-labelledby="features-title">
+            <h3 id="features-title" class="sr-only">기능 바로가기</h3>
+            <ul class="cards">
+              <li>
+                <button type="button" class="card" data-action="graduation">
+                  <span class="card-title">졸업 체크</span>
+                  <span class="card-text">가상 학생의 이수 내역으로 남은 졸업 조건을 계산해요.</span>
+                </button>
+              </li>
+              <li>
+                <button type="button" class="card" data-action="graduation">
+                  <span class="card-title">비교과 추천</span>
+                  <span class="card-text">졸업 체크 결과 아래에 부족한 점수를 채울 프로그램이 함께 나와요.</span>
+                </button>
+              </li>
+              <li>
+                <button type="button" class="card" data-action="photo">
+                  <span class="card-title">사진으로 묻기</span>
+                  <span class="card-text">포스터나 안내문 사진을 고르면 글자를 읽어 답을 찾아요.</span>
+                </button>
+              </li>
+              <li>
+                <button type="button" class="card" data-action="ask">
+                  <span class="card-title">규정 질문</span>
+                  <span class="card-text">궁금한 점을 적으면 근거 조문과 함께 답해요.</span>
+                </button>
+              </li>
+              <li>
+                <div class="card soon">
+                  <span class="card-title">학사 일정</span>
+                  <span class="card-text">수강 신청과 시험 일정을 모아 보여 줄 예정이에요.</span>
+                  <span class="soon-label">준비 중</span>
+                </div>
+              </li>
+              <li>
+                <div class="card soon">
+                  <span class="card-title">캠퍼스 안내</span>
+                  <span class="card-text">건물과 시설 위치를 알려 줄 예정이에요.</span>
+                  <span class="soon-label">준비 중</span>
+                </div>
+              </li>
+            </ul>
+          </section>
+          <p class="empty-hint">예시 질문을 고르거나 직접 입력해 보세요.</p>
+        </div>
       </div>
       <noscript><p class="status">채팅을 사용하려면 브라우저에서 JavaScript를 켜 주세요.</p></noscript>
       <p class="status" id="status" role="status"></p>
@@ -50,5 +117,8 @@
       </form>
     </section>
   </main>
+  <footer class="site-footer">
+    <p>교내 대회 출품작 · 가상 학생 데이터로 동작하는 시연입니다</p>
+  </footer>
 </body>
 </html>
