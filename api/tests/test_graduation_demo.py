@@ -17,6 +17,13 @@ from app.services.graduation_rules import get_graduation_demo
 
 
 ENDPOINT = "/api/v1/graduation-demo"
+STUDENTS_ENDPOINT = "/api/v1/demo-students"
+STUDENTS = [
+    {"id": "demo-d02", "label": "가상 학생 D02", "scenario": "졸업 요건에 가까움", "is_fictional": True},
+    {"id": "demo-d03", "label": "가상 학생 D03", "scenario": "학점이 많이 남음", "is_fictional": True},
+    {"id": "demo-d04", "label": "가상 학생 D04", "scenario": "비교과 점수 부족", "is_fictional": True},
+]
+CREDIT_IDS = ("credits_total", "general_required", "general_elective", "msc", "major")
 EVALUATED_AT = datetime.fromisoformat("2026-11-13T09:00:00+09:00")
 DETAIL_IDS = {
     "total_credits": ("credits_total", "general_required", "general_elective", "msc", "major"),
@@ -25,7 +32,8 @@ DETAIL_IDS = {
 }
 RESULT_FIELDS = {"id", "label", "status", "current", "required", "shortfall", "reason", "basis"}
 PROFILE = {
-    "label": "가상 학생 홍길동",
+    "id": "demo-t01",
+    "label": "가상 학생 T01",
     "department": "컴퓨터공학전공",
     "admission_year": 2023,
     "admission_type": "일반 신입학",
@@ -53,9 +61,103 @@ def fictional_result(result_id):
     }
 
 
+def get(app, target):
+    """`?` 뒤의 조회 조건을 앱에 건넨다. 공용 테스트 도구는 조회 조건을 비워서 보내기 때문이다."""
+    path, _, query = target.partition("?")
+
+    async def with_query(scope, receive, send):
+        await app({**scope, "query_string": query.encode("ascii")}, receive, send)
+
+    return call_app(with_query, "GET", path)
+
+
+def details_of(body):
+    return {detail["id"]: detail for item in body["items"] for detail in item["details"]}
+
+
 class GraduationDemoTest(unittest.TestCase):
     def setUp(self):
         self.app = create_app()
+
+    def get_at_fixed_time(self, target):
+        with patch.object(graduation_rules, "datetime", wraps=datetime) as clock:
+            clock.now.return_value = EVALUATED_AT
+            return get(self.app, target)
+
+    def test_student_list_has_three_fictional_students_in_agreed_order(self):
+        response = call_app(self.app, "GET", STUDENTS_ENDPOINT)
+
+        self.assertEqual(response.status, 200)
+        self.assertEqual(response.json(), {"students": STUDENTS})
+        for student in STUDENTS:
+            # 사람 이름이나 학번처럼 보이지 않는 고정 표기만 쓴다.
+            self.assertRegex(student["id"], r"^demo-d0[0-9]$")
+            self.assertRegex(student["label"], r"^가상 학생 D0[0-9]$")
+
+    def test_each_student_id_returns_that_student(self):
+        for student in STUDENTS:
+            with self.subTest(student_id=student["id"]):
+                response = self.get_at_fixed_time(f"{ENDPOINT}?student_id={student['id']}")
+                self.assertEqual(response.status, 200)
+                body = response.json()
+                self.assertEqual(set(body), {"profile", "items", "biskit_recommendations"})
+                self.assertEqual(body["profile"]["id"], student["id"])
+                self.assertEqual(body["profile"]["label"], student["label"])
+                self.assertIs(body["profile"]["is_fictional"], True)
+                # 기준이 확인되지 않은 전공필수 과목은 누구에게도 충족으로 적지 않는다.
+                self.assertEqual(details_of(body)["required_courses"]["status"], "needs_check")
+
+    def test_omitted_and_explicit_d02_give_the_same_result(self):
+        omitted = self.get_at_fixed_time(ENDPOINT)
+        explicit = self.get_at_fixed_time(f"{ENDPOINT}?student_id=demo-d02")
+
+        self.assertEqual(omitted.status, 200)
+        self.assertEqual(omitted.json()["profile"]["id"], "demo-d02")
+        self.assertEqual(omitted.json(), explicit.json())
+
+    def test_d03_has_many_credits_left_and_no_recommendations(self):
+        body = self.get_at_fixed_time(f"{ENDPOINT}?student_id=demo-d03").json()
+        details = details_of(body)
+
+        self.assertEqual(details["credits_total"]["shortfall"], "46학점 부족")
+        self.assertEqual(details["major"]["shortfall"], "30학점 부족")
+        self.assertEqual(details["thesis"]["status"], "short")
+        for key in ("general_required", "general_elective", "msc", "career_education", "counseling", "mileage"):
+            with self.subTest(key=key):
+                self.assertEqual(details[key]["status"], "met")
+        self.assertIsNone(body["biskit_recommendations"])
+
+    def test_d04_meets_credits_but_lacks_over_a_hundred_mileage_points(self):
+        body = self.get_at_fixed_time(f"{ENDPOINT}?student_id=demo-d04").json()
+        details = details_of(body)
+
+        for key in (*CREDIT_IDS, "thesis", "career_education", "counseling"):
+            with self.subTest(key=key):
+                self.assertEqual(details[key]["status"], "met")
+        self.assertEqual(details["mileage"]["status"], "short")
+        shortfall_points = body["biskit_recommendations"]["shortfall_points"]
+        self.assertGreaterEqual(shortfall_points, 100)
+        self.assertEqual(details["mileage"]["shortfall"], f"{shortfall_points}점 부족")
+        self.assertTrue(body["biskit_recommendations"]["programs"])
+
+    def test_unknown_student_id_is_404_without_echo_or_fallback(self):
+        for value in ("demo-x99", "DEMO-D02", "demo-d02%20", ""):
+            with self.subTest(student_id=value):
+                response = get(self.app, f"{ENDPOINT}?student_id={value}")
+                self.assertEqual(response.status, 404)
+                self.assertEqual(response.json(), {"detail": "가상 학생을 찾을 수 없습니다."})
+                self.assertNotIn("profile", response.text())
+        self.assertNotIn("demo-x99", get(self.app, f"{ENDPOINT}?student_id=demo-x99").text())
+
+    def test_responses_set_no_cookie(self):
+        for target in (
+            STUDENTS_ENDPOINT, ENDPOINT, f"{ENDPOINT}?student_id=demo-d04", f"{ENDPOINT}?student_id=demo-x99",
+        ):
+            with self.subTest(target=target):
+                self.assertNotIn("set-cookie", get(self.app, target).headers)
+
+    def test_student_list_rejects_post(self):
+        self.assertEqual(call_app(self.app, "POST", STUDENTS_ENDPOINT).status, 405)
 
     def test_response_fields_and_order(self):
         payload = {
@@ -103,6 +205,7 @@ class GraduationDemoTest(unittest.TestCase):
         body = response.json()
         self.assertIs(body["profile"]["is_fictional"], True)
         self.assertEqual(body["profile"]["label"], "가상 학생 D02")
+        self.assertEqual(body["profile"]["id"], "demo-d02")
         self.assertEqual(
             {item["id"]: tuple(detail["id"] for detail in item["details"]) for item in body["items"]},
             DETAIL_IDS,

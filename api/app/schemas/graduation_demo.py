@@ -10,7 +10,20 @@ class ResponseModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class DemoStudent(ResponseModel):
+    id: str
+    label: str
+    scenario: str
+    is_fictional: Literal[True]
+
+
+class DemoStudentsResponse(ResponseModel):
+    students: list[DemoStudent]
+
+
 class GraduationProfile(ResponseModel):
+    # 목록에 올린 가상 학생의 고정 ID. 목록에 없는 기록을 판정하면 null이다.
+    id: str | None = None
     label: str
     department: str
     admission_year: int
