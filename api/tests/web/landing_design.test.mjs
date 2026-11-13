@@ -149,6 +149,14 @@ test("유리 흐림은 1.5px 이하이고 판은 흐리지 않으며 로고에 �
   assert.equal(declared(".chat",["background"]),"transparent");
 });
 
+test("두 로고의 흰 판은 블록 그림과 여백 전체를 감싸는 상자로 그린다", () => {
+  for (const selector of [".brand-logo", ".login-brand"]) {
+    assert.ok(["block", "inline-block"].includes(declared(selector, ["display"])), selector);
+    assert.equal(declared(selector, ["padding"]), "7px 12px");
+    assert.equal(declared(selector, ["background"]), "var(--glass-composer)");
+  }
+});
+
 test("확정 제목 그림과 치수선·눈금·대체 제목을 제공하고 옛 그림·알약은 요청하지 않는다", () => {
   assert.match(html,/<img[^>]*src="\/chat-assets\/title-lettering.png"[^>]*alt="졸업까지, 테크모와 함께"/);
   assert.doesNotMatch(html+styles+script,/calligraphy-title|calligraphy-fallback|EastSeaDokdo|feature-pills/);

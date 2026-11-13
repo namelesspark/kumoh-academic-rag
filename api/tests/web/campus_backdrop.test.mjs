@@ -47,7 +47,7 @@ test("셰이더 핵심의 물결·합성 수식과 uniform을 유지한다", () 
   assert.doesNotMatch(script, /generateMipmap\s*\(/);
 });
 
-async function backdrop({ unavailable = false, reduced = false, brokenPhoto = false, brokenShader = false, delayedPhoto = null } = {}) {
+async function backdrop({ unavailable = false, reduced = false, brokenPhoto = false, brokenShader = false, delayedPhoto = null, failures = {} } = {}) {
   const listeners = new Map(), pending = new Map(), uniforms = new Map(), requests = [], parameters = [];
   const windowListeners = new Map();
   let finishPhoto;
@@ -66,10 +66,12 @@ async function backdrop({ unavailable = false, reduced = false, brokenPhoto = fa
   const canvas = { hidden: true, getContext: () => unavailable ? null : gl,
     getBoundingClientRect: () => ({ left: 0, top: 0, width: 1280, height: 800 }),
     addEventListener: (name, fn) => listeners.set(name, fn) };
-  const label = {}, steps = Array.from({ length: 4 }, () => ({ setAttribute(name, value) { this[name] = value; } }));
+  const label = {};
+  const caption = { hidden: true };
+  const progress = { children: [], replaceChildren(...children) { this.children = children; } };
   const document = { hidden: false,
-    querySelector: selector => selector === "#campus-canvas" ? canvas : label,
-    querySelectorAll: () => steps,
+    querySelector: selector => ({ "#campus-canvas": canvas, "#campus-name": label, "#campus-caption": caption, "#campus-progress": progress })[selector] ?? null,
+    createElement: () => ({ setAttribute(name, value) { this[name] = value; } }),
     addEventListener: (name, fn) => listeners.set(name, fn),
   };
   const context = { document, reducedMotion: () => reduced,
@@ -81,16 +83,22 @@ async function backdrop({ unavailable = false, reduced = false, brokenPhoto = fa
     fetch: async path => {
       requests.push(path);
       if (path.endsWith(delayedPhoto ?? "never-delayed")) await delayed;
-      return { ok: !brokenPhoto, blob: async () => ({}) };
+      const filename = path.split("/").at(-1);
+      if (failures[filename] === "network") throw new Error("fictional connection failure");
+      return { ok: !brokenPhoto && failures[filename] !== "404", blob: async () => ({ filename }) };
     },
-    createImageBitmap: async () => ({ close() {} }),
+    createImageBitmap: async ({ filename }) => {
+      if (failures[filename] === "decode") throw new Error("fictional broken image");
+      return { width: 1920, height: failures[filename] === "dimensions" ? 281 : 280, close() {} };
+    },
   };
   const start = script.indexOf("async function initializeCampusBackdrop()");
   assert.ok(start >= 0);
   const source = script.slice(start, script.indexOf("void initializeCampusBackdrop();", start));
   await runInNewContext(`${source}\ninitializeCampusBackdrop()`, context);
   await setImmediate();
-  return { canvas, uniforms, requests, parameters, pending, document, label, steps, draws: () => draws,
+  return { canvas, caption, uniforms, requests, parameters, pending, document, label,
+    get steps() { return progress.children; }, draws: () => draws,
     async finishPhoto() { finishPhoto(); await setImmediate(); },
     tick(time) { const callbacks = [...pending.values()]; pending.clear(); for (const fn of callbacks) fn(time); },
     fire(name, event = {}) {
@@ -176,6 +184,156 @@ test("다음 사진이 늦으면 그 주기를 건너뛰고 다음 주기까지 
   const beforeSuccessfulBoundary = page.uniforms.get("panB");
   page.tick(24400.00001);
   assert.ok(Math.abs(beforeSuccessfulBoundary - page.uniforms.get("panA")) < 1e-6);
+});
+
+const photoFiles = ["campus-aerial.jpg", "campus-hill.jpg", "campus-gate.jpg", "campus-field.jpg"];
+const photoLabels = ["양호동 캠퍼스", "디지털관과 금오산 자락", "정문의 밤", "대운동장의 저녁"];
+
+test("첫 사진을 포함해 어느 한 장이 404여도 성공한 세 장과 진행 칸으로 계속 그린다", async () => {
+  for (let missing = 0; missing < photoFiles.length; missing++) {
+    const page = await backdrop({ failures: { [photoFiles[missing]]: "404" } });
+    const available = photoLabels.filter((_, index) => index !== missing);
+    page.tick(0);
+    assert.equal(page.canvas.hidden, false);
+    assert.equal(page.caption.hidden, false);
+    assert.equal(page.steps.length, 3);
+    assert.equal(page.label.textContent, available[0]);
+    page.tick(10601);
+    assert.equal(page.label.textContent, available[1]);
+    assert.equal(page.steps.filter(step => step["data-current"] === "true").length, 1);
+    page.fire("pointerdown", { clientX: 256, clientY: 160 });
+    page.tick(10700);
+    assert.ok(page.uniforms.get("drops[0]").some((value, index) => index % 3 === 2 && value > 1.5));
+    assert.equal(page.pending.size, 1);
+  }
+});
+
+test("어느 한 장만 성공해도 이름과 진행 칸 하나를 보이고 30초 뒤에도 흐름과 물결을 유지한다", async () => {
+  for (let only = 0; only < photoFiles.length; only++) {
+    const failures = Object.fromEntries(photoFiles.filter((_, index) => index !== only).map(filename => [filename, "404"]));
+    const page = await backdrop({ failures });
+    page.tick(0);
+    assert.equal(page.label.textContent, photoLabels[only]);
+    assert.equal(page.steps.length, 1);
+    assert.equal(page.uniforms.get("imgAspect"), 1920 / 280);
+    page.tick(30000);
+    const first = page.uniforms.get("panA");
+    page.fire("pointerdown", { clientX: 256, clientY: 160 });
+    page.tick(31000);
+    assert.notEqual(page.uniforms.get("panA"), first);
+    assert.equal(page.uniforms.get("mixv"), 0);
+    assert.equal(page.canvas.hidden, false);
+    assert.equal(page.caption.hidden, false);
+    assert.equal(page.steps[0]["data-current"], "true");
+    assert.ok(page.uniforms.get("drops[0]").some((value, index) => index % 3 === 2 && value === 30));
+    assert.equal(page.pending.size, 1);
+  }
+});
+
+test("연결·판독·비율 오류는 그 사진만 제외하고 남은 두 장의 전환 위치를 이어 그린다", async () => {
+  for (const failure of ["network", "decode", "dimensions"]) {
+    const page = await backdrop({ failures: { "campus-aerial.jpg": failure, "campus-gate.jpg": "404" } });
+    page.tick(0);
+    assert.equal(page.steps.length, 2);
+    assert.equal(page.label.textContent, "디지털관과 금오산 자락");
+    page.tick(12199.999);
+    const before = page.uniforms.get("panB");
+    page.tick(12200.00001);
+    assert.equal(page.label.textContent, "대운동장의 저녁");
+    assert.ok(Math.abs(before - page.uniforms.get("panA")) < 1e-6);
+    page.tick(24400.00001);
+    assert.equal(page.label.textContent, "디지털관과 금오산 자락");
+    assert.equal(page.canvas.hidden, false);
+    assert.equal(page.pending.size, 1);
+  }
+});
+
+test("사진이 중간 위치일 때 한 장만 남아도 위치를 이어 받고 계속 흐른다", async () => {
+  const page = await backdrop({
+    delayedPhoto: "campus-hill.jpg",
+    failures: { "campus-hill.jpg": "404", "campus-gate.jpg": "404", "campus-field.jpg": "404" },
+  });
+  page.tick(0);
+  const initialPhase = Math.acos((0.5 - page.uniforms.get("panA")) / 0.22);
+  const midpoint = (Math.PI / 2 - initialPhase) * 15.4 / Math.PI * 1000;
+  page.tick(midpoint);
+  const before = page.uniforms.get("panA");
+  assert.ok(Math.abs(before - 0.5) < 1e-6);
+  await page.finishPhoto();
+  page.tick(midpoint);
+  assert.ok(Math.abs(page.uniforms.get("panA") - before) < 1e-6);
+  page.tick(midpoint + 1000);
+  assert.notEqual(page.uniforms.get("panA"), before);
+  assert.equal(page.steps.length, 1);
+  assert.equal(page.canvas.hidden, false);
+});
+
+test("첫 사진만 늦어도 받은 사진을 먼저 그리고 늦은 준비 완료는 현재 사진을 되돌리지 않는다", async () => {
+  const page = await backdrop({ delayedPhoto: "campus-aerial.jpg" });
+  page.tick(0);
+  assert.equal(page.label.textContent, "디지털관과 금오산 자락");
+  assert.equal(page.steps.length, 3);
+  page.tick(5000);
+  const before = page.uniforms.get("panA");
+  await page.finishPhoto();
+  assert.equal(page.steps.length, 4);
+  page.tick(5000);
+  assert.equal(page.label.textContent, "디지털관과 금오산 자락");
+  assert.equal(page.uniforms.get("panA"), before);
+  page.tick(10601);
+  assert.equal(page.label.textContent, "정문의 밤");
+});
+
+test("모든 사진이 실패한 경우에만 사진 이름·진행 칸과 캔버스를 숨긴다", async () => {
+  const failures = Object.fromEntries(photoFiles.map((filename, index) => [filename, ["404", "network", "decode", "dimensions"][index]]));
+  const page = await backdrop({ failures });
+  assert.equal(page.canvas.hidden, true);
+  assert.equal(page.caption.hidden, true);
+  assert.equal(page.steps.length, 0);
+  assert.equal(page.pending.size, 0);
+  assert.equal(page.requests.length, 4);
+});
+
+test("다음 사진이 계속 준비 중이면 첫 주기만 기다리고 받은 사진끼리 전환한다", async () => {
+  const page = await backdrop({ delayedPhoto: "campus-hill.jpg", failures: { "campus-field.jpg": "404" } });
+  page.tick(0);
+  assert.equal(page.steps.length, 2);
+  page.tick(9000);
+  page.tick(10601);
+  assert.equal(page.uniforms.get("mixv"), 0);
+  assert.equal(page.label.textContent, "양호동 캠퍼스");
+  page.tick(12200);
+  page.tick(21200);
+  page.tick(22801);
+  assert.equal(page.label.textContent, "정문의 밤");
+  assert.ok(page.uniforms.get("mixv") > 0.5);
+  assert.equal(page.steps.length, 2);
+  assert.equal(page.canvas.hidden, false);
+});
+
+test("한 장과 준비 중인 사진만 있어도 계속 흐르고 늦은 합류와 전환 경계에서 위치가 이어진다", async () => {
+  const page = await backdrop({
+    delayedPhoto: "campus-hill.jpg",
+    failures: { "campus-gate.jpg": "404", "campus-field.jpg": "404" },
+  });
+  page.tick(0);
+  page.tick(30000);
+  const beforeLatePhoto = page.uniforms.get("panA");
+  page.tick(31000);
+  assert.notEqual(page.uniforms.get("panA"), beforeLatePhoto);
+  const beforeReady = page.uniforms.get("panA");
+  await page.finishPhoto();
+  page.tick(31000);
+  assert.equal(page.uniforms.get("panA"), beforeReady, "새 사진을 받는 순간 현재 흐름을 초기화하지 않는다");
+  assert.equal(page.steps.length, 2);
+  page.tick(33400);
+  page.tick(35001);
+  assert.equal(page.label.textContent, "디지털관과 금오산 자락");
+  page.tick(36599.999);
+  const beforeBoundary = page.uniforms.get("panB");
+  page.tick(36600.00001);
+  assert.ok(Math.abs(beforeBoundary - page.uniforms.get("panA")) < 1e-6);
+  assert.equal(page.canvas.hidden, false);
 });
 
 test("초기 물방울 세 개와 포인터 간격·거리를 그리기 시각으로 처리한다", async () => {

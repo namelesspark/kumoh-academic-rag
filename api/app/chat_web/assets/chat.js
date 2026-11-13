@@ -1375,11 +1375,16 @@ async function initializeCampusBackdrop() {
   let stopped = false;
   const bitmaps = [];
   const textures = [];
+  const caption = document.querySelector("#campus-caption");
+  const label = document.querySelector("#campus-name");
+  const progressBar = document.querySelector("#campus-progress");
+  let progressSteps = [];
   const fail = () => {
     stopped = true;
     if (frame !== null) window.cancelAnimationFrame?.(frame);
     frame = null;
     canvas.hidden = true;
+    if (caption) caption.hidden = true;
     for (const bitmap of bitmaps) bitmap.close?.();
     if (gl) {
       for (const texture of textures) gl.deleteTexture(texture);
@@ -1427,26 +1432,32 @@ void main(){ vec2 uv=v; vec2 off=vec2(0.0); float light=0.0;
       ["campus-aerial.jpg","양호동 캠퍼스"], ["campus-hill.jpg","디지털관과 금오산 자락"],
       ["campus-gate.jpg","정문의 밤"], ["campus-field.jpg","대운동장의 저녁"],
     ];
-    const loadTexture = async (index) => {
-      const [filename] = photos[index];
-      const response = await fetch(`/chat-assets/${filename}`);
-      if (!response.ok) throw new Error("photo");
-      const bitmap = await createImageBitmap(await response.blob());
-      if (stopped) { bitmap.close?.(); return; }
-      bitmaps.push(bitmap);
-      const texture = gl.createTexture();
-      gl.bindTexture(gl.TEXTURE_2D,texture);
-      gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);
-      gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
-      gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);
-      gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
-      gl.texImage2D(gl.TEXTURE_2D,0,gl.RGB,gl.RGB,gl.UNSIGNED_BYTE,bitmap);
-      textures[index] = texture;
+    const photoStates = photos.map(() => "pending");
+    const skippedPending = new Set();
+    const readyIndices = () => photos.map((_, index) => index).filter(index => photoStates[index] === "ready");
+    const refreshProgress = () => {
+      progressSteps = readyIndices().map(index => {
+        const step = document.createElement("span");
+        step.setAttribute("data-campus-step", String(index));
+        return { index, step };
+      });
+      progressBar?.replaceChildren(...progressSteps.map(({ step }) => step));
     };
-    await loadTexture(0);
-    void Promise.all(photos.slice(1).map((_, index) => loadTexture(index + 1))).catch(fail);
+    // 준비 중인 파일을 처음 만나면 그 주기만 기다리고, 다음 주기에는 받은 사진끼리 이어 간다.
+    const nextPhoto = current => {
+      for (let offset = 1; offset < photos.length; offset++) {
+        const index = (current + offset) % photos.length;
+        if (photoStates[index] === "failed") continue;
+        if (photoStates[index] === "ready") return index;
+        if (skippedPending.has(index)) continue;
+        skippedPending.add(index);
+        return null;
+      }
+      return null;
+    };
     const uniforms = Object.fromEntries(["a","b","mixv","t","aspect","imgAspect","panA","panB","still","drops[0]"].map(name=>[name,gl.getUniformLocation(program,name)]));
     gl.uniform1i(uniforms.a,0); gl.uniform1i(uniforms.b,1);
+    // 사진마다 1920×280인지 확인한 뒤에만 이 공통 비율로 그린다.
     gl.uniform1f(uniforms.imgAspect,1920/280); gl.uniform1f(uniforms.still,1);
     const drops = new Float32Array(48);
     for (let i=0;i<16;i++) drops[i*3+2]=-1000;
@@ -1462,7 +1473,11 @@ void main(){ vec2 uv=v; vec2 off=vec2(0.0); float light=0.0;
     let cycleNumber = 0;
     let photoNumber = 0;
     let appearedAt = -FADE;
-    let fadeAllowed = null;
+    let currentPhoto = null;
+    let fadingPhoto = null;
+    let fadeDecided = false;
+    let singleStartedAt = null;
+    let singlePhase = 0;
     let dropIndex = 0;
     let elapsed = 0;
     let previous = null;
@@ -1500,45 +1515,89 @@ void main(){ vec2 uv=v; vec2 off=vec2(0.0); float light=0.0;
       const ratio=Math.min(window.devicePixelRatio||1,1.5);
       const width=Math.max(1,Math.round(window.innerWidth*ratio)), height=Math.max(1,Math.round(window.innerHeight*ratio));
       if (canvas.width!==width || canvas.height!==height) { canvas.width=width; canvas.height=height; gl.viewport(0,0,width,height); }
+      if (currentPhoto === null) currentPhoto = readyIndices()[0];
       const cycle = Math.floor(elapsed / period);
       while (cycleNumber < cycle) {
-        const nextReady = Boolean(textures[(photoNumber + 1) % photos.length]);
-        if (fadeAllowed ?? nextReady) {
+        const next = fadeDecided ? fadingPhoto : nextPhoto(currentPhoto);
+        if (next !== null) {
+          currentPhoto = next;
           photoNumber++;
           appearedAt = cycleNumber * period + HOLD;
+          singleStartedAt = null;
         }
         cycleNumber++;
-        fadeAllowed = null;
+        fadingPhoto = null;
+        fadeDecided = false;
       }
       const phase = elapsed - cycle * period;
-      const index = photoNumber % photos.length;
-      const nextIndex = (photoNumber + 1) % photos.length;
-      if (phase >= HOLD && fadeAllowed === null) fadeAllowed = Boolean(textures[nextIndex]);
-      const progress = fadeAllowed ? clamp((phase - HOLD) / FADE) : 0;
+      if (phase >= HOLD && !fadeDecided) {
+        fadingPhoto = nextPhoto(currentPhoto);
+        fadeDecided = true;
+      }
+      const progress = fadingPhoto !== null ? clamp((phase - HOLD) / FADE) : 0;
       const mix = progress * progress * (3 - 2 * progress);
       gl.uniform1f(uniforms.mixv, mix);
       gl.uniform1f(uniforms.t,elapsed);
       gl.uniform1f(uniforms.aspect,width/height);
-      gl.uniform1f(uniforms.panA, pan(photoNumber, elapsed - appearedAt));
+      let currentPan = pan(photoNumber, elapsed - appearedAt);
+      // 늦게 도착한 사진이 있어도 현재 사진의 왕복 흐름은 전환이 끝날 때까지 이어 간다.
+      if (singleStartedAt !== null || readyIndices().length === 1) {
+        if (singleStartedAt === null) {
+          singleStartedAt = elapsed;
+          singlePhase = Math.acos(Math.max(-1, Math.min(1, (0.5 - currentPan) / 0.22)));
+        }
+        const local = (elapsed - singleStartedAt) / life;
+        currentPan = 0.5 - 0.22 * Math.cos(singlePhase + local * Math.PI);
+      }
+      gl.uniform1f(uniforms.panA, currentPan);
       gl.uniform1f(uniforms.panB, pan(photoNumber + 1, phase - HOLD));
       gl.uniform3fv(uniforms["drops[0]"],drops);
-      gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D,textures[index]);
-      gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D,textures[nextIndex] ?? textures[index]);
+      gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D,textures[currentPhoto]);
+      gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D,textures[fadingPhoto ?? currentPhoto]);
       gl.drawArrays(gl.TRIANGLES,0,6);
-      const shownIndex = mix > 0.5 ? nextIndex : index;
-      const label=document.querySelector("#campus-name"); if (label) label.textContent=photos[shownIndex][1];
-      const steps=document.querySelectorAll("[data-campus-step]");
-      for (let i=0;i<steps.length;i++) steps[i].setAttribute("data-current",String(i===shownIndex));
+      const shownIndex = mix > 0.5 ? fadingPhoto : currentPhoto;
+      if (label) label.textContent = photos[shownIndex][1];
+      for (const { index, step } of progressSteps) step.setAttribute("data-current", String(index === shownIndex));
+      if (caption) caption.hidden = false;
       canvas.hidden=false;
       frame=window.requestAnimationFrame(draw);
       } catch { fail(); }
     };
     document.addEventListener("visibilitychange",()=>{
       if (document.hidden) { if(frame!==null) window.cancelAnimationFrame(frame); frame=null; previous=null; }
-      else if(!stopped && frame===null && !reducedMotion()) frame=window.requestAnimationFrame(draw);
+      else if(!stopped && frame===null && readyIndices().length && !reducedMotion()) frame=window.requestAnimationFrame(draw);
     });
     canvas.addEventListener("webglcontextlost",event=>{event.preventDefault();fail();});
-    if (!document.hidden) frame=window.requestAnimationFrame(draw);
+    const loadTexture = async index => {
+      let bitmap;
+      let texture;
+      try {
+        const response = await fetch(`/chat-assets/${photos[index][0]}`);
+        if (!response.ok) throw new Error("photo");
+        bitmap = await createImageBitmap(await response.blob());
+        if (bitmap.width !== 1920 || bitmap.height !== 280) throw new Error("photo dimensions");
+        if (stopped) { bitmap.close?.(); return; }
+        texture = gl.createTexture();
+        gl.bindTexture(gl.TEXTURE_2D, texture);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, gl.RGB, gl.UNSIGNED_BYTE, bitmap);
+        textures[index] = texture;
+        bitmaps.push(bitmap);
+        photoStates[index] = "ready";
+        skippedPending.delete(index);
+        refreshProgress();
+        if (!document.hidden && frame === null) frame = window.requestAnimationFrame(draw);
+      } catch {
+        bitmap?.close?.();
+        if (texture) gl.deleteTexture(texture);
+        photoStates[index] = "failed";
+      }
+      if (!stopped && photoStates.every(state => state === "failed")) fail();
+    };
+    void Promise.allSettled(photos.map((_, index) => loadTexture(index)));
   } catch { fail(); }
 }
 void initializeCampusBackdrop();
