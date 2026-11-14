@@ -18,6 +18,8 @@ const featureCards = [...(document.querySelectorAll?.("[data-feature]") ?? [])];
 const featurePanels = [...(document.querySelectorAll?.("[data-panel]") ?? [])];
 const featureList = document.querySelector("#feature-cards");
 const photoFile = document.querySelector("#photo-file");
+// 파일 입력은 화면에서 숨긴다. 입력창 왼쪽의 클립 버튼이 대신 파일 창을 열고 초점도 받는다.
+const photoAttach = document.querySelector("#photo-attach");
 const photoClear = document.querySelector("#photo-clear");
 const photoNote = document.querySelector("#photo-note");
 const compact = window.matchMedia("(max-width: 680px)");
@@ -78,6 +80,8 @@ const assistantStates = {
 };
 // 서버가 답변을 한 번에 보내므로, 축하를 이만큼 보여 준 뒤 답변 표시로 넘어간다.
 const celebrateMs = 1_200;
+// 예시 질문을 누른 뒤 평소 자세 그대로 말풍선에만 띄우는 안내.
+const exampleHint = "보내기를 눌러 보세요";
 
 let sessionId = null;
 let busy = false;
@@ -415,6 +419,7 @@ function setBusy(pending, message = "서버에 질문을 보내는 중…") {
   reset.disabled = pending;
   for (const control of landingControls) control.disabled = pending;
   photoFile.disabled = pending;
+  photoAttach.disabled = pending;
   for (const retry of transcript.querySelectorAll(".retry")) retry.disabled = pending;
   for (const reask of transcript.querySelectorAll(".reask")) reask.disabled = pending;
   // 요청이 시작되면 찾는 중으로 바꾼다. 잠금을 풀 때는 요청이 남긴 축하·보류·오류 상태를 그대로 둔다.
@@ -1138,6 +1143,9 @@ for (const example of examples) {
     if (compact.matches) topics.open = false;
     updateSend();
     input.focus();
+    // 예시는 입력창을 채우기만 하고 보내지 않는다. 다음에 할 일을 말풍선으로 알린다.
+    // 요청 중의 "찾아보는 중"과 축하 뒤에 예약된 전환은 덮지 않는다. 새 상태나 타이머는 만들지 않는다.
+    if (!busy && assistantTimer === null) showAssistant("idle", exampleHint);
   });
 }
 
@@ -1188,6 +1196,11 @@ composer.addEventListener("submit", event => {
   void whileBusy(photoMessages.reading, () => readPhoto(photo, type, question, reply));
 });
 
+// 클립 버튼은 숨긴 파일 입력의 창을 연다. 요청 중에는 버튼이 잠겨 있지만 한 번 더 막는다.
+photoAttach.addEventListener("click", () => {
+  if (busy) return;
+  photoFile.click();
+});
 photoFile.addEventListener("change", () => {
   photoNote.textContent = "";
   updateSend();
@@ -1218,7 +1231,8 @@ reset.addEventListener("click", () => {
 // 졸업 체크는 checkGraduation이 요청 중 잠금을 직접 확인하므로 연달아 눌러도 요청은 하나만 나간다.
 const landingActions = {
   graduation: () => void checkGraduation(),
-  photo: () => { photoFile.focus(); photoFile.click(); },
+  // 숨긴 파일 입력은 초점을 받지 못하므로 초점은 클립 버튼에 둔다. 파일 창은 여기서 한 번만 연다.
+  photo: () => { photoAttach.focus(); photoFile.click(); },
   ask: () => input.focus(),
 };
 for (const control of landingControls) {

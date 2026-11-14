@@ -50,6 +50,15 @@ function loadPage({ transition, reduced = false, legacy = false, now = "2027-02-
     scrollIntoView() {}
   }
   const elements = new Map();
+  // 왼쪽 「예시 질문」의 두 항목. chat.js는 #topics 안에서 data-question이 있는 요소를 찾아 연결한다.
+  const examples = ["가상 달빛 질문", "가상 풍금 질문"].map(question => {
+    const example = new Element();
+    example.dataset.question = question;
+    return example;
+  });
+  const topics = new Element();
+  topics.querySelectorAll = selector => (selector === "[data-question]" ? examples : []);
+  elements.set("#topics", topics);
   const cards = [];
   const panels = [];
   const actions = [];
@@ -134,7 +143,7 @@ function loadPage({ transition, reduced = false, legacy = false, now = "2027-02-
       await setImmediate();
       get("#student-number").value = "20990002"; get("#student-password").value = "demo-d02-pass"; get("#login-form").listeners.get("submit")({ preventDefault() {} }); await setImmediate();
     },
-    cards, panels, actions, requests, response, responses, get,
+    cards, panels, actions, examples, requests, response, responses, get,
     evaluate: code => runInNewContext(code, context),
     content: index => panels[index].querySelector("[data-panel-content]"),
     finish: (body, index = requests.length - 1) => responses[index].resolve({ ok: true, json: async () => body }),
@@ -336,7 +345,8 @@ test("전환 중 시작해도 사진 선택은 바로 실행하고 늦은 전환
   queue.pending[0].finish();
   await setImmediate();
   assertState(page, null);
-  assert.equal(page.focus(), page.get("#photo-file"));
+  // 숨긴 파일 입력은 초점을 받지 못한다. 초점은 입력창 왼쪽의 클립 버튼에 남는다.
+  assert.equal(page.focus(), page.get("#photo-attach"));
 });
 
 test("닫기를 연달아 누르거나 Escape를 반복해도 닫기 전환과 원 카드 초점을 유지한다", async () => {
@@ -385,9 +395,105 @@ test("질문과 사진 시작은 패널을 닫고 실행 대상으로 초점을 
   page.cards[2].click();
   page.start(2);
   assertState(page, null);
-  assert.equal(page.focus(), page.get("#photo-file"));
+  assert.equal(page.focus(), page.get("#photo-attach"));
+  // 파일 창은 한 번만 연다. 클립 버튼을 대신 눌러 여는 방식이 아니라 파일 입력을 바로 부른다.
   assert.equal(page.get("#photo-file").clicks, 1);
+  assert.equal(page.get("#photo-attach").clicks, 0);
   assert.equal(page.requests.length, 0);
+});
+
+const petLine = page => page.get("#pet-line").textContent;
+const submitQuestion = (page, question = "가상 규정 질문") => {
+  page.get("#question").value = question;
+  page.get("#composer").listeners.get("submit")({ preventDefault() {} });
+};
+
+test("클립 버튼은 파일 창을 한 번 열고, 요청 중에는 파일 입력과 함께 잠겨 열지 않는다", async () => {
+  const page = loadPage();
+  const attach = page.get("#photo-attach");
+  const file = page.get("#photo-file");
+  attach.click();
+  assert.equal(file.clicks, 1);
+  assert.equal(page.requests.length, 0);
+
+  submitQuestion(page);
+  assert.equal(page.evaluate("busy"), true);
+  assert.equal(attach.disabled, true);
+  assert.equal(file.disabled, true);
+  // 가짜 버튼은 잠겨도 눌린다. 잠금 표시와 별개로 동작도 막혀 있어야 한다.
+  attach.click();
+  assert.equal(file.clicks, 1);
+
+  page.response.resolve({ ok: false });
+  await setImmediate();
+  assert.equal(attach.disabled, false);
+  assert.equal(file.disabled, false);
+  attach.click();
+  assert.equal(file.clicks, 2);
+});
+
+test("예시 질문은 입력창을 채우고 초점을 줄 뿐 보내지 않으며, 말풍선으로 보내기를 안내한다", () => {
+  const page = loadPage();
+  assert.equal(page.examples.length, 2);
+  page.get("#send").disabled = true;
+  page.examples[0].click();
+  assert.equal(page.get("#question").value, "가상 달빛 질문");
+  assert.equal(page.focus(), page.get("#question"));
+  assert.equal(page.get("#send").disabled, false);
+  assert.equal(page.requests.length, 0);
+  // 새 상태를 만들지 않는다. 평소 상태·자세 그대로 문구만 바뀌고 대기 점도 켜지지 않는다.
+  assert.equal(petLine(page), "보내기를 눌러 보세요");
+  assert.equal(petState(page), "idle");
+  assert.equal(page.get("#pet-dock").attributes.get("data-pose"), "guide");
+  assert.equal(page.get("#pet-dots").hidden, true);
+
+  // 다른 예시를 누르면 질문만 바뀐다. 새 대화는 평소 문구로 되돌린다.
+  page.examples[1].click();
+  assert.equal(page.get("#question").value, "가상 풍금 질문");
+  assert.equal(petLine(page), "보내기를 눌러 보세요");
+  page.get("#reset").click();
+  assert.equal(petLine(page), "궁금한 점을 물어보세요");
+  assert.equal(page.get("#question").value, "");
+});
+
+test("요청 중에 예시 질문을 눌러도 찾아보는 중 표시를 덮지 않는다", async () => {
+  const page = loadPage();
+  submitQuestion(page);
+  assert.equal(petState(page), "searching");
+  const searching = petLine(page);
+  page.examples[0].click();
+  assert.equal(page.get("#question").value, "가상 달빛 질문");
+  assert.equal(page.focus(), page.get("#question"));
+  assert.equal(petState(page), "searching");
+  assert.equal(petLine(page), searching);
+  assert.equal(page.get("#pet-dots").hidden, false);
+  assert.equal(page.get("#send").disabled, true);
+  assert.equal(page.requests.length, 1);
+
+  // 요청이 끝난 뒤에 누르면 안내가 나온다.
+  page.response.resolve({ ok: false });
+  await setImmediate();
+  assert.equal(petState(page), "error");
+  page.examples[0].click();
+  assert.equal(petState(page), "idle");
+  assert.equal(petLine(page), "보내기를 눌러 보세요");
+});
+
+test("축하가 답변 표시로 넘어가기 전에 예시 질문을 눌러도 예약된 전환이 그대로 끝난다", async () => {
+  const page = loadPage();
+  submitQuestion(page);
+  page.finish({ session_id: "fictional-session", answered: true, answer: "가상 답변입니다.", citations: [] });
+  await setImmediate();
+  assert.equal(petState(page), "found");
+  page.examples[0].click();
+  assert.equal(page.get("#question").value, "가상 달빛 질문");
+  assert.equal(petState(page), "found");
+  page.tick();
+  assert.equal(petState(page), "answer");
+  // 전환이 끝난 뒤에는 안내로 바뀐다. 타이머를 새로 걸지 않으므로 더 돌릴 것이 없다.
+  page.examples[0].click();
+  assert.equal(petLine(page), "보내기를 눌러 보세요");
+  assert.equal(petState(page), "idle");
 });
 
 test("졸업 체크와 추천 시작은 같은 요청을 한 번 보내고 요청 중 모든 시작 버튼을 잠근다", async () => {
