@@ -11,12 +11,14 @@ const script = readFileSync(
 function page({
   reduced = false,
   transition,
+  storedConversations = [],
 } = {}) {
   const nodes = new Map(),
     events = new Map(),
     windowEvents = new Map(),
     timers = new Map(),
     requests = [];
+  const photoRequests = [];
   let focus = null, id = 0;
   class Node {
     children = [];
@@ -26,6 +28,7 @@ function page({
     textContent = "";
     value = "";
     files = [];
+    clicks = 0;
     remove() {}
     append(...children) {
       this.children.push(...children);
@@ -46,6 +49,7 @@ function page({
       focus = this;
     }
     click() {
+      this.clicks++;
       this.listeners.get("click")?.({});
       this.onclick?.();
     }
@@ -130,7 +134,20 @@ function page({
     input: get("#question"),
     photoFile: get("#photo-file"),
     photoNote: get("#photo-note"),
+    photoAttach: get("#photo-attach"),
+    photoClear: get("#photo-clear"),
+    send: get("#send"),
     statusLine: get("#status"),
+    graduationTurn: null,
+    changeFeature() {},
+    photoTypes: ["image/jpeg", "image/png"],
+    photoMaxBytes: 5_000_000,
+    photoRejections: {},
+    photoMessages: { reading: "가상 사진 읽는 중" },
+    runPhotoRequest(record, message, work) { return work(); },
+    readPhoto(photo, type, question, reply, record) {
+      photoRequests.push({ photo, type, question, reply, record });
+    },
     reducedMotion: () => reduced,
     updateSend() {
     },
@@ -152,7 +169,7 @@ function page({
     saveConversations() {
     },
     loadConversations() {
-      return [];
+      return JSON.parse(JSON.stringify(storedConversations));
     },
     clearConversations() {
     },
@@ -168,13 +185,17 @@ function page({
   );
   const submitting = script.slice(
     script.indexOf('composer.addEventListener("submit"'),
-    script.indexOf("// 클립 버튼은 숨긴 파일 입력"),
+    script.indexOf("const landingActions ="),
+  );
+  const updateSendCode = script.slice(
+    script.indexOf("function updateSend("),
+    script.indexOf("function setBusy("),
   );
   const titleCode = script.slice(
     script.indexOf("function conversationTitle("),
     script.indexOf("function conversationKey("),
   );
-  runInNewContext(titleCode + controller + asking + submitting, context);
+  runInNewContext(titleCode + updateSendCode + controller + asking + submitting, context);
   return {
     get,
     document,
@@ -184,6 +205,7 @@ function page({
     events,
     windowEvents,
     requests,
+    photoRequests,
     focus: () => focus,
     run: (code) => runInNewContext(code, context),
     tick(ms) {
@@ -501,4 +523,70 @@ test("첫 전송의 전환 콜백 전에는 홈 DOM을 보존하고 뒤로 가�
   assert.equal(p.get("#transcript").children[0], p.get("#empty"));
   p.requests[0].resolve(answer);
   await setImmediate();
+});
+
+test("저장된 글 대화를 다시 열어 이어 물으면 같은 대화에 질문과 답을 붙인다", async () => {
+  const p = page({ storedConversations: [{
+    id: "fictional-restored", time: 1,
+    messages: [
+      { role: "question", text: "가상 처음 질문", sources: [] },
+      { role: "answer", text: "가상 처음 답변", sources: [] },
+    ],
+  }] });
+  p.run('switchHistoryAccount("browse"); var restored = conversations[0]; openConversation(restored)');
+  assert.equal(p.run('Object.hasOwn(restored, "photo")'), false);
+  p.get("#question").value = "가상 후속 질문";
+  p.get("#composer").listeners.get("submit")({ preventDefault() {} });
+  assert.equal(p.run("conversations.length"), 1);
+  assert.equal(p.run("activeConversation === restored"), true);
+  assert.equal(p.get("#transcript").children.length, 2);
+  assert.equal(JSON.parse(p.requests[0].options.body).session_id, null);
+  p.requests[0].resolve(answer);
+  await setImmediate();
+  assert.equal(p.run("restored.messages.length"), 4);
+  assert.equal(p.run("restored.messages.at(-1).text"), "가상 답변");
+});
+
+test("글·사진 대화 종류를 바꾸면 새 대화의 말풍선만 그린다", async () => {
+  for (const startingPhoto of [false, true]) {
+    const p = page();
+    p.run(`var previous = { id: "fictional-previous", time: 1, photo: ${startingPhoto},
+      messages: [{ role: "question", text: "가상 예전 질문", sources: [] }] };
+      conversations = [previous]; openConversation(previous);`);
+    const previousTurn = p.get("#transcript").children[0];
+    p.get("#question").value = "가상 다른 종류 질문";
+    if (!startingPhoto) {
+      p.get("#photo-file").files = [{ type: "image/png", size: 10, slice: () => "fictional-photo" }];
+    }
+    p.get("#composer").listeners.get("submit")({ preventDefault() {} });
+    assert.equal(p.run("conversations.length"), 2);
+    assert.equal(p.run("activeConversation === previous"), false);
+    assert.equal(p.get("#transcript").children.length, 1);
+    assert.notEqual(p.get("#transcript").children[0], previousTurn);
+    if (startingPhoto) {
+      p.requests[0].resolve(answer);
+      await setImmediate();
+    } else {
+      assert.equal(p.photoRequests.length, 1);
+    }
+  }
+});
+
+test("홈에서는 배경 대화가 답을 기다려도 첨부·제거·초기화 버튼이 동작한다", async () => {
+  const p = page();
+  const done = begin(p);
+  p.run("setChatView(false)");
+  assert.equal(p.get("#photo-attach").disabled, false);
+  p.get("#photo-attach").click();
+  assert.equal(p.get("#photo-file").clicks, 1);
+  p.get("#photo-file").value = "fictional-selection";
+  p.get("#photo-clear").click();
+  assert.equal(p.get("#photo-file").value, "");
+  p.get("#question").value = "가상 미전송 질문";
+  p.get("#reset").click();
+  assert.equal(p.get("#question").value, "");
+  assert.equal(p.run("record.pending"), true);
+  p.requests[0].resolve(answer);
+  await done;
+  assert.equal(p.run("record.messages.at(-1).text"), "가상 답변");
 });

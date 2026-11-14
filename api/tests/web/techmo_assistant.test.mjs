@@ -191,6 +191,24 @@ function declarationsAtWidth(selector, width, source = styles) {
   return declarations;
 }
 
+test("인사말이 있으면 입력창까지 12px 이상 확보하고 빈 인사말의 여백은 유지한다", () => {
+  for (const width of [1280, 800, 680]) {
+    const welcome = declarationsAtWidth(".main-welcome", width);
+    const greetingWelcome = declarationsAtWidth(".main-welcome:has(#main-greeting:not(:empty))", width);
+    const layout = declarationsAtWidth(".layout", width);
+    const composer = declarationsAtWidth(".composer", width);
+    const layoutTop = Number.parseFloat(layout["margin-top"] ?? layout.margin);
+    const composerTop = Number.parseFloat(composer["margin-top"]);
+    const bottom = Number.parseFloat(greetingWelcome["padding-bottom"]);
+    assert.ok(bottom + layoutTop + composerTop >= 12, `${width}px 인사말 아래 간격`);
+    assert.equal(welcome.padding, "40px 0 120px");
+    assert.equal(welcome["padding-bottom"], undefined);
+    assert.equal(layoutTop, -96);
+    assert.equal(composerTop, -62);
+    assert.equal(declarationsAtWidth(".main-welcome #main-greeting:empty", width).display, "none");
+  }
+});
+
 function pixels(value, width) {
   assert.ok(value, "계산할 길이 선언이 있어야 한다");
   const expression = value.replace(/var\(--pet-reserve\)/g, width >= 1464 ? "192px" : "136px").replace(/([\d.]+)%/g, (_, amount) => String(width * Number(amount) / 100))

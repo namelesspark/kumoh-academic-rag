@@ -933,6 +933,8 @@ button.card:hover { border-color: var(--focus-ink); background: var(--feature-ho
 .main-lettering:not([hidden]) + .main-title-fallback { display: none; }
 .main-welcome #main-greeting { margin: 0; color: var(--muted); font-size: 16px; line-height: 1.6; }
 .main-welcome #main-greeting:empty { display: none; }
+/* 입력창을 위로 당기는 96px + 62px를 상쇄하고 인사말 아래 12px를 확보한다. */
+.main-welcome:has(#main-greeting:not(:empty)) { padding-bottom: 170px; }
 .composer-row { view-transition-name: chat-composer; }
 .layout { view-transition-name: chat-surface; }
 /* 화면 판은 위치와 투명도로 겹쳐 전환한다. 입력창은 같은 이름으로 시작·도착 위치를 잇는다. */

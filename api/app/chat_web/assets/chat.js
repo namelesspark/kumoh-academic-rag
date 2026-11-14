@@ -1500,11 +1500,12 @@ composer.addEventListener("submit", event => {
     }
   }
 
-  if (!activeConversation || activeConversation.photo !== Boolean(file) || !requestedChatView) {
+  if (!activeConversation || Boolean(activeConversation.photo) !== Boolean(file) || !requestedChatView) {
     activeConversation = { id: `conversation-${Date.now()}-${++conversationSequence}`, time: Date.now(),
       title: Array.from(question).slice(0, 29).join(""), messages: [], turns: [], photo: Boolean(file), unread: false };
     conversations.unshift(activeConversation);
     conversations = conversations.sort((a, b) => b.time - a.time).slice(0, 20);
+    if (chatView && requestedChatView) renderActiveConversation();
   }
   const record = activeConversation;
   record.messages.push({ role: "question", text: question, time: Date.now(), sources: [] });
@@ -1541,7 +1542,7 @@ composer.addEventListener("submit", event => {
 
 // 클립 버튼은 숨긴 파일 입력의 창을 연다. 요청 중에는 버튼이 잠겨 있지만 한 번 더 막는다.
 photoAttach.addEventListener("click", () => {
-  if (busy || activeConversation?.pending) return;
+  if (busy || (requestedChatView && activeConversation?.pending)) return;
   photoFile.click();
 });
 photoFile.addEventListener("change", () => {
@@ -1549,14 +1550,14 @@ photoFile.addEventListener("change", () => {
   updateSend();
 });
 photoClear.addEventListener("click", () => {
-  if (busy || activeConversation?.pending) return;
+  if (busy || (requestedChatView && activeConversation?.pending)) return;
   photoFile.value = "";
   photoNote.textContent = "";
   updateSend();
 });
 
 reset.addEventListener("click", () => {
-  if (busy || activeConversation?.pending) return;
+  if (busy || (requestedChatView && activeConversation?.pending)) return;
   changeFeature(null, { animate: false, focus: false });
   sessionId = null;
   graduationTurn = null;
