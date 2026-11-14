@@ -17,7 +17,7 @@ const rules = [...styles.replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/([^{}]+)\{([
 }));
 const rootRule = rules.find(rule => rule.selectors.includes(":root"));
 const variables = new Map(rootRule.declarations.filter(([name]) => name.startsWith("--")));
-function declared(selector, names) {
+function declared(selector, names, fallback) {
   let value;
   for (const rule of rules) {
     if (!rule.selectors.includes(selector)) continue;
@@ -25,6 +25,7 @@ function declared(selector, names) {
       if (names.includes(name)) value = candidate;
     }
   }
+  if (value === undefined && fallback) return declared(fallback, names);
   assert.notEqual(value, undefined, selector + " 선언 없음 " + names.join("/"));
   return value;
 }
@@ -64,13 +65,16 @@ test("대비 계산과 반투명 합성이 알려진 값과 맞는다", () => {
 });
 
 const parents = {
+  ".login-safety::before":".login-safety",
+  ".composer-row":".composer", ".composer-meta":".composer", ".composer textarea":".composer-row", ".composer textarea:hover":".composer-row", ".attach-button":".composer-row", ".attach-button:hover":".composer-row",
+  ".card.soon":".layout", ".fallback":".reply", ".poster-result.unconfirmed":".reply", ".graduation thead th":".graduation table", ".graduation .item th":".graduation table", ".graduation .item td":".graduation table", ".topics":".layout", ".topics button":".topics", ".topics button:hover":".topics", "[data-panel-content] > .panel-action":".feature-panel", "[data-panel-content] > .panel-action:hover":".feature-panel",
   "#login-form input":".login-card", "#login-form input:focus":".login-card", "#demo-student-list button":".login-card", "#demo-student-list button:hover":".login-card", ".login-safety":".login-card", ".login-submit":".login-card",
   ".card":".layout", "button.card:hover":".layout", ".feature-panel":".layout", ".chat":".layout", ".composer":".layout", "textarea":".composer", ".primary":".composer", ".primary:not(:disabled):hover":".composer", ".reply":".layout", ".question":".layout",
   ".reset":".masthead", ".reset:not(:disabled):hover":".masthead", ".login":".masthead", ".panel-close":".feature-panel", ".panel-close:hover":".feature-panel", ".cta":".feature-panel", ".cta:hover":".feature-panel", ".check":".reply", ".check:not(:disabled):hover":".reply", ".evidence":".reply", ".graduation table":".reply", ".error":".reply", ".badge.met":".reply", ".badge.short":".reply", ".badge.needs-check":".reply", ".reading":".reply", ".reading textarea":".reading", ".biskit .program":".reply", ".poster-result":".reply",
 };
 function fills(selector, photo) {
   const backing = parents[selector] ? fills(parents[selector],photo) : [photo];
-  const paint = colors(declared(selector,["background","background-color"]));
+  const paint = colors(declared(selector,["background","background-color"], selector === ".composer textarea:hover" ? ".composer textarea" : undefined));
   assert.ok(paint.length,selector);
   return backing.flatMap(back => paint.map(front => blend(front,back)));
 }
@@ -102,13 +106,13 @@ test("남색 유리의 양 끝과 밝고 어두운 사진 양쪽에서 글자 �
     [".reply",".reply"],[".evidence h3",".evidence"],[".evidence .date",".evidence"],[".evidence .source-link",".evidence"],[".graduation caption",".graduation table"],[".graduation .source",".graduation table"],[".graduation .shortfall",".graduation table"],
     [".badge.met",".badge.met"],[".badge.short",".badge.short"],[".badge.needs-check",".badge.needs-check"],[".error",".error"],[".retry",".error"],
     [".reading textarea",".reading textarea"],[".reading textarea::placeholder",".reading textarea"],[".source-link",".reply"],[".source-link",".biskit .program"],[".source-link",".feature-panel"],[".source-link",".poster-result"],
-    [".composer",".composer"],[".composer textarea","textarea"],[".composer textarea::placeholder","textarea"],[".composer p",".composer"],[".attach-clear",".composer"],
+    [".composer textarea",".composer textarea"],[".composer textarea::placeholder",".composer textarea"],[".composer p",".composer-meta"],[".attach-clear",".composer-meta"],
     [".login-submit",".login-submit"],[".primary",".primary"],[".primary:not(:disabled):hover",".primary:not(:disabled):hover"],[".pet-says",".pet-says"],["#login-pet-line","#login-pet-line"],
   ]);
 });
 
 test("테두리와 초점은 유리 안쪽 바탕과 3 이상이고 밝은 입력창은 안쪽 경계를 보강한다", () => {
-  const selectors=[".login-card",".layout",".card","button.card:hover",".feature-panel","#demo-student-list button","#demo-student-list button:hover","#login-form input","#login-form input:focus",".reset",".login",".panel-close",".login-submit",".primary",".primary:not(:disabled):hover",".login-safety",".evidence"];
+  const selectors=[".login-card",".layout",".card","button.card:hover",".feature-panel","#demo-student-list button","#demo-student-list button:hover","#login-form input","#login-form input:focus",".reset",".login",".panel-close",".login-submit",".primary",".primary:not(:disabled):hover",".login-safety",".attach-button","textarea",".composer textarea",".composer textarea:hover"];
   const failures=[];
   for(const photo of [[4,20,38],[255,255,255]]) for(const selector of selectors) for(const back of fills(selector,photo)) {
     const edge=colors(declared(selector,["border","border-color"]))[0]; const ratio=contrast(blend(edge,back),back);
@@ -121,16 +125,74 @@ test("테두리와 초점은 유리 안쪽 바탕과 3 이상이고 밝은 입�
       const ratio = contrast(blend(edge,back),back);
       if (ratio < 3) failures.push(".masthead " + ratio.toFixed(2));
     }
-    for (const back of fills(".graduation table",photo)) {
-      const edge = colors(declared(".graduation th",["border-color"]))[0];
-      const ratio = contrast(blend(edge,back),back);
-      if (ratio < 3) failures.push(".graduation th " + ratio.toFixed(2));
-    }
   }
   for(const photo of [[4,20,38],[255,255,255]]) for(const surface of [".login-card",".layout",".card",".masthead"]) for(const back of fills(surface,photo)) assert.ok(contrast(blend(focus,back),back)>=3,surface);
-  assert.match(declared(".composer",["box-shadow"]),/inset 0 0 0 1px var\(--blue\)/);
-  for(const back of fills(".composer",[255,255,255])) assert.ok(contrast(colors("var(--blue)")[0].slice(0,3),back)>=3);
+  assert.match(declared(".composer-row",["box-shadow"]),/inset 0 0 0 1px var\(--blue\)/);
+  for(const back of fills(".composer-row",[255,255,255])) assert.ok(contrast(colors("var(--blue)")[0].slice(0,3),back)>=3);
   assert.deepEqual(failures,[]);
+});
+
+test("글이 많은 영역과 예시 질문은 밝고 어두운 사진에서 4.5 이상이다", () => {
+  checkText([
+    [".question", ".question"], [".fallback", ".fallback"],
+    [".evidence", ".evidence"], [".evidence .source-link", ".evidence"],
+    [".graduation thead th", ".graduation thead th"],
+    [".graduation .item th", ".graduation .item th"], [".graduation .item td", ".graduation .item td"],
+    [".graduation caption", ".graduation table"], [".graduation .notice", ".graduation table"],
+    [".biskit .program", ".biskit .program"], [".biskit .mileage", ".biskit .program"],
+    [".biskit .hint", ".biskit .program"],
+    [".badge.met", ".biskit .program"], [".badge.short", ".biskit .program"], [".badge.needs-check", ".biskit .program"],
+    [".feature-panel", ".feature-panel"], [".panel-text", ".feature-panel"], [".source-link", ".feature-panel"],
+    ["[data-panel-content] > .panel-action", "[data-panel-content] > .panel-action"],
+    ["[data-panel-content] > .panel-action:hover", "[data-panel-content] > .panel-action:hover"],
+    [".reading", ".reading"], [".reading .field span", ".reading"], [".reading .source", ".reading"],
+    [".reading .reading-note", ".reading"], [".check", ".check"],
+    [".topics button", ".topics button"], [".topics button:hover", ".topics button:hover"],
+    [".poster-result", ".poster-result.unconfirmed"], [".poster-result .hint", ".poster-result.unconfirmed"],
+    [".card-title", ".card.soon"], [".card-text", ".card.soon"],
+    ["textarea", "textarea"], ["textarea::placeholder", "textarea"],
+    [".composer textarea", ".composer textarea:hover"], [".composer textarea::placeholder", ".composer textarea:hover"],
+    [".composer .composer-hint", ".composer-meta"], [".composer .photo-note", ".composer-meta"],
+    [".attach-button", ".attach-button"], [".attach-button", ".attach-button:hover"],
+  ]);
+});
+
+test("내용 구분선과 상태색은 지정 변수를 사용하고 글 상자는 어둡다", () => {
+  for (const [name, value] of Object.entries({
+    "--content-line": "rgba(140,220,255,.28)", "--good": "#7be0a6", "--bad": "#ffb4a8",
+    "--warn": "#ffd97a", "--muted": "rgba(214,232,245,.82)",
+  })) assert.equal(variables.get(name), value);
+  for (const selector of [".evidence", ".graduation th", ".graduation td"]) {
+    assert.equal(declared(selector, ["border-color"]), "var(--content-line)");
+  }
+  for (const selector of [".reply", ".question", ".evidence", ".fallback", ".error", ".feature-panel", ".reading", ".biskit .program", ".poster-result.unconfirmed", ".topics", ".card.soon", "textarea"]) {
+    for (const color of colors(declared(selector, ["background", "background-color"]))) {
+      assert.ok(color[0] <= 8 && color[1] <= 28 && color[2] <= 50 && color[3] >= .82, selector);
+    }
+  }
+});
+
+test("전체 CSS에서 남은 밝은 바탕은 입력 줄과 그림 받침이며 글자 대비를 확인한다", () => {
+  const backgrounds = new Map();
+  for (const rule of rules) {
+    for (const selector of rule.selectors) {
+      for (const [name, value] of rule.declarations) {
+        if (["background", "background-color"].includes(name)) backgrounds.set(selector, value);
+      }
+    }
+  }
+  const lightSurfaces = [...backgrounds].filter(([, value]) =>
+    colors(value).some(color => color[3] >= .8 && luminance(color.slice(0, 3)) > .5)
+  ).map(([selector]) => selector).sort();
+  assert.deepEqual(lightSurfaces, [
+    ".attach-button:hover", ".brand-logo", ".composer textarea", ".composer-row", ".intro-badge::before",
+    ".login-brand", ".login-safety::before", ".pet-dots span", '[data-campus-step][data-current="true"]',
+  ]);
+  checkText([
+    [".composer-row", ".composer-row"], [".composer textarea", ".composer textarea"],
+    [".composer textarea::placeholder", ".composer textarea"], [".attach-button", ".attach-button:hover"],
+    [".login-safety::before", ".login-safety::before"],
+  ]);
 });
 
 test("로그인과 보내기 gradient 양 끝은 흰 글자 대비 4.5 이상이다", () => {
