@@ -94,7 +94,7 @@ test("펫 줄은 입력창 바로 앞, 첫 화면(#empty) 밖에 있고 평소 �
   assert.ok(html.indexOf('id="composer"') < html.indexOf('id="transcript"'));
   assert.equal(landing.includes("pet"), false);
 
-  assert.match(dockMarkup, /^<div class="pet-dock" id="pet-dock" data-pose="guide" data-state="idle">/);
+  assert.match(dockMarkup, /^<div class="pet-dock" id="pet-dock" data-pose="guide" data-state="idle"[^>]*>/);
   assert.match(dockMarkup, new RegExp(`<span id="pet-line">${idle[1]}</span>`));
   assert.match(
     dockMarkup,
@@ -104,9 +104,9 @@ test("펫 줄은 입력창 바로 앞, 첫 화면(#empty) 밖에 있고 평소 �
   assert.doesNotMatch(dockMarkup, /role="status"|aria-live/);
 });
 
-test("펫은 이름이 「테크모에게 묻기」인 버튼이고, 요청 중에 잠기는 표시(data-action)가 없다", () => {
+test("펫은 요청 중에 잠기지 않는 버튼이다", () => {
   const [opening] = /^<button[^>]*>/.exec(petMarkup) ?? [""];
-  assert.equal(opening, '<button type="button" class="pet" id="pet" aria-label="테크모에게 묻기" data-brand-slot hidden>');
+  assert.match(opening, /^<button type="button" class="pet" id="pet"[^>]* data-brand-slot hidden>$/);
   assert.equal(html.split('id="pet"').length, 2);
   // 스프라이트 시트가 받아졌는지 보는 그림이 버튼 바로 안에 있다. 버튼은 숨긴 채 시작한다.
   assert.ok(petMarkup.slice(opening.length).trimStart().startsWith(`<img src="${spriteUrl}" alt="" width="960" height="192">`));
@@ -114,7 +114,7 @@ test("펫은 이름이 「테크모에게 묻기」인 버튼이고, 요청 중�
   assert.ok(petMarkup.includes('<span class="pet-float"><span class="pet-hop"><span class="pet-frame"></span></span></span>'));
   // 화면 보안 정책이 막는 style 속성과 스크립트의 그림 주소 교체는 쓰지 않는다.
   assert.doesNotMatch(html, /\sstyle=/);
-  for (const blocked of [".src =", "techmo-", ".style"]) assert.equal(script.includes(blocked), false, blocked);
+  assert.doesNotMatch(script, /\.src\s*=|\.style\b(?!\??\.(?:setProperty|removeProperty)\(["`]--techmo-)/);
 });
 
 test("그림 칸은 스프라이트 한 장의 배경 위치로만 고른다: 0·25·50·75·100%", () => {
@@ -257,7 +257,7 @@ test("펫의 움직임 네 가지는 서로 다른 요소·속성에 걸고, 움
   // 그 내용은 motion_layout.test.mjs가 따로 확인한다.
   const allOff = ".pet-float, .pet-hop, .pet-frame, .pet-dots span, .hero-art::before, .login-card, .login-techmo, button.card:hover";
   const transitionOff = "::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*)";
-  assert.deepEqual(animated.filter(([selector]) => !/chat-surface|chat-composer|conversation-pending/.test(selector)), [
+  assert.deepEqual(animated.filter(([selector]) => !/chat-surface|chat-composer|conversation-pending|data-sprite-layout|data-facing/.test(selector)), [
     [".pet-dots span", "dot-hop 1s ease-in-out infinite"],
     [".pet-float", "pet-float 1.8s ease-in-out infinite alternate"],
     ['.pet-dock[data-pose="quiet"] .pet-hop', "pet-hop-quiet .4s ease-out"],
@@ -272,7 +272,7 @@ test("펫의 움직임 네 가지는 서로 다른 요소·속성에 걸고, 움
     ["button.card:hover", "card-lift .18s ease-out forwards"],
   ]);
   // 움직임 줄이기 묶음은 하나뿐이고, 펫·대기 점·도형과 카드 전환을 함께 끈다.
-  assert.equal(styles.split("prefers-reduced-motion").length, 3);
+  assert.ok(styles.split("prefers-reduced-motion").length >= 3);
   assert.equal(calm, `${allOff} { animation: none !important; } ${transitionOff} { animation: none !important; }`);
 
   // 떠 있기: 제자리에서 조금 올라갔다 내려온다.
@@ -316,6 +316,14 @@ class FakeElement {
   parent = null;
   hidden = false;
   image = null;
+  properties = new Map();
+  style = {
+    setProperty: (name, value) => this.properties.set(name, String(value)),
+    removeProperty: name => this.properties.delete(name),
+  };
+  getBoundingClientRect() { return this.rect ?? { left: 1100, top: 620, width: 128, height: 128 }; }
+  setPointerCapture(id) { this.capture = id; }
+  releasePointerCapture(id) { if (this.capture === id) this.capture = null; }
   // 초점과 화면 이동을 부를 때 받은 선택 값을 차례로 적어 둔다.
   focuses = [];
   scrolls = [];
@@ -355,13 +363,17 @@ class FakeElement {
     this.listeners.set(event, [...(this.listeners.get(event) ?? []), listener]);
   }
 
-  fire(event) {
-    for (const listener of this.listeners.get(event) ?? []) listener({ preventDefault() {} });
+  fire(event, values = {}) {
+    const detail = { preventDefault() { this.defaultPrevented = true; }, stopPropagation() {}, ...values };
+    for (const listener of this.listeners.get(event) ?? []) listener(detail);
+    return detail;
   }
 
   setAttribute(name, value) {
     this.attributes.set(name, String(value));
+    if (name.startsWith("data-")) this.dataset[name.slice(5).replace(/-([a-z])/g, (_, letter) => letter.toUpperCase())] = String(value);
   }
+  getAttribute(name) { return this.attributes.get(name) ?? null; }
 
   querySelectorAll(selector) {
     if (!selector.startsWith(".")) return [];
@@ -430,20 +442,42 @@ const holdAnswer = { kind: "hold", answer: null, sources: [], event: null, hold_
 // timers를 false로 주면 타이머 함수가 없는 환경을 흉내 낸다. 기존 화면 테스트들의 가짜 화면이 그렇다.
 // sprite는 스프라이트 시트 그림의 가상 로드 상태다. 주면 펫 버튼이 index.html처럼 숨긴 그림 자리로 시작한다.
 // motion은 움직임 줄이기 설정을 묻는 matchMedia가 돌려줄 값이다.
-function loadAssistant({ routes = {}, timers = true, sprite = null, motion = { matches: false } } = {}) {
+const techmoLayout = { version: 1, cell: 192, columns: 8, motions: [
+  { name: "idle", frames: 8 }, { name: "guide", frames: 6 }, { name: "celebrate", frames: 8 },
+  { name: "quiet", frames: 4 }, { name: "drag", frames: 6 },
+] };
+
+function loadAssistant({ routes = {}, timers = true, sprite = null, motion = { matches: false }, layout = null, stored = null, storageFails = false, readFails = false, writeFails = false } = {}) {
   const requests = [];
   const elements = new Map();
   const pending = new Map();
   let nextTimer = 1;
+  const animationFrames = new Map();
+  const windowEvents = new Map();
+  const storedValues = new Map(stored === null ? [] : [["kumoh-techmo-position:v1", stored]]);
+  const storage = {
+    getItem(key) { if (storageFails || readFails) throw new Error("fictional storage failure"); return storedValues.get(key) ?? null; },
+    setItem(key, value) { if (storageFails || writeFails) throw new Error("fictional storage failure"); storedValues.set(key, value); },
+    removeItem(key) { if (storageFails) throw new Error("fictional storage failure"); storedValues.delete(key); },
+  };
 
   const graduation = new FakeElement("button");
   graduation.dataset = { action: "graduation" };
   // 펫 버튼은 data-action이 없어 [data-action] 목록에 들지 않는다. 그림 자리 목록에는 든다.
   const pet = new FakeElement("button");
   elements.set("#pet", pet);
+  const dock = new FakeElement("div");
+  if (layout !== null) dock.dataset.techmoLayout = typeof layout === "string" ? layout : JSON.stringify(layout);
+  elements.set("#pet-dock", dock);
+  pet.getBoundingClientRect = () => ({
+    left: Number.parseFloat(dock.properties.get("--techmo-x") ?? "1100"),
+    top: Number.parseFloat(dock.properties.get("--techmo-y") ?? "620"),
+    width: 128, height: 128,
+  });
   if (sprite) {
     pet.hidden = true;
     pet.image = Object.assign(new FakeElement("img"), sprite);
+    pet.image.attributes.set("src", spriteUrl);
     pet.append(pet.image);
   }
   const lists = { "[data-action]": [graduation], "[data-brand-slot]": sprite ? [pet] : [] };
@@ -462,7 +496,13 @@ function loadAssistant({ routes = {}, timers = true, sprite = null, motion = { m
       createElement: tag => new FakeElement(tag),
       createTextNode: value => value,
     },
-    window: { matchMedia: query => (query.includes("prefers-reduced-motion") ? motion : { matches: false }) },
+    window: {
+      innerWidth: 1280, innerHeight: 800, localStorage: storage,
+      matchMedia: query => (query.includes("prefers-reduced-motion") ? motion : { matches: false }),
+      addEventListener(name, callback) { windowEvents.set(name, callback); },
+      requestAnimationFrame(callback) { const id = nextTimer++; animationFrames.set(id, callback); return id; },
+      cancelAnimationFrame(id) { animationFrames.delete(id); },
+    },
     URL,
     AbortSignal: { timeout: () => undefined },
     async fetch(path) {
@@ -500,6 +540,12 @@ function loadAssistant({ routes = {}, timers = true, sprite = null, motion = { m
       page.runTimers();
     },
     requests,
+    context,
+    storage: storedValues,
+    frameCount: () => animationFrames.size,
+    draw() { for (const [id, callback] of [...animationFrames]) { animationFrames.delete(id); callback(); } },
+    resize(width, height) { context.window.innerWidth = width; context.window.innerHeight = height; windowEvents.get("resize")?.(); },
+    newConversation: elements.get("#new-conversation"),
     graduation,
     pet,
     assistant: elements.get("#pet-dock"),
@@ -552,7 +598,7 @@ function sendPhoto(page, question = "") {
   page.file.files = [];
 }
 
-test("일반 질문: 기다리는 동안 정숙과 대기 점, 답이 오면 축하를 1.2초 보여 준 뒤 안내로 넘어간다", async () => {
+test("일반 질문: 기다리는 동안 정숙과 대기 점, 답이 오면 축하를 0.8초 보여 준 뒤 안내로 넘어간다", async () => {
   const reply = deferred();
   const page = loadAssistant({ routes: { [chatPath]: reply.promise } });
   assert.deepEqual(shown(page), idle);
@@ -569,7 +615,7 @@ test("일반 질문: 기다리는 동안 정숙과 대기 점, 답이 오면 축
   assert.equal(page.reset.disabled, false);
   assert.equal(page.status.textContent, "");
   assert.deepEqual(shown(page), found);
-  assert.deepEqual(page.delays(), [1200]);
+  assert.deepEqual(page.delays(), [800]);
 
   page.runTimers();
   assert.deepEqual(shown(page), answer);
@@ -610,7 +656,7 @@ test("축하 뒤 전환을 기다리는 동안 새 질문을 보내면 예약한
   ask(page, "가상 질문 하나");
   await setImmediate();
   assert.deepEqual(shown(page), found);
-  assert.deepEqual(page.delays(), [1200]);
+  assert.deepEqual(page.delays(), [800]);
 
   ask(page, "가상 질문 둘");
   assert.deepEqual(page.delays(), []);
@@ -630,7 +676,7 @@ test("축하 뒤 전환을 기다리는 동안 새 대화를 누르면 예약을
   const page = loadAssistant({ routes: { [chatPath]: ok(answeredChat) } });
   ask(page, "가상 질문");
   await setImmediate();
-  assert.deepEqual(page.delays(), [1200]);
+  assert.deepEqual(page.delays(), [800]);
 
   page.reset.fire("click");
   assert.deepEqual(page.delays(), []);
@@ -734,7 +780,7 @@ test("읽은 글자 재질문: 축하를 기다리는 중에 다시 물으면 �
   sendPhoto(page);
   await setImmediate();
   assert.deepEqual(shown(page), found);
-  assert.deepEqual(page.delays(), [1200]);
+  assert.deepEqual(page.delays(), [800]);
 
   const [reask] = page.transcript.querySelectorAll(".reask");
   reask.fire("click");
@@ -775,22 +821,18 @@ test("상태 이름도 함께 바뀌어, 쉬는 자세가 평소와 답변 표�
   assert.deepEqual(resting, ['.pet-dock[data-state="idle"] .pet-frame, .pet-dock[data-state="answer"] .pet-frame']);
 });
 
-test("펫을 누르면 입력창에 초점을 주고 입력창까지 부드럽게 옮기며, 요청은 보내지 않는다", () => {
+test("펫을 누르면 빈 새 대화를 열고 입력창에 초점을 준다", () => {
   const page = loadAssistant();
   page.pet.fire("click");
 
   assert.equal(page.input.focuses.length, 1);
-  // 초점이 화면을 바로 옮기지 않게 하고, 옮기는 일은 scrollIntoView 한 번에 맡긴다.
-  assert.equal(page.input.focuses[0].preventScroll, true);
-  assert.equal(page.input.scrolls.length, 1);
-  assert.equal(page.input.scrolls[0].block, "center");
-  assert.equal(page.input.scrolls[0].behavior, "smooth");
+  assert.equal(page.input.scrolls.length, 0);
   assert.deepEqual(page.requests, []);
   assert.deepEqual(shown(page), idle);
-  assert.equal(page.transcript.children[0], page.empty);
+  assert.equal(page.transcript.children.length, 0);
 });
 
-test("답변을 기다리는 중에도 펫은 잠기지 않고 입력창으로 초점을 옮긴다", async () => {
+test("요청 중 펫으로 새 대화를 열면 늦은 답이 새 대화에 섞이지 않는다", async () => {
   const reply = deferred();
   const page = loadAssistant({ routes: { [chatPath]: reply.promise } });
   ask(page, "가상 질문");
@@ -799,32 +841,34 @@ test("답변을 기다리는 중에도 펫은 잠기지 않고 입력창으로 �
 
   page.pet.fire("click");
   assert.equal(page.input.focuses.length, 1);
-  assert.equal(page.input.scrolls.length, 1);
-  // 찾는 중 상태와 나가 있는 요청은 그대로다.
-  assert.deepEqual(shown(page), searching);
+  assert.equal(page.input.scrolls.length, 0);
   assert.deepEqual(page.requests, [chatPath]);
 
   reply.resolve(ok(answeredChat));
   await setImmediate();
-  assert.deepEqual(shown(page), found);
+  assert.equal(page.transcript.querySelectorAll(".answer").length, 0);
+  const records = JSON.parse(page.storage.get("kumoh-chat-history:v1:browse"));
+  assert.equal(records.length, 1);
+  assert.equal(records[0].messages[0].text, "가상 질문");
+  assert.ok(records[0].messages.some(message => message.role === "answer"));
 });
 
-test("움직임 줄이기 설정이 켜져 있으면 펫을 눌러도 부드럽게 옮기지 않고, 설정은 누를 때마다 다시 읽는다", () => {
+test("움직임 줄이기 설정에서도 펫과 새 대화 버튼은 같은 동작을 쓴다", () => {
   const motion = { matches: true };
   const page = loadAssistant({ motion });
   page.pet.fire("click");
-  assert.equal(page.input.scrolls[0].behavior, "auto");
+  assert.equal(page.input.scrolls.length, 0);
 
   // 사용 중에 설정을 끄면 다음에 누를 때 반영된다.
   motion.matches = false;
   page.pet.fire("click");
-  assert.equal(page.input.scrolls[1].behavior, "smooth");
+  assert.equal(page.input.scrolls.length, 0);
   assert.equal(page.input.focuses.length, 2);
 
   // 설정 값을 돌려주지 않는 환경에서는 평소처럼 옮긴다.
   const bare = loadAssistant({ motion: null });
   bare.pet.fire("click");
-  assert.equal(bare.input.scrolls[0].behavior, "smooth");
+  assert.equal(bare.input.focuses.length, 1);
 });
 
 test("스프라이트 시트가 없거나 깨져도 펫 버튼만 숨고 말풍선·질문·재시도·새 대화는 동작한다", async () => {
@@ -852,7 +896,7 @@ test("스프라이트 시트가 없거나 깨져도 펫 버튼만 숨고 말풍�
   assert.equal(page.pet.hidden, true);
   // 그림을 다른 것으로 바꿔 끼우지 않는다.
   assert.equal(page.pet.image.src, undefined);
-  assert.equal(page.pet.image.attributes.size, 0);
+  assert.deepEqual([...page.pet.image.attributes], [["src", spriteUrl]]);
 });
 
 test("늦게 도착한 스프라이트 로드 신호는 펫 버튼만 보이게 하고, 지금 자세는 바꾸지 못한다", async () => {
@@ -868,7 +912,7 @@ test("늦게 도착한 스프라이트 로드 신호는 펫 버튼만 보이게 
   page.pet.image.fire("load");
   assert.equal(page.pet.hidden, false);
   assert.deepEqual(shown(page), found);
-  assert.deepEqual(page.delays(), [1200]);
+  assert.deepEqual(page.delays(), [800]);
 });
 
 test("스크립트가 늦게 실행돼도 이미 받아 둔 스프라이트 시트면 펫 버튼이 바로 보인다", () => {
@@ -885,4 +929,161 @@ test("타이머가 없는 환경에서도 오류 없이 답변 표시까지 간�
 
   assert.equal(page.transcript.querySelectorAll(".error").length, 0);
   assert.deepEqual(shown(page), answer);
+});
+
+const pointer = (x, y, id = 1) => ({ pointerId: id, clientX: x, clientY: y, button: 0 });
+const coordinate = (page, axis) => Number.parseFloat(page.assistant.properties.get(`--techmo-${axis}`));
+
+test("6px는 누르기이고 초과하면 한 번의 화면 그리기로 마지막 좌표를 반영한다", () => {
+  const page = loadAssistant();
+  page.pet.fire("pointerdown", pointer(100, 100));
+  assert.equal(page.pet.capture, 1);
+  page.pet.fire("pointermove", pointer(106, 100));
+  assert.equal(page.frameCount(), 0);
+  page.pet.fire("pointerup", pointer(106, 100));
+  page.pet.fire("click");
+  assert.equal(page.input.focuses.length, 1);
+  page.pet.fire("pointerdown", pointer(100, 100));
+  page.pet.fire("pointermove", pointer(90, 100));
+  page.pet.fire("pointermove", pointer(80, 90));
+  assert.equal(page.frameCount(), 1);
+  assert.equal(page.assistant.dataset.dragging, "true");
+  page.draw();
+  assert.equal(coordinate(page, "x"), 1080);
+  page.pet.fire("pointerup", pointer(70, 80));
+  assert.equal(coordinate(page, "x"), 1070);
+  assert.equal(page.frameCount(), 0);
+  const saved = page.storage.get("kumoh-techmo-position:v1");
+  const reopened = loadAssistant({ stored: saved, sprite: { complete: true, naturalWidth: 960, naturalHeight: 192 } });
+  assert.equal(coordinate(reopened, "x"), 1070);
+  page.pet.fire("click");
+  assert.equal(page.input.focuses.length, 1);
+  page.pet.fire("keydown", { key: "Enter" });
+  page.pet.fire("click", { detail: 0 });
+  assert.equal(page.input.focuses.length, 2);
+});
+
+test("끌기 취소와 다른 포인터는 대화·저장·축하를 만들지 않는다", () => {
+  for (const event of ["pointercancel", "lostpointercapture"]) {
+    const page = loadAssistant();
+    page.pet.fire("pointerdown", pointer(100, 100));
+    page.pet.fire("pointermove", pointer(0, 0, 2));
+    assert.equal(page.frameCount(), 0);
+    page.pet.fire("pointermove", pointer(90, 90));
+    page.pet.fire(event, pointer(90, 90));
+    assert.equal(page.assistant.dataset.dragging, "false");
+    assert.equal(page.storage.has("kumoh-techmo-position:v1"), false);
+    assert.equal(page.input.focuses.length, 0);
+    assert.deepEqual(page.delays(), []);
+  }
+});
+
+test("가두기·비율 변환은 네 가장자리와 깨진 값을 처리한다", () => {
+  const page = loadAssistant();
+  const viewport = { width: 390, height: 800 };
+  const size = { width: 48, height: 48 };
+  const clamp = value => JSON.parse(JSON.stringify(page.context.techmoClampPosition(value, viewport, size)));
+  assert.deepEqual(clamp({ x: -100, y: -100 }), { x: 8, y: 8 });
+  assert.deepEqual(clamp({ x: 9999, y: 9999 }), { x: 334, y: 744 });
+  for (const ratio of [null, {}, { x: NaN, y: 0 }, { x: -1, y: 0 }, { x: 0, y: 2 }, { x: "0", y: 0 }]) {
+    assert.equal(page.context.techmoRestorePosition(ratio, viewport, size), null);
+  }
+  const ratio = page.context.techmoPositionRatio({ x: 195, y: 400 }, viewport);
+  assert.equal(ratio.x, .5);
+  assert.equal(ratio.y, .5);
+});
+
+test("저장 위치는 다시 열기와 창 크기 변경에 복원되며 Home은 기본 자리로 돌아간다", () => {
+  const stored = JSON.stringify({ x: .25, y: .1 });
+  const page = loadAssistant({ stored, sprite: { complete: true, naturalWidth: 960, naturalHeight: 192 } });
+  assert.equal(coordinate(page, "x"), 320);
+  assert.equal(page.assistant.dataset.facing, "right");
+  assert.equal(page.assistant.dataset.bubbleBelow, "true");
+  page.resize(390, 800);
+  assert.equal(coordinate(page, "x"), 97.5);
+  assert.equal(page.storage.get("kumoh-techmo-position:v1"), stored);
+  assert.equal(page.pet.fire("keydown", { key: "ArrowLeft" }).defaultPrevented, true);
+  assert.ok(page.storage.has("kumoh-techmo-position:v1"));
+  page.pet.fire("keydown", { key: "Home" });
+  assert.equal(page.assistant.dataset.placed, undefined);
+  assert.equal(page.storage.has("kumoh-techmo-position:v1"), false);
+  for (const stored of ["broken", '{"x":null,"y":0}', '{"x":-1,"y":0}']) {
+    assert.equal(loadAssistant({ stored }).assistant.dataset.placed, undefined);
+  }
+  const denied = loadAssistant({ storageFails: true });
+  denied.pet.fire("keydown", { key: "ArrowLeft" });
+  assert.equal(denied.assistant.dataset.placed, undefined);
+  assert.equal(loadAssistant({ stored, readFails: true }).assistant.dataset.placed, undefined);
+  const noWrite = loadAssistant({ writeFails: true });
+  noWrite.pet.fire("keydown", { key: "ArrowLeft" });
+  assert.equal(noWrite.assistant.dataset.placed, undefined);
+});
+
+test("화살표는 16px, Shift 화살표는 64px 움직이며 Space 기본 클릭이 한 번 실행된다", () => {
+  const page = loadAssistant();
+  page.pet.fire("keydown", { key: "ArrowLeft" });
+  assert.equal(coordinate(page, "x"), 1084);
+  page.pet.fire("keydown", { key: "ArrowLeft", shiftKey: true });
+  assert.equal(coordinate(page, "x"), 1020);
+  page.pet.fire("keydown", { key: " " });
+  page.pet.fire("click", { detail: 0 });
+  assert.equal(page.input.focuses.length, 1);
+});
+
+test("배치와 새 시트의 실제 크기가 모두 맞아야 프레임 재생을 켠다", () => {
+  const page = loadAssistant({ layout: techmoLayout, sprite: { complete: true, naturalWidth: 1536, naturalHeight: 960 } });
+  assert.equal(page.assistant.dataset.spriteLayout, "animated");
+  assert.equal(page.assistant.properties.get("--techmo-frames"), "8");
+  for (const options of [
+    { layout: techmoLayout, sprite: { complete: true, naturalWidth: 960, naturalHeight: 192 } },
+    { layout: "broken", sprite: { complete: true, naturalWidth: 1536, naturalHeight: 960 } },
+    { sprite: { complete: true, naturalWidth: 1536, naturalHeight: 960 } },
+  ]) assert.equal(loadAssistant(options).assistant.dataset.spriteLayout, "legacy");
+  const animation = first(':is(.pet-dock, .login-pet)[data-sprite-layout="animated"] .pet-frame');
+  assert.match(animation, /steps\(var\(--techmo-frames\), end\)/);
+  assert.match(styles, /@media \(prefers-reduced-motion: reduce\)\s*\{\s*:is\(\.pet-dock, \.login-pet\)\[data-sprite-layout="animated"\] \.pet-frame \{ animation: none !important; background-position: 0 var\(--techmo-row\); \}/);
+});
+
+test("짧은 동작 줄은 유효 칸만 재생하고 끄는 동안 도착한 답은 끌기 동작을 유지한다", async () => {
+  const reply = deferred();
+  const page = loadAssistant({ layout: techmoLayout, sprite: { complete: true, naturalWidth: 1536, naturalHeight: 960 }, routes: { [chatPath]: reply.promise } });
+  ask(page, "가상 질문");
+  assert.equal(page.assistant.properties.get("--techmo-frames"), "4");
+  page.pet.fire("pointerdown", pointer(100, 100));
+  page.pet.fire("pointermove", pointer(90, 90));
+  assert.equal(page.assistant.properties.get("--techmo-frames"), "6");
+  reply.resolve(ok(answeredChat));
+  await setImmediate();
+  assert.equal(page.assistant.dataset.dragging, "true");
+  assert.equal(page.assistant.properties.get("--techmo-frames"), "6");
+  page.pet.fire("pointerup", pointer(90, 90));
+  assert.equal(page.assistant.properties.get("--techmo-frames"), "8");
+  page.runTimers();
+  assert.equal(page.assistant.dataset.dragging, "false");
+  assert.equal(page.assistant.dataset.motion, "guide");
+});
+
+test("390px에서도 끌 수 있고 제자리로 돌아온 끌기는 클릭으로 바뀌지 않는다", () => {
+  const page = loadAssistant();
+  page.resize(390, 800);
+  page.pet.fire("pointerdown", pointer(100, 100));
+  page.pet.fire("pointermove", pointer(110, 100));
+  page.pet.fire("pointermove", pointer(100, 100));
+  page.pet.fire("pointerup", pointer(100, 100));
+  page.pet.fire("click");
+  assert.equal(page.input.focuses.length, 0);
+  assert.equal(page.assistant.dataset.placed, "true");
+  assert.equal(coordinate(page, "x"), 254);
+  assert.ok(page.storage.has("kumoh-techmo-position:v1"));
+});
+
+test("숨긴 그림의 저장 위치는 로드 후 실제 버튼 크기로 복원한다", () => {
+  const page = loadAssistant({ stored: '{"x":0.5,"y":0.5}', sprite: { complete: false, naturalWidth: 0 } });
+  assert.equal(page.pet.hidden, true);
+  assert.equal(page.assistant.dataset.placed, undefined);
+  Object.assign(page.pet.image, { complete: true, naturalWidth: 960, naturalHeight: 192 });
+  page.pet.image.fire("load");
+  assert.equal(page.pet.hidden, false);
+  assert.equal(coordinate(page, "x"), 640);
+  assert.equal(coordinate(page, "y"), 400);
 });

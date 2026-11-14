@@ -172,7 +172,7 @@ test("패널은 자리를 차지하는 상자라 펫·말풍선·입력창 위�
   }
   assert.match(first(".feature-panel"), /^display: grid;/);
   // 화면에 고정하는 요소는 넓은 화면의 펫 줄과 공통 배경뿐이다.
-  assert.deepEqual(rules.filter(([, body]) => body.includes("position: fixed")).map(([selector]) => selector), [".pet-dock", ".campus-backdrop", 'body[data-view="chat"] .layout', "#conversation-toast", 'body[data-view="chat"] .pet-dock', "#conversation-sidebar", "#conversation-backdrop"]);
+  assert.deepEqual(rules.filter(([, body]) => body.includes("position: fixed")).map(([selector]) => selector), [".pet-dock", ".campus-backdrop", 'body[data-view="chat"] .layout', "#conversation-toast", 'body[data-view="chat"] .pet-dock', "#conversation-sidebar", "#conversation-backdrop", '.pet-dock[data-placed="true"], body[data-view="chat"] .pet-dock[data-placed="true"]']);
 
   // 닫기와 시작 버튼은 손가락으로 누를 만한 높이다.
   assert.equal(value(first(".panel-close"), "min-height"), "44px");
@@ -260,8 +260,8 @@ test("390px 묶음은 그림을 120px 이하로 줄여 제목 옆에 놓고 카�
   }
 });
 
-test("움직임 줄이기 묶음은 하나뿐이고 도형·펫·대기 점·카드 전환의 움직임을 모두 끈다", () => {
-  assert.equal(styles.split("prefers-reduced-motion").length, 3);
+test("움직임 줄이기 설정은 도형·펫·대기 점·카드 전환의 움직임을 모두 끈다", () => {
+  assert.equal(styles.split("prefers-reduced-motion").length, 4);
   assert.ok(calmRules.length >= 2);
   for (const [selector, body] of calmRules) assert.match(body, /(?:animation|transition): none(?: !important)?;/, selector);
 

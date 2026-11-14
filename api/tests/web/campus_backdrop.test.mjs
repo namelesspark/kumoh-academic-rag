@@ -21,7 +21,7 @@ test("배경 사진 순서와 캔버스의 접근성·보안 약속을 지킨다
   assert.match(html, /<canvas\b[^>]*aria-hidden="true"[^>]*>/);
   assert.match(styles, /background(?:-image)?:[^;]*campus-aerial\.jpg/);
   assert.doesNotMatch(html, /\sstyle=|<style\b|<script(?![^>]*\bsrc=)/);
-  assert.doesNotMatch(script, /\.src\s*=|\.style\b|setInterval/);
+  assert.doesNotMatch(script, /\.src\s*=|\.style\b(?!\??\.(?:setProperty|removeProperty)\(["`]--techmo-)|setInterval/);
   assert.match(script, /setTimeout/);
 });
 
