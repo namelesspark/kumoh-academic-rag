@@ -68,25 +68,20 @@ PHOTO_HEADERS = {
 
 
 class TitleImage(NamedTuple):
-    """제목 그림의 저장 이름과, 글자를 그릴 글꼴의 주소·바이트 수·지문(SHA-256)."""
+    """제목 그림의 저장 이름과, 글자를 그릴 글꼴의 주소·바이트 수·지문(SHA-256), 그릴 글귀.
+
+    `lines`를 비우면 로그인 화면 글귀(`TITLE_LINES`)를 그린다.
+    """
 
     name: str
     url: str
     size: int
     sha256: str
+    lines: tuple | None = None
 
 
 OFFICIAL_HOST = "www.kumoh.ac.kr"
 FONT_HOST = "raw.githubusercontent.com"
-# Gugi Regular. SIL Open Font License 1.1, Copyright (c) 2017 by TAE System & Typefaces Co.
-# 글꼴 파일은 그림을 그릴 때만 메모리에서 쓰고 저장하거나 화면에 내려 주지 않는다.
-TITLE_IMAGES = (
-    TitleImage(
-        "title-lettering.png",
-        "https://raw.githubusercontent.com/google/fonts/16680f8688ffcd467d2eb2146a9ce0343404581d"
-        "/ofl/gugi/Gugi-Regular.ttf",
-        990856, "c0b1f979979cfc309fb2438fa9464f96173353e0c4842cc7a5919658184ed9d3"),
-)
 MAX_FONT_DOWNLOAD = 2 * 1024 * 1024
 TITLE_FONT_SIZE = 172
 TITLE_LINE_HEIGHT = 1.12  # 글자 크기의 배수
@@ -97,6 +92,22 @@ TITLE_YELLOW = (255, 209, 0)  # #FFD100
 TITLE_LINES = (
     (("졸업까지,", TITLE_WHITE),),
     (("테크모", TITLE_YELLOW), ("와 함께", TITLE_WHITE)),
+)
+# 메인 화면 제목. 한 줄이고 쉼표 뒤 빈칸까지 흰 조각에 넣는다.
+MAIN_TITLE_LINES = (
+    (("물어봐요, ", TITLE_WHITE), ("테크모", TITLE_YELLOW)),
+)
+# Gugi Regular. SIL Open Font License 1.1, Copyright (c) 2017 by TAE System & Typefaces Co.
+# 글꼴 파일은 그림을 그릴 때만 메모리에서 쓰고 저장하거나 화면에 내려 주지 않는다.
+TITLE_FONT_URL = ("https://raw.githubusercontent.com/google/fonts/16680f8688ffcd467d2eb2146a9ce0343404581d"
+                  "/ofl/gugi/Gugi-Regular.ttf")
+TITLE_FONT_BYTES = 990856
+TITLE_FONT_HASH = "c0b1f979979cfc309fb2438fa9464f96173353e0c4842cc7a5919658184ed9d3"
+# 두 그림은 글꼴 주소가 같다. main()이 주소마다 한 번만 받으므로 글꼴도 한 번만 받는다.
+TITLE_IMAGES = (
+    TitleImage("title-lettering.png", TITLE_FONT_URL, TITLE_FONT_BYTES, TITLE_FONT_HASH),
+    TitleImage("main-lettering.png", TITLE_FONT_URL, TITLE_FONT_BYTES, TITLE_FONT_HASH,
+               MAIN_TITLE_LINES),
 )
 
 
@@ -324,8 +335,11 @@ def render_title(font, lines=None):
     return result.getvalue()
 
 
-def title_png(data, expected_size, expected_hash):
-    """확인해 둔 글꼴과 한 바이트도 다르지 않을 때만 그 글꼴로 제목 그림을 그린다."""
+def title_png(data, expected_size, expected_hash, lines=None):
+    """확인해 둔 글꼴과 한 바이트도 다르지 않을 때만 그 글꼴로 제목 그림을 그린다.
+
+    `lines`를 비우면 로그인 화면 글귀를 그린다.
+    """
     if len(data) != expected_size:
         raise AssetError("글꼴 바이트 수 불일치")
     if sha256(data).hexdigest() != expected_hash:
@@ -334,7 +348,7 @@ def title_png(data, expected_size, expected_hash):
         font = ImageFont.truetype(BytesIO(data), TITLE_FONT_SIZE)
     except (OSError, ValueError):
         raise AssetError("글꼴을 열 수 없음") from None
-    return render_title(font)
+    return render_title(font, lines)
 
 
 def atomic_write(destination, data):
@@ -364,8 +378,9 @@ def main(*, downloader=download, writer=atomic_write, report=print):
            lambda data, photo=photo: campus_jpeg(data, photo.size, photo.sha256))
           for photo in CAMPUS_PHOTOS),
         # 제목은 글꼴을 받아 그림으로 그린다. 글꼴 파일은 저장하지 않는다.
+        # 두 제목의 글꼴 주소가 같아 아래 `sources`가 한 번 받은 바이트를 함께 쓴다.
         *((title.name, title.url,
-           lambda data, title=title: title_png(data, title.size, title.sha256))
+           lambda data, title=title: title_png(data, title.size, title.sha256, title.lines))
           for title in TITLE_IMAGES),
     ):
         try:
