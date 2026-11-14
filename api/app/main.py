@@ -20,7 +20,9 @@
     uvicorn app.main:app --app-dir api --reload
 """
 
+import json
 from hashlib import sha256
+from html import escape
 from pathlib import Path
 
 from fastapi import FastAPI, Request
@@ -55,6 +57,52 @@ CHAT_WEB_MEDIA_TYPES = {
 PATHS_WITHOUT_422 = ("/api/v1/chat", "/api/v1/demo-login")
 # 주소에 내용 지문을 붙이는 그림. 배포 준비 때 생기므로 없을 수 있다.
 FINGERPRINTED_IMAGES = ("main-lettering.png",)
+# 테크모 그림 묶음의 칸 배치를 화면에 넘기는 자리. `index.html`에 정확히 한 번 있어야 한다.
+# 배치 파일은 서버가 읽어 화면에 넣을 뿐, `/chat-assets/` 주소로 내주지 않는다.
+TECHMO_LAYOUT_SLOT = "__TECHMO_LAYOUT__"
+TECHMO_LAYOUT_FILE = "techmo_layout.json"
+
+
+def parse_techmo_layout(text: str) -> dict:
+    """칸 배치 글을 읽어 검사한 값으로 돌려줌. 어긋나면 ValueError로 시작을 멈춤.
+
+    버전 1, 칸 크기와 한 줄의 칸 수는 양의 정수, 동작 이름은 겹치지 않고,
+    동작마다 프레임 수는 1 이상이고 한 줄의 칸 수를 넘지 않는다.
+    """
+
+    def positive(value) -> bool:
+        # JSON의 true도 파이썬에서는 정수 1로 읽히므로 형까지 본다.
+        return type(value) is int and value > 0
+
+    layout = json.loads(text)
+    if not isinstance(layout, dict) or set(layout) != {"version", "cell", "columns", "motions"}:
+        raise ValueError("테크모 칸 배치의 항목이 맞지 않음")
+    if type(layout["version"]) is not int or layout["version"] != 1:
+        raise ValueError("테크모 칸 배치의 버전이 1이 아님")
+    if not positive(layout["cell"]) or not positive(layout["columns"]):
+        raise ValueError("테크모 칸 크기와 칸 수는 양의 정수여야 함")
+    motions = layout["motions"]
+    if not isinstance(motions, list) or not motions:
+        raise ValueError("테크모 동작 목록이 비어 있음")
+    names = set()
+    for motion in motions:
+        if not isinstance(motion, dict) or set(motion) != {"name", "frames"}:
+            raise ValueError("테크모 동작의 항목이 맞지 않음")
+        name, frames = motion["name"], motion["frames"]
+        if not isinstance(name, str) or not name or name in names:
+            raise ValueError("테크모 동작 이름이 비었거나 겹침")
+        if not positive(frames) or frames > layout["columns"]:
+            raise ValueError("테크모 프레임 수는 1 이상이고 한 줄의 칸 수 이하여야 함")
+        names.add(name)
+    return layout
+
+
+def inject_techmo_layout(html: str, layout_text: str) -> str:
+    """검사한 칸 배치를 HTML 속성 값으로 안전하게 바꿔(이스케이프) 화면의 자리에 넣음."""
+    parse_techmo_layout(layout_text)
+    if html.count(TECHMO_LAYOUT_SLOT) != 1:
+        raise ValueError("테크모 칸 배치 자리는 정확히 한 번 있어야 함")
+    return html.replace(TECHMO_LAYOUT_SLOT, escape(layout_text.strip(), quote=True))
 
 
 def fingerprint_chat_assets(html: str, css: bytes, script: bytes) -> str:
@@ -101,6 +149,8 @@ def create_app(
         (CHAT_WEB_DIR / "assets/chat.js").read_bytes(),
     )
     chat_html = fingerprint_prepared_images(chat_html, read_prepared_images())
+    chat_html = inject_techmo_layout(
+        chat_html, (CHAT_WEB_DIR / TECHMO_LAYOUT_FILE).read_text(encoding="utf-8"))
     application = FastAPI(title="kumoh-rag API", version="0.1.0")
     application.state.chat_retrieval = chat_retrieval
     application.state.chunk_count = chunk_count

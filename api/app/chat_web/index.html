@@ -223,12 +223,12 @@
       <!-- 테크모 펫과 말풍선. chat.js는 이 줄의 data-pose·data-state만 바꾸고, chat.css가 그 값으로 그림 칸과 움직임을 고른다.
            펫 버튼은 숨긴 채 시작하고, 안에 든 그림이 로드에 성공해야 보인다. 그림이 없어도 말풍선은 남는다.
            data-action을 주지 않아 답변을 기다리는 동안에도 눌린다. 진행 알림은 #status가 읽어 주므로 여기에는 알림 역할을 두지 않는다. -->
-      <div class="pet-dock" id="pet-dock" data-pose="guide" data-state="idle">
+      <div class="pet-dock" id="pet-dock" data-pose="guide" data-state="idle" data-techmo-layout="__TECHMO_LAYOUT__">
         <p class="pet-says">
           <span id="pet-line">궁금한 점을 물어보세요</span>
           <span class="pet-dots" id="pet-dots" aria-hidden="true" hidden><span></span><span></span><span></span></span>
         </p>
-        <button type="button" class="pet" id="pet" aria-label="테크모에게 묻기" data-brand-slot hidden>
+        <button type="button" class="pet" id="pet" aria-label="테크모 · 새 대화 시작" data-brand-slot hidden>
           <img src="/chat-assets/techmo-sprite.png" alt="" width="960" height="192">
           <span class="pet-float"><span class="pet-hop"><span class="pet-frame"></span></span></span>
         </button>

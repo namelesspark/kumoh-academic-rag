@@ -761,32 +761,232 @@ class TestBrandPreparation(unittest.TestCase):
             patcher.start()
             self.addCleanup(patcher.stop)
 
-    def test_sprite_geometry_order_transparency_and_no_upscaling(self):
-        sizes = ((468, 414), (140, 183), (140, 181), (159, 145), (159, 170))
-        colors = ('red', 'green', 'blue', 'orange', 'purple')
-        poses = []
-        for size, color in zip(sizes, colors):
-            image = Image.new('RGBA', (size[0] + 8, size[1] + 8))
-            image.paste(Image.new('RGBA', size, color), (4, 4))
-            output = BytesIO()
-            image.save(output, format='PNG')
-            poses.append(output.getvalue())
-        with patch.object(assets, 'techmo_png', side_effect=poses) as convert:
-            result = assets.techmo_sprite_png(b'fictional source')
-        self.assertEqual([call.kwargs['pose'] for call in convert.call_args_list],
-                         ['basic', 'quiet', 'guide', 'celebrate', 'concert'])
+    # 이슈 #91의 칸 배치. 화면 담당과 함께 쓰는 값이라 글자 하나까지 같아야 한다.
+    LAYOUT_TEXT = ('{"version":1,"cell":192,"columns":8,"motions":[{"name":"idle","frames":8},'
+                   '{"name":"guide","frames":6},{"name":"celebrate","frames":8},'
+                   '{"name":"quiet","frames":4},{"name":"drag","frames":6}]}')
+    MOTIONS = (("idle", 8), ("guide", 6), ("celebrate", 8), ("quiet", 4), ("drag", 6))
+    # 동작마다 바탕이 되는 자세, 가상 그림의 크기와 색. 색으로 줄과 자세의 짝을 확인한다.
+    POSES = {"basic": ((468, 414), (255, 0, 0)), "guide": ((140, 181), (0, 0, 255)),
+             "celebrate": ((159, 145), (255, 165, 0)), "quiet": ((140, 183), (0, 128, 0)),
+             "concert": ((159, 170), (128, 0, 128))}
+    MOTION_POSES = ("basic", "guide", "celebrate", "quiet", "concert")
+
+    @staticmethod
+    def pose_png(size, color):
+        """투명 여백 4px를 두른 단색 사각형. 실제 테크모 그림과 관계없다."""
+        image = Image.new("RGBA", (size[0] + 8, size[1] + 8))
+        image.paste(Image.new("RGBA", size, (*color, 255)), (4, 4))
+        output = BytesIO()
+        image.save(output, format="PNG")
+        return output.getvalue()
+
+    def build_sheet(self, poses=None, layout_text=None):
+        """가상 자세 그림으로 시트를 만들어 (PNG 바이트, 자세 요청 순서, 줄마다 칸 그림 목록)을 돌려준다."""
+        poses = poses or {pose: self.pose_png(size, color)
+                          for pose, (size, color) in self.POSES.items()}
+        asked = []
+
+        def convert(data, *, pose="basic"):
+            asked.append(pose)
+            return poses[pose]
+
+        with patch.object(assets, "techmo_png", side_effect=convert):
+            result = assets.techmo_sprite_png(b"fictional source", layout_text)
         with Image.open(BytesIO(result)) as sheet:
-            self.assertEqual(sheet.size, (960, 192))
-            self.assertEqual(sheet.mode, 'RGBA')
-            for index, size in enumerate(sizes):
-                cell = sheet.crop((index * 192, 0, (index + 1) * 192, 192))
-                expected = Image.new('RGBA', size, colors[index])
-                expected.thumbnail((184, 184), Image.Resampling.LANCZOS)
-                left = (192 - expected.width) // 2
-                self.assertEqual(cell.getbbox(), (left, 188 - expected.height,
-                                                 left + expected.width, 188))
-                self.assertEqual(cell.getpixel((96, 187)), expected.getpixel((expected.width // 2, 0)))
-                self.assertEqual(cell.getpixel((0, 191))[3], 0)
+            self.assertEqual((sheet.format, sheet.mode), ("PNG", "RGBA"))
+            columns, rows = sheet.width // 192, sheet.height // 192
+            cells = [[sheet.crop((column * 192, row * 192, (column + 1) * 192, (row + 1) * 192))
+                      for column in range(columns)] for row in range(rows)]
+            size = sheet.size
+        return result, asked, cells, size
+
+    @staticmethod
+    def box(cell):
+        """조금이라도 보이는 점을 모두 감싸는 영역."""
+        return cell.getchannel("A").getbbox()
+
+    @staticmethod
+    def solid(cell):
+        """절반 넘게 불투명한 점만 감싸는 영역. 늘인 그림 가장자리의 옅은 번짐을 빼고 크기를 잰다."""
+        return cell.getchannel("A").point(lambda alpha: 255 if alpha >= 128 else 0).getbbox()
+
+    def test_layout_file_is_the_agreed_text_and_the_script_reads_it(self):
+        text = assets.TECHMO_LAYOUT_PATH.read_text(encoding="utf-8")
+        self.assertEqual(text.strip(), self.LAYOUT_TEXT)
+        # 준비 스크립트와 서버가 같은 파일을 읽는다.
+        self.assertEqual(assets.TECHMO_LAYOUT_PATH.resolve(),
+                         (web_main.CHAT_WEB_DIR / web_main.TECHMO_LAYOUT_FILE).resolve())
+        self.assertEqual(assets.load_techmo_layout(), (192, 8, self.MOTIONS))
+        self.assertEqual(assets.load_techmo_layout(self.LAYOUT_TEXT), (192, 8, self.MOTIONS))
+        # 동작 표의 프레임 수와 바탕 자세가 약속과 같다.
+        self.assertEqual(tuple((name, len(motion.frames)) for name, motion in assets.TECHMO_MOTIONS.items()),
+                         self.MOTIONS)
+        self.assertEqual(tuple(motion.pose for motion in assets.TECHMO_MOTIONS.values()),
+                         self.MOTION_POSES)
+
+    def test_sheet_size_rows_spare_cells_and_edges(self):
+        result, asked, cells, size = self.build_sheet()
+        self.assertEqual(size, (1536, 960))
+        # 자세 그림은 동작마다 한 번씩, 줄 순서대로 만든다.
+        self.assertEqual(asked, list(self.MOTION_POSES))
+        for row, (name, frames) in enumerate(self.MOTIONS):
+            color = self.POSES[self.MOTION_POSES[row]][1]
+            for column, cell in enumerate(cells[row]):
+                with self.subTest(motion=name, column=column):
+                    visible = self.box(cell)
+                    if column >= frames:
+                        # 남는 칸은 완전히 투명하다.
+                        self.assertIsNone(visible)
+                        continue
+                    self.assertIsNotNone(visible)
+                    # 칸 가장자리 2px는 비어 있어 옆 칸으로 번지지 않는다.
+                    self.assertGreaterEqual(min(visible[0], visible[1]), 2)
+                    self.assertLessEqual(max(visible[2], visible[3]), 190)
+                    for corner in ((0, 0), (191, 0), (0, 191), (191, 191)):
+                        self.assertEqual(cell.getpixel(corner)[3], 0)
+                    # 몸통 한가운데는 그 줄의 자세 색 그대로다. 새 그림이나 다른 자세가 섞이지 않았다.
+                    pixel = cell.getpixel((96, 140))
+                    self.assertEqual(pixel[3], 255)
+                    self.assertLessEqual(max(abs(got - want) for got, want in zip(pixel, color)), 2)
+            # 한 줄의 프레임은 모두 서로 다르다.
+            self.assertEqual(len({cell.tobytes() for cell in cells[row][:frames]}), frames)
+        # 같은 입력이면 같은 바이트가 나온다.
+        self.assertEqual(self.build_sheet()[0], result)
+
+    def test_motions_share_the_base_size_and_the_ground_line(self):
+        _, _, cells, _ = self.build_sheet()
+        self.assertEqual(assets.TECHMO_BASE_BOX, (128, 148))
+        expected = {}
+        for pose, (size, color) in self.POSES.items():
+            image = Image.new("RGBA", size, color)
+            image.thumbnail(assets.TECHMO_BASE_BOX, Image.Resampling.LANCZOS)
+            expected[pose] = image.size
+        # 안내·축하·정숙의 첫 프레임은 변형하지 않은 그림이다. 가로 가운데, 바닥선 188px에 선다.
+        for row in (1, 2, 3):
+            width, height = expected[self.MOTION_POSES[row]]
+            left = (192 - width) // 2
+            with self.subTest(motion=self.MOTIONS[row][0]):
+                self.assertEqual(self.solid(cells[row][0]), (left, 188 - height, left + width, 188))
+                self.assertEqual(self.box(cells[row][0]), (left, 188 - height, left + width, 188))
+        # 기울인 프레임도 가장 낮은 점이 바닥선에 닿는다.
+        for row in (1, 3):
+            for cell in cells[row][:self.MOTIONS[row][1]]:
+                self.assertEqual(self.box(cell)[3], 188)
+        # 대기: 발은 바닥선에서 2px 넘게 뜨지 않고, 키는 3%쯤 늘었다 줄어든다.
+        idle = [self.solid(cell) for cell in cells[0]]
+        base_height = expected["basic"][1]
+        self.assertTrue(all(186 <= visible[3] <= 188 for visible in idle))
+        heights = [visible[3] - visible[1] for visible in idle]
+        self.assertLessEqual(min(heights), base_height + 1)
+        self.assertTrue(1.015 <= max(heights) / base_height <= 1.05, heights)
+
+    def test_celebrate_jumps_24px_and_stretches_then_squashes(self):
+        _, _, cells, _ = self.build_sheet()
+        boxes = [self.solid(cell) for cell in cells[2]]
+        base_height = boxes[0][3] - boxes[0][1]
+        bottoms = [visible[3] for visible in boxes]
+        ratios = [(visible[3] - visible[1]) / base_height for visible in boxes]
+        # 첫 프레임과 마지막 세 프레임 가운데 착지한 프레임은 바닥선에 있다.
+        self.assertEqual((bottoms[0], bottoms[1], bottoms[6], bottoms[7]), (188, 188, 188, 188))
+        # 가장 높이 뜬 프레임의 발끝이 바닥선보다 정확히 24px 위다.
+        self.assertEqual(min(bottoms), 188 - 24)
+        self.assertEqual(bottoms.index(min(bottoms)), 3)
+        # 웅크림 → 늘이기 → 착지 때 누르기.
+        self.assertTrue(0.86 <= ratios[1] <= 0.94, ratios)
+        self.assertTrue(1.04 <= max(ratios) <= 1.08, ratios)
+        self.assertEqual(ratios.index(max(ratios)), 2)
+        self.assertTrue(0.88 <= ratios[6] <= 0.96, ratios)
+        # 가로 폭은 바뀌지 않는다. 세로만 늘이고 누른다.
+        self.assertEqual({visible[2] - visible[0] for visible in boxes}, {boxes[0][2] - boxes[0][0]})
+
+    def test_tilt_ranges_of_guide_quiet_and_drag(self):
+        self.assertEqual([frame.angle for frame in assets.TECHMO_MOTIONS["guide"].frames],
+                         [0, 4, 2, -1, -4, -2])
+        self.assertEqual([frame.angle for frame in assets.TECHMO_MOTIONS["quiet"].frames],
+                         [0, 2, -1, -2])
+        drag = assets.TECHMO_MOTIONS["drag"]
+        self.assertEqual(drag.pivot, "top")
+        self.assertEqual((max(frame.angle for frame in drag.frames),
+                          min(frame.angle for frame in drag.frames)), (10, -10))
+        self.assertEqual({frame.scale for frame in drag.frames}, {1.06})
+        _, _, cells, _ = self.build_sheet()
+        boxes = [self.solid(cell) for cell in cells[4][:6]]
+        concert = Image.new("RGBA", self.POSES["concert"][0])
+        concert.thumbnail(assets.TECHMO_BASE_BOX, Image.Resampling.LANCZOS)
+        # 끌기의 첫 프레임은 기울이지 않고 세로로 1.06 늘인 그림이다. 바닥선에서 들려 있다.
+        height = boxes[0][3] - boxes[0][1]
+        self.assertTrue(1.04 <= height / concert.height <= 1.08, height)
+        self.assertEqual(boxes[0][2] - boxes[0][0], concert.width)
+        self.assertLess(boxes[0][3], 188)
+        # 머리 위가 축이라 흔들릴수록 아래쪽이 좌우로 벌어진다. 양쪽으로 다 흔들린다.
+        self.assertLess(min(visible[0] for visible in boxes), boxes[0][0] - 10)
+        self.assertGreater(max(visible[2] for visible in boxes), boxes[0][2] + 10)
+        # 축 근처인 위쪽 끝은 아래쪽 끝보다 덜 움직인다.
+        self.assertLess(max(visible[1] for visible in boxes) - min(visible[1] for visible in boxes), 16)
+
+    def test_small_pose_is_not_enlarged(self):
+        poses = {pose: self.pose_png((20, 30), color) for pose, (_, color) in self.POSES.items()}
+        _, _, cells, _ = self.build_sheet(poses)
+        for row in (1, 2, 3):
+            self.assertEqual(self.solid(cells[row][0]), (86, 158, 106, 188))
+
+    def test_frame_that_leaves_the_cell_or_an_empty_pose_stops_the_sheet(self):
+        # 기준 크기를 칸만큼 키우면 뛰어오르거나 기울인 프레임이 칸을 넘는다. 잘라 넣지 않고 멈춘다.
+        with patch.object(assets, "TECHMO_BASE_BOX", (190, 190)):
+            with self.assertRaises(assets.AssetError) as caught:
+                self.build_sheet()
+        self.assertEqual(str(caught.exception), "테크모 프레임이 칸을 넘음")
+        empty = BytesIO()
+        Image.new("RGBA", (20, 20)).save(empty, format="PNG")
+        poses = {pose: empty.getvalue() for pose in self.POSES}
+        with self.assertRaises(assets.AssetError) as caught:
+            self.build_sheet(poses)
+        self.assertEqual(str(caught.exception), "테크모 자세가 비어 있음")
+
+    def test_broken_or_mismatched_layout_stops_the_sheet(self):
+        good = self.LAYOUT_TEXT
+        broken = (
+            "", "not json", "[]", "null", good.replace('"version":1', '"version":2'),
+            good.replace('"version":1', '"version":true'), good.replace('"cell":192', '"cell":0'),
+            good.replace('"cell":192', '"cell":192.5'), good.replace('"columns":8', '"columns":"8"'),
+            good.replace('"columns":8', '"columns":7'), good.replace('"motions":[', '"other":['),
+            good.replace('"name":"guide"', '"name":"idle"'),
+            good.replace('"frames":4', '"frames":0'), '{"version":1,"cell":192,"columns":8,"motions":[]}',
+        )
+        for text in broken:
+            with self.subTest(text=text[:40]), self.assertRaises(assets.AssetError) as caught:
+                assets.load_techmo_layout(text)
+            self.assertEqual(str(caught.exception), "테크모 칸 배치 형식 불일치")
+        # 형식은 맞지만 이 스크립트의 동작 표와 다른 배치.
+        for text in (good.replace('"name":"drag"', '"name":"fly"'),
+                     good.replace('"frames":6}]', '"frames":5}]')):
+            with self.subTest(text=text[-40:]), self.assertRaises(assets.AssetError) as caught:
+                assets.load_techmo_layout(text)
+            self.assertEqual(str(caught.exception), "테크모 칸 배치와 동작 표 불일치")
+        # 배치가 깨지면 자세 그림을 만들기 전에 멈추고, 준비 스크립트는 기존 시트를 남긴다.
+        written = {"techmo-sprite.png": b"previous sprite"}
+        with (
+            patch.object(assets, "load_techmo_layout", side_effect=assets.AssetError("테크모 칸 배치 형식 불일치")),
+            patch.object(assets, "logo_png", return_value=b"logo"),
+            patch.object(assets, "techmo_png", return_value=self.pose_png((20, 20), (255, 0, 0))),
+        ):
+            logs = []
+            self.assertEqual(assets.main(downloader=lambda url: b"fictional",
+                                         writer=lambda path, data: written.__setitem__(path.name, data),
+                                         report=logs.append), 0)
+        self.assertEqual(written["techmo-sprite.png"], b"previous sprite")
+        self.assertIn("techmo-sprite.png: 준비 실패 (테크모 칸 배치 형식 불일치)", logs)
+
+    def test_rows_follow_the_order_of_the_layout(self):
+        # 줄 순서는 배치 파일의 동작 순서다. 순서를 바꾼 가상 배치로 확인한다.
+        swapped = ('{"version":1,"cell":192,"columns":8,"motions":[{"name":"drag","frames":6},'
+                   '{"name":"idle","frames":8}]}')
+        _, asked, cells, size = self.build_sheet(layout_text=swapped)
+        self.assertEqual(size, (1536, 384))
+        self.assertEqual(asked, ["concert", "basic"])
+        self.assertIsNone(self.box(cells[0][6]))
+        self.assertIsNotNone(self.box(cells[1][7]))
 
     def test_sprite_failure_preserves_existing_result(self):
         for failure in ('hash', 'pose', 'write'):
