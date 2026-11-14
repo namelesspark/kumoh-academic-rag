@@ -1018,3 +1018,65 @@ body[data-view="chat"] .composer textarea { height: 44px; min-height: 44px; max-
   .conversation-pending { animation: none; }
   ::view-transition-group(chat-composer), ::view-transition-old(chat-surface), ::view-transition-new(chat-surface) { animation: none !important; }
 }
+
+/* 이동은 바깥 상자, 바라보는 방향은 안쪽 상자, 프레임은 배경이 맡는다. */
+.pet { touch-action: none; }
+body[data-techmo-dragging="true"] { user-select: none; }
+.pet-dock[data-placed="true"], body[data-view="chat"] .pet-dock[data-placed="true"] {
+  position: fixed;
+  inset: 0 auto auto 0;
+  width: var(--techmo-pet-size);
+  height: var(--techmo-pet-height);
+  padding: 0;
+  border: 0;
+  display: block;
+  background: transparent;
+  transform: translate(var(--techmo-x), var(--techmo-y));
+  z-index: 20;
+}
+.pet-dock[data-placed="true"] .pet { width: 100%; }
+.pet-dock[data-placed="true"] .pet-says {
+  position: absolute;
+  left: var(--techmo-bubble-x);
+  top: var(--techmo-bubble-y);
+  width: var(--techmo-bubble-width);
+  max-width: calc(100vw - 16px);
+  text-align: left;
+}
+.pet-dock[data-placed="true"] .pet-says::after { display: none; }
+.pet-dock[data-dragging="true"] .pet-says { visibility: hidden; }
+.pet-dock[data-facing="right"] .pet-float { transform: scaleX(-1); animation: none; }
+.pet-dock[data-sprite-layout="animated"] .pet-hop,
+.pet-dock[data-sprite-layout="animated"] .pet-float { animation: none; }
+:is(.pet-dock, .login-pet)[data-sprite-layout="animated"] .pet-frame {
+  background-size: var(--techmo-sheet-width) var(--techmo-sheet-height);
+  background-position: 0 var(--techmo-row);
+  animation: techmo-idle var(--techmo-duration) steps(var(--techmo-frames), end) var(--techmo-iterations);
+}
+[data-sprite-layout="animated"][data-motion="guide"] .pet-frame { animation-name: techmo-guide; }
+[data-sprite-layout="animated"][data-motion="celebrate"] .pet-frame { animation-name: techmo-celebrate; }
+[data-sprite-layout="animated"][data-motion="quiet"] .pet-frame { animation-name: techmo-quiet; }
+[data-sprite-layout="animated"][data-motion="drag"] .pet-frame { animation-name: techmo-drag; }
+@keyframes techmo-idle {
+  from { background-position: 0 var(--techmo-row); }
+  to { background-position: var(--techmo-end-x) var(--techmo-row); }
+}
+@keyframes techmo-guide {
+  from { background-position: 0 var(--techmo-row); }
+  to { background-position: var(--techmo-end-x) var(--techmo-row); }
+}
+@keyframes techmo-celebrate {
+  from { background-position: 0 var(--techmo-row); }
+  to { background-position: var(--techmo-end-x) var(--techmo-row); }
+}
+@keyframes techmo-quiet {
+  from { background-position: 0 var(--techmo-row); }
+  to { background-position: var(--techmo-end-x) var(--techmo-row); }
+}
+@keyframes techmo-drag {
+  from { background-position: 0 var(--techmo-row); }
+  to { background-position: var(--techmo-end-x) var(--techmo-row); }
+}
+@media (prefers-reduced-motion: reduce) {
+  :is(.pet-dock, .login-pet)[data-sprite-layout="animated"] .pet-frame { animation: none !important; background-position: 0 var(--techmo-row); }
+}

@@ -518,9 +518,9 @@ test("첫 화면의 소개 버튼과 패널 안 시작 버튼은 화면에 이�
   ]);
   // 기능을 부르는 버튼은 패널 안의 네 개뿐이다. 놓친 data-action이 없는지 개수도 맞춰 본다.
   assert.equal(html.split("data-action=").length - 1, controlsInPage.length);
-  // 「테크모에게 묻기」 글자 버튼은 없앴다(#64). 그 이름은 펫 버튼의 읽기용 이름으로 한 번만 남는다.
+  // 「테크모에게 묻기」 글자 버튼은 없앴다(#64).
   assert.equal(landing.includes("테크모에게 묻기"), false);
-  assert.equal(html.split("테크모에게 묻기").length, 2);
+  // 펫 이름은 서버 쪽 테스트에서 확인한다.
   assert.equal(styles.includes("secondary"), false);
 });
 

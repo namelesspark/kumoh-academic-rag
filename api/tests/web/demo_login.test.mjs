@@ -22,7 +22,7 @@ test("문서 안 실행 코드와 스타일, 외부 라이브러리를 추가하
   assert.equal([...html.matchAll(/<script\b/g)].length, 1);
   assert.match(html, /<script src="\/chat-assets\/chat.js" defer><\/script>/);
   assert.doesNotMatch(html, /\sstyle\s*=|<style\b|\son\w+\s*=/i);
-  assert.doesNotMatch(script, /document\.cookie|\.src\s*=|\.style\b/);
+  assert.doesNotMatch(script, /document\.cookie|\.src\s*=|\.style\b(?!\??\.(?:setProperty|removeProperty)\(["`]--techmo-)/);
   assert.match(script, /setTimeout/);
   assert.equal([...script.matchAll(/prefers-reduced-motion/g)].length, 1);
 });

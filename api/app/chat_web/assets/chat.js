@@ -118,13 +118,16 @@ const assistantStates = {
   error: ["guide", "잠시 문제가 생겼어요. 다시 시도해 주세요"],
 };
 // 서버가 답변을 한 번에 보내므로, 축하를 이만큼 보여 준 뒤 답변 표시로 넘어간다.
-const celebrateMs = 1_200;
+const celebrateMs = 800;
 
 let sessionId = null;
 let busy = false;
 let graduationTurn = null;
 let assistantState = "idle";
 let assistantTimer = null;
+let techmoDropTimer = null;
+let techmoDropCelebrating = false;
+let techmoPosition = null;
 let openedCard = null;
 let panelTransition = null;
 let panelChange = 0;
@@ -376,14 +379,15 @@ drawerBackdrop?.addEventListener("click", () => closeDrawer());
 document.querySelector("#conversation-close")?.addEventListener("click", () => closeDrawer());
 homeButton?.addEventListener("click", () => setChatView(false));
 document.querySelector(".brand")?.addEventListener("click", () => setChatView(false));
-document.querySelector("#new-conversation")?.addEventListener("click", () => {
+function startNewConversation() {
   activeConversation = null;
   input.value = "";
   photoFile.value = "";
   photoNote.textContent = "";
   statusLine.textContent = "";
   setChatView(true); renderConversations(); input.focus();
-});
+}
+document.querySelector("#new-conversation")?.addEventListener("click", startNewConversation);
 document.querySelector("#clear-conversations")?.addEventListener("click", () => {
   if (!window.confirm("대화 기록을 모두 지울까요?")) return;
   clearConversations(historyStorage(), historyAccount);
@@ -426,11 +430,13 @@ const demoAccounts = {
 function loginMessage(line, pose = "guide") {
   if (loginPetLine) loginPetLine.textContent = line;
   loginPet?.setAttribute("data-pose", pose);
+  applyTechmoMotion(loginPet, pose);
 }
 function showScreen(main) {
   if (loginScreen) loginScreen.hidden = main;
   if (mainScreen) mainScreen.hidden = !main;
   document.body?.setAttribute("data-screen", main ? "main" : "login");
+  if (main) restoreTechmoPosition();
 }
 function closeStudents() {
   studentGeneration++;
@@ -644,9 +650,71 @@ for (const panel of featurePanels) {
   });
 }
 
-// 펫의 자세·말·대기 점은 여기 한 곳에서만 바꾼다. 그림 주소는 건드리지 않고 data-pose와 data-state만 바꾸므로
-// 늦게 도착한 그림 로드 신호가 지금 보이는 자세를 바꾸지 못한다.
-// 어느 상태로 가든 축하 뒤에 예약해 둔 전환은 먼저 취소한다.
+// 칸 배치는 서버가 전달한 값만 쓰고, 실제 그림 크기가 맞아야 새 재생을 켠다.
+function parseTechmoLayout(value) {
+  try {
+    const layout = JSON.parse(value);
+    if (layout.version !== 1 || !Number.isSafeInteger(layout.cell) || layout.cell <= 0 ||
+        !Number.isSafeInteger(layout.columns) || layout.columns <= 1 ||
+        !Array.isArray(layout.motions) || layout.motions.length <= 1) return null;
+    const names = new Set();
+    for (const motion of layout.motions) {
+      if (typeof motion.name !== "string" || names.has(motion.name) ||
+          !Number.isSafeInteger(motion.frames) || motion.frames < 1 || motion.frames > layout.columns) return null;
+      names.add(motion.name);
+    }
+    if (!["idle", "guide", "celebrate", "quiet", "drag"].every(name => names.has(name))) return null;
+    return layout;
+  } catch { return null; }
+}
+
+function applyTechmoMotion(target, name) {
+  const layout = parseTechmoLayout(assistant.dataset?.techmoLayout);
+  if (!target || !layout) return;
+  const row = layout.motions.findIndex(motion => motion.name === name);
+  if (row < 0) return;
+  const motion = layout.motions[row];
+  const timing = { idle: ["1.6s", "infinite"], guide: ["0.9s", "1"],
+    celebrate: ["0.8s", "1"], quiet: ["2.4s", "infinite"], drag: ["0.5s", "infinite"] };
+  target.setAttribute("data-motion", name);
+  target.style?.setProperty("--techmo-sheet-width", `${layout.columns * 100}%`);
+  target.style?.setProperty("--techmo-sheet-height", `${layout.motions.length * 100}%`);
+  target.style?.setProperty("--techmo-row", `${row / (layout.motions.length - 1) * 100}%`);
+  target.style?.setProperty("--techmo-frames", String(motion.frames));
+  target.style?.setProperty("--techmo-end-x", `${motion.frames / (layout.columns - 1) * 100}%`);
+  target.style?.setProperty("--techmo-duration", timing[name][0]);
+  target.style?.setProperty("--techmo-iterations", timing[name][1]);
+}
+
+function updateTechmoMotion() {
+  const motions = { idle: "idle", searching: "quiet", hold: "quiet", found: "celebrate", answer: "guide", error: "guide" };
+  const motion = techmoDropCelebrating ? "celebrate" : motions[assistantState];
+  applyTechmoMotion(assistant, assistant.dataset?.dragging === "true" ? "drag" : motion);
+}
+
+function celebrateTechmoDrop() {
+  if (techmoDropTimer !== null) clearTimeout(techmoDropTimer);
+  techmoDropCelebrating = true;
+  updateTechmoMotion();
+  techmoDropTimer = setTimeout(() => {
+    techmoDropTimer = null;
+    techmoDropCelebrating = false;
+    updateTechmoMotion();
+  }, celebrateMs);
+}
+
+function configureTechmoSprite(slot, image) {
+  if (!image?.getAttribute?.("src")?.endsWith("/techmo-sprite.png")) return;
+  const layout = parseTechmoLayout(assistant.dataset?.techmoLayout);
+  const animated = layout && image.naturalWidth === layout.columns * layout.cell &&
+    image.naturalHeight === layout.motions.length * layout.cell;
+  const target = slot === pet ? assistant : loginPet;
+  target?.setAttribute("data-sprite-layout", animated ? "animated" : "legacy");
+  if (target === assistant) updateTechmoMotion();
+  else applyTechmoMotion(target, target?.dataset?.pose || "guide");
+}
+
+// 상태가 바뀌면 앞서 예약한 답변 전환을 취소하고 말·점·동작을 함께 갱신한다.
 function showAssistant(state, message) {
   if (assistantTimer !== null) {
     clearTimeout(assistantTimer);
@@ -660,6 +728,8 @@ function showAssistant(state, message) {
   assistant.setAttribute("data-state", state);
   assistantLine.textContent = message ?? line;
   assistantDots.hidden = state !== "searching";
+  updateTechmoMotion();
+  if (assistant.dataset?.dragging !== "true") techmoBubble();
 }
 
 // 찾음: 축하를 잠깐 보여 준 뒤 답변 표시로 넘어간다. 타이머가 없는 환경에서는 바로 넘어간다.
@@ -1590,14 +1660,178 @@ for (const control of landingControls) {
   });
 }
 
-// 펫을 누르면 질문 입력창에 초점을 주고 입력창까지 화면을 옮긴다. 요청 중에도 동작한다.
-// 초점을 줄 때 브라우저가 화면을 바로 옮기지 않게 하고, 옮기는 일은 scrollIntoView 한 곳에 맡긴다.
-// 움직임 줄이기 설정은 누를 때마다 다시 읽어, 사용 중에 바꿔도 부드러운 이동이 꺼진다.
-pet.addEventListener("click", () => {
-  input.focus({ preventScroll: true });
-  const calm = reducedMotion();
-  input.scrollIntoView?.({ block: "center", behavior: calm ? "auto" : "smooth" });
+// 좌표는 버튼 테두리의 왼쪽 위를 기준으로 한다. 저장할 때만 화면 크기로 나눈다.
+function techmoClampPosition(position, viewport, size) {
+  return {
+    x: Math.max(8, Math.min(position.x, viewport.width - size.width - 8)),
+    y: Math.max(8, Math.min(position.y, viewport.height - size.height - 8)),
+  };
+}
+function techmoPositionRatio(position, viewport) {
+  return { x: position.x / viewport.width, y: position.y / viewport.height };
+}
+function techmoRestorePosition(ratio, viewport, size) {
+  if (!ratio || ![ratio.x, ratio.y].every(value => typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1)) return null;
+  return techmoClampPosition({ x: ratio.x * viewport.width, y: ratio.y * viewport.height }, viewport, size);
+}
+const techmoPositionKey = "kumoh-techmo-position:v1";
+let techmoRatio = null;
+let techmoPointer = null;
+let techmoFrame = null;
+let techmoSuppressClick = false;
+const techmoViewport = () => ({ width: window.innerWidth, height: window.innerHeight });
+const techmoSize = () => {
+  const rect = pet.getBoundingClientRect();
+  return { width: rect.width, height: rect.height };
+};
+function techmoBubble() {
+  if (!techmoPosition || !pet.getBoundingClientRect) return;
+  const viewport = techmoViewport();
+  const size = techmoSize();
+  const right = techmoPosition.x + size.width / 2 < viewport.width / 2;
+  const below = techmoPosition.y < 120;
+  assistant.dataset.facing = right ? "right" : "left";
+  assistant.dataset.bubbleRight = String(right);
+  assistant.dataset.bubbleBelow = String(below);
+  const bubble = assistantLine?.parentElement;
+  const width = Math.min(240, viewport.width - 16);
+  assistant.style?.setProperty("--techmo-bubble-width", `${width}px`);
+  const height = bubble?.getBoundingClientRect?.().height || 64;
+  const x = right ? techmoPosition.x + size.width + 12 : techmoPosition.x - width - 12;
+  const y = below ? techmoPosition.y + size.height + 12 : techmoPosition.y - height - 12;
+  assistant.style?.setProperty("--techmo-bubble-x", `${Math.max(8, Math.min(x, viewport.width - width - 8)) - techmoPosition.x}px`);
+  assistant.style?.setProperty("--techmo-bubble-y", `${Math.max(8, Math.min(y, viewport.height - height - 8)) - techmoPosition.y}px`);
+}
+function techmoDrawPosition() {
+  techmoFrame = null;
+  if (!techmoPosition) return;
+  assistant.style?.setProperty("--techmo-x", `${techmoPosition.x}px`);
+  assistant.style?.setProperty("--techmo-y", `${techmoPosition.y}px`);
+}
+function techmoPlace(position) {
+  const size = techmoSize();
+  techmoPosition = techmoClampPosition(position, techmoViewport(), size);
+  if (assistant.dataset.placed !== "true") {
+    assistant.style?.setProperty("--techmo-pet-size", `${size.width}px`);
+    assistant.style?.setProperty("--techmo-pet-height", `${size.height}px`);
+    assistant.dataset.placed = "true";
+  }
+}
+function techmoDefaultPosition() {
+  techmoPosition = null;
+  techmoRatio = null;
+  delete assistant.dataset.placed;
+  delete assistant.dataset.facing;
+  for (const name of ["x", "y", "pet-size", "pet-height", "bubble-x", "bubble-y", "bubble-width"]) assistant.style?.removeProperty(`--techmo-${name}`);
+}
+function techmoSavePosition() {
+  try {
+    const storage = historyStorage();
+    if (!storage) throw new Error("Position storage unavailable");
+    techmoRatio = techmoPositionRatio(techmoPosition, techmoViewport());
+    storage.setItem(techmoPositionKey, JSON.stringify(techmoRatio));
+  } catch { techmoDefaultPosition(); }
+}
+function techmoEndPointer(cancelled) {
+  const pointer = techmoPointer;
+  if (!pointer) return;
+  techmoPointer = null;
+  if (techmoFrame !== null) window.cancelAnimationFrame?.(techmoFrame);
+  techmoFrame = null;
+  assistant.dataset.dragging = "false";
+  document.body?.removeAttribute?.("data-techmo-dragging");
+  if (pointer.dragged) {
+    techmoSuppressClick = true;
+    if (cancelled) {
+      if (pointer.original) techmoPlace(pointer.original);
+      else techmoDefaultPosition();
+    } else techmoSavePosition();
+    techmoDrawPosition();
+    techmoBubble();
+    if (!cancelled) celebrateTechmoDrop();
+  }
+  updateTechmoMotion();
+  if (pet.hasPointerCapture?.(pointer.id)) pet.releasePointerCapture?.(pointer.id);
+}
+pet.addEventListener("pointerdown", event => {
+  if (techmoPointer || event.isPrimary === false || (event.button !== undefined && event.button !== 0) || !pet.getBoundingClientRect) return;
+  techmoSuppressClick = false;
+  const rect = pet.getBoundingClientRect();
+  techmoPointer = { id: event.pointerId, x: event.clientX, y: event.clientY,
+    start: { x: rect.left, y: rect.top }, original: techmoPosition && { ...techmoPosition }, dragged: false };
+  pet.setPointerCapture?.(event.pointerId);
 });
+function techmoMovePointer(event) {
+  const pointer = techmoPointer;
+  if (!pointer || pointer.id !== event.pointerId) return;
+  const dx = event.clientX - pointer.x;
+  const dy = event.clientY - pointer.y;
+  if (!pointer.dragged && Math.hypot(dx, dy) <= 6) return;
+  if (!pointer.dragged) {
+    pointer.dragged = true;
+    assistant.dataset.dragging = "true";
+    document.body?.setAttribute("data-techmo-dragging", "true");
+    updateTechmoMotion();
+  }
+  techmoPlace({ x: pointer.start.x + dx, y: pointer.start.y + dy });
+  event.preventDefault?.();
+  if (techmoFrame === null) {
+    if (window.requestAnimationFrame) techmoFrame = window.requestAnimationFrame(techmoDrawPosition);
+    else techmoDrawPosition();
+  }
+}
+pet.addEventListener("pointermove", techmoMovePointer);
+pet.addEventListener("pointerup", event => {
+  if (techmoPointer?.id !== event.pointerId) return;
+  techmoMovePointer(event);
+  techmoEndPointer(false);
+});
+for (const name of ["pointercancel", "lostpointercapture"]) pet.addEventListener(name, event => {
+  if (techmoPointer?.id === event.pointerId) techmoEndPointer(true);
+});
+pet.addEventListener("click", event => {
+  if (techmoSuppressClick) {
+    techmoSuppressClick = false;
+    event.preventDefault?.();
+    return;
+  }
+  startNewConversation();
+});
+pet.addEventListener("keydown", event => {
+  techmoSuppressClick = false;
+  const arrows = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
+  if (event.key === "Home") {
+    event.preventDefault();
+    try { historyStorage()?.removeItem(techmoPositionKey); } catch { /* 기본 자리는 저장소 없이도 돌아간다. */ }
+    techmoDefaultPosition();
+    return;
+  }
+  if (!Object.hasOwn(arrows, event.key) || !pet.getBoundingClientRect) return;
+  event.preventDefault();
+  const rect = pet.getBoundingClientRect();
+  const step = event.shiftKey ? 64 : 16;
+  const [dx, dy] = arrows[event.key];
+  techmoPlace({ x: rect.left + dx * step, y: rect.top + dy * step });
+  techmoSavePosition();
+  techmoDrawPosition();
+  techmoBubble();
+});
+function restoreTechmoPosition() {
+  if (!techmoRatio || !pet.getBoundingClientRect) return;
+  const size = techmoSize();
+  if (size.width <= 0 || size.height <= 0) return;
+  const position = techmoRestorePosition(techmoRatio, techmoViewport(), size);
+  if (position) { techmoPlace(position); techmoDrawPosition(); techmoBubble(); }
+}
+window.addEventListener?.("resize", restoreTechmoPosition);
+try {
+  const saved = historyStorage()?.getItem(techmoPositionKey);
+  if (saved) {
+    const ratio = JSON.parse(saved);
+    const position = techmoRestorePosition(ratio, techmoViewport(), { width: 0, height: 0 });
+    if (position) techmoRatio = ratio;
+  }
+} catch { techmoDefaultPosition(); }
 
 // 로고, 첫 화면의 테크모, 펫 버튼은 숨긴 채 시작하고, 안에 든 그림이 실제로 받아졌을 때만 보인다.
 // 펫은 스프라이트 시트를 배경으로 그리는데 배경 그림은 로드 신호를 주지 않아, 같은 주소의 그림을 버튼 안에 두고 그 신호를 본다.
@@ -1608,6 +1842,8 @@ for (const slot of document.querySelectorAll?.("[data-brand-slot]") ?? []) {
   if (!image) continue;
   const settle = () => {
     slot.hidden = !(image.complete && image.naturalWidth > 0);
+    configureTechmoSprite(slot, image);
+    if (slot === pet && !slot.hidden) restoreTechmoPosition();
   };
   image.addEventListener("load", settle);
   image.addEventListener("error", settle);
