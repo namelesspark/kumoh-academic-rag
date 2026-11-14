@@ -134,8 +134,7 @@ test("기본 배치는 입력창 앞에 붙는 낮은 줄이고, 넓은 화면�
   assert.match(first(".pet"), /^flex: none; width: 56px;/);
   assert.match(first(".pet-says"), /flex: 1; min-width: 0;/);
 
-  // 넓은 화면: 본문 격자의 셋째 칸(168px)을 비우고, 같은 너비의 펫을 본문 오른쪽 끝에 맞춰 고정한다.
-  assert.ok(wide.includes(".layout { grid-template-columns: 212px minmax(0, 1fr) 168px; }"));
+  // 넓은 화면의 실제 여백은 뒤의 선언까지 적용한 별도 검사에서 계산한다.
   assert.match(
     wide,
     /\.pet-dock \{ position: fixed; right: max\(24px, calc\(\(100% - 1120px\) \/ 2\)\); bottom: 24px;[^}]*\bwidth: 168px;/,
@@ -146,6 +145,70 @@ test("기본 배치는 입력창 앞에 붙는 낮은 줄이고, 넓은 화면�
   assert.doesNotMatch(narrow, /\.pet-dock \{[^}]*position/);
   assert.ok(narrow.includes(".pet { width: 48px; }"));
   assert.ok(narrow.includes(".chat { height: calc(100dvh - 180px); min-height: 350px; }"));
+});
+
+// 화면 너비에 맞는 규칙만 순서대로 읽는다. 뒤에 나온 기본 규칙이 앞의 @media를 덮는 경우도 포함한다.
+function declarationsAtWidth(selector, width, source = styles) {
+  const declarations = {};
+  let cursor = 0;
+  while (cursor < source.length) {
+    const open = source.indexOf("{", cursor);
+    if (open === -1) break;
+    const header = source.slice(cursor, open).trim();
+    let depth = 1;
+    let close = open + 1;
+    while (depth && close < source.length) {
+      if (source[close] === "{") depth += 1;
+      if (source[close] === "}") depth -= 1;
+      close += 1;
+    }
+    assert.equal(depth, 0, "CSS 중괄호 짝");
+    const body = source.slice(open + 1, close - 1);
+    if (header.startsWith("@media")) {
+      const limits = [...header.matchAll(/\((min|max)-width:\s*(\d+)px\)/g)];
+      const active = limits.length > 0 && limits.every(([, limit, pixels]) =>
+        limit === "min" ? width >= Number(pixels) : width <= Number(pixels));
+      if (active) Object.assign(declarations, declarationsAtWidth(selector, width, body));
+    } else if (header.split(",").map(name => name.trim()).includes(selector)) {
+      for (const declaration of body.split(";")) {
+        const colon = declaration.indexOf(":");
+        if (colon === -1) continue;
+        const name = declaration.slice(0, colon).trim();
+        const value = declaration.slice(colon + 1).trim();
+        declarations[name] = value;
+        // 현재 배치의 padding은 위·좌우·아래 세 값이다. 괄호 안의 공백은 값 경계가 아니다.
+        if (name === "padding") {
+          const values = value.match(/(?:[^\s(]+|\((?:[^()]|\([^()]*\))*\))+/g);
+          declarations["padding-right"] = values[1] ?? values[0];
+        }
+        if (name === "padding-inline") {
+          declarations["padding-right"] = value;
+        }
+      }
+    }
+    cursor = close;
+  }
+  return declarations;
+}
+
+function pixels(value, width) {
+  assert.ok(value, "계산할 길이 선언이 있어야 한다");
+  const expression = value.replace(/([\d.]+)%/g, (_, amount) => String(width * Number(amount) / 100))
+    .replace(/px\b/g, "").replace(/\bcalc\(/g, "(").replace(/\bmax\(/g, "Math.max(");
+  assert.match(expression, /^[\d\s.+*/(),\-Mathmax]+$/, value);
+  return runInNewContext(expression, {}, { timeout: 100 });
+}
+
+test("1024·1280·1440px의 최종 선언에서 본문과 고정 테크모 사이에 24px 이상을 남긴다", () => {
+  for (const width of [1024, 1280, 1440]) {
+    const layout = declarationsAtWidth(".layout", width);
+    const dock = declarationsAtWidth(".pet-dock", width);
+    assert.equal(layout["grid-template-columns"].replace(/\s+/g, ""), "minmax(0,1fr)");
+    assert.equal(dock.position, "fixed");
+    const contentRight = pixels(layout.width, width) - pixels(layout["padding-right"], width);
+    const dockLeft = width - pixels(dock.right, width) - pixels(dock.width, width);
+    assert.ok(dockLeft - contentRight >= 24, `${width}px: 본문 ${contentRight}, 테크모 ${dockLeft}`);
+  }
 });
 
 test("펫의 움직임 네 가지는 서로 다른 요소·속성에 걸고, 움직임 줄이기 설정에서는 화면의 움직임을 모두 끈다", () => {
