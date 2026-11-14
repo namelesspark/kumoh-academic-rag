@@ -290,7 +290,24 @@ test("입력창 안에 사진 첨부 칸이 있고, 별도의 현수막 칸과 �
   assert.match(composer, /<input type="file" id="photo-file" accept="image\/jpeg,image\/png"/);
   assert.match(composer, /<button type="button"[^>]*id="photo-clear" hidden>/);
   assert.match(composer, /<p[^>]*id="photo-note" role="status">/);
-  assert.match(composer, /<label for="photo-file">사진 첨부<\/label>/);
+  // 사진 첨부는 입력창 왼쪽의 클립 버튼이다. 입력 줄 안에서 클립 버튼, 입력창, 보내기 순서로 놓인다.
+  assert.match(
+    composer,
+    /<div class="composer-row">\s*<button type="button" class="attach-button" id="photo-attach" aria-label="사진 첨부" aria-describedby="photo-hint"><svg\b[\s\S]*?<\/svg><\/button>\s*<textarea id="question"[^>]*><\/textarea>\s*<button type="submit" class="primary" id="send" disabled>보내기<\/button>\s*<\/div>/,
+  );
+  // 파일 입력은 입력 줄 밖에 숨겨 두고, 예전 첨부 줄과 글자 라벨은 없다.
+  assert.match(composer, /<\/div>\s*<input type="file" id="photo-file" accept="image\/jpeg,image\/png" aria-describedby="photo-hint" hidden>/);
+  assert.equal(composer.includes("attach-row"), false);
+  assert.equal(composer.includes('<label for="photo-file"'), false);
+  // 첨부 제거·알림·안내문은 상자 아래 한 묶음이고, 안내문은 한 문단이다.
+  const meta = /<div class="composer-meta">([\s\S]*?)<\/div>/.exec(composer)?.[1] ?? "";
+  assert.deepEqual(
+    [...meta.matchAll(/<(?:button|p)\b[^>]*\bid="([^"]+)"/g)].map(match => match[1]),
+    ["photo-clear", "photo-note", "photo-hint"],
+  );
+  assert.equal(meta.split("<p").length - 1, 2);
+  assert.match(meta, /<p class="composer-hint" id="photo-hint">[^<]*5MB 이하[^<]*개인정보는 입력하지 마세요\.<\/p>/);
+  assert.equal(composer.split("<p").length - 1, 2, "안내문은 상자 아래 묶음에만 둔다");
   // 사진만 보낼 수 있어야 하므로 질문 칸을 필수로 두지 않는다.
   assert.doesNotMatch(composer, /<textarea id="question"[^>]*required/);
 

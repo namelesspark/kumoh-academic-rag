@@ -82,18 +82,19 @@
       <h2 id="chat-heading" class="sr-only">학사 규정에 질문하기</h2>
       <form id="composer" class="composer">
         <label for="question" class="sr-only">질문</label>
+        <!-- 밝은 상자(.composer-row)에는 클립 버튼·입력창·보내기만 둔다. 파일 입력은 숨기고 클립 버튼이 대신 연다.
+             클립 버튼에는 data-action을 주지 않는다. 요청 중 잠금은 chat.js가 파일 입력과 함께 건다. -->
         <div class="composer-row">
+          <button type="button" class="attach-button" id="photo-attach" aria-label="사진 첨부" aria-describedby="photo-hint"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M16.5 6.5v10a4.5 4.5 0 0 1-9 0V6a3 3 0 0 1 6 0v9.5a1.5 1.5 0 0 1-3 0V7"/></svg></button>
           <textarea id="question" rows="1" enterkeyhint="send" placeholder="질문 입력 · 사진만 보내도 돼요"></textarea>
           <button type="submit" class="primary" id="send" disabled>보내기</button>
         </div>
-        <div class="attach-row">
-          <label for="photo-file">사진 첨부</label>
-          <input type="file" id="photo-file" accept="image/jpeg,image/png" aria-describedby="photo-hint">
+        <input type="file" id="photo-file" accept="image/jpeg,image/png" aria-describedby="photo-hint" hidden>
+        <div class="composer-meta">
           <button type="button" class="attach-clear" id="photo-clear" hidden>첨부 제거</button>
+          <p class="photo-note" id="photo-note" role="status"></p>
+          <p class="composer-hint" id="photo-hint">글자가 보이는 사진 한 장(JPEG·PNG, 5MB 이하). 서버는 사진을 저장하지 않아요. 얼굴이나 개인정보가 찍힌 사진은 올리지 마세요. 학번, 이름 같은 개인정보는 입력하지 마세요.</p>
         </div>
-        <p class="photo-note" id="photo-note" role="status"></p>
-        <p id="photo-hint">글자가 보이는 사진 한 장(JPEG·PNG, 5MB 이하). 서버는 사진을 저장하지 않아요. 얼굴이나 개인정보가 찍힌 사진은 올리지 마세요.</p>
-        <p>학번, 이름 같은 개인정보는 입력하지 마세요.</p>
       </form>
       <div id="transcript" class="transcript" role="log" aria-label="대화 내용" tabindex="0">
         <div id="empty" class="empty">

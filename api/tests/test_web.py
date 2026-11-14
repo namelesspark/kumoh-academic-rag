@@ -59,6 +59,79 @@ class TestChatWeb(unittest.TestCase):
             self.assertEqual(asset.status, 200)
             self.assertEqual(asset.headers['cache-control'], 'no-cache')
 
+    def test_composer_keeps_one_input_row_and_a_hidden_file_input(self):
+        # 색과 배치는 화면 테스트가 본다. 여기서는 index.html의 구조만 확인한다.
+        class Composer(HTMLParser):
+            """질문 입력 폼 안의 요소를 (부모 class, 태그, 속성) 순서대로 모은다."""
+
+            VOID = {"input", "img", "br", "hr", "meta", "link"}
+
+            def __init__(self):
+                super().__init__()
+                self.stack = []  # 폼 안에서 열려 있는 요소의 (태그, class)
+                self.inside = False
+                self.found = []
+
+            def handle_starttag(self, tag, attrs):
+                attributes = dict(attrs)
+                if tag == "form" and attributes.get("id") == "composer":
+                    self.inside = True
+                    return
+                if not self.inside:
+                    return
+                parent = self.stack[-1][1] if self.stack else "composer"
+                self.found.append((parent, tag, attributes))
+                if tag not in self.VOID:
+                    self.stack.append((tag, attributes.get("class", tag)))
+
+            def handle_endtag(self, tag):
+                if not self.inside:
+                    return
+                if tag == "form":
+                    self.inside = False
+                elif self.stack and self.stack[-1][0] == tag:
+                    self.stack.pop()
+
+        composer = Composer()
+        composer.feed((CHAT_WEB_DIR / "index.html").read_text(encoding="utf-8"))
+        composer.close()
+
+        def ids(parent):
+            return [attributes.get("id") for owner, _, attributes in composer.found if owner == parent]
+
+        by_id = {attributes["id"]: (owner, tag, attributes) for owner, tag, attributes in composer.found if "id" in attributes}
+
+        # 밝은 상자 한 줄: 클립 버튼, 입력창, 보내기.
+        self.assertEqual(ids("composer-row"), ["photo-attach", "question", "send"])
+        # 상자 아래 묶음: 첨부 제거, 알림, 안내문 한 문단.
+        self.assertEqual(ids("composer-meta"), ["photo-clear", "photo-note", "photo-hint"])
+        # 폼 바로 아래에는 읽기용 라벨, 입력 줄, 숨긴 파일 입력, 아래 묶음만 있다.
+        self.assertEqual(
+            [(tag, attributes.get("class") or attributes.get("id")) for owner, tag, attributes in composer.found if owner == "composer"],
+            [("label", "sr-only"), ("div", "composer-row"), ("input", "photo-file"), ("div", "composer-meta")],
+        )
+
+        _, tag, attach = by_id["photo-attach"]
+        self.assertEqual((tag, attach.get("type"), attach.get("class")), ("button", "button", "attach-button"))
+        self.assertEqual(attach.get("aria-label"), "사진 첨부")
+        self.assertEqual(attach.get("aria-describedby"), "photo-hint")
+        self.assertNotIn("data-action", attach)
+        # 아이콘은 버튼 안에 직접 그린 선 그림 하나다. 그림 파일은 쓰지 않는다.
+        self.assertEqual([tag for owner, tag, _ in composer.found if owner == "attach-button"], ["svg"])
+        self.assertNotIn("img", [tag for _, tag, _ in composer.found])
+
+        _, tag, file_input = by_id["photo-file"]
+        self.assertEqual((tag, file_input.get("type"), file_input.get("accept")), ("input", "file", "image/jpeg,image/png"))
+        self.assertIn("hidden", file_input)
+        self.assertEqual(file_input.get("aria-describedby"), "photo-hint")
+
+        self.assertEqual(by_id["photo-hint"][2].get("class"), "composer-hint")
+        self.assertEqual([attributes.get("for") for _, tag, attributes in composer.found if tag == "label"], ["question"])
+        self.assertEqual([tag for _, tag, _ in composer.found].count("p"), 2)
+        for _, _, attributes in composer.found:
+            self.assertNotIn("style", attributes)
+            self.assertNotIn("attach-row", attributes.get("class", ""))
+
     def test_fingerprints_depend_on_each_content(self):
         html = '/chat-assets/chat.css /chat-assets/chat.js'
         first = fingerprint_chat_assets(html, b'fictional css', b'fictional js')

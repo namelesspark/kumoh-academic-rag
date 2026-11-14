@@ -257,7 +257,12 @@ test("화면에 현수막 전용 칸이 없고, 입력창에 사진 첨부·첨�
     assert.equal(html.includes(gone), false, gone);
   }
   assert.match(html, /<input type="file" id="photo-file" accept="image\/jpeg,image\/png"/);
-  assert.match(html, /<label for="photo-file">/);
+  // 글자 라벨 대신 이름이 「사진 첨부」인 클립 버튼이 파일 창을 연다. 그림 파일은 쓰지 않고 선으로 직접 그린다.
+  const [attach] = /<button type="button" class="attach-button" id="photo-attach" aria-label="사진 첨부"[^>]*>[\s\S]*?<\/button>/.exec(html) ?? [""];
+  assert.match(attach, /<svg\b[^>]*aria-hidden="true"[^>]*>\s*<path d="[^"]+"\/>\s*<\/svg><\/button>$/);
+  assert.doesNotMatch(attach, /<img\b|data-action|feature-badge/);
+  assert.equal(html.includes('<label for="photo-file"'), false);
+  assert.equal(html.split('id="photo-attach"').length, 2);
   assert.match(html, /<button type="button"[^>]*id="photo-clear" hidden>/);
   assert.match(html, /<p[^>]*id="photo-note" role="status">/);
   assert.match(html, /<button type="submit"[^>]*id="send" disabled>/);
