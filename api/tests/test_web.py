@@ -1,5 +1,6 @@
 """브라우저 채팅 화면과 화면에 필요한 파일을 서버가 제공하는지 확인함."""
 
+import re
 import sys
 from hashlib import sha256
 from html.parser import HTMLParser
@@ -12,6 +13,97 @@ sys.path[:0] = [str(TESTS_DIR.parent), str(TESTS_DIR)]
 
 from app.main import app, CHAT_WEB_DIR, create_app, fingerprint_chat_assets
 from asgi_harness import call_app
+
+
+class Page(HTMLParser):
+    """문서의 요소를 순서대로 모으고 부모와 자식을 이어 둔다 (표준 라이브러리 html.parser)."""
+
+    VOID = {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"}
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.elements = []
+        self.open = []  # 아직 닫히지 않은 요소
+
+    def _add(self, tag, attrs):
+        node = {
+            "tag": tag,
+            "attrs": dict(attrs),
+            "parent": self.open[-1] if self.open else None,
+            "children": [],
+            "text": "",
+        }
+        if node["parent"] is not None:
+            node["parent"]["children"].append(node)
+        self.elements.append(node)
+        return node
+
+    def handle_starttag(self, tag, attrs):
+        node = self._add(tag, attrs)
+        if tag not in self.VOID:
+            self.open.append(node)
+
+    def handle_startendtag(self, tag, attrs):
+        # <path .../>처럼 스스로 닫는 요소는 열린 목록에 넣지 않는다.
+        self._add(tag, attrs)
+
+    def handle_endtag(self, tag):
+        for position in range(len(self.open) - 1, -1, -1):
+            if self.open[position]["tag"] == tag:
+                del self.open[position:]
+                return
+
+    def handle_data(self, data):
+        if self.open:
+            self.open[-1]["text"] += data
+
+
+def parse_page(html):
+    page = Page()
+    page.feed(html)
+    page.close()
+    return page
+
+
+def topics_facts(html):
+    """예시 질문 묶음(#topics)이 어디에 어떤 모양으로 있는지 사전으로 돌려준다."""
+    page = parse_page(html)
+    found = [node for node in page.elements if node["attrs"].get("id") == "topics"]
+    facts = {"count": len(found)}
+    if len(found) != 1:
+        return facts
+
+    topics = found[0]
+    ancestors = []
+    node = topics["parent"]
+    while node is not None:
+        ancestors.append(node)
+        node = node["parent"]
+    parent = topics["parent"]
+    siblings = [child["attrs"].get("id") for child in parent["children"]] if parent else ["topics"]
+    at = [child is topics for child in parent["children"]].index(True) if parent else 0
+    facts.update(
+        tag=topics["tag"],
+        attrs=topics["attrs"],
+        parent=(parent["tag"], parent["attrs"].get("class")) if parent else None,
+        ancestor_tags=[item["tag"] for item in ancestors],
+        ancestor_ids=[item["attrs"]["id"] for item in ancestors if "id" in item["attrs"]],
+        neighbors=(
+            siblings[at - 1] if at else None,
+            siblings[at + 1] if at + 1 < len(siblings) else None,
+        ),
+        children=[
+            (child["tag"], child["attrs"].get("id"), child["attrs"].get("class"), child["text"].strip())
+            for child in topics["children"]
+        ],
+        button_types=[
+            child["attrs"].get("type")
+            for child in topics["children"]
+            if "data-question" in child["attrs"]
+        ],
+        label_id_count=sum(node["attrs"].get("id") == "topics-label" for node in page.elements),
+    )
+    return facts
 
 
 class TestChatWeb(unittest.TestCase):
@@ -131,6 +223,80 @@ class TestChatWeb(unittest.TestCase):
         for _, _, attributes in composer.found:
             self.assertNotIn("style", attributes)
             self.assertNotIn("attach-row", attributes.get("class", ""))
+
+    def test_example_questions_sit_between_the_composer_and_the_transcript(self):
+        # 서버가 내려 주는 첫 화면을 읽는다. 색과 배치는 화면 테스트가 본다.
+        html = call_app(app, "GET", "/", allow_wait=True).text()
+        facts = topics_facts(html)
+
+        self.assertEqual(facts["count"], 1)
+        self.assertEqual(facts["tag"], "div")
+        self.assertEqual(
+            facts["attrs"],
+            {"class": "topics", "id": "topics", "role": "group", "aria-labelledby": "topics-label"},
+        )
+        # 대화 영역 바로 아래, 폼 다음이자 대화 내용 앞이다.
+        self.assertEqual(facts["parent"], ("section", "chat"))
+        self.assertIn("main", facts["ancestor_tags"])
+        self.assertEqual(facts["neighbors"], ("composer", "transcript"))
+        for outside in ("composer", "empty", "transcript"):
+            self.assertNotIn(outside, facts["ancestor_ids"])
+        # 이름표 하나와 기존 버튼 두 개가 순서대로 있다. 이름표 id가 묶음의 이름으로 연결된다.
+        self.assertEqual(
+            facts["children"],
+            [
+                ("span", "topics-label", "topics-label", "예시 질문"),
+                ("button", None, None, "답변과 근거 조문"),
+                ("button", None, None, "근거를 찾지 못한 경우"),
+            ],
+        )
+        self.assertEqual(facts["button_types"], ["button", "button"])
+        self.assertEqual(facts["label_id_count"], 1)
+
+    def test_example_questions_moved_elsewhere_are_noticed(self):
+        # 위 검사가 자리를 실제로 구분하는지, 묶음을 옮긴 가상 화면으로 확인한다.
+        html = (CHAT_WEB_DIR / "index.html").read_text(encoding="utf-8")
+        blocks = re.findall(r'[ \t]*<div class="topics".*?</div>\n', html, flags=re.DOTALL)
+        self.assertEqual(len(blocks), 1)
+        block = blocks[0]
+        without = html.replace(block, "")
+        self.assertEqual(len(without), len(html) - len(block))
+
+        empty_open = '<div id="empty" class="empty">'
+        self.assertEqual(without.count(empty_open), 1)
+        in_empty = topics_facts(without.replace(empty_open, empty_open + block))
+        self.assertEqual(in_empty["count"], 1)
+        self.assertIn("empty", in_empty["ancestor_ids"])
+        self.assertIn("transcript", in_empty["ancestor_ids"])
+        self.assertNotEqual(in_empty["neighbors"], ("composer", "transcript"))
+
+        form_close = "</form>\n      <div id=\"transcript\""
+        self.assertEqual(without.count(form_close), 1)
+        in_form = topics_facts(without.replace(form_close, block + form_close))
+        self.assertEqual(in_form["count"], 1)
+        self.assertIn("composer", in_form["ancestor_ids"])
+        self.assertNotEqual(in_form["parent"], ("section", "chat"))
+
+        doubled = topics_facts(html.replace(block, block + block))
+        self.assertEqual(doubled["count"], 2)
+
+    def test_page_has_no_folding_box_hint_line_or_style_attribute(self):
+        html = call_app(app, "GET", "/", allow_wait=True).text()
+        page = parse_page(html)
+
+        self.assertTrue(page.elements)
+        tags = {node["tag"] for node in page.elements}
+        for banned in ("details", "summary", "dialog"):
+            self.assertNotIn(banned, tags)
+        for node in page.elements:
+            self.assertNotIn("style", node["attrs"])
+            self.assertNotIn("empty-hint", (node["attrs"].get("class") or "").split())
+        self.assertNotIn("empty-hint", html)
+
+        # 접는 상자가 없으므로 스크립트도 여닫는 속성을 건드리지 않는다.
+        script = call_app(app, "GET", "/chat-assets/chat.js", allow_wait=True)
+        self.assertEqual(script.status, 200)
+        self.assertNotIn("topics.open", script.text())
 
     def test_fingerprints_depend_on_each_content(self):
         html = '/chat-assets/chat.css /chat-assets/chat.js'

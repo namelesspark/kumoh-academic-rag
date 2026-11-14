@@ -22,7 +22,6 @@ const photoFile = document.querySelector("#photo-file");
 const photoAttach = document.querySelector("#photo-attach");
 const photoClear = document.querySelector("#photo-clear");
 const photoNote = document.querySelector("#photo-note");
-const compact = window.matchMedia("(max-width: 680px)");
 
 // 첨부 사진 제한. 서버도 같은 제한으로 다시 검사하므로, 여기서는 보내기 전에 알려 주는 역할만 한다.
 const photoTypes = ["image/jpeg", "image/png"];
@@ -362,8 +361,6 @@ for (const panel of featurePanels) {
     changeFeature(null);
   });
 }
-
-if (compact.matches) topics.open = false;
 
 // 펫의 자세·말·대기 점은 여기 한 곳에서만 바꾼다. 그림 주소는 건드리지 않고 data-pose와 data-state만 바꾸므로
 // 늦게 도착한 그림 로드 신호가 지금 보이는 자세를 바꾸지 못한다.
@@ -1140,7 +1137,6 @@ async function ask(question, reply) {
 for (const example of examples) {
   example.addEventListener("click", () => {
     input.value = example.dataset.question;
-    if (compact.matches) topics.open = false;
     updateSend();
     input.focus();
     // 예시는 입력창을 채우기만 하고 보내지 않는다. 다음에 할 일을 말풍선으로 알린다.
