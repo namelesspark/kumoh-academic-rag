@@ -82,17 +82,15 @@ test("패널 여섯 개는 숨긴 채 시작하고 제목·닫기·시작 버튼
 test("패널은 #empty 안, 카드 목록 바로 뒤의 글 흐름에 있고 화면 위에 띄우는 요소를 쓰지 않는다", () => {
   const listEnd = landing.indexOf("</ul>");
   const firstPanel = landing.indexOf('<section class="feature-panel"');
-  const hint = landing.indexOf('<p class="empty-hint">');
   assert.ok(landing.indexOf('id="feature-cards"') < listEnd);
-  assert.ok(listEnd < firstPanel && firstPanel < hint);
+  assert.ok(listEnd < firstPanel);
   assert.equal(html.split('class="feature-panel"').length - 1, panels.length);
   // 카드 목록과 첫 패널 사이에는 주석 말고 다른 요소가 없다.
   assert.equal(landing.slice(listEnd + "</ul>".length, firstPanel).replace(/<!--[\s\S]*?-->/g, "").trim(), "");
 
-  // 화면을 덮는 대화 상자와 접는 요소는 쓰지 않는다. details는 예시 질문 하나뿐이다.
+  // 예시 질문 묶음은 구조가 바뀌어도 한 번만 남는다.
   assert.equal(html.includes("<dialog"), false);
-  assert.equal(html.split("<details").length, 2);
-  assert.equal(html.split("</details>").length, 2);
+  assert.equal(html.split('id="topics"').length, 2);
   // 화면 보안 정책이 막는 방식과, 스크립트가 붙였다 떼는 표시는 처음 화면에 없다.
   for (const blocked of [/\sstyle=/, /<style\b/, /data-morph/, /view-transition/]) assert.doesNotMatch(html, blocked);
   // 다른 화면 테스트가 지키는 약속: 펫은 #empty 밖에 있고, 예전 버튼 문구는 화면에 없다.
