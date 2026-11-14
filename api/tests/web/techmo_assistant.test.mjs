@@ -73,8 +73,8 @@ test("왼쪽 칸의 비서와 「테크모에게 묻기」 글자 버튼이 없�
     assert.equal(html.includes(gone), false, gone);
   }
   for (const gone of [".assistant", ".side", ".pose", "pose-swap"]) assert.equal(styles.includes(gone), false, gone);
-  // 예시 질문은 다시 본문 격자의 첫 칸에 바로 놓인다.
-  assert.match(html, /<main class="layout">\s*<details class="topics" id="topics" open>/);
+  // 예시 질문 묶음은 구조가 바뀌어도 한 번만 남는다.
+  assert.equal(html.split('id="topics"').length, 2);
 
   assert.equal(landing.includes("테크모에게 묻기"), false);
   // 카드는 패널을 여는 버튼이 됐다(#67). 기능은 패널 안의 시작 버튼이 부른다.
@@ -199,6 +199,46 @@ function pixels(value, width) {
   return runInNewContext(expression, {}, { timeout: 100 });
 }
 
+test("예시 질문은 1280px과 좁은 화면에서 줄바꿈하며 알약 하나도 화면을 넘지 않는다", () => {
+  for (const width of [1280, 680, 390]) {
+    const topics = declarationsAtWidth(".topics", width);
+    const button = declarationsAtWidth(".topics button", width);
+    assert.equal(topics.display, "flex");
+    assert.equal(topics["flex-wrap"], "wrap");
+    assert.equal(topics.order, undefined);
+    assert.equal(topics.margin, "0");
+    assert.equal(topics["margin-top"], undefined);
+    assert.equal(topics["min-width"], "0");
+    assert.equal(button.width, "auto");
+    assert.equal(button["max-width"], "100%");
+    assert.equal(button["min-width"], "0");
+    assert.equal(button["min-height"], "32px");
+    assert.equal(button["white-space"], "normal");
+    assert.equal(button["overflow-wrap"], "anywhere");
+    assert.equal(button.background, "var(--glass-dense)");
+    assert.equal(button.color, "var(--ink)");
+    assert.equal(button.border, "1px solid var(--content-line)");
+  }
+  assert.doesNotMatch(styles, /\.topics\s+(?:details|summary)\b/);
+  assert.doesNotMatch(styles, /\.empty-hint\b/);
+});
+
+test("일정 내용의 제목과 상자는 격자 간격 12px만 남긴다", () => {
+  for (const width of [1280, 680]) {
+    const content = declarationsAtWidth("[data-panel-content]", width);
+    const title = declarationsAtWidth("#panel-calendar [data-panel-content] > h5", width);
+    const evidence = declarationsAtWidth("#panel-calendar [data-panel-content] > .evidence", width);
+    assert.equal(content.display, "grid");
+    assert.equal(content.gap, "12px");
+    assert.equal(title.margin, "0");
+    assert.equal(title["font-size"], "16px");
+    assert.equal(title["font-weight"], "700");
+    assert.equal(title.color, "var(--ink)");
+    assert.equal(evidence["margin-top"], "0");
+  }
+  assert.equal(declarationsAtWidth(".evidence", 1280)["margin-top"], "12px");
+});
+
 test("1024·1280·1440px의 최종 선언에서 본문과 고정 테크모 사이에 24px 이상을 남긴다", () => {
   for (const width of [1024, 1280, 1440]) {
     const layout = declarationsAtWidth(".layout", width);
@@ -207,6 +247,10 @@ test("1024·1280·1440px의 최종 선언에서 본문과 고정 테크모 사�
     assert.equal(dock.position, "fixed");
     const contentRight = pixels(layout.width, width) - pixels(layout["padding-right"], width);
     const dockLeft = width - pixels(dock.right, width) - pixels(dock.width, width);
+    const bubble = declarationsAtWidth(".pet-says", width);
+    const dockWidth = pixels(dock.width, width);
+    assert.equal(dockWidth, 168);
+    assert.ok(pixels(bubble.width, dockWidth) <= dockWidth, `${width}px 말풍선 너비`);
     assert.ok(dockLeft - contentRight >= 24, `${width}px: 본문 ${contentRight}, 테크모 ${dockLeft}`);
   }
 });

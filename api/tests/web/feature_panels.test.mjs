@@ -562,7 +562,15 @@ test("학사 일정은 열 때 한 번 조회하고 지난 일정을 빼 시작�
     calendarEvent("가상 오늘", "2027-02-10"), calendarEvent("가상 진행 중", "2027-02-08", "2027-02-12"),
   ] });
   await setImmediate();
-  const shown = text(page.content(4));
+  const content = page.content(4);
+  assert.equal(content.children[0].tagName, "H5");
+  assert.match(content.children[0].textContent, /2027학년도 1학기/);
+  assert.equal(content.children.length, 4);
+  for (const row of content.children.slice(1)) {
+    assert.equal(row.tagName, "SECTION");
+    assert.equal(row.className, "evidence");
+  }
+  const shown = text(content);
   assert.doesNotMatch(shown, /가상 어제/);
   assert.ok(shown.indexOf("가상 진행 중") < shown.indexOf("가상 오늘"));
   assert.ok(shown.indexOf("가상 오늘") < shown.indexOf("가상 내일"));

@@ -205,16 +205,20 @@ h1, h2, h3, p { margin-top: 0; }
   margin-block: 24px;
 }
 
-.topics { border-top: 2px solid var(--navy); padding-block: 11px; }
-.topics summary { width: fit-content; font-weight: 700; padding-block: 6px; cursor: pointer; }
+.topics { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; margin: 0; padding: 0; border: 0; }
+.topics-label { color: var(--ink); font-size: .82rem; font-weight: 700; }
 .topics button {
-  width: 100%;
-  min-height: 44px;
-  padding: 9px 4px;
-  border: 0;
-  border-bottom: 1px solid var(--line);
+  width: auto;
+  max-width: 100%;
+  min-width: 0;
+  min-height: 32px;
+  padding: 5px 12px;
+  border: 1px solid var(--content-line);
+  border-radius: 999px;
   text-align: left;
-  background: transparent;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  background: var(--glass-dense);
   color: var(--ink);
 }
 .topics button:hover { color: var(--link-ink); background: var(--tint); text-decoration: underline; text-underline-offset: 3px; }
@@ -458,7 +462,6 @@ button.card:hover { border-color: var(--link-ink); background: var(--tint); }
 button.card:hover .card-title { text-decoration: underline; text-underline-offset: 3px; }
 .card.soon { border-style: dashed; background: var(--glass-dense); }
 .card.soon .soon-label { margin-top: auto; }
-.empty-hint { margin: 0; color: var(--muted); font-size: .9rem; line-height: 1.6; }
 
 /* 기능 패널. 카드 목록이 있던 자리에 글 흐름대로 놓인다. 화면 위에 띄우지 않으므로 펫·말풍선·입력창을 가리지 않는다. */
 .feature-panel {
@@ -476,6 +479,8 @@ button.card:hover .card-title { text-decoration: underline; text-underline-offse
 .panel-text { margin: 0; color: var(--muted); line-height: 1.6; }
 .panel-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
 [data-panel-content] { display: grid; gap: 12px; min-width: 0; overflow-wrap: anywhere; }
+#panel-calendar [data-panel-content] > h5 { margin: 0; font-size: 16px; font-weight: 700; color: var(--ink); }
+#panel-calendar [data-panel-content] > .evidence { margin-top: 0; }
 [data-panel-content] > .panel-action { width: 100%; text-align: left; white-space: normal; }
 .panel-close {
   flex: none;
@@ -714,8 +719,6 @@ textarea:hover { border-color: var(--link-ink); }
   #demo-logout, .masthead-actions > .reset { padding-inline: 6px; font-size: .8rem; flex: none; }
   .login { padding-inline: 10px; font-size: .82rem; }
   .layout { grid-template-columns: minmax(0, 1fr); gap: 10px; margin-block: 12px; }
-  .topics { padding-block: 2px; }
-  .topics summary { min-height: 38px; padding-block: 8px; }
   /* 펫 줄은 대화 영역 안에 있어 영역 높이를 늘리지 않는다. 대화 내용 칸이 그 줄 높이만큼 줄어든다. */
   .chat { height: calc(100dvh - 180px); min-height: 350px; }
   .transcript, .composer, .status, .pet-dock { padding-inline: 15px; }
@@ -800,7 +803,6 @@ body { background: var(--navy); isolation: isolate; }
 .main-welcome h2 { margin-bottom: 12px; font-size: clamp(30px,4vw,50px); font-weight: 800; line-height: 1.25; }
 .main-welcome p { font-size: 17px; line-height: 1.6; }
 .layout { width: 100%; margin: -96px auto 0; padding: 0 max(24px,calc((100% - 1120px)/2)) 40px; grid-template-columns: minmax(0,1fr); gap: 0; border-radius: 32px 32px 0 0; background: linear-gradient(180deg, var(--glass-panel), var(--panel-end)); border: 1px solid var(--glass-panel-edge); border-bottom: 0; backdrop-filter: none; box-shadow: 0 -20px 60px var(--shadow-panel); }
-.topics { order: 2; margin-top: 24px; }
 .chat, .chat:has(> .transcript > .empty) { height: auto; min-height: 380px; border: 0; border-radius: 0; background: transparent; }
 .composer { order: -1; margin-top: -62px; padding: 0; border: 0; background: transparent; color: var(--ink); }
 .composer textarea { border-width: 1.5px; }
