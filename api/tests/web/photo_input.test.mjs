@@ -305,9 +305,11 @@ test("입력창 안에 사진 첨부 칸이 있고, 별도의 현수막 칸과 �
     [...meta.matchAll(/<(?:button|p)\b[^>]*\bid="([^"]+)"/g)].map(match => match[1]),
     ["photo-clear", "photo-note", "photo-hint"],
   );
-  assert.equal(meta.split("<p").length - 1, 2);
+  // 문단만 센다. 글자 그대로 "<p"를 세면 클립 아이콘의 <path>까지 잡힌다.
+  const paragraphs = markup => [...markup.matchAll(/<p\b/g)].length;
+  assert.equal(paragraphs(meta), 2);
   assert.match(meta, /<p class="composer-hint" id="photo-hint">[^<]*5MB 이하[^<]*개인정보는 입력하지 마세요\.<\/p>/);
-  assert.equal(composer.split("<p").length - 1, 2, "안내문은 상자 아래 묶음에만 둔다");
+  assert.equal(paragraphs(composer), 2, "안내문은 상자 아래 묶음에만 둔다");
   // 사진만 보낼 수 있어야 하므로 질문 칸을 필수로 두지 않는다.
   assert.doesNotMatch(composer, /<textarea id="question"[^>]*required/);
 
