@@ -5,6 +5,7 @@
 값을 직접 읽어 질문표와 견주고, 검색을 붙인 앱에 보내 응답까지 본다.
 """
 
+import re
 import sys
 import unittest
 from datetime import date
@@ -105,6 +106,26 @@ def read_example_buttons():
     return parse_examples(INDEX_HTML.read_text(encoding="utf-8"))
 
 
+def split_at_topics_end(html):
+    """`#topics`의 닫는 태그를 기준으로 (안쪽 끝까지, 닫는 태그, 그 뒤)로 나눈다.
+
+    태그 이름을 글자로 박아 두지 않고 `id="topics"`인 요소에서 읽는다. 같은 이름의
+    태그가 안에 겹쳐 있어도 짝이 맞는 닫는 태그를 고른다.
+    """
+    openings = list(re.finditer(r'<([a-z][a-z0-9]*)\b[^>]*\bid="topics"[^>]*>', html))
+    if len(openings) != 1:
+        raise AssertionError(f'id="topics"인 요소가 {len(openings)}개입니다')
+    tag = openings[0].group(1)
+    depth = 1
+    for found in re.finditer(rf"<(/?){tag}\b[^>]*>", html[openings[0].end():]):
+        depth += -1 if found.group(1) else 1
+        if depth == 0:
+            start = openings[0].end() + found.start()
+            end = openings[0].end() + found.end()
+            return html[:start], html[start:end], html[end:]
+    raise AssertionError("#topics의 닫는 태그를 찾지 못했습니다")
+
+
 class DemoQuestionTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -135,11 +156,12 @@ class DemoQuestionTests(unittest.TestCase):
     def test_non_button_example_inside_topics_is_counted(self):
         # 버튼이 아닌 요소도 화면에서는 예시로 연결되므로 개수에 잡혀야 한다.
         html = INDEX_HTML.read_text(encoding="utf-8")
-        marker = "</details>"
-        self.assertEqual(html.count(marker), 1)
+        inside, closing, after = split_at_topics_end(html)
         extra = '<a href="#" data-question="가상 질문">셋째 예시</a>'
+        changed = inside + extra + closing + after
 
-        parsed = parse_examples(html.replace(marker, extra + marker))
+        self.assertEqual(changed.count(extra + closing), 1)
+        parsed = parse_examples(changed)
 
         self.assertEqual(
             parsed.questions,
@@ -150,10 +172,22 @@ class DemoQuestionTests(unittest.TestCase):
     def test_example_outside_topics_is_not_counted(self):
         # `#topics` 밖의 요소는 화면이 연결하지 않으므로 세지 않는다.
         html = INDEX_HTML.read_text(encoding="utf-8")
-        marker = "</details>"
+        inside, closing, after = split_at_topics_end(html)
         extra = '<button type="button" data-question="가상 질문">범위 밖</button>'
+        changed = inside + closing + extra + after
 
-        parsed = parse_examples(html.replace(marker, marker + extra))
+        # 끼워 넣기가 실제로 일어났고, 그 자리가 닫는 태그 바로 뒤인지 먼저 확인한다.
+        # 이 확인이 없으면 아무것도 넣지 못한 채로도 아래 단언이 통과한다.
+        self.assertEqual(changed.count(closing + extra), 1)
+        self.assertEqual(changed.count('data-question="가상 질문"'), 1)
+        self.assertEqual(len(changed), len(html) + len(extra))
+        # 같은 요소를 닫는 태그 앞에 두면 세어진다. 세지 않는 이유가 자리뿐임을 보인다.
+        self.assertEqual(
+            parse_examples(inside + extra + closing + after).questions,
+            [PARTICLE_CASE.query, MISMATCH_QUERY, "가상 질문"],
+        )
+
+        parsed = parse_examples(changed)
 
         self.assertEqual(parsed.questions, [PARTICLE_CASE.query, MISMATCH_QUERY])
 
@@ -161,27 +195,28 @@ class DemoQuestionTests(unittest.TestCase):
         # <template> 안의 버튼은 화면에 없으므로 예시가 0개로 잡혀야 한다.
         html = INDEX_HTML.read_text(encoding="utf-8")
         first = '<button type="button" data-question='
-        marker = "</details>"
+        inside, closing, after = split_at_topics_end(html)
         self.assertEqual(html.count(first), 2)
-        self.assertEqual(html.count(marker), 1)
+        self.assertEqual(inside.count(first), 2)
 
-        wrapped = html.replace(first, "<template>" + first, 1).replace(
-            marker, "</template>" + marker
-        )
+        wrapped = inside.replace(first, "<template>" + first, 1) + "</template>" + closing + after
         parsed = parse_examples(wrapped)
 
         self.assertEqual(wrapped.count("<template>"), 1)
+        self.assertEqual(wrapped.count("</template>" + closing), 1)
         self.assertEqual(parsed.questions, [])
         self.assertEqual(parsed.labels, [])
 
     def test_example_after_template_is_still_counted(self):
         # 건너뛰기는 닫는 태그에서 끝나고, 그 뒤 예시는 다시 센다.
         html = INDEX_HTML.read_text(encoding="utf-8")
-        marker = "</details>"
+        inside, closing, after = split_at_topics_end(html)
         hidden = '<template><a href="#" data-question="가상 숨은 질문">숨은 예시</a></template>'
         shown = '<a href="#" data-question="가상 질문">셋째 예시</a>'
+        changed = inside + hidden + shown + closing + after
 
-        parsed = parse_examples(html.replace(marker, hidden + shown + marker))
+        self.assertEqual(changed.count(hidden + shown + closing), 1)
+        parsed = parse_examples(changed)
 
         self.assertEqual(
             parsed.questions,
