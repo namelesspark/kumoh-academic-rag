@@ -447,7 +447,7 @@ const techmoLayout = { version: 1, cell: 192, columns: 8, motions: [
   { name: "quiet", frames: 4 }, { name: "drag", frames: 6 },
 ] };
 
-function loadAssistant({ routes = {}, timers = true, sprite = null, motion = { matches: false }, layout = null, stored = null, storageFails = false, readFails = false, writeFails = false } = {}) {
+function loadAssistant({ routes = {}, timers = true, sprite = null, motion = { matches: false }, layout = null, stored = null, storageFails = false, readFails = false, writeFails = false, screenVisibility = false } = {}) {
   const requests = [];
   const elements = new Map();
   const pending = new Map();
@@ -469,11 +469,16 @@ function loadAssistant({ routes = {}, timers = true, sprite = null, motion = { m
   const dock = new FakeElement("div");
   if (layout !== null) dock.dataset.techmoLayout = typeof layout === "string" ? layout : JSON.stringify(layout);
   elements.set("#pet-dock", dock);
-  pet.getBoundingClientRect = () => ({
-    left: Number.parseFloat(dock.properties.get("--techmo-x") ?? "1100"),
-    top: Number.parseFloat(dock.properties.get("--techmo-y") ?? "620"),
-    width: 128, height: 128,
-  });
+  pet.getBoundingClientRect = () => {
+    if (screenVisibility && (pet.hidden || elements.get("#main-screen")?.hidden)) {
+      return { left: 0, top: 0, width: 0, height: 0 };
+    }
+    return {
+      left: Number.parseFloat(dock.properties.get("--techmo-x") ?? "1100"),
+      top: Number.parseFloat(dock.properties.get("--techmo-y") ?? "620"),
+      width: 128, height: 128,
+    };
+  };
   if (sprite) {
     pet.hidden = true;
     pet.image = Object.assign(new FakeElement("img"), sprite);
@@ -1086,4 +1091,27 @@ test("숨긴 그림의 저장 위치는 로드 후 실제 버튼 크기로 복�
   assert.equal(page.pet.hidden, false);
   assert.equal(coordinate(page, "x"), 640);
   assert.equal(coordinate(page, "y"), 400);
+});
+
+test("본문이 숨은 동안 받은 그림의 저장 위치는 로그인과 둘러보기 직후 복원한다", async () => {
+  const stored = '{"x":0.25,"y":0.5}';
+  for (const entry of ["login", "browse"]) {
+    const page = loadAssistant({
+      stored,
+      screenVisibility: true,
+      sprite: { complete: true, naturalWidth: 960, naturalHeight: 192 },
+    });
+    const main = page.context.document.querySelector("#main-screen");
+    assert.equal(main.hidden, true);
+    assert.equal(page.pet.hidden, false);
+    assert.equal(page.pet.getBoundingClientRect().width, 0);
+    assert.equal(page.assistant.dataset.placed, undefined);
+    if (entry === "login") await page.selectStudent();
+    else page.context.document.querySelector("#browse-main").fire("click");
+    assert.equal(main.hidden, false);
+    assert.equal(coordinate(page, "x"), 320);
+    assert.equal(coordinate(page, "y"), 400);
+    assert.equal(page.assistant.properties.get("--techmo-pet-size"), "128px");
+    assert.equal(page.storage.get("kumoh-techmo-position:v1"), stored);
+  }
 });

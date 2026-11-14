@@ -436,6 +436,7 @@ function showScreen(main) {
   if (loginScreen) loginScreen.hidden = main;
   if (mainScreen) mainScreen.hidden = !main;
   document.body?.setAttribute("data-screen", main ? "main" : "login");
+  if (main) restoreTechmoPosition();
 }
 function closeStudents() {
   studentGeneration++;
