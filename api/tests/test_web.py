@@ -1,8 +1,10 @@
 """브라우저 채팅 화면과 화면에 필요한 파일을 서버가 제공하는지 확인함."""
 
+import json
 import re
 import sys
 from hashlib import sha256
+from html import escape, unescape
 from html.parser import HTMLParser
 import unittest
 from pathlib import Path
@@ -112,6 +114,10 @@ NEW_BUTTON_IDS = (
     "clear-conversations", "conversation-toast-open", "conversation-toast-close",
 )
 MAIN_LETTERING = "/chat-assets/main-lettering.png"
+# 이슈 #91의 테크모 칸 배치. 화면 담당과 함께 쓰는 값이라 글자 하나까지 같아야 한다.
+TECHMO_LAYOUT_TEXT = ('{"version":1,"cell":192,"columns":8,"motions":[{"name":"idle","frames":8},'
+                      '{"name":"guide","frames":6},{"name":"celebrate","frames":8},'
+                      '{"name":"quiet","frames":4},{"name":"drag","frames":6}]}')
 
 
 class TestChatWeb(unittest.TestCase):
@@ -513,6 +519,150 @@ class TestChatWeb(unittest.TestCase):
             with self.subTest(html=html), patch.object(Path, 'read_text', return_value=html):
                 with self.assertRaises(ValueError):
                     create_app()
+
+    def test_techmo_layout_is_injected_once_into_the_pet_dock(self):
+        raw = read_index()
+        # 자리는 #pet-dock 여는 태그의 맨 끝에 한 번만 있다.
+        self.assertEqual(raw.count(web_main.TECHMO_LAYOUT_SLOT), 1)
+        self.assertIn('<div class="pet-dock" id="pet-dock" data-pose="guide" data-state="idle" '
+                      'data-techmo-layout="__TECHMO_LAYOUT__">', raw)
+
+        layout_text = (CHAT_WEB_DIR / web_main.TECHMO_LAYOUT_FILE).read_text(encoding="utf-8").strip()
+        self.assertEqual(layout_text, TECHMO_LAYOUT_TEXT)
+        html = call_app(app, "GET", "/", allow_wait=True).text()
+        self.assertNotIn(web_main.TECHMO_LAYOUT_SLOT, html)
+        # 따옴표를 바꿔 넣었으므로 속성 값이 중간에 끊기지 않는다.
+        self.assertEqual(html.count(f'data-techmo-layout="{escape(layout_text, quote=True)}">'), 1)
+        self.assertEqual(html.count("data-techmo-layout"), 1)
+        dock = by_id(parse_page(html), "pet-dock")
+        # 브라우저가 읽는 값은 파일의 글과 같다.
+        self.assertEqual(dock["attrs"]["data-techmo-layout"], layout_text)
+        self.assertEqual(json.loads(dock["attrs"]["data-techmo-layout"]), {
+            "version": 1, "cell": 192, "columns": 8,
+            "motions": [{"name": "idle", "frames": 8}, {"name": "guide", "frames": 6},
+                        {"name": "celebrate", "frames": 8}, {"name": "quiet", "frames": 4},
+                        {"name": "drag", "frames": 6}],
+        })
+        # 기존 속성과 중첩 구조는 그대로다.
+        self.assertEqual((dock["attrs"]["class"], dock["attrs"]["data-pose"], dock["attrs"]["data-state"]),
+                         ("pet-dock", "guide", "idle"))
+        self.assertEqual([(child["tag"], child["attrs"].get("class")) for child in dock["children"]],
+                         [("p", "pet-says"), ("button", "pet")])
+
+    def test_pet_button_is_named_for_starting_a_new_conversation(self):
+        html = call_app(app, "GET", "/", allow_wait=True).text()
+        pet = by_id(parse_page(html), "pet")
+        self.assertEqual((pet["tag"], pet["attrs"].get("type")), ("button", "button"))
+        self.assertEqual(pet["attrs"].get("aria-label"), "테크모 · 새 대화 시작")
+        self.assertEqual(html.count('aria-label="테크모 · 새 대화 시작"'), 1)
+        self.assertNotIn("테크모에게 묻기", html)
+        # 그림과 안쪽 요소는 손대지 않았다.
+        image, floater = pet["children"]
+        self.assertEqual(image["attrs"], {"src": "/chat-assets/techmo-sprite.png", "alt": "",
+                                          "width": "960", "height": "192"})
+        self.assertEqual(floater["attrs"].get("class"), "pet-float")
+        self.assertNotIn("data-action", pet["attrs"])
+
+    def test_layout_text_is_escaped_as_an_attribute_value(self):
+        layout = TECHMO_LAYOUT_TEXT
+        result = web_main.inject_techmo_layout('<i data-x="__TECHMO_LAYOUT__">', layout + "\n")
+        self.assertEqual(result, '<i data-x="' + layout.replace('"', "&quot;") + '">')
+        self.assertNotIn('"version"', result)
+        self.assertEqual(unescape(result), f'<i data-x="{layout}">')
+
+    def test_missing_or_doubled_layout_slot_stops_startup(self):
+        layout = TECHMO_LAYOUT_TEXT
+        for html in ("", "<p></p>", "__TECHMO_LAYOUT__ __TECHMO_LAYOUT__"):
+            with self.subTest(html=html), self.assertRaises(ValueError):
+                web_main.inject_techmo_layout(html, layout)
+        # 실제 시작 경로에서도 멈춘다. 화면 파일만 가상 내용으로 바꾼다.
+        real_read = Path.read_text
+        raw = read_index()
+
+        def without_slot(path, *args, **kwargs):
+            text = real_read(path, *args, **kwargs)
+            return text.replace(' data-techmo-layout="__TECHMO_LAYOUT__"', "") if path.name == "index.html" else text
+
+        def with_two_slots(path, *args, **kwargs):
+            text = real_read(path, *args, **kwargs)
+            return text + "<!-- __TECHMO_LAYOUT__ -->" if path.name == "index.html" else text
+
+        for reader in (without_slot, with_two_slots):
+            with self.subTest(reader=reader.__name__):
+                with patch.object(Path, "read_text", autospec=True, side_effect=reader):
+                    with self.assertRaises(ValueError):
+                        create_app()
+        self.assertEqual(read_index(), raw)
+
+    def test_broken_layout_file_stops_startup(self):
+        good = TECHMO_LAYOUT_TEXT
+        self.assertEqual(web_main.parse_techmo_layout(good)["columns"], 8)
+        broken = (
+            "", "not json", "[]", "null",
+            good.replace('"version":1', '"version":2'),
+            good.replace('"version":1', '"version":true'),
+            good.replace('"cell":192', '"cell":0'),
+            good.replace('"cell":192', '"cell":-192'),
+            good.replace('"cell":192', '"cell":192.5'),
+            good.replace('"columns":8', '"columns":"8"'),
+            # 프레임 수가 한 줄의 칸 수를 넘는다.
+            good.replace('"columns":8', '"columns":7'),
+            good.replace('"frames":4', '"frames":0'),
+            good.replace('"frames":4', '"frames":9'),
+            good.replace('"frames":4', '"frames":"4"'),
+            # 이름이 겹치거나 비었다.
+            good.replace('"name":"guide"', '"name":"idle"'),
+            good.replace('"name":"guide"', '"name":""'),
+            good.replace('"name":"guide"', '"name":7'),
+            good.replace('"motions":[', '"other":['),
+            good.replace('"version":1,', '"version":1,"extra":1,'),
+            good.replace('{"name":"idle","frames":8}', '{"name":"idle","frames":8,"extra":1}'),
+            good.replace('{"name":"idle","frames":8}', '"idle"'),
+            '{"version":1,"cell":192,"columns":8,"motions":[]}',
+            '{"version":1,"cell":192,"columns":8,"motions":{}}',
+        )
+        for text in broken:
+            with self.subTest(text=text[:48]):
+                self.assertNotEqual(text, good)
+                with self.assertRaises(ValueError):
+                    web_main.parse_techmo_layout(text)
+                with self.assertRaises(ValueError):
+                    web_main.inject_techmo_layout("__TECHMO_LAYOUT__", text)
+        real_read = Path.read_text
+
+        def read(path, *args, **kwargs):
+            if path.name == web_main.TECHMO_LAYOUT_FILE:
+                return broken[4]
+            return real_read(path, *args, **kwargs)
+
+        with patch.object(Path, "read_text", autospec=True, side_effect=read):
+            with self.assertRaises(ValueError):
+                create_app()
+
+    def test_layout_file_is_not_served_and_page_headers_are_unchanged(self):
+        self.assertNotIn(web_main.TECHMO_LAYOUT_FILE, web_main.CHAT_WEB_MEDIA_TYPES)
+        self.assertFalse([name for name in web_main.CHAT_WEB_MEDIA_TYPES if name.endswith(".json")])
+        # 허용 목록에 없는 이름은 디스크를 보지 않고 404로 답한다.
+        with patch.object(Path, "is_file", side_effect=AssertionError("읽으면 안 됨")):
+            for name in (web_main.TECHMO_LAYOUT_FILE, "techmo-layout.json", "TECHMO_LAYOUT.JSON"):
+                with self.subTest(name=name):
+                    response = call_app(app, "GET", f"/chat-assets/{name}", allow_wait=True)
+                    self.assertEqual(response.status, 404)
+                    self.assertEqual(response.headers["cache-control"], "no-cache")
+        page = call_app(app, "GET", "/", allow_wait=True)
+        self.assertEqual(page.headers["content-security-policy"],
+                         "default-src 'self'; object-src 'none'; base-uri 'none'; "
+                         "frame-ancestors 'none'; form-action 'self'")
+        self.assertEqual(page.headers["x-content-type-options"], "nosniff")
+        self.assertEqual(page.headers["cache-control"], "no-cache")
+        # 문서 안 style 속성과 <style>, 문서 안 스크립트는 여전히 없다.
+        parsed = parse_page(page.text())
+        for node in parsed.elements:
+            self.assertNotIn("style", node["attrs"])
+            self.assertNotEqual(node["tag"], "style")
+            if node["tag"] == "script":
+                self.assertIn("src", node["attrs"])
+                self.assertEqual(node["text"].strip(), "")
 
     def test_asset_routes_serve_the_chat_styles_and_script(self):
         assets = {
