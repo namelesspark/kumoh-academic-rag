@@ -11,6 +11,7 @@ from unittest.mock import patch
 TESTS_DIR = Path(__file__).resolve().parent
 sys.path[:0] = [str(TESTS_DIR.parent), str(TESTS_DIR)]
 
+from app import main as web_main
 from app.main import app, CHAT_WEB_DIR, create_app, fingerprint_chat_assets
 from asgi_harness import call_app
 
@@ -65,45 +66,52 @@ def parse_page(html):
     return page
 
 
-def topics_facts(html):
-    """예시 질문 묶음(#topics)이 어디에 어떤 모양으로 있는지 사전으로 돌려준다."""
-    page = parse_page(html)
-    found = [node for node in page.elements if node["attrs"].get("id") == "topics"]
-    facts = {"count": len(found)}
-    if len(found) != 1:
-        return facts
+def read_index():
+    return (CHAT_WEB_DIR / "index.html").read_text(encoding="utf-8")
 
-    topics = found[0]
-    ancestors = []
-    node = topics["parent"]
-    while node is not None:
-        ancestors.append(node)
-        node = node["parent"]
-    parent = topics["parent"]
-    siblings = [child["attrs"].get("id") for child in parent["children"]] if parent else ["topics"]
-    at = [child is topics for child in parent["children"]].index(True) if parent else 0
-    facts.update(
-        tag=topics["tag"],
-        attrs=topics["attrs"],
-        parent=(parent["tag"], parent["attrs"].get("class")) if parent else None,
-        ancestor_tags=[item["tag"] for item in ancestors],
-        ancestor_ids=[item["attrs"]["id"] for item in ancestors if "id" in item["attrs"]],
-        neighbors=(
-            siblings[at - 1] if at else None,
-            siblings[at + 1] if at + 1 < len(siblings) else None,
-        ),
-        children=[
-            (child["tag"], child["attrs"].get("id"), child["attrs"].get("class"), child["text"].strip())
-            for child in topics["children"]
-        ],
-        button_types=[
-            child["attrs"].get("type")
-            for child in topics["children"]
-            if "data-question" in child["attrs"]
-        ],
-        label_id_count=sum(node["attrs"].get("id") == "topics-label" for node in page.elements),
-    )
-    return facts
+
+def by_id(page, name):
+    """id가 `name`인 요소 하나를 돌려준다. 없거나 둘 이상이면 실패한다."""
+    found = [node for node in page.elements if node["attrs"].get("id") == name]
+    if len(found) != 1:
+        raise AssertionError(f'id="{name}"인 요소가 {len(found)}개입니다')
+    return found[0]
+
+
+def by_class(page, name):
+    """class에 `name`이 든 요소 하나를 돌려준다. 없거나 둘 이상이면 실패한다."""
+    found = [node for node in page.elements if name in (node["attrs"].get("class") or "").split()]
+    if len(found) != 1:
+        raise AssertionError(f'class="{name}"인 요소가 {len(found)}개입니다')
+    return found[0]
+
+
+def child_ids(node):
+    return [child["attrs"].get("id") for child in node["children"]]
+
+
+def next_sibling(node):
+    siblings = node["parent"]["children"]
+    at = [child is node for child in siblings].index(True)
+    return siblings[at + 1] if at + 1 < len(siblings) else None
+
+
+def image_addresses(page):
+    return [node["attrs"].get("src") for node in page.elements if node["tag"] == "img"]
+
+
+# 이슈 #88의 이름 표에 적힌 새 요소. 화면(`index.html`)과 스크립트(`chat.js`)가 함께 지킨다.
+NEW_IDS = (
+    "conversation-toggle", "home-button", "conversation-sidebar", "new-conversation",
+    "conversation-close", "conversation-list", "clear-conversations", "conversation-backdrop",
+    "main-title", "main-greeting", "conversation-toast", "conversation-toast-open",
+    "conversation-toast-close", "conversation-announce",
+)
+NEW_BUTTON_IDS = (
+    "conversation-toggle", "home-button", "new-conversation", "conversation-close",
+    "clear-conversations", "conversation-toast-open", "conversation-toast-close",
+)
+MAIN_LETTERING = "/chat-assets/main-lettering.png"
 
 
 class TestChatWeb(unittest.TestCase):
@@ -224,61 +232,252 @@ class TestChatWeb(unittest.TestCase):
             self.assertNotIn("style", attributes)
             self.assertNotIn("attach-row", attributes.get("class", ""))
 
-    def test_example_questions_sit_between_the_composer_and_the_transcript(self):
-        # 서버가 내려 주는 첫 화면을 읽는다. 색과 배치는 화면 테스트가 본다.
+    def test_example_question_row_is_gone(self):
+        # 서버가 내려 주는 첫 화면을 읽는다. 예시 질문 줄(#topics)은 이슈 #88에서 없앴다.
         html = call_app(app, "GET", "/", allow_wait=True).text()
-        facts = topics_facts(html)
+        page = parse_page(html)
 
-        self.assertEqual(facts["count"], 1)
-        self.assertEqual(facts["tag"], "div")
+        for node in page.elements:
+            self.assertNotIn(node["attrs"].get("id"), ("topics", "topics-label"))
+            self.assertNotIn("topics", (node["attrs"].get("class") or "").split())
+            self.assertNotIn("data-question", node["attrs"])
+            self.assertNotEqual(node["attrs"].get("aria-labelledby"), "topics-label")
+        for gone in ("예시 질문", "답변과 근거 조문", "근거를 찾지 못한 경우", "topics"):
+            self.assertNotIn(gone, html)
+        # 가상 규정의 질문 글도 화면에 남지 않는다. 서버의 가상 규정 검색은 따로 검사한다.
+        for gone in ("달빛열람증", "얼룩말 풍금"):
+            self.assertNotIn(gone, html)
+
+    def test_masthead_starts_with_the_hidden_drawer_and_home_buttons(self):
+        page = parse_page(read_index())
+        inner = by_class(page, "masthead-inner")
+        self.assertEqual([(child["tag"], child["attrs"].get("id") or child["attrs"].get("class"))
+                          for child in inner["children"]],
+                         [("button", "conversation-toggle"), ("h1", "brand"),
+                          ("button", "home-button"), ("div", "masthead-actions")])
+
+        toggle = by_id(page, "conversation-toggle")
+        self.assertEqual(toggle["attrs"].get("aria-label"), "대화 목록")
+        self.assertEqual(toggle["attrs"].get("aria-controls"), "conversation-sidebar")
+        self.assertEqual(toggle["attrs"].get("aria-expanded"), "false")
+        self.assertIn("hidden", toggle["attrs"])
+        # 아이콘은 버튼 안에 직접 그린 선 그림 하나다. 이름은 aria-label이 준다.
+        self.assertEqual([child["tag"] for child in toggle["children"]], ["svg"])
+        self.assertEqual(toggle["children"][0]["attrs"].get("aria-hidden"), "true")
+        self.assertEqual(toggle["text"].strip(), "")
+
+        home = by_id(page, "home-button")
+        self.assertEqual(home["text"].strip(), "홈")
+        self.assertIn("hidden", home["attrs"])
+        # 기존 「새 대화」 버튼은 자리와 이름을 지킨다. 채팅 화면에서 숨기는 일은 스크립트가 한다.
+        reset = by_id(page, "reset")
+        self.assertEqual(reset["text"].strip(), "새 대화")
+        self.assertNotIn("hidden", reset["attrs"])
+
+    def test_conversation_sidebar_and_backdrop_lead_the_layout(self):
+        page = parse_page(read_index())
+        layout = by_class(page, "layout")
+        self.assertEqual(layout["tag"], "main")
+        self.assertEqual([(child["tag"], child["attrs"].get("id") or child["attrs"].get("class"))
+                          for child in layout["children"]],
+                         [("aside", "conversation-sidebar"), ("div", "conversation-backdrop"),
+                          ("section", "chat")])
+
+        sidebar = by_id(page, "conversation-sidebar")
+        self.assertEqual(sidebar["attrs"].get("aria-label"), "지난 대화")
+        self.assertIn("hidden", sidebar["attrs"])
         self.assertEqual(
-            facts["attrs"],
-            {"class": "topics", "id": "topics", "role": "group", "aria-labelledby": "topics-label"},
-        )
-        # 대화 영역 바로 아래, 폼 다음이자 대화 내용 앞이다.
-        self.assertEqual(facts["parent"], ("section", "chat"))
-        self.assertIn("main", facts["ancestor_tags"])
-        self.assertEqual(facts["neighbors"], ("composer", "transcript"))
-        for outside in ("composer", "empty", "transcript"):
-            self.assertNotIn(outside, facts["ancestor_ids"])
-        # 이름표 하나와 기존 버튼 두 개가 순서대로 있다. 이름표 id가 묶음의 이름으로 연결된다.
-        self.assertEqual(
-            facts["children"],
-            [
-                ("span", "topics-label", "topics-label", "예시 질문"),
-                ("button", None, None, "답변과 근거 조문"),
-                ("button", None, None, "근거를 찾지 못한 경우"),
-            ],
-        )
-        self.assertEqual(facts["button_types"], ["button", "button"])
-        self.assertEqual(facts["label_id_count"], 1)
+            [(child["tag"], child["attrs"].get("id") or child["attrs"].get("class"), child["text"].strip())
+             for child in sidebar["children"]],
+            [("button", "new-conversation", "새 대화"),
+             ("button", "conversation-close", "닫기"),
+             ("ul", "conversation-list", ""),
+             ("button", "clear-conversations", "기록 모두 지우기"),
+             ("p", "conversation-note", "대화 기록은 이 브라우저에만 저장돼요")])
+        # 목록 항목은 스크립트가 만든다. 처음 화면에는 지난 대화가 한 줄도 없다.
+        self.assertEqual(by_id(page, "conversation-list")["children"], [])
 
-    def test_example_questions_moved_elsewhere_are_noticed(self):
-        # 위 검사가 자리를 실제로 구분하는지, 묶음을 옮긴 가상 화면으로 확인한다.
-        html = (CHAT_WEB_DIR / "index.html").read_text(encoding="utf-8")
-        blocks = re.findall(r'[ \t]*<div class="topics".*?</div>\n', html, flags=re.DOTALL)
-        self.assertEqual(len(blocks), 1)
-        block = blocks[0]
-        without = html.replace(block, "")
-        self.assertEqual(len(without), len(html) - len(block))
+        backdrop = by_id(page, "conversation-backdrop")
+        self.assertIn("hidden", backdrop["attrs"])
+        self.assertEqual((backdrop["children"], backdrop["text"].strip()), ([], ""))
 
-        empty_open = '<div id="empty" class="empty">'
-        self.assertEqual(without.count(empty_open), 1)
-        in_empty = topics_facts(without.replace(empty_open, empty_open + block))
-        self.assertEqual(in_empty["count"], 1)
-        self.assertIn("empty", in_empty["ancestor_ids"])
-        self.assertIn("transcript", in_empty["ancestor_ids"])
-        self.assertNotEqual(in_empty["neighbors"], ("composer", "transcript"))
+        # 대화 영역의 뼈대는 그대로다. 입력 폼 바로 뒤가 대화 내용이다.
+        self.assertEqual(child_ids(by_class(page, "chat")),
+                         ["chat-heading", "composer", "transcript", None, "status"])
+        self.assertEqual(child_ids(by_id(page, "transcript")), ["empty"])
 
-        form_close = "</form>\n      <div id=\"transcript\""
-        self.assertEqual(without.count(form_close), 1)
-        in_form = topics_facts(without.replace(form_close, block + form_close))
-        self.assertEqual(in_form["count"], 1)
-        self.assertIn("composer", in_form["ancestor_ids"])
-        self.assertNotEqual(in_form["parent"], ("section", "chat"))
+    def test_main_title_is_one_lettering_slot_with_a_text_fallback(self):
+        html = read_index()
+        page = parse_page(html)
+        welcome = by_class(page, "main-welcome")
+        self.assertEqual([(child["tag"], child["attrs"].get("id")) for child in welcome["children"]],
+                         [("h2", "main-title"), ("p", "main-greeting")])
 
-        doubled = topics_facts(html.replace(block, block + block))
-        self.assertEqual(doubled["count"], 2)
+        title = by_id(page, "main-title")
+        slot, fallback = title["children"]
+        self.assertEqual((slot["tag"], slot["attrs"].get("class")), ("span", "main-lettering"))
+        self.assertIn("data-brand-slot", slot["attrs"])
+        self.assertIn("hidden", slot["attrs"])
+        (image,) = slot["children"]
+        # 그림 크기는 배포 준비 때 정해지므로 가로·세로 값을 적지 않는다.
+        self.assertEqual(image["attrs"], {"src": MAIN_LETTERING, "alt": "물어봐요, 테크모"})
+
+        self.assertEqual((fallback["tag"], fallback["attrs"].get("class")),
+                         ("span", "main-title-fallback"))
+        self.assertEqual(fallback["text"], "물어봐요, ")
+        self.assertEqual([(child["tag"], child["text"]) for child in fallback["children"]],
+                         [("em", "테크모")])
+        self.assertEqual(title["text"].strip(), "")
+
+        # 인사 줄은 비운 채 시작한다. 로그인했을 때만 스크립트가 채운다.
+        greeting = by_id(page, "main-greeting")
+        self.assertEqual((greeting["children"], greeting["text"]), ([], ""))
+
+        # 화면마다 h1은 하나씩이다. 글씨 그림 제목은 h2라 수가 늘지 않는다.
+        self.assertEqual([node["attrs"].get("class") for node in page.elements if node["tag"] == "h1"],
+                         ["title-fallback", "brand"])
+        for gone in ("학사 안내를 둘러보세요", "궁금한 학사 정보를 테크모와 함께 찾아보세요",
+                     "궁금한 학사 규정부터 캠퍼스 생활까지"):
+            self.assertNotIn(gone, html)
+
+    def test_reply_toast_follows_the_pet_and_the_announcer_is_always_present(self):
+        page = parse_page(read_index())
+        toast = next_sibling(by_id(page, "pet-dock"))
+        self.assertEqual((toast["tag"], toast["attrs"].get("id")), ("div", "conversation-toast"))
+        self.assertIn("hidden", toast["attrs"])
+        self.assertEqual(child_ids(toast), ["conversation-toast-open", "conversation-toast-close"])
+        # 글귀는 스크립트가 채운다.
+        opener = by_id(page, "conversation-toast-open")
+        self.assertEqual((opener["children"], opener["text"].strip()), ([], ""))
+        close = by_id(page, "conversation-toast-close")
+        self.assertEqual(close["attrs"].get("aria-label"), "알림 닫기")
+        self.assertEqual([child["tag"] for child in close["children"]], ["svg"])
+        # 숨겼다 보이는 알림은 읽기 도구가 놓치기 쉽다. 읽어 주는 자리는 숨기지 않고 따로 둔다.
+        self.assertNotIn("role", toast["attrs"])
+        self.assertNotIn("aria-live", toast["attrs"])
+
+        announce = next_sibling(toast)
+        self.assertEqual((announce["tag"], announce["attrs"]),
+                         ("p", {"class": "sr-only", "id": "conversation-announce", "role": "status"}))
+        self.assertEqual((announce["children"], announce["text"]), ([], ""))
+        self.assertEqual(next_sibling(announce)["tag"], "footer")
+        # 브라우저 알림 권한은 쓰지 않는다.
+        self.assertNotIn("Notification", read_index())
+
+    def test_new_elements_have_unique_ids_and_plain_buttons(self):
+        page = parse_page(read_index())
+        ids = [node["attrs"]["id"] for node in page.elements if "id" in node["attrs"]]
+        self.assertEqual(sorted(set(ids)), sorted(ids))
+        for name in NEW_IDS:
+            self.assertEqual(ids.count(name), 1, name)
+        for name in NEW_BUTTON_IDS:
+            with self.subTest(name=name):
+                button = by_id(page, name)
+                self.assertEqual((button["tag"], button["attrs"].get("type")), ("button", "button"))
+                # 요청 중에 함께 잠기는 표시를 주지 않는다. 다른 대화의 답을 기다리는 동안에도 눌려야 한다.
+                self.assertNotIn("data-action", button["attrs"])
+                self.assertNotIn("disabled", button["attrs"])
+        # 서랍 버튼이 가리키는 요소가 실제로 있다.
+        for node in page.elements:
+            target = node["attrs"].get("aria-controls")
+            if target is not None:
+                self.assertIn(target, ids)
+
+    def test_helpers_notice_a_moved_or_doubled_element(self):
+        # 위 검사가 자리를 실제로 구분하는지, 요소를 옮긴 가상 화면으로 확인한다.
+        html = read_index()
+        toast = re.findall(r'[ \t]*<div class="conversation-toast".*?</div>\n', html, flags=re.DOTALL)
+        self.assertEqual(len(toast), 1)
+        without = html.replace(toast[0], "")
+        self.assertEqual(len(without), len(html) - len(toast[0]))
+        moved = parse_page(without)
+        self.assertNotEqual(next_sibling(by_id(moved, "pet-dock"))["attrs"].get("id"), "conversation-toast")
+        with self.assertRaises(AssertionError):
+            by_id(moved, "conversation-toast")
+        with self.assertRaises(AssertionError):
+            by_id(parse_page(html.replace(toast[0], toast[0] + toast[0])), "conversation-toast")
+
+    def test_screen_requests_exactly_these_images_in_order(self):
+        page = parse_page(read_index())
+        self.assertEqual(image_addresses(page), [
+            "/chat-assets/title-lettering.png", "/chat-assets/techmo-sprite.png",
+            "/chat-assets/kumoh-signature.png", "/chat-assets/kumoh-signature.png",
+            MAIN_LETTERING, "/chat-assets/techmo-sprite.png",
+        ])
+        # 그림은 모두 숨긴 그림 자리 바로 안에 있다. 로드에 성공해야 스크립트가 자리를 보인다.
+        for node in page.elements:
+            if node["tag"] == "img":
+                self.assertIn("data-brand-slot", node["parent"]["attrs"])
+                self.assertIn("hidden", node["parent"]["attrs"])
+                self.assertIs(node["parent"]["children"][0], node)
+                self.assertIn(node["attrs"]["src"].rsplit("/", 1)[1], web_main.CHAT_WEB_MEDIA_TYPES)
+
+    def test_main_lettering_address_is_fingerprinted_only_when_prepared(self):
+        png = b"fictional png bytes"
+        digest = sha256(png).hexdigest()
+        with patch.object(web_main, "read_prepared_images", return_value={"main-lettering.png": png}):
+            html = call_app(create_app(), "GET", "/", allow_wait=True).text()
+        self.assertEqual(image_addresses(parse_page(html)).count(f"{MAIN_LETTERING}?v={digest}"), 1)
+        self.assertNotIn(f'"{MAIN_LETTERING}"', html)
+        # 다른 그림 주소에는 지문을 붙이지 않는다.
+        self.assertEqual(html.count("?v="), 3)
+
+        with patch.object(web_main, "read_prepared_images", return_value={}):
+            html = call_app(create_app(), "GET", "/", allow_wait=True).text()
+        self.assertEqual(image_addresses(parse_page(html)).count(MAIN_LETTERING), 1)
+        self.assertEqual(html.count("?v="), 2)
+
+    def test_image_fingerprint_depends_on_content_and_leaves_other_addresses(self):
+        html = ('<img src="/chat-assets/main-lettering.png" alt="">'
+                '<img src="/chat-assets/main-lettering.png.bak" alt="">'
+                '<img src="/chat-assets/title-lettering.png" alt="">')
+        first = web_main.fingerprint_prepared_images(html, {"main-lettering.png": b"fictional one"})
+        second = web_main.fingerprint_prepared_images(html, {"main-lettering.png": b"fictional two"})
+        self.assertNotEqual(first, second)
+        for result, content in ((first, b"fictional one"), (second, b"fictional two")):
+            self.assertIn(f'"{MAIN_LETTERING}?v={sha256(content).hexdigest()}"', result)
+            self.assertEqual(result.count("?v="), 1)
+            self.assertIn('"/chat-assets/main-lettering.png.bak"', result)
+            self.assertIn('"/chat-assets/title-lettering.png"', result)
+        # 준비된 그림이 없거나 화면에 주소가 없으면 그대로 돌려주고 멈추지 않는다.
+        self.assertEqual(web_main.fingerprint_prepared_images(html, {}), html)
+        self.assertEqual(web_main.fingerprint_prepared_images("", {"main-lettering.png": b"fictional"}), "")
+
+    def test_missing_or_unreadable_lettering_does_not_stop_startup(self):
+        self.assertEqual(web_main.FINGERPRINTED_IMAGES, ("main-lettering.png",))
+        real_read = Path.read_bytes
+        target = CHAT_WEB_DIR / "assets" / "main-lettering.png"
+        for failure in (FileNotFoundError(2, "fictional missing"), PermissionError(13, "fictional denied")):
+            with self.subTest(failure=type(failure).__name__):
+                asked = []
+
+                def read(path):
+                    if path.name == "main-lettering.png":
+                        asked.append(path)
+                        raise failure
+                    return real_read(path)
+
+                with patch.object(Path, "read_bytes", autospec=True, side_effect=read):
+                    self.assertEqual(web_main.read_prepared_images(), {})
+                    application = create_app()
+                self.assertEqual(asked, [target, target])
+                page = call_app(application, "GET", "/", allow_wait=True)
+                self.assertEqual(page.status, 200)
+                self.assertIn(f'src="{MAIN_LETTERING}"', page.text())
+                with patch.object(Path, "is_file", return_value=False):
+                    image = call_app(application, "GET", MAIN_LETTERING, allow_wait=True)
+                self.assertEqual(image.status, 404)
+                self.assertEqual(image.headers["cache-control"], "no-cache")
+
+    def test_prepared_lettering_bytes_are_read_from_the_assets_folder(self):
+        real_read = Path.read_bytes
+
+        def read(path):
+            return b"fictional png bytes" if path.name == "main-lettering.png" else real_read(path)
+
+        with patch.object(Path, "read_bytes", autospec=True, side_effect=read):
+            self.assertEqual(web_main.read_prepared_images(),
+                             {"main-lettering.png": b"fictional png bytes"})
 
     def test_page_has_no_folding_box_hint_line_or_style_attribute(self):
         html = call_app(app, "GET", "/", allow_wait=True).text()

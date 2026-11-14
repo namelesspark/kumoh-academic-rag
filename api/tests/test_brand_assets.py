@@ -434,19 +434,21 @@ class TestCampusPhotos(unittest.TestCase):
         self.assertEqual(sum("준비 실패" in line for line in logs), 1)
 
     def test_unverified_real_constants_never_reach_the_writer(self):
-        # 진짜 지문에는 가상 그림이 맞을 수 없다. 사진 네 줄과 제목 그림 줄까지 모두 실패하고 종료 코드는 0이다.
+        # 진짜 지문에는 가상 그림이 맞을 수 없다. 사진 네 줄과 제목 그림 두 줄까지 모두 실패하고 종료 코드는 0이다.
         writer, logs = Mock(), []
         self.assertEqual(assets.main(downloader=lambda url: self.sources[0],
                                      writer=writer, report=logs.append), 0)
         writer.assert_not_called()
-        self.assertEqual(len(logs), 11)
+        self.assertEqual(len(logs), 12)
         self.assertEqual([line.split(":")[0] for line in logs[6:]],
-                         [*PHOTO_NAMES, "title-lettering.png"])
+                         [*PHOTO_NAMES, "title-lettering.png", "main-lettering.png"])
         self.assertTrue(all("준비 실패" in line for line in logs))
 
 
 TITLE_NAME = "title-lettering.png"
-FONT_URL = ("https://raw.githubusercontent.com/google/fonts/16680f8688ffcd467d2eb2146a9ce0343404581d"
+MAIN_TITLE_NAME = "main-lettering.png"
+FONT_HASH = "c0b1f979979cfc309fb2438fa9464f96173353e0c4842cc7a5919658184ed9d3"
+FONT_URL =("https://raw.githubusercontent.com/google/fonts/16680f8688ffcd467d2eb2146a9ce0343404581d"
             "/ofl/gugi/Gugi-Regular.ttf")
 # 취소한 붓글씨 시안의 그림 이름과 글꼴 주소. 다시 들어오지 않았는지 본다.
 RETIRED_TITLE_NAME = "calligraphy-title.png"
@@ -455,6 +457,10 @@ RETIRED_FONT_URL = FONT_URL.replace("gugi/Gugi", "eastseadokdo/EastSeaDokdo")
 LATIN_LINES = (
     (("Fictional,", assets.TITLE_WHITE),),
     (("Gear", assets.TITLE_YELLOW), (" title", assets.TITLE_WHITE)),
+)
+# 메인 화면 제목처럼 한 줄이고 뒤 낱말만 노랗다.
+LATIN_MAIN_LINES = (
+    (("Ask, ", assets.TITLE_WHITE), ("Gear", assets.TITLE_YELLOW)),
 )
 
 
@@ -480,9 +486,16 @@ class TestTitleLettering(unittest.TestCase):
                                report=logs.append)
 
     def test_constants_match_the_agreed_values(self):
-        self.assertEqual(assets.TITLE_IMAGES, (assets.TitleImage(
-            TITLE_NAME, FONT_URL, 990856,
-            "c0b1f979979cfc309fb2438fa9464f96173353e0c4842cc7a5919658184ed9d3"),))
+        # 두 제목 그림은 같은 글꼴 주소·바이트 수·지문을 쓴다. 글귀만 다르다.
+        self.assertEqual(assets.TITLE_IMAGES, (
+            assets.TitleImage(TITLE_NAME, FONT_URL, 990856, FONT_HASH),
+            assets.TitleImage(MAIN_TITLE_NAME, FONT_URL, 990856, FONT_HASH, assets.MAIN_TITLE_LINES),
+        ))
+        self.assertIsNone(assets.TITLE_IMAGES[0].lines)
+        self.assertEqual(assets.MAIN_TITLE_LINES, (
+            (("물어봐요, ", (255, 255, 255)), ("테크모", (255, 209, 0))),
+        ))
+        self.assertEqual(web_main.CHAT_WEB_MEDIA_TYPES[MAIN_TITLE_NAME], "image/png")
         self.assertEqual(assets.MAX_FONT_DOWNLOAD, 2 * 1024 * 1024)
         self.assertLess(assets.TITLE_IMAGES[0].size, assets.MAX_FONT_DOWNLOAD)
         self.assertEqual((assets.TITLE_FONT_SIZE, assets.TITLE_LINE_HEIGHT, assets.TITLE_MARGIN),
@@ -567,9 +580,94 @@ class TestTitleLettering(unittest.TestCase):
         (stream, size), _ = opened.call_args
         self.assertEqual(stream.getvalue(), data)
         self.assertEqual(size, 172)
-        render.assert_called_once_with(self.font)
+        # 글귀를 넘기지 않으면 로그인 화면 글귀를 그린다.
+        render.assert_called_once_with(self.font, None)
+        self.assertEqual(result, self.png)
         with Image.open(BytesIO(result)) as image:
             self.assertEqual((image.format, image.mode), ("PNG", "RGBA"))
+
+    def test_given_lines_are_drawn_instead_of_the_login_lines(self):
+        data = b"fictional font"
+        with patch.object(assets.ImageFont, "truetype", return_value=self.font):
+            result = assets.title_png(data, len(data), sha256(data).hexdigest(), LATIN_MAIN_LINES)
+        self.assertEqual(result, assets.render_title(self.font, LATIN_MAIN_LINES))
+        self.assertNotEqual(result, self.png)
+
+    def test_one_line_title_keeps_the_margin_and_only_the_last_word_is_yellow(self):
+        with Image.open(BytesIO(assets.render_title(self.font, LATIN_MAIN_LINES))) as opened:
+            image = opened.copy()
+        margin = assets.TITLE_MARGIN
+        self.assertEqual(image.mode, "RGBA")
+        self.assertEqual(image.getchannel("A").getbbox(),
+                         (margin, margin, image.width - margin, image.height - margin))
+        # 한 줄이라 두 줄 그림보다 낮다.
+        self.assertLess(image.height, self.image.height)
+        solid = [(x, image.getpixel((x, y))) for y in range(0, image.height, 3)
+                 for x in range(0, image.width, 3) if image.getpixel((x, y))[3] > 0]
+        self.assertEqual({pixel[:3] for _, pixel in solid},
+                         {assets.TITLE_WHITE, assets.TITLE_YELLOW})
+        white = [x for x, pixel in solid if pixel[:3] == assets.TITLE_WHITE]
+        yellow = [x for x, pixel in solid if pixel[:3] == assets.TITLE_YELLOW]
+        # 흰 글자가 왼쪽에서 끝난 뒤에 노란 낱말이 시작한다.
+        self.assertLess(max(white), min(yellow))
+
+    def test_main_draws_both_titles_from_one_font_download(self):
+        font_bytes = b"fictional font"
+        digest = sha256(font_bytes).hexdigest()
+        titles = (
+            assets.TitleImage(TITLE_NAME, FONT_URL, len(font_bytes), digest),
+            assets.TitleImage(MAIN_TITLE_NAME, FONT_URL, len(font_bytes), digest, LATIN_MAIN_LINES),
+        )
+        written, logs = {}, []
+        downloader = Mock(side_effect=lambda url: font_bytes if url == FONT_URL else b"fictional")
+        with (
+            patch.object(assets, "CAMPUS_PHOTOS", ()),
+            patch.object(assets, "TITLE_IMAGES", titles),
+            patch.object(assets, "TITLE_LINES", LATIN_LINES),
+            patch.object(assets.ImageFont, "truetype", return_value=self.font),
+            patch.object(assets, "techmo_sprite_png", return_value=b"sprite"),
+            patch.object(assets, "logo_png", return_value=b"logo"),
+            patch.object(assets, "techmo_png", return_value=b"pose"),
+        ):
+            code = assets.main(downloader=downloader,
+                               writer=lambda path, data: written.__setitem__(path.name, data),
+                               report=logs.append)
+        self.assertEqual(code, 0)
+        self.assertEqual(written[TITLE_NAME], self.png)
+        self.assertEqual(written[MAIN_TITLE_NAME], assets.render_title(self.font, LATIN_MAIN_LINES))
+        self.assertEqual(logs[-2:], [f"{TITLE_NAME}: 준비 완료", f"{MAIN_TITLE_NAME}: 준비 완료"])
+        # 글꼴은 한 번만 받고, 받은 글꼴은 어디에도 쓰지 않는다.
+        self.assertEqual(sum(call.args == (FONT_URL,) for call in downloader.call_args_list), 1)
+        self.assertNotIn(font_bytes, written.values())
+        self.assertFalse([name for name in written if name.endswith(".ttf")])
+
+    def test_font_failure_keeps_both_previous_titles_with_one_request(self):
+        written = {TITLE_NAME: b"previous login", MAIN_TITLE_NAME: b"previous main"}
+        logs = []
+        calls = []
+
+        def fetch(url):
+            calls.append(url)
+            if url == FONT_URL:
+                raise TimeoutError("fictional timeout")
+            return b"fictional"
+
+        with (
+            patch.object(assets, "CAMPUS_PHOTOS", ()),
+            patch.object(assets, "techmo_sprite_png", return_value=b"sprite"),
+            patch.object(assets, "logo_png", return_value=b"logo"),
+            patch.object(assets, "techmo_png", return_value=b"pose"),
+        ):
+            code = assets.main(downloader=fetch,
+                               writer=lambda path, data: written.__setitem__(path.name, data),
+                               report=logs.append)
+        self.assertEqual(code, 0)
+        self.assertEqual(written[TITLE_NAME], b"previous login")
+        self.assertEqual(written[MAIN_TITLE_NAME], b"previous main")
+        self.assertEqual(logs[-2:], [f"{TITLE_NAME}: 준비 실패 (TimeoutError)",
+                                     f"{MAIN_TITLE_NAME}: 준비 실패 (TimeoutError)"])
+        # 실패한 받기를 둘째 그림 때문에 다시 하지 않는다.
+        self.assertEqual(calls.count(FONT_URL), 1)
 
     def test_font_download_uses_its_own_host_and_size_limit(self):
         opener = Mock(return_value=FakeResponse(b"fictional", url=FONT_URL))
@@ -1043,22 +1141,32 @@ class TestBrandAssetRoutes(unittest.TestCase):
 
     def test_title_lettering_is_served_as_png_and_missing_file_is_404(self):
         png = image_bytes((2, 2))
-        with patch.object(Path, "is_file", return_value=False):
-            response = call_app(web_main.app, "GET", f"/chat-assets/{TITLE_NAME}", allow_wait=True)
-            self.assertEqual(response.status, 404)
-            self.assertEqual(response.headers['cache-control'], 'no-cache')
-        with (
-            patch.object(Path, "is_file", return_value=True),
-            patch.object(web_main, "FileResponse", side_effect=lambda path, *, media_type, headers:
-                         web_main.Response(content=png, media_type=media_type, headers=headers)),
-        ):
-            response = call_app(web_main.app, "GET", f"/chat-assets/{TITLE_NAME}", allow_wait=True)
-            self.assertEqual(response.status, 200)
-            self.assertEqual(response.headers["content-type"], "image/png")
-            self.assertEqual(response.headers['cache-control'], 'no-cache')
+        served = []
+
+        def memory_response(path, *, media_type, headers):
+            served.append(path.name)
+            return web_main.Response(content=png, media_type=media_type, headers=headers)
+
+        for name in (TITLE_NAME, MAIN_TITLE_NAME):
+            with self.subTest(name=name):
+                with patch.object(Path, "is_file", return_value=False):
+                    response = call_app(web_main.app, "GET", f"/chat-assets/{name}", allow_wait=True)
+                    self.assertEqual(response.status, 404)
+                    self.assertEqual(response.headers['cache-control'], 'no-cache')
+                with (
+                    patch.object(Path, "is_file", return_value=True),
+                    patch.object(web_main, "FileResponse", side_effect=memory_response),
+                ):
+                    response = call_app(web_main.app, "GET", f"/chat-assets/{name}", allow_wait=True)
+                    self.assertEqual(response.status, 200)
+                    self.assertEqual(response.headers["content-type"], "image/png")
+                    self.assertEqual(response.body, png)
+                    self.assertEqual(response.headers['cache-control'], 'no-cache')
+        self.assertEqual(served, [TITLE_NAME, MAIN_TITLE_NAME])
         # 글꼴 파일 이름과 취소한 붓글씨 그림 이름으로는 아무것도 내주지 않는다.
         with patch.object(Path, "is_file", side_effect=AssertionError("읽으면 안 됨")):
-            for name in ("Gugi-Regular.ttf", "title-lettering.ttf", RETIRED_TITLE_NAME):
+            for name in ("Gugi-Regular.ttf", "title-lettering.ttf", "main-lettering.ttf",
+                         RETIRED_TITLE_NAME):
                 with self.subTest(name=name):
                     response = call_app(web_main.app, "GET", f"/chat-assets/{name}", allow_wait=True)
                     self.assertEqual(response.status, 404)

@@ -44,6 +44,8 @@ CHAT_WEB_MEDIA_TYPES = {
     "techmo-sprite.png": "image/png",
     # 로그인 화면의 제목 글자 그림. 글꼴 파일은 이 목록에 넣지 않는다.
     "title-lettering.png": "image/png",
+    # 메인 화면의 제목 글씨 그림. 같은 글꼴로 배포 준비 때 그린다.
+    "main-lettering.png": "image/png",
     # 캠퍼스 사진 네 장. 배포 준비 때만 받으므로 파일이 없으면 404로 답한다.
     "campus-aerial.jpg": "image/jpeg", "campus-hill.jpg": "image/jpeg",
     "campus-gate.jpg": "image/jpeg", "campus-field.jpg": "image/jpeg",
@@ -51,6 +53,8 @@ CHAT_WEB_MEDIA_TYPES = {
 # 요청 형식 오류를 400으로만 내는 주소들. 자동 설명서에서 422를 지운다.
 # 사진 주소들은 실제로 422를 내므로 여기에 넣지 않는다.
 PATHS_WITHOUT_422 = ("/api/v1/chat", "/api/v1/demo-login")
+# 주소에 내용 지문을 붙이는 그림. 배포 준비 때 생기므로 없을 수 있다.
+FINGERPRINTED_IMAGES = ("main-lettering.png",)
 
 
 def fingerprint_chat_assets(html: str, css: bytes, script: bytes) -> str:
@@ -60,6 +64,29 @@ def fingerprint_chat_assets(html: str, css: bytes, script: bytes) -> str:
         if html.count(address) != 1:
             raise ValueError(f"{name} 주소는 정확히 한 번 있어야 함")
         html = html.replace(address, f"{address}?v={sha256(content).hexdigest()}")
+    return html
+
+
+def read_prepared_images() -> dict[str, bytes]:
+    """지문을 붙일 그림 가운데 준비된 것만 읽음. 없거나 읽지 못한 그림은 뺌."""
+    images = {}
+    for name in FINGERPRINTED_IMAGES:
+        try:
+            images[name] = (CHAT_WEB_DIR / "assets" / name).read_bytes()
+        except OSError:
+            continue
+    return images
+
+
+def fingerprint_prepared_images(html: str, images: dict[str, bytes]) -> str:
+    """준비된 그림의 주소에만 내용 지문을 붙임. 준비되지 않은 그림의 주소는 그대로 둠.
+
+    스타일·스크립트와 달리 그림은 없어도 화면이 동작하므로, 주소가 화면에 없어도 앱을 멈추지 않는다.
+    따옴표까지 맞춰 바꾸므로 이름이 이어지는 다른 주소는 건드리지 않는다.
+    """
+    for name, content in images.items():
+        address = f"/chat-assets/{name}"
+        html = html.replace(f'"{address}"', f'"{address}?v={sha256(content).hexdigest()}"')
     return html
 
 
@@ -73,6 +100,7 @@ def create_app(
         (CHAT_WEB_DIR / "assets/chat.css").read_bytes(),
         (CHAT_WEB_DIR / "assets/chat.js").read_bytes(),
     )
+    chat_html = fingerprint_prepared_images(chat_html, read_prepared_images())
     application = FastAPI(title="kumoh-rag API", version="0.1.0")
     application.state.chat_retrieval = chat_retrieval
     application.state.chunk_count = chunk_count
