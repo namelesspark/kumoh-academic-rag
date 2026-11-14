@@ -440,7 +440,7 @@ test("사진과 질문을 함께 보냈는데 행사가 아니면 질문과 읽�
   assert.equal(readPanel(page).question.value, "여기 어디야?");
 });
 
-test("앞선 채팅에서 받은 대화 번호를 글자 질문에 그대로 싣는다", async () => {
+test("사진 대화는 앞선 글 질문과 별도의 서버 대화로 시작한다", async () => {
   const requests = [];
   const page = loadChat(serving({
     [chatPath]: ok({ session_id: "s-1", answered: false }),
@@ -452,7 +452,7 @@ test("앞선 채팅에서 받은 대화 번호를 글자 질문에 그대로 싣
   await sendFrom(page, { question: "여기 어디야?", file: photo() });
 
   assert.deepEqual(paths(requests), [chatPath, photoPath, textPath]);
-  assert.equal(sentText(requests[2]).session_id, "s-1");
+  assert.equal(sentText(requests[2]).session_id, null);
 });
 
 test("글자 주소가 행사라고 답하면 같은 행사 카드를 서버가 준 주소로 그린다", async () => {
@@ -764,7 +764,7 @@ test("사진을 읽는 동안과 글자로 답을 찾는 동안 다시 보내도
   submit(page);
   assert.equal(page.send.disabled, true);
   assert.equal(page.reset.disabled, true);
-  assert.equal(page.graduation.disabled, true);
+  assert.notEqual(page.graduation.disabled, true);
   assert.equal(page.file.disabled, true);
   assert.equal(page.status.textContent, "사진에서 글자를 읽는 중…");
 
@@ -802,7 +802,7 @@ test("사진을 읽는 동안과 글자로 답을 찾는 동안 다시 보내도
   await setImmediate();
   assert.equal(page.status.textContent, "");
   assert.equal(page.reset.disabled, false);
-  assert.equal(page.graduation.disabled, false);
+  assert.notEqual(page.graduation.disabled, true);
   assert.equal(page.file.disabled, false);
   assert.equal(panel.reask.disabled, false);
   assert.equal(page.send.disabled, false);

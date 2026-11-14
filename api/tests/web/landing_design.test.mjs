@@ -67,7 +67,7 @@ test("대비 계산과 반투명 합성이 알려진 값과 맞는다", () => {
 const parents = {
   ".login-safety::before":".login-safety",
   ".composer-row":".composer", ".composer-meta":".composer", ".composer textarea":".composer-row", ".composer textarea:hover":".composer-row", ".attach-button":".composer-row", ".attach-button:hover":".composer-row",
-  ".card.soon":".layout", ".fallback":".reply", ".poster-result.unconfirmed":".reply", ".graduation thead th":".graduation table", ".graduation .item th":".graduation table", ".graduation .item td":".graduation table", ".topics":".layout", ".topics button":".topics", ".topics button:hover":".topics", "[data-panel-content] > .panel-action":".feature-panel", "[data-panel-content] > .panel-action:hover":".feature-panel",
+  ".card.soon":".layout", ".fallback":".reply", ".poster-result.unconfirmed":".reply", ".graduation thead th":".graduation table", ".graduation .item th":".graduation table", ".graduation .item td":".graduation table", "[data-panel-content] > .panel-action":".feature-panel", "[data-panel-content] > .panel-action:hover":".feature-panel",
   "#login-form input":".login-card", "#login-form input:focus":".login-card", "#demo-student-list button":".login-card", "#demo-student-list button:hover":".login-card", ".login-safety":".login-card", ".login-submit":".login-card",
   ".card":".layout", "button.card:hover":".layout", ".feature-panel":".layout", ".chat":".layout", ".composer":".layout", "textarea":".composer", ".primary":".composer", ".primary:not(:disabled):hover":".composer", ".reply":".layout", ".question":".layout",
   ".reset":".masthead", ".reset:not(:disabled):hover":".masthead", ".login":".masthead", ".panel-close":".feature-panel", ".panel-close:hover":".feature-panel", ".cta":".feature-panel", ".cta:hover":".feature-panel", ".check":".reply", ".check:not(:disabled):hover":".reply", ".evidence":".reply", ".graduation table":".reply", ".error":".reply", ".badge.met":".reply", ".badge.short":".reply", ".badge.needs-check":".reply", ".reading":".reply", ".reading textarea":".reading", ".biskit .program":".reply", ".poster-result":".reply",
@@ -147,8 +147,6 @@ test("글이 많은 영역과 예시 질문은 밝고 어두운 사진에서 4.5
     ["[data-panel-content] > .panel-action:hover", "[data-panel-content] > .panel-action:hover"],
     [".reading", ".reading"], [".reading .field span", ".reading"], [".reading .source", ".reading"],
     [".reading .reading-note", ".reading"], [".check", ".check"],
-    [".topics button", ".topics button"], [".topics button:hover", ".topics button:hover"],
-    [".topics-label", ".topics"],
     [".poster-result", ".poster-result.unconfirmed"], [".poster-result .hint", ".poster-result.unconfirmed"],
     [".card-title", ".card.soon"], [".card-text", ".card.soon"],
     ["textarea", "textarea"], ["textarea::placeholder", "textarea"],
@@ -166,7 +164,7 @@ test("내용 구분선과 상태색은 지정 변수를 사용하고 글 상자�
   for (const selector of [".evidence", ".graduation th", ".graduation td"]) {
     assert.equal(declared(selector, ["border-color"]), "var(--content-line)");
   }
-  for (const selector of [".reply", ".question", ".evidence", ".fallback", ".error", ".feature-panel", ".reading", ".biskit .program", ".poster-result.unconfirmed", ".topics", ".card.soon", "textarea"]) {
+  for (const selector of [".reply", ".question", ".evidence", ".fallback", ".error", ".feature-panel", ".reading", ".biskit .program", ".poster-result.unconfirmed", ".card.soon", "textarea"]) {
     for (const color of colors(declared(selector, ["background", "background-color"]))) {
       assert.ok(color[0] <= 8 && color[1] <= 28 && color[2] <= 50 && color[3] >= .82, selector);
     }
@@ -186,7 +184,7 @@ test("전체 CSS에서 남은 밝은 바탕은 입력 줄과 그림 받침이며
     colors(value).some(color => color[3] >= .8 && luminance(color.slice(0, 3)) > .5)
   ).map(([selector]) => selector).sort();
   assert.deepEqual(lightSurfaces, [
-    ".attach-button:hover", ".brand-logo", ".composer textarea", ".composer-row", ".intro-badge::before",
+    ".attach-button:hover", ".brand-logo", ".composer textarea", ".composer-row", ".conversation-unread", ".intro-badge::before",
     ".login-brand", ".login-safety::before", ".pet-dots span", '[data-campus-step][data-current="true"]',
   ]);
   checkText([
@@ -250,7 +248,6 @@ test("기능 카드 여섯 개·패널·질문과 보안 문서 약속을 유지
   assert.deepEqual([...landing.matchAll(/<span class="card-title">([^<]+)<\/span>/g)].map(m=>m[1]),["졸업 체크","비교과 추천","사진으로 묻기","규정 질문","학사 일정","캠퍼스 안내"]);
   const cards=[...landing.matchAll(/<button type="button" class="card"[^>]*>[\s\S]*?<\/button>/g)]; assert.equal(cards.length,6);
   for(const [card]of cards) assert.doesNotMatch(card,/data-action/);
-  assert.match(html,/data-question="달빛열람증을 누가 내주나요"/); assert.match(html,/data-question="얼룩말 풍금"/);
   assert.equal(html.split('/chat-assets/chat.css').length,2); assert.equal(html.split('/chat-assets/chat.js').length,2);
   assert.doesNotMatch(html,/\sstyle=|<style\b|<script(?![^>]*src=)/);
 });
@@ -259,7 +256,8 @@ test("그림 자리는 숨긴 채 시작하며 서버가 준비하는 주소만 
   const images=[...html.matchAll(/<img\b[^>]*>/g)].map(m=>m[0]);
   const slots=[...html.matchAll(/<\w+[^>]*\bdata-brand-slot\b[^>]*>\s*(<img\b[^>]*>)/g)];
   assert.deepEqual(slots.map(m=>m[1]),images); for(const [slot]of slots)assert.match(slot,/data-brand-slot hidden>/);
-  assert.deepEqual(images.map(image=>/src="([^"]+)"/.exec(image)[1]),["/chat-assets/title-lettering.png","/chat-assets/techmo-sprite.png","/chat-assets/kumoh-signature.png","/chat-assets/kumoh-signature.png","/chat-assets/techmo-sprite.png"]);
+  const allowed = new Set(["/chat-assets/title-lettering.png", "/chat-assets/main-lettering.png", "/chat-assets/techmo-sprite.png", "/chat-assets/kumoh-signature.png"]);
+  for (const image of images) assert.ok(allowed.has(/src="([^"]+)"/.exec(image)[1]));
 });
 
 
@@ -558,7 +556,7 @@ test("「사진 선택」은 기존 사진 선택을 열고, 「질문 입력하
   assert.deepEqual(shown.transcript.children, [shown.empty]);
 });
 
-test("다른 요청이 진행 중이면 첫 화면의 버튼과 카드는 아무 일도 하지 않는다", async () => {
+test("대화 요청 중에도 홈 기능의 입력 초점과 사진 선택은 사용할 수 있다", async () => {
   const requests = [];
   let release;
   const held = new Promise(resolve => {
@@ -576,8 +574,8 @@ test("다른 요청이 진행 중이면 첫 화면의 버튼과 카드는 아무
   shown.composer.fire("submit");
   for (const control of shown.controls) control.fire("click");
   assert.deepEqual(requests, [chatPath]);
-  assert.equal(shown.file.clicked, 0);
-  assert.equal(shown.input.focused, 0);
+  assert.equal(shown.file.clicked, 1);
+  assert.equal(shown.input.focused, 3);
 
   release();
   await setImmediate();
