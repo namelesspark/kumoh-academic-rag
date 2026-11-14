@@ -1,5 +1,45 @@
-const topics = document.querySelector("#topics");
-const examples = topics.querySelectorAll("[data-question]");
+// 저장 객체는 허용한 텍스트 필드만 복사한다. DOM과 서버 세션은 저장하지 않는다.
+function trimConversations(records) {
+  if (!Array.isArray(records)) return [];
+  return records.filter(record => record && !record.photo && typeof record.id === "string" && Array.isArray(record.messages))
+    .map(record => ({
+      id: record.id, time: Number(record.time) || 0, unread: record.unread === true,
+      title: conversationTitle(record),
+      messages: record.messages.filter(message => message && !message.photo &&
+        ["question", "answer"].includes(message.role) && typeof message.text === "string" &&
+        !/\b\d{8,10}\b/.test(message.text))
+        .slice(-40).map(message => ({ role: message.role, text: message.text,
+          time: Number(message.time) || 0,
+          sources: (Array.isArray(message.sources) ? message.sources : [])
+            .filter(source => source && typeof source.title === "string" && isSafeSourceUrl(source.url))
+            .map(source => ({ title: source.title, url: source.url })) })),
+    })).filter(record => record.messages.length).sort((a, b) => b.time - a.time).slice(0, 20);
+}
+function conversationTitle(record) {
+  const title = record.title || record.messages.find(message => message?.role === "question")?.text || "";
+  if (typeof title !== "string" || /\b\d{8,10}\b/.test(title)) return "";
+  return Array.from(title).slice(0, 29).join("");
+}
+function conversationKey(account) {
+  return "kumoh-chat-history:v1:" + (/^demo-d0[234]$/.test(account) ? account : "browse");
+}
+function loadConversations(storage, account) {
+  try { return trimConversations(JSON.parse(storage.getItem(conversationKey(account)) || "[]")); }
+  catch { return []; }
+}
+function saveConversations(storage, account, records) {
+  try { storage.setItem(conversationKey(account), JSON.stringify(trimConversations(records))); return true; }
+  catch { return false; }
+}
+function deleteConversation(storage, account, id) {
+  const records = loadConversations(storage, account).filter(record => record.id !== id);
+  saveConversations(storage, account, records);
+  return records;
+}
+function clearConversations(storage, account) {
+  try { storage.removeItem(conversationKey(account)); } catch { /* 저장 불가 환경에서도 화면은 유지한다. */ }
+  return [];
+}
 const transcript = document.querySelector("#transcript");
 const empty = document.querySelector("#empty");
 const composer = document.querySelector("#composer");
@@ -79,8 +119,6 @@ const assistantStates = {
 };
 // 서버가 답변을 한 번에 보내므로, 축하를 이만큼 보여 준 뒤 답변 표시로 넘어간다.
 const celebrateMs = 1_200;
-// 예시 질문을 누른 뒤 평소 자세 그대로 말풍선에만 띄우는 안내.
-const exampleHint = "보내기를 눌러 보세요";
 
 let sessionId = null;
 let busy = false;
@@ -101,6 +139,264 @@ const studentStorageKey = "demo-student-id";
 let selectedStudent = null;
 let studentGeneration = 0;
 let studentsRequest = null;
+const sidebar = document.querySelector("#conversation-sidebar");
+const conversationList = document.querySelector("#conversation-list");
+const drawerToggle = document.querySelector("#conversation-toggle");
+const drawerBackdrop = document.querySelector("#conversation-backdrop");
+const homeButton = document.querySelector("#home-button");
+let conversations = [];
+let activeConversation = null;
+let homeNodes = null;
+let chatView = false;
+let requestedChatView = false;
+let historyAccount = "browse";
+let conversationSequence = 0;
+let screenSequence = 0;
+let toastTimer = null;
+let toastRecord = null;
+let drawerOpen = false;
+let hiddenAnswers = 0;
+const originalTitle = document.title;
+function runViewChange(update, { animate = true, current = () => true, cleanup = () => {}, ready = () => {} } = {}) {
+  let applied = false;
+  const apply = () => {
+    if (applied || !current()) return;
+    applied = true;
+    update();
+  };
+  const finish = () => {
+    apply();
+    if (current()) cleanup();
+  };
+  if (!animate || reducedMotion() || typeof document.startViewTransition !== "function") {
+    finish();
+    return null;
+  }
+  try {
+    const transition = document.startViewTransition(apply);
+    Promise.resolve(transition.ready).then(() => { if (current()) ready(); }, finish).catch(finish);
+    Promise.resolve(transition.updateCallbackDone).catch(finish);
+    Promise.resolve(transition.finished).then(finish, finish);
+    return transition;
+  } catch {
+    finish();
+    return null;
+  }
+}
+function historyStorage() {
+  try { return window.localStorage; } catch { return null; }
+}
+function persistConversations() {
+  saveConversations(historyStorage(), historyAccount, conversations.filter(record => !record.photo && record.saved)
+    .map(record => ({ ...record, messages: record.committedMessages || record.messages })));
+}
+function switchHistoryAccount(account) {
+  dismissConversationToast();
+  if (window.location?.hash === "#chat") {
+    window.history?.replaceState(null, "", window.location.pathname + window.location.search);
+  }
+  historyAccount = account || "browse";
+  conversations = loadConversations(historyStorage(), historyAccount)
+    .map(record => ({ ...record, saved: true, committedMessages: record.messages.slice() }));
+  activeConversation = null;
+  setChatView(false, false);
+  renderConversations();
+}
+function closeDrawer(restoreFocus = true) {
+  drawerOpen = false;
+  document.body?.removeAttribute?.("data-conversation-drawer");
+  drawerToggle?.setAttribute("aria-expanded", "false");
+  if (drawerBackdrop) drawerBackdrop.hidden = true;
+  for (const node of [composer, transcript, document.querySelector(".masthead"), assistant, document.querySelector("#conversation-toast")]) {
+    if (node) node.inert = false;
+  }
+  updateSidebarAvailability();
+  if (restoreFocus) drawerToggle?.focus();
+}
+function openDrawer() {
+  if (window.matchMedia?.("(max-width: 960px)")?.matches === false) return;
+  drawerOpen = true;
+  if (sidebar) sidebar.inert = false;
+  if (sidebar) sidebar.hidden = false;
+  if (drawerBackdrop) drawerBackdrop.hidden = false;
+  document.body?.setAttribute("data-conversation-drawer", "open");
+  drawerToggle?.setAttribute("aria-expanded", "true");
+  for (const node of [composer, transcript, document.querySelector(".masthead"), assistant, document.querySelector("#conversation-toast")]) {
+    if (node) node.inert = true;
+  }
+  document.querySelector("#new-conversation")?.focus();
+}
+function updateSidebarAvailability() {
+  const narrow = window.matchMedia?.("(max-width: 960px)")?.matches;
+  if (drawerOpen && narrow === false) closeDrawer(false);
+  if (sidebar) sidebar.inert = !drawerOpen && Boolean(narrow);
+}
+function setChatView(next, push = true) {
+  requestedChatView = next;
+  const sequence = ++screenSequence;
+  const changed = next !== chatView;
+  if (next && !chatView) homeNodes = Array.from(transcript.children);
+  const apply = () => {
+    if (sequence !== screenSequence) return;
+    if (next && !chatView) {
+      transcript.replaceChildren();
+    } else if (!next && chatView) transcript.replaceChildren(...(homeNodes || [empty]));
+    chatView = next;
+    document.body?.setAttribute("data-view", next ? "chat" : "home");
+    const welcome = document.querySelector(".main-welcome");
+    if (welcome) welcome.hidden = next;
+    if (sidebar) sidebar.hidden = !next;
+    if (homeButton) homeButton.hidden = !next;
+    if (drawerToggle) drawerToggle.hidden = !next;
+    reset.hidden = next;
+    if (next) renderActiveConversation();
+    closeDrawer(false);
+    updateSend();
+  };
+  document.body?.setAttribute("data-chat-direction", next ? "forward" : "back");
+  if (push && window.history) {
+    if (next && !chatView) window.history.pushState({ chat: true }, "", "#chat");
+    else if (!next) window.history.replaceState(null, "", window.location.pathname + window.location.search);
+  }
+  runViewChange(apply, {
+    animate: changed,
+    current: () => sequence === screenSequence,
+    cleanup: () => document.body?.removeAttribute?.("data-chat-direction"),
+    ready: () => {
+      for (const animation of document.getAnimations?.() || []) {
+        const effect = animation.effect;
+        if (effect?.pseudoElement !== "::view-transition-group(chat-composer)") continue;
+        effect.setKeyframes(effect.getKeyframes().map(frame => {
+          const safe = { offset: frame.offset, easing: frame.easing, composite: frame.composite };
+          if (frame.transform !== undefined) safe.transform = frame.transform;
+          if (frame.opacity !== undefined) safe.opacity = frame.opacity;
+          return safe;
+        }));
+      }
+    },
+  });
+}
+function renderActiveConversation() {
+  if (!chatView) return;
+  transcript.replaceChildren(...(activeConversation?.turns || []));
+  scrollToLatest();
+}
+function openConversation(record) {
+  if (!conversations.includes(record)) return;
+  if (toastRecord === record) dismissConversationToast();
+  activeConversation = record;
+  record.unread = false;
+  if (!record.turns) {
+    record.turns = [];
+    for (const message of record.messages) {
+      if (message.role === "question" || !record.turns.length) record.turns.push(element("div", "turn"));
+      const node = record.turns[record.turns.length - 1];
+      node.append(element("p", message.role === "question" ? "question" : "reply", message.text));
+      for (const source of message.sources || []) {
+        const link = sourceLink(source.url, source.title, source.title);
+        if (link) node.append(link);
+      }
+    }
+  }
+  persistConversations();
+  setChatView(true);
+  renderConversations();
+}
+function renderConversations() {
+  if (!conversationList) return;
+  conversationList.replaceChildren();
+  for (const record of [...conversations].sort((a, b) => b.time - a.time)) {
+    const item = element("li", "conversation-item");
+    item.setAttribute("data-conversation-id", record.id);
+    if (record === activeConversation) item.setAttribute("aria-current", "true");
+    const open = element("button", "conversation-open");
+    open.type = "button";
+    const title = conversationTitle(record) || "새 대화";
+    const chars = Array.from(title);
+    const date = new Date(record.time);
+    const today = date.toDateString() === new Date().toDateString();
+    open.append(element("span", "conversation-title", chars.slice(0, 28).join("") + (chars.length > 28 ? "…" : "")),
+      element("span", "conversation-time", today ? date.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", hour12: false }) : `${date.getMonth() + 1}/${date.getDate()}`));
+    open.addEventListener("click", () => openConversation(record));
+    if (record.pending) {
+      item.setAttribute("data-conversation-state", "pending");
+      const pending = element("span", "conversation-pending");
+      pending.append(element("span", "sr-only", "답변 기다리는 중"));
+      open.append(pending);
+    }
+    if (record.unread) {
+      const dot = element("span", "conversation-unread");
+      dot.append(element("span", "sr-only", "읽지 않은 답변"));
+      open.append(dot);
+    }
+    const remove = element("button", "conversation-delete");
+    const icon = element("span", "conversation-delete-icon");
+    icon.setAttribute("aria-hidden", "true");
+    remove.append(icon);
+    remove.type = "button";
+    remove.setAttribute("aria-label", "이 대화 삭제");
+    remove.addEventListener("click", () => {
+      if (!window.confirm("이 대화를 지울까요?")) return;
+      conversations = conversations.filter(value => value !== record);
+      if (toastRecord === record) dismissConversationToast();
+      if (activeConversation === record) { activeConversation = null; renderActiveConversation(); }
+      persistConversations(); renderConversations(); updateSend();
+    });
+    item.append(open, remove);
+    conversationList.append(item);
+  }
+}
+function notifyConversation(record) {
+  record.unread = true;
+  showAssistant("answer", "답변이 도착했어요");
+  const toast = document.querySelector("#conversation-toast");
+  const open = document.querySelector("#conversation-toast-open");
+  const line = `‘${Array.from(conversationTitle(record)).slice(0, 20).join("")}’ 대화에 답변이 왔어요`;
+  const announce = document.querySelector("#conversation-announce");
+  if (announce) announce.textContent = line;
+  if (toast && open) {
+    toastRecord = record;
+    toast.hidden = false;
+    open.textContent = line;
+    open.onclick = () => { dismissConversationToast(); openConversation(record); };
+    if (toastTimer !== null) clearTimeout(toastTimer);
+    if (typeof setTimeout === "function") toastTimer = setTimeout(() => { toast.hidden = true; toastTimer = null; }, 6000);
+  }
+  if (document.hidden) { hiddenAnswers++; document.title = `(${hiddenAnswers}) ${originalTitle}`; }
+}
+function dismissConversationToast() {
+  const toast = document.querySelector("#conversation-toast");
+  if (toast) toast.hidden = true;
+  if (toastTimer !== null) clearTimeout(toastTimer);
+  toastTimer = null;
+  toastRecord = null;
+}
+drawerToggle?.addEventListener("click", openDrawer);
+drawerBackdrop?.addEventListener("click", () => closeDrawer());
+document.querySelector("#conversation-close")?.addEventListener("click", () => closeDrawer());
+homeButton?.addEventListener("click", () => setChatView(false));
+document.querySelector(".brand")?.addEventListener("click", () => setChatView(false));
+document.querySelector("#new-conversation")?.addEventListener("click", () => {
+  activeConversation = null;
+  input.value = "";
+  photoFile.value = "";
+  photoNote.textContent = "";
+  statusLine.textContent = "";
+  setChatView(true); renderConversations(); input.focus();
+});
+document.querySelector("#clear-conversations")?.addEventListener("click", () => {
+  if (!window.confirm("대화 기록을 모두 지울까요?")) return;
+  clearConversations(historyStorage(), historyAccount);
+  dismissConversationToast();
+  conversations = []; activeConversation = null; renderConversations(); renderActiveConversation(); updateSend();
+});
+document.addEventListener?.("keydown", event => { if (event.key === "Escape" && drawerOpen) closeDrawer(); });
+document.addEventListener?.("visibilitychange", () => {
+  if (!document.hidden) { hiddenAnswers = 0; document.title = originalTitle; }
+});
+window.addEventListener?.("popstate", () => setChatView(window.location.hash === "#chat", false));
+window.addEventListener?.("resize", updateSidebarAvailability);
+document.querySelector("#conversation-toast-close")?.addEventListener("click", dismissConversationToast);
 
 function storedStudentId() {
   try { return window.sessionStorage?.getItem(studentStorageKey); } catch { return null; }
@@ -145,6 +441,7 @@ function closeStudents() {
 function selectStudent(student, { restored = false } = {}) {
   studentGeneration++;
   selectedStudent = student;
+  switchHistoryAccount(student.id);
   rememberStudent(student.id);
   demoLabel.textContent = student.label;
   demoLogin.hidden = true;
@@ -177,6 +474,7 @@ function selectStudent(student, { restored = false } = {}) {
 function leaveStudent() {
   studentGeneration++;
   selectedStudent = null;
+  switchHistoryAccount("browse");
   rememberStudent(null);
   graduationTurn?.remove();
   graduationTurn = null;
@@ -264,7 +562,7 @@ loginForm?.addEventListener("submit", async event => {
 document.querySelector("#browse-main")?.addEventListener("click", () => {
   leaveStudent();
   showScreen(true);
-  if (mainGreeting) mainGreeting.textContent = "궁금한 학사 정보를 테크모와 함께 찾아보세요";
+  if (mainGreeting) mainGreeting.textContent = "";
 });
 showScreen(false);
 async function restoreStudent() {
@@ -323,31 +621,15 @@ function changeFeature(card, { animate = true, focus = true } = {}) {
       target?.focus();
     }
   };
-  if (!animate || reducedMotion() || typeof document.startViewTransition !== "function") {
-    apply();
-    return;
-  }
-  source?.setAttribute("data-morph", "");
-  const cleanup = () => {
-    if (change !== panelChange) return;
-    source?.removeAttribute("data-morph");
-    panelTransition = null;
-  };
-  try {
-    panelTransition = document.startViewTransition(apply);
-    Promise.resolve(panelTransition.ready).catch(apply);
-    Promise.resolve(panelTransition.updateCallbackDone).catch(apply);
-    Promise.resolve(panelTransition.finished).then(() => {
-      apply();
-      cleanup();
-    }, () => {
-      apply();
-      cleanup();
-    });
-  } catch {
-    apply();
-    cleanup();
-  }
+  if (animate) source?.setAttribute("data-morph", "");
+  panelTransition = runViewChange(apply, {
+    animate,
+    current: () => change === panelChange,
+    cleanup: () => {
+      source?.removeAttribute("data-morph");
+      panelTransition = null;
+    },
+  });
 }
 
 for (const card of featureCards) {
@@ -405,9 +687,13 @@ function element(tag, className, text) {
 // 보내기 버튼과 첨부 제거 버튼은 여기 한 곳에서만 켜고 끈다. 질문이나 사진 중 하나만 있어도 보낼 수 있다.
 function updateSend() {
   const attached = Boolean(photoFile.files?.length);
-  send.disabled = busy || (!input.value.trim() && !attached);
+  const pending = busy || (requestedChatView && Boolean(activeConversation?.pending));
+  send.disabled = pending || (!input.value.trim() && !attached);
   photoClear.hidden = !attached;
-  photoClear.disabled = busy;
+  photoClear.disabled = pending;
+  photoFile.disabled = pending;
+  photoAttach.disabled = pending;
+  reset.disabled = pending;
 }
 
 function setBusy(pending, message = "서버에 질문을 보내는 중…") {
@@ -434,6 +720,38 @@ async function whileBusy(message, work) {
   } finally {
     setBusy(false);
     scrollToLatest();
+  }
+}
+
+async function runPhotoRequest(record, message, work) {
+  if (!record) return whileBusy(message, work);
+  if (record.pending) return;
+  record.pending = true;
+  const account = historyAccount;
+  if (record === activeConversation) statusLine.textContent = message;
+  showAssistant("searching");
+  updateSend(); renderConversations();
+  for (const turn of record.turns || []) {
+    for (const selector of [".reask", ".retry"]) {
+      for (const button of turn.querySelectorAll(selector)) button.disabled = true;
+    }
+  }
+  try {
+    const succeeded = await work();
+    if (account !== historyAccount || !conversations.includes(record)) return;
+    if (!requestedChatView || activeConversation !== record || document.hidden) {
+      if (succeeded) notifyConversation(record);
+      else record.unread = true;
+    }
+  } finally {
+    record.pending = false;
+    for (const turn of record.turns || []) {
+      for (const selector of [".reask", ".retry"]) {
+        for (const button of turn.querySelectorAll(selector)) button.disabled = false;
+      }
+    }
+    if (record === activeConversation) statusLine.textContent = "";
+    updateSend(); renderConversations(); scrollToLatest();
   }
 }
 
@@ -683,6 +1001,7 @@ function biskitRecommendations(recommendation) {
 }
 
 async function checkGraduation() {
+  if (chatView) return;
   if (!selectedStudent) {
     void openStudents("먼저 가상 학생을 골라 주세요");
     return;
@@ -921,7 +1240,8 @@ function textAnswer(result) {
 }
 
 // 사진 없이 글자만 보낸다. 실패하면 같은 글자로만 다시 시도한다.
-async function answerFromText(question, recognized, answer) {
+async function answerFromText(question, recognized, answer, record = null) {
+  const account = historyAccount;
   statusLine.textContent = photoMessages.asking;
   photoNote.textContent = "";
   answer.replaceChildren();
@@ -929,10 +1249,11 @@ async function answerFromText(question, recognized, answer) {
   const { result, failure, status } = await requestJson("/api/v1/photo-question", {
     method: "POST",
     headers: { "Content-Type": "application/json", Accept: "application/json" },
-    body: JSON.stringify({ question, recognized_text: recognized, session_id: sessionId }),
+    body: JSON.stringify({ question, recognized_text: recognized, session_id: record ? record.sessionId || null : sessionId }),
     signal: AbortSignal.timeout(90_000),
   }, photoMessages.textFailed);
 
+  if (record && (account !== historyAccount || !conversations.includes(record))) return false;
   let message = failure;
   if (!failure) {
     try {
@@ -941,7 +1262,7 @@ async function answerFromText(question, recognized, answer) {
       photoNote.textContent = summary;
       if (result.kind === "hold") showAssistant("hold");
       else celebrate();
-      return;
+      return true;
     } catch {
       message = photoMessages.textFailed;
     }
@@ -951,7 +1272,7 @@ async function answerFromText(question, recognized, answer) {
   if (rejected) message = photoMessages.textRejected;
   answer.replaceChildren(failureBox(
     message,
-    rejected ? null : () => void whileBusy(photoMessages.asking, () => answerFromText(question, recognized, answer)),
+    rejected ? null : () => void runPhotoRequest(record, photoMessages.asking, () => answerFromText(question, recognized, answer, record)),
   ));
   photoNote.textContent = message;
   showAssistant("error");
@@ -959,7 +1280,7 @@ async function answerFromText(question, recognized, answer) {
 
 // 읽은 글자를 고치는 칸. 판독문은 입력 칸의 값으로만 넣어 일반 글자로 남는다.
 // 다시 물을 때는 사진 없이 두 칸의 글자만 보내고, 결과는 같은 답변 자리(answer)에 바꿔 그린다.
-function readingPanel(recognized, question, answer, notes) {
+function readingPanel(recognized, question, answer, notes, record = null) {
   const panel = element("section", "reading");
   panel.append(element("h3", null, "사진에서 읽은 글자"));
   for (const note of notes) panel.append(element("p", "source", note));
@@ -981,15 +1302,15 @@ function readingPanel(recognized, question, answer, notes) {
   const reask = element("button", "reask check", "고쳐서 다시 묻기");
   reask.type = "button";
   // 이 칸은 요청이 진행 중일 때 만들어진다. 잠금이 풀릴 때 setBusy가 함께 풀어 준다.
-  reask.disabled = busy;
+  reask.disabled = busy || Boolean(record?.pending);
   reask.addEventListener("click", () => {
-    if (busy) return;
+    if (busy || record?.pending) return;
     const nextQuestion = questionBox.value.trim();
     const nextRecognized = textBox.value.trim();
     const problem = textProblem(nextQuestion, nextRecognized);
     problemLine.textContent = problem ?? "";
     if (problem) return;
-    void whileBusy(photoMessages.asking, () => answerFromText(nextQuestion, nextRecognized, answer));
+    void runPhotoRequest(record, photoMessages.asking, () => answerFromText(nextQuestion, nextRecognized, answer, record));
   });
 
   panel.append(
@@ -1005,7 +1326,7 @@ function readingPanel(recognized, question, answer, notes) {
 // 사진 대조는 서버가 끝냈다. 화면은 확정(confirmed)일 때만 행사와 링크를 그리고,
 // 그 밖의 값은 서버가 행사 정보를 함께 보냈더라도 그리지 않고 읽은 글자로 다시 묻는다.
 // 돌려주는 값은 { answer, panel, summary, pending }이고, pending이 있으면 글자 주소로 이어서 묻는다.
-function photoReading(result, question) {
+function photoReading(result, question, record = null) {
   if (result === null || typeof result !== "object" || Array.isArray(result)) {
     throw new TypeError("Malformed photo result");
   }
@@ -1017,7 +1338,7 @@ function photoReading(result, question) {
     answer.append(posterEventCard(result.event, reasons, result.identified_by));
     return {
       answer,
-      panel: readingPanel(recognized, question, answer, []),
+      panel: readingPanel(recognized, question, answer, [], record),
       summary: `행사를 찾았어요. ${result.event.title}`,
       pending: null,
     };
@@ -1030,7 +1351,7 @@ function photoReading(result, question) {
   if (!problem) {
     return {
       answer,
-      panel: readingPanel(recognized, question, answer, explained),
+      panel: readingPanel(recognized, question, answer, explained, record),
       summary: "",
       pending: { question, recognized: recognized.trim() },
     };
@@ -1042,7 +1363,7 @@ function photoReading(result, question) {
   answer.append(needsCheckCard(messages));
   return {
     answer,
-    panel: readingPanel(recognized, question, answer, []),
+    panel: readingPanel(recognized, question, answer, [], record),
     summary: problem === photoMessages.tooLong ? photoMessages.tooLong : "사진에서 확인한 내용이 없어요. 링크는 보여 주지 않아요.",
     pending: null,
   };
@@ -1050,7 +1371,8 @@ function photoReading(result, question) {
 
 // photo는 파일에서 바이트만 잘라 낸 값이라 파일명이 없다. 본문에 그대로 싣고 형식은 Content-Type으로 알린다.
 // 사진은 여기서 한 번만 보낸다. 행사가 확인되지 않으면 읽은 글자만 글자 주소로 넘긴다.
-async function readPhoto(photo, type, question, reply) {
+async function readPhoto(photo, type, question, reply, record = null) {
+  const account = historyAccount;
   statusLine.textContent = photoMessages.reading;
   photoNote.textContent = "";
   reply.replaceChildren();
@@ -1062,11 +1384,12 @@ async function readPhoto(photo, type, question, reply) {
     signal: AbortSignal.timeout(60_000),
   }, photoMessages.photoFailed);
 
+  if (record && (account !== historyAccount || !conversations.includes(record))) return false;
   let message = failure;
   if (!failure) {
     let shown = null;
     try {
-      shown = photoReading(result, question);
+      shown = photoReading(result, question, record);
     } catch {
       message = photoMessages.photoFailed;
     }
@@ -1074,10 +1397,10 @@ async function readPhoto(photo, type, question, reply) {
       reply.append(shown.answer, shown.panel);
       photoNote.textContent = shown.summary;
       // 글자 주소로 이어서 물으면 그 결과가 비서 상태를 정한다. 여기서 끝나면 확정은 찾음, 나머지는 보류다.
-      if (shown.pending) await answerFromText(shown.pending.question, shown.pending.recognized, shown.answer);
+      if (shown.pending) return await answerFromText(shown.pending.question, shown.pending.recognized, shown.answer, record);
       else if (result.event_match === "confirmed") celebrate();
       else showAssistant("hold");
-      return;
+      return true;
     }
   }
   // 사진 자체가 거절된 경우(413·415·422)는 같은 사진을 다시 보내도 결과가 같아 다시 시도 버튼을 두지 않는다.
@@ -1085,66 +1408,75 @@ async function readPhoto(photo, type, question, reply) {
   if (rejected) message = photoRejections[status];
   reply.replaceChildren(failureBox(
     message,
-    rejected ? null : () => void whileBusy(photoMessages.reading, () => readPhoto(photo, type, question, reply)),
+    rejected ? null : () => void runPhotoRequest(record, photoMessages.reading, () => readPhoto(photo, type, question, reply, record)),
   ));
   photoNote.textContent = message;
   showAssistant("error");
 }
 
-async function ask(question, reply) {
-  setBusy(true);
+async function ask(question, reply, record = activeConversation) {
+  if (record?.pending) return;
+  const account = historyAccount;
+  if (record) record.pending = true;
+  else setBusy(true);
+  showAssistant("searching");
+  updateSend(); renderConversations();
   reply.replaceChildren();
   try {
     const response = await fetch("/api/v1/chat", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        message: question,
-        session_id: sessionId,
-        use_academic_data: false,
-      }),
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: question, session_id: record ? record.sessionId || null : sessionId,
+        use_academic_data: false }),
       signal: AbortSignal.timeout(90_000),
     });
     if (!response.ok) throw new Error("Chat request failed");
     const result = await response.json();
-    sessionId = result.session_id;
-    if (result.answered) {
-      reply.append(element("p", null, result.answer));
-      for (const citation of result.citations) reply.append(citationCard(citation));
-      celebrate();
-    } else {
-      reply.append(element("p", "fallback", "이 질문은 가상 규정에서 근거를 찾지 못했어요."));
-      showAssistant("hold");
-    }
+    if (record && (account !== historyAccount || !conversations.includes(record))) return;
+    if (record) record.sessionId = result.session_id;
+    else sessionId = result.session_id;
+    const text = result.answered ? result.answer : "이 질문은 가상 규정에서 근거를 찾지 못했어요.";
+    reply.append(element("p", result.answered ? null : "fallback", text));
+    const citations = result.answered && Array.isArray(result.citations) ? result.citations : [];
+    for (const citation of citations) reply.append(citationCard(citation));
+    if (record) {
+      record.messages.push({ role: "answer", text, time: Date.now(), sources: citations.map(citation => ({
+        title: citation.document + " · " + citation.article_path, url: citation.source_url,
+      })) });
+      record.messages = record.messages.slice(-40);
+      record.time = Date.now(); record.saved = true;
+      record.committedMessages = [
+        ...(record.committedMessages || []),
+        { role: "question", text: question, time: record.time, sources: [] },
+        record.messages[record.messages.length - 1],
+      ].slice(-40);
+      if (!requestedChatView || activeConversation !== record || document.hidden) notifyConversation(record);
+      else if (result.answered) celebrate();
+      else showAssistant("hold");
+      persistConversations();
+    } else if (result.answered) celebrate();
+    else showAssistant("hold");
   } catch {
+    if (record && (account !== historyAccount || !conversations.includes(record))) return;
     const retry = element("button", "retry", "다시 시도");
     retry.type = "button";
     retry.addEventListener("click", () => {
-      if (busy) return;
-      input.focus();
-      void ask(question, reply);
+      if (busy || record?.pending) return;
+      input.focus(); void ask(question, reply, record);
     });
     const error = element("div", "error");
     error.append(element("p", null, "서버 응답을 받지 못했어요."), retry);
     reply.replaceChildren(error);
-    showAssistant("error");
+    if (record && (!requestedChatView || activeConversation !== record)) {
+      record.unread = true;
+      persistConversations();
+    }
+    else showAssistant("error");
   } finally {
-    setBusy(false);
-    scrollToLatest();
+    if (record) record.pending = false;
+    else setBusy(false);
+    renderConversations(); updateSend(); scrollToLatest();
   }
 }
-
-for (const example of examples) {
-  example.addEventListener("click", () => {
-    input.value = example.dataset.question;
-    updateSend();
-    input.focus();
-    // 예시는 입력창을 채우기만 하고 보내지 않는다. 다음에 할 일을 말풍선으로 알린다.
-    // 요청 중의 "찾아보는 중"과 축하 뒤에 예약된 전환은 덮지 않는다. 새 상태나 타이머는 만들지 않는다.
-    if (!busy && assistantTimer === null) showAssistant("idle", exampleHint);
-  });
-}
-
 input.addEventListener("input", updateSend);
 input.addEventListener("keydown", event => {
   if (event.key !== "Enter" || event.shiftKey || event.isComposing || event.keyCode === 229) return;
@@ -1156,7 +1488,7 @@ composer.addEventListener("submit", event => {
   event.preventDefault();
   const question = input.value.trim();
   const file = photoFile.files?.[0];
-  if (busy || (!question && !file)) return;
+  if (busy || (requestedChatView && activeConversation?.pending) || (!question && !file)) return;
   if (file) {
     // 보낼 수 없는 사진이면 질문도 보내지 않는다. 학생이 첨부를 빼거나 바꾼 뒤 다시 보낸다.
     const rejected = !photoTypes.includes(file.type)
@@ -1168,7 +1500,16 @@ composer.addEventListener("submit", event => {
     }
   }
 
-  empty.remove();
+  if (!activeConversation || activeConversation.photo !== Boolean(file) || !requestedChatView) {
+    activeConversation = { id: `conversation-${Date.now()}-${++conversationSequence}`, time: Date.now(),
+      title: Array.from(question).slice(0, 29).join(""), messages: [], turns: [], photo: Boolean(file), unread: false };
+    conversations.unshift(activeConversation);
+    conversations = conversations.sort((a, b) => b.time - a.time).slice(0, 20);
+  }
+  const record = activeConversation;
+  record.messages.push({ role: "question", text: question, time: Date.now(), sources: [] });
+  record.messages = record.messages.slice(-40);
+  if (!chatView || !requestedChatView) setChatView(true);
   const turn = element("div", "turn");
   const prompt = element("p", "question");
   prompt.append(element("span", "sr-only", "내 질문: "));
@@ -1177,24 +1518,30 @@ composer.addEventListener("submit", event => {
   if (file) prompt.append(element("span", "attachment", "사진 1장"));
   const reply = element("div", file ? "reply photo" : "reply");
   turn.append(prompt, reply);
-  transcript.append(turn);
+  record.turns.push(turn);
+  if (record.turns.length > 20) record.turns.shift().remove();
+  if (chatView && requestedChatView) {
+    empty.remove();
+    transcript.append(turn);
+  }
+  renderConversations();
   input.value = "";
   photoNote.textContent = "";
   scrollToLatest();
   if (!file) {
-    void ask(question, reply);
+    void ask(question, reply, record);
     return;
   }
   // 바이트만 잘라 내 들고, 고른 파일은 바로 비운다. 남겨 두면 다음 질문에 같은 사진이 또 실린다.
   const photo = file.slice(0, file.size, file.type);
   const type = file.type;
   photoFile.value = "";
-  void whileBusy(photoMessages.reading, () => readPhoto(photo, type, question, reply));
+  void runPhotoRequest(record, photoMessages.reading, () => readPhoto(photo, type, question, reply, record));
 });
 
 // 클립 버튼은 숨긴 파일 입력의 창을 연다. 요청 중에는 버튼이 잠겨 있지만 한 번 더 막는다.
 photoAttach.addEventListener("click", () => {
-  if (busy) return;
+  if (busy || activeConversation?.pending) return;
   photoFile.click();
 });
 photoFile.addEventListener("change", () => {
@@ -1202,14 +1549,14 @@ photoFile.addEventListener("change", () => {
   updateSend();
 });
 photoClear.addEventListener("click", () => {
-  if (busy) return;
+  if (busy || activeConversation?.pending) return;
   photoFile.value = "";
   photoNote.textContent = "";
   updateSend();
 });
 
 reset.addEventListener("click", () => {
-  if (busy) return;
+  if (busy || activeConversation?.pending) return;
   changeFeature(null, { animate: false, focus: false });
   sessionId = null;
   graduationTurn = null;
@@ -1267,7 +1614,10 @@ for (const slot of document.querySelectorAll?.("[data-brand-slot]") ?? []) {
 }
 
 updateSend();
-
+if (window.location?.hash === "#chat") {
+  window.history?.replaceState(null, "", window.location.pathname + window.location.search);
+}
+switchHistoryAccount("browse");
 void restoreStudent();
 
 const calendarScope = { year: 2027, semester: 1 };

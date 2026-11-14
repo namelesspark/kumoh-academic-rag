@@ -267,7 +267,7 @@ test("화면에 현수막 전용 칸이 없고, 입력창에 사진 첨부·첨�
   assert.match(html, /<p[^>]*id="photo-note" role="status">/);
   assert.match(html, /<button type="submit"[^>]*id="send" disabled>/);
   for (const id of [
-    "topics", "reset", "transcript", "empty", "status", "composer", "question", "send",
+    "reset", "transcript", "empty", "status", "composer", "question", "send",
     "photo-file", "photo-clear", "photo-note",
   ]) {
     assert.equal(html.split(`id="${id}"`).length, 2, id);
@@ -443,7 +443,7 @@ test("결과를 기다리는 동안 다시 제출해도 요청은 한 번이고,
 
   submit(page);
   assert.equal(page.send.disabled, true);
-  assert.equal(page.graduation.disabled, true);
+  assert.notEqual(page.graduation.disabled, true);
   assert.equal(page.reset.disabled, true);
   assert.equal(page.file.disabled, true);
   assert.equal(page.status.textContent, readingStatus);
@@ -462,7 +462,7 @@ test("결과를 기다리는 동안 다시 제출해도 요청은 한 번이고,
 
   respond({ ok: true, status: 200, json: async () => confirmed() });
   await setImmediate();
-  assert.equal(page.graduation.disabled, false);
+  assert.notEqual(page.graduation.disabled, true);
   assert.equal(page.reset.disabled, false);
   assert.equal(page.file.disabled, false);
   assert.equal(page.status.textContent, "");

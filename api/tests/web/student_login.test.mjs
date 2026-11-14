@@ -194,7 +194,7 @@ test("시연 계정 버튼은 두 칸만 채우고 로그인 요청이나 저장
   }
 });
 
-test("로그아웃해도 일반 질문 대화는 남긴다", async () => {
+test("로그아웃하면 이전 계정의 일반 질문을 화면에서 치운다", async () => {
   const page = loadPage({ result: path => path === "/api/v1/chat" ? ok({ session_id: "fictional-session", answered: false }) : ok(graduation()) });
   await select(page);
   ask(page);
@@ -203,7 +203,7 @@ test("로그아웃해도 일반 질문 대화는 남긴다", async () => {
   click(page.buttons[0]);
   await flush();
   click(page.get("#demo-logout"));
-  assert.deepEqual(page.get("#transcript").children, [questionTurn]);
+  assert.equal(page.get("#transcript").children.includes(questionTurn), false);
   assert.match(text(questionTurn), /가상 질문/);
 });
 

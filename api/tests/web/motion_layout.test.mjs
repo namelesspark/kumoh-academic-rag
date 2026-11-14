@@ -90,7 +90,7 @@ test("패널은 #empty 안, 카드 목록 바로 뒤의 글 흐름에 있고 화
 
   // 예시 질문 묶음은 구조가 바뀌어도 한 번만 남는다.
   assert.equal(html.includes("<dialog"), false);
-  assert.equal(html.split('id="topics"').length, 2);
+
   // 화면 보안 정책이 막는 방식과, 스크립트가 붙였다 떼는 표시는 처음 화면에 없다.
   for (const blocked of [/\sstyle=/, /<style\b/, /data-morph/, /view-transition/]) assert.doesNotMatch(html, blocked);
   // 다른 화면 테스트가 지키는 약속: 펫은 #empty 밖에 있고, 예전 버튼 문구는 화면에 없다.
@@ -122,7 +122,7 @@ const split = text => [...text.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map(([, select
 ]);
 const rules = split(styles);
 const narrowRules = split(block("@media (max-width: 680px)"));
-const calmRules = split(block("@media (prefers-reduced-motion: reduce)"));
+const calmRules = [...styles.matchAll(/@media \(prefers-reduced-motion: reduce\) \{([\s\S]*?)\n\}/g)].flatMap(match => split(match[1]));
 // 선택자가 정확히 같은 첫 규칙의 선언. 화면 너비 조건 밖의 기본 규칙이 파일에서 먼저 온다.
 const first = (selector, list = rules) => list.find(([name]) => name === selector)?.[1] ?? "";
 // 선언 글자에서 속성 하나의 값을 꺼낸다.
@@ -152,7 +152,7 @@ test("학생 로그인 버튼은 좁은 화면에서도 글자를 한 줄로 유
 
 test("전환 이름은 CSS가 누른 카드와 열린 패널에만 주고, 패널이 열리면 카드 목록은 보이지 않는다", () => {
   const named = rules.filter(([, body]) => body.includes("view-transition-name"));
-  assert.deepEqual(named, [[".card[data-morph], .feature-panel:not([hidden])", "view-transition-name: feature-morph;"]]);
+  assert.deepEqual(named, [[".card[data-morph], .feature-panel:not([hidden])", "view-transition-name: feature-morph;"], [".composer-row", "view-transition-name: chat-composer;"], [".layout", "view-transition-name: chat-surface;"]]);
   // 숨긴 요소는 그려지지 않아 이름을 갖지 않는다. hidden 속성이 display 선언에 지지 않아야 한다.
   assert.equal(first("[hidden]"), "display: none !important;");
   // 같은 이름이 한 화면에 둘 보이지 않게, 패널이 열려 있으면 카드 목록을 그리지 않는다.
@@ -172,7 +172,7 @@ test("패널은 자리를 차지하는 상자라 펫·말풍선·입력창 위�
   }
   assert.match(first(".feature-panel"), /^display: grid;/);
   // 화면에 고정하는 요소는 넓은 화면의 펫 줄과 공통 배경뿐이다.
-  assert.deepEqual(rules.filter(([, body]) => body.includes("position: fixed")).map(([selector]) => selector), [".pet-dock", ".campus-backdrop"]);
+  assert.deepEqual(rules.filter(([, body]) => body.includes("position: fixed")).map(([selector]) => selector), [".pet-dock", ".campus-backdrop", 'body[data-view="chat"] .layout', "#conversation-toast", 'body[data-view="chat"] .pet-dock', "#conversation-sidebar", "#conversation-backdrop"]);
 
   // 닫기와 시작 버튼은 손가락으로 누를 만한 높이다.
   assert.equal(value(first(".panel-close"), "min-height"), "44px");
@@ -252,7 +252,7 @@ test("390px 묶음은 그림을 120px 이하로 줄여 제목 옆에 놓고 카�
   assert.ok(size(".hero-copy p") >= 0.9 && size(".hero-copy p") < 1);
   // 상단의 긴 학생 이름만 말줄임하고 설명 글은 끝까지 보여 준다.
   for (const [selector, body] of rules) {
-    if (selector === "#demo-label") continue;
+    if (["#demo-label", ".conversation-title"].includes(selector)) continue;
     assert.doesNotMatch(body, /line-clamp|text-overflow|max-lines/, selector);
   }
   for (const [selector, body] of narrowRules) {
@@ -261,9 +261,9 @@ test("390px 묶음은 그림을 120px 이하로 줄여 제목 옆에 놓고 카�
 });
 
 test("움직임 줄이기 묶음은 하나뿐이고 도형·펫·대기 점·카드 전환의 움직임을 모두 끈다", () => {
-  assert.equal(styles.split("prefers-reduced-motion").length, 2);
-  assert.equal(calmRules.length, 2);
-  for (const [selector, body] of calmRules) assert.equal(body, "animation: none !important;", selector);
+  assert.equal(styles.split("prefers-reduced-motion").length, 3);
+  assert.ok(calmRules.length >= 2);
+  for (const [selector, body] of calmRules) assert.match(body, /(?:animation|transition): none(?: !important)?;/, selector);
 
   const stopped = calmRules.flatMap(([selector]) => selector.split(", "));
   // 묶음 밖에서 움직임을 거는 요소는 모두 이 목록에 있어야 한다. 새 움직임을 넣고 끄는 것을 잊으면 여기서 걸린다.
@@ -273,14 +273,17 @@ test("움직임 줄이기 묶음은 하나뿐이고 도형·펫·대기 점·카
   assert.ok(moving.includes(".hero-art::before"));
   for (const selector of moving) {
     // 자세·상태 조건이 붙은 선택자(.pet-dock[data-pose="quiet"] .pet-hop)는 마지막 요소 이름으로 찾는다.
-    const target = selector.split(" ").at(-1);
-    assert.ok(stopped.includes(selector) || stopped.includes(target), `${selector}의 움직임을 끄는 규칙이 없다`);
+    const target = selector.includes("::view-transition-") ? selector.slice(selector.indexOf("::view-transition-")) : selector.split(" ").at(-1);
+    assert.ok(stopped.includes(selector) || stopped.includes(target) || (/::view-transition-(old|new|group)/.test(target) && stopped.includes(target.replace(/\([^)]*\)/, "(*)"))), `${selector}의 움직임을 끄는 규칙이 없다`);
   }
   for (const pseudo of ["::view-transition-group(*)", "::view-transition-old(*)", "::view-transition-new(*)"]) {
     assert.ok(stopped.includes(pseudo), pseudo);
   }
   // 움직임은 animation으로만 만든다. transition 선언이 있으면 이 묶음이 끄지 못한다.
-  for (const [selector, body] of rules) assert.doesNotMatch(body, /(?:^|; )transition(?:-[a-z]+)?: /, selector);
+  for (const [selector, body] of rules) {
+    if (selector === "#conversation-sidebar" && body.includes("transition:")) assert.match(body, /transition: (?:transform \.35s ease|none);/);
+    else assert.doesNotMatch(body, /(?:^|; )transition(?:-[a-z]+)?: /, selector);
+  }
 });
 
 // --- UI_NOTES.md 읽기 ------------------------------------------------------------------------

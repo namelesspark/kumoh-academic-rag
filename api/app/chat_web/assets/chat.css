@@ -28,6 +28,8 @@
   --glass-feature: rgba(255,255,255,.10);
   --glass-composer: rgba(255,255,255,.94);
   --glass-account: rgba(255,255,255,.08);
+  --conversation-active: rgba(140,220,255,.12);
+  --conversation-scrim: rgba(4,20,38,.55);
   --glass-dense: rgba(8,28,50,.82);
   --glass-card-edge: rgba(140,220,255,.70);
   --glass-band-edge: rgba(140,220,255,.75);
@@ -205,24 +207,6 @@ h1, h2, h3, p { margin-top: 0; }
   margin-block: 24px;
 }
 
-.topics { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; margin: 0; padding: 0; border: 0; }
-.topics-label { color: var(--ink); font-size: .82rem; font-weight: 700; }
-.topics button {
-  width: auto;
-  max-width: 100%;
-  min-width: 0;
-  min-height: 32px;
-  padding: 5px 12px;
-  border: 1px solid var(--content-line);
-  border-radius: 999px;
-  text-align: left;
-  white-space: normal;
-  overflow-wrap: anywhere;
-  background: var(--glass-dense);
-  color: var(--ink);
-}
-.topics button:hover { color: var(--link-ink); background: var(--tint); text-decoration: underline; text-underline-offset: 3px; }
-
 /* 테크모 펫과 말풍선. 기본 배치는 입력창 바로 앞의 낮은 줄이다. 줄이 자리를 차지하므로 입력창을 덮지 않고,
    입력창이 화면 아래로 밀려나 있을 때는 화면 아래 가장자리에 붙어 떠 있는다(position: sticky).
    961px부터는 아래 @media 규칙이 오른쪽 아래 고정 배치로 바꾼다. */
@@ -353,7 +337,7 @@ h1, h2, h3, p { margin-top: 0; }
 @media (min-width: 961px) {
   .pet-dock {
     position: fixed;
-    right: max(24px, calc((100% - 1120px) / 2));
+    right: 24px;
     bottom: 24px;
     flex-direction: column;
     gap: 12px;
@@ -903,10 +887,6 @@ button.card:hover { border-color: var(--focus-ink); background: var(--feature-ho
   #demo-label { font-size: .75rem; }
 }
 
-/* 본문 전체가 같은 오른쪽 여백을 써서 열린 패널과 입력창도 테크모 옆에 놓인다. */
-@media (min-width: 961px) {
-  .layout { padding-right: calc(max(24px, calc((100% - 1120px) / 2)) + 192px); }
-}
 .composer-row {
   align-items: center;
   padding: 8px;
@@ -933,9 +913,106 @@ button.card:hover { border-color: var(--focus-ink); background: var(--feature-ho
 .attach-button svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .composer-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 0 10px; background: var(--glass-dense); color: var(--ink); }
 .composer .composer-hint { flex-basis: 100%; color: var(--help-ink); font-size: .78rem; }
-.topics, .card, .feature-panel, [data-panel-content], [data-panel-content] > .panel-action { background: var(--glass-dense); color: var(--ink); }
+.card, .feature-panel, [data-panel-content], [data-panel-content] > .panel-action { background: var(--glass-dense); color: var(--ink); }
 [data-panel-content] > .panel-action { min-height: 44px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; }
 [data-panel-content] > .panel-action:hover { background: var(--tint); color: var(--link-ink); border-color: var(--focus-ink); }
 .error, .poster-result.unconfirmed, .badge.met, .badge.short, .badge.needs-check { background: var(--glass-dense); }
 .evidence, .biskit .program, .poster-result, .fallback { border-color: var(--content-line); }
-.graduation .item th, .graduation .item td, .biskit, .topics button { border-top-color: var(--content-line); border-bottom-color: var(--content-line); }
+.graduation .item th, .graduation .item td, .biskit { border-top-color: var(--content-line); border-bottom-color: var(--content-line); }
+
+/* 본문과 상단 띠는 테크모 예약 공간을 양쪽에 같은 크기로 둔다. */
+:root { --pet-reserve: 24px; --chat-header-height: 76px; }
+.masthead-inner, .main-welcome { width: min(1080px, calc(100% - 2 * var(--pet-reserve))); margin-inline: auto; }
+.layout { padding-inline: max(var(--pet-reserve), calc((100% - 1080px) / 2)); }
+.main-welcome { text-align: center; }
+.main-welcome #main-title { margin: 0 0 12px; }
+.main-lettering { display: block; max-width: 100%; }
+.main-lettering img { display: block; width: auto; max-width: 100%; height: 72px; object-fit: contain; margin-inline: auto; }
+.main-title-fallback { color: var(--white); }
+.main-title-fallback em { color: var(--yellow); font-style: normal; }
+.main-lettering:not([hidden]) + .main-title-fallback { display: none; }
+.main-welcome #main-greeting { margin: 0; color: var(--muted); font-size: 16px; line-height: 1.6; }
+.main-welcome #main-greeting:empty { display: none; }
+.composer-row { view-transition-name: chat-composer; }
+.layout { view-transition-name: chat-surface; }
+/* 화면 판은 위치와 투명도로 겹쳐 전환한다. 입력창은 같은 이름으로 시작·도착 위치를 잇는다. */
+::view-transition-group(chat-composer) { animation-duration: .35s; animation-timing-function: ease-in-out; }
+::view-transition-group(chat-surface) { animation: none; }
+::view-transition-old(chat-surface) { animation: chat-fade-out .35s ease both; }
+::view-transition-new(chat-surface) { animation: chat-rise .35s ease both; }
+html:has(body[data-chat-direction="back"])::view-transition-old(chat-surface) { animation: chat-lower .35s ease both; }
+html:has(body[data-chat-direction="back"])::view-transition-new(chat-surface) { animation: chat-fade-in .35s ease both; }
+@keyframes chat-rise { from { opacity: 0; transform: translateY(28px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes chat-lower { from { opacity: 1; transform: translateY(0); } to { opacity: 0; transform: translateY(28px); } }
+@keyframes chat-fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes chat-fade-out { from { opacity: 1; } to { opacity: 0; } }
+body[data-view="chat"] { overflow: hidden; }
+body[data-view="chat"] .main-welcome, body[data-view="chat"] .site-footer, body[data-view="chat"] #reset { display: none; }
+body[data-view="chat"] .layout { position: fixed; inset: var(--chat-header-height) var(--pet-reserve) 0; width: auto; margin: 0; padding: 16px 0; grid-template-columns: 260px minmax(0, 1fr); gap: 24px; border-radius: 20px 20px 0 0; }
+body[data-view="chat"] .chat { justify-self: center; width: min(760px, 100%); height: 100%; min-height: 0; overflow: hidden; }
+body[data-view="chat"] .transcript { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 16px 12px; }
+body[data-view="chat"] .composer { order: 1; flex: none; margin: 0; padding: 8px 12px 0; }
+body[data-view="chat"] .status { order: 2; flex: none; margin: 0; padding: 4px 12px; }
+body[data-view="chat"] .composer textarea { height: 44px; min-height: 44px; max-height: 44px; resize: none; }
+#conversation-sidebar { align-self: stretch; min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 12px; padding: 16px; border: 1px solid var(--content-line); border-radius: 16px; background: var(--glass-dense); color: var(--ink); }
+#conversation-sidebar button, #conversation-toggle, #home-button, #conversation-toast button { border: 1px solid var(--content-line); border-radius: 8px; background: transparent; color: var(--ink); min-height: 44px; padding: 8px 10px; }
+#conversation-sidebar button:hover, #conversation-toggle:hover, #home-button:hover, #conversation-toast button:hover { background: var(--feature-hover); }
+#new-conversation { width: 100%; font-weight: 700; }
+#conversation-list { flex: 1; min-height: 0; margin: 0; padding: 0; overflow-y: auto; list-style: none; }
+.conversation-item { position: relative; display: flex; min-width: 0; border-inline-start: 3px solid transparent; border-radius: 8px; }
+.conversation-item[aria-current="true"], .conversation-item:has(.conversation-open[aria-current="true"]) { border-inline-start-color: var(--yellow); background: var(--conversation-active); }
+#conversation-sidebar .conversation-open { flex: 1; min-width: 0; border: 0; text-align: left; }
+.conversation-title { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.conversation-time { display: block; margin-top: 4px; color: var(--muted); font-size: .75rem; }
+#conversation-sidebar .conversation-delete { flex: none; width: 36px; min-height: 44px; padding: 8px; border: 0; }
+.conversation-delete-icon { position: relative; display: block; width: 18px; height: 20px; margin: auto; border: 1.7px solid currentColor; border-top: 0; border-radius: 0 0 3px 3px; transform: scale(.72); }
+.conversation-delete-icon::before { content: ""; position: absolute; inset: -5px -4px auto; height: 1.7px; background: currentColor; }
+.conversation-delete-icon::after { content: ""; position: absolute; inset: -9px 4px auto; height: 4px; border: 1.7px solid currentColor; border-bottom: 0; }
+.conversation-delete svg, #conversation-toggle svg, #conversation-close svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.conversation-note { margin: 0; color: var(--muted); font-size: .75rem; line-height: 1.5; }
+.conversation-unread { display: inline-block; flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--yellow); align-self: center; }
+.conversation-pending { display: inline-block; width: 10px; height: 10px; border: 2px solid var(--content-line); border-top-color: var(--yellow); border-radius: 50%; animation: conversation-wait .8s linear infinite; }
+@keyframes conversation-wait { to { transform: rotate(360deg); } }
+#conversation-close { display: none; }
+#conversation-toast { position: fixed; top: 92px; right: 24px; z-index: 12; display: flex; gap: 8px; width: min(390px, calc(100% - 24px)); padding: 12px; border: 1px solid var(--line); border-radius: 14px; background: var(--glass-dense); color: var(--ink); box-shadow: 0 10px 30px var(--shadow-panel); }
+#conversation-toast-open { flex: 1; min-width: 0; text-align: left; overflow-wrap: anywhere; }
+#conversation-toast-close { flex: none; }
+@media (min-width: 961px) {
+  :root { --pet-reserve: 136px; }
+  #conversation-toggle { display: none; }
+  .pet-dock { right: 24px; width: 112px; }
+  .pet-dock .pet { width: 96px; }
+}
+@media (min-width: 1464px) {
+  :root { --pet-reserve: 192px; }
+  .pet-dock { width: 168px; }
+  .pet-dock .pet { width: 128px; }
+}
+@media (max-width: 960px) {
+  body[data-view="chat"] .layout { grid-template-columns: minmax(0, 1fr); bottom: 78px; }
+  body[data-view="chat"] .pet-dock { position: fixed; inset: auto 12px 0; height: 78px; padding: 6px 12px; background: var(--glass-dense); }
+  #conversation-sidebar { position: fixed; inset: 0 auto 0 0; z-index: 11; width: min(300px, calc(100vw - 36px)); border-radius: 0 16px 16px 0; transform: translateX(-105%); transition: transform .35s ease; }
+  body[data-conversation-drawer="open"] #conversation-sidebar { transform: translateX(0); }
+  #conversation-close { display: block; }
+  #conversation-backdrop { position: fixed; inset: 0; z-index: 10; background: var(--conversation-scrim); }
+  body[data-view="chat"] .masthead-inner { width: calc(100% - 24px); }
+  #conversation-toggle { flex: none; }
+}
+@media (max-width: 680px) {
+  :root { --pet-reserve: 12px; --chat-header-height: 72px; }
+  .main-lettering img { height: 48px; }
+  body[data-view="chat"] .brand { flex: 0 1 90px; }
+  body[data-view="chat"] .brand-logo { padding: 4px; }
+  body[data-view="chat"] .brand-logo img { width: 90px; height: auto; min-height: 0; }
+  body[data-view="chat"] #home-button, body[data-view="chat"] #conversation-toggle { padding-inline: 6px; font-size: .75rem; }
+  body[data-view="chat"] .composer { padding-inline: 0; }
+  body[data-view="chat"] .transcript { padding-inline: 0; }
+  body[data-view="chat"] .composer-row { gap: 5px; padding: 5px; }
+  body[data-view="chat"] .primary { padding-inline: 8px; }
+  #conversation-toast { right: 12px; top: 84px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  #conversation-sidebar { transition: none; }
+  .conversation-pending { animation: none; }
+  ::view-transition-group(chat-composer), ::view-transition-old(chat-surface), ::view-transition-new(chat-surface) { animation: none !important; }
+}

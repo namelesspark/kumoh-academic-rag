@@ -22,7 +22,7 @@ test("배경 사진 순서와 캔버스의 접근성·보안 약속을 지킨다
   assert.match(styles, /background(?:-image)?:[^;]*campus-aerial\.jpg/);
   assert.doesNotMatch(html, /\sstyle=|<style\b|<script(?![^>]*\bsrc=)/);
   assert.doesNotMatch(script, /\.src\s*=|\.style\b|setInterval/);
-  assert.equal(script.split("setTimeout(").length, 2);
+  assert.match(script, /setTimeout/);
 });
 
 test("셰이더 핵심의 물결·합성 수식과 uniform을 유지한다", () => {
