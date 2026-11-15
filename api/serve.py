@@ -1,4 +1,8 @@
-"""배포 앱을 시작할 때 설정한 규정 목록이나 가상 데모를 검색에 연결한다."""
+"""배포 앱을 시작할 때 설정한 규정 목록이나 가상 데모를 검색에 연결한다.
+
+AI 답변 설정(`AI_BASE_URL`, `AI_API_KEY`, `AI_MODEL`)도 여기서만 읽는다. 셋 중 하나라도
+없거나 비어 있으면 AI를 켜지 않고 지금의 조문 인용 답을 그대로 낸다.
+"""
 
 import os
 from collections.abc import Mapping
@@ -8,6 +12,9 @@ from fastapi import FastAPI
 from api.demo_regulation import DOCUMENT_TITLE, EFFECTIVE_DATE, SOURCE
 from api.local_serve import MANIFEST_ENV, create_local_manifest_app
 from api.regulation_app import chunk_articles as chunk_articles, create_regulation_app
+
+# api.regulation_app이 `app` 패키지를 불러올 경로를 잡은 뒤에 불러온다.
+from app.services.ai_chat import AiChat, settings_from_environ
 
 
 MAX_CHARS = 20
@@ -25,8 +32,12 @@ def create_demo_app(source: str) -> FastAPI:
 
 def create_app(environ: Mapping[str, str]) -> FastAPI:
     if MANIFEST_ENV in environ:
-        return create_local_manifest_app(environ)
-    return create_demo_app(SOURCE)
+        application = create_local_manifest_app(environ)
+    else:
+        application = create_demo_app(SOURCE)
+    settings = settings_from_environ(environ)
+    application.state.ai_chat = AiChat(settings) if settings is not None else None
+    return application
 
 
 app = create_app(os.environ)

@@ -169,3 +169,50 @@ python -m uvicorn api.serve:app --host 127.0.0.1 --port 8000
 - [영구 디스크 (Persistent Disks)](https://render.com/docs/disks)
 
 확인일 2026-11-13. PR 검토자가 두 페이지를 열어 확인했다. 파일이 놓이는 경로와 플랜 조건은 바뀔 수 있으니 쓰기 전에 다시 본다.
+
+## AI 답변 연결 (선택)
+
+검색한 조문을 AI가 한국어 답으로 풀어 준다. AI는 운영자 PC의 LM Studio 로컬 서버가 맡고, Render는 ngrok 무료 고정 주소로 그 PC에 닿는다. ngrok은 PC의 포트 하나를 인터넷 주소 하나에 잇는 터널 서비스다. 집 전화에 착신 전환 번호를 하나 받아 두는 것과 같다. 코드는 OpenAI 형식의 대화 완성 주소(`/chat/completions`)면 어느 서버에도 붙는다.
+
+### 환경 변수
+
+세 값이 모두 있어야 AI가 켜진다. 하나라도 없거나 공백뿐이면 AI를 부르지 않고 지금처럼 조문 원문만 답한다. 서버가 뜨지 않는 일은 없다. 다만 `AI_BASE_URL`이 `http://`나 `https://`로 시작하지 않으면 서버가 뜨지 않는다.
+
+| 이름 | 넣는 값 | 설명 |
+| --- | --- | --- |
+| `AI_BASE_URL` | `https://<고정 도메인>/v1` | 끝의 `/`만 정리하고 `/chat/completions`를 붙인다. `/v1`은 덧붙이지 않으므로 값에 직접 적는다 |
+| `AI_API_KEY` | LM Studio에서 만든 토큰 | `Authorization: Bearer` 헤더로 보낸다 |
+| `AI_MODEL` | LM Studio에 올린 모델 이름 | 요청의 `model` 값 |
+
+- **넣는 곳** — 서비스 대시보드의 **Environment**에만 넣는다. `render.yaml`과 저장소에는 실제 값을 적지 않는다.
+- **기록하지 않음** — 서버는 세 값과 질문·답·생각 과정을 로그나 파일에 남기지 않는다. 설정 객체를 출력해도 값은 `값 숨김`으로 보인다.
+- **ngrok 안내 페이지** — 요청마다 `ngrok-skip-browser-warning: 1` 헤더를 붙여 무료 주소의 안내 페이지를 건너뛴다. 다른 서버는 이 헤더를 무시한다.
+- **패키지** — 위쪽 서버와의 통신에 httpx 0.28.1 · [BSD-3-Clause](https://github.com/encode/httpx/blob/b5addb64f0161ff6bfe94c124ef76f6a1fba5254/LICENSE.md)를 쓴다. `api/requirements.txt`가 버전을 고정한다.
+
+| 시간 제한 | 값 |
+| --- | --- |
+| 연결 | 5초 |
+| 첫 글자 | 25초 (동시 호출 자리를 잡은 뒤, 비어 있지 않은 첫 생각·답 조각까지) |
+| 전체 | 90초 (자리를 기다린 시간 포함) |
+| 동시 호출 | 4개. 넘으면 최대 10초 기다린다 |
+
+### LM Studio 인증 켜기
+
+ngrok 주소는 누구나 열 수 있으므로 토큰 없이는 답하지 않게 한다.
+
+1. LM Studio의 Developer 화면에서 로컬 서버를 켜고 포트(기본 1234)를 확인한다.
+2. 서버 설정에서 인증 요구(Require Authentication)를 켜고 API 토큰을 하나 만든다. 메뉴 이름은 LM Studio 버전마다 다를 수 있다.
+3. 토큰은 Render의 `AI_API_KEY`에만 넣는다. 채팅이나 저장소에 붙여 넣지 않는다.
+4. 같은 PC에서 토큰 없이 `/v1/models`를 열어 거절되는지 본다.
+
+### ngrok 고정 주소 연결 순서
+
+1. ngrok에 가입하고 대시보드의 인증 토큰을 PC에 등록한다: `ngrok config add-authtoken <ngrok 토큰>`.
+2. 대시보드의 Domains에서 무료 고정 도메인 하나를 확인한다.
+3. PC에서 `ngrok http 1234 --url https://<고정 도메인>`을 실행한다. 예전 ngrok은 `--url` 대신 `--domain=<고정 도메인>`을 쓴다.
+4. Render의 Environment에 위 표의 세 값을 넣고 다시 배포한다.
+5. 배포 뒤 위의 데모 질문 `달빛열람증을 누가 내주나요`를 `/api/v1/chat`에 보낸다. 응답에 `notice` 필드가 없고 `answer`가 조문 원문과 다른 문장이면 AI가 답한 것이다.
+
+### PC가 꺼져 있을 때
+
+PC나 LM Studio, ngrok 중 하나라도 꺼져 있으면 연결 실패나 시간 초과로 대체 답을 낸다. 화면에는 근거 조문 원문과 「AI 답변을 만들지 못해 근거 조문만 보여 드려요」라는 작은 안내가 나온다. JSON 응답에서는 `notice` 필드에 같은 문구가 실린다. 근거와 `공식 원문 보기` 링크는 AI와 무관하게 검색 결과로 만들므로 그대로 나온다. 보류되는 질문은 AI를 부르지 않으므로 PC 상태와 관계없이 지금의 보류 안내가 나온다.

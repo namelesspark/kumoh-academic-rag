@@ -48,6 +48,8 @@ _CHUNK_COUNT = re.compile(r"chunk_count=([0-9]+)")
 _SECTION_START = re.compile(r"^## ", re.MULTILINE)
 # 문서가 `설정 이름: 사유` 모양으로 적은 오류 문구.
 _DOC_ERROR = re.compile(r"`(" + re.escape(MANIFEST_ENV) + r": [^`]+)`")
+# AI 답변 설정 이름. `app.services.ai_chat.SETTING_NAMES`와 같다 (test_serve가 둘을 맞춰 본다).
+AI_SETTING_NAMES = ("AI_BASE_URL", "AI_API_KEY", "AI_MODEL")
 
 
 def entry_names(folder: Path) -> set[str]:
@@ -209,6 +211,17 @@ class DeployDocTests(unittest.TestCase):
     def test_setting_name_matches_loader(self):
         # 문서에 나오는 설정 이름은 로더가 읽는 이름 하나뿐이다.
         self.assertEqual(set(_SETTING_NAME.findall(self.doc_text)), {MANIFEST_ENV})
+
+    def test_ai_settings_are_documented_but_not_declared_in_blueprint(self):
+        # 값이 비면 AI가 꺼질 뿐이지만, 키를 파일에 적지 않도록 대시보드에만 넣는다.
+        render_text = read_text(RENDER_YAML)
+        for name in AI_SETTING_NAMES:
+            with self.subTest(name=name):
+                self.assertIn(f"`{name}`", self.doc_text)
+                self.assertNotIn(name, render_text)
+        for phrase in ("ngrok", "LM Studio", "근거 조문"):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, self.doc_text)
 
     def test_manifest_section_states_what_an_operator_must_know(self):
         section = manifest_section(self.doc_text)

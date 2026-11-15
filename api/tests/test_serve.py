@@ -22,7 +22,15 @@ from core.tests.retrieval_cases import (
 )
 
 from app.main import app as default_app
+from app.services.ai_chat import SETTING_NAMES, AiChat
 from app.services.chat_stub import UNANSWERABLE_TEXT
+
+# 명백히 가상인 AI 설정. 실제 주소와 키가 아니다.
+AI_ENVIRON = {
+    "AI_BASE_URL": "https://fictional-ai.example.invalid/v1",
+    "AI_API_KEY": "fictional-key-Zq81",
+    "AI_MODEL": "fictional-model-7",
+}
 
 
 MANIFEST = Path(__file__).parent / "fixtures" / "fictional_manifest.json"
@@ -257,6 +265,29 @@ class ServeTests(unittest.TestCase):
 
     def test_import_with_manifest_exports_configured_app(self):
         self.assert_health(import_serve(MANIFEST_ENVIRON).app, 3)
+
+    def test_ai_is_off_unless_all_three_settings_exist(self):
+        self.assertEqual(set(SETTING_NAMES), set(AI_ENVIRON))
+        self.assertIsNone(self.serve.create_app({}).state.ai_chat)
+        self.assertIsNone(default_app.state.ai_chat)
+        for name in AI_ENVIRON:
+            partial = {key: value for key, value in AI_ENVIRON.items() if key != name}
+            with self.subTest(missing=name):
+                self.assertIsNone(self.serve.create_app(partial).state.ai_chat)
+            with self.subTest(blank=name):
+                self.assertIsNone(self.serve.create_app({**AI_ENVIRON, name: " "}).state.ai_chat)
+
+    def test_all_three_settings_turn_ai_on_for_demo_and_manifest(self):
+        for environ, chunks in ((AI_ENVIRON, 9), ({**AI_ENVIRON, **MANIFEST_ENVIRON}, 3)):
+            with self.subTest(chunks=chunks):
+                application = self.serve.create_app(environ)
+                self.assertEqual(type(application.state.ai_chat).__name__, AiChat.__name__)
+                self.assertNotIn(AI_ENVIRON["AI_API_KEY"], repr(application.state.ai_chat))
+                self.assert_health(application, chunks)
+
+    def test_import_with_ai_settings_exports_ai_app(self):
+        application = import_serve(AI_ENVIRON).app
+        self.assertEqual(type(application.state.ai_chat).__name__, AiChat.__name__)
 
     def test_import_with_empty_manifest_setting_fails(self):
         with self.assertRaises(ValueError) as caught:
