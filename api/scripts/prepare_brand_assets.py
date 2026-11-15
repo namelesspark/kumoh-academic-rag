@@ -1,10 +1,8 @@
-"""배포 준비 때 공식 그림을 검증하고 화면용 PNG, 캠퍼스 사진, 제목 글자 그림을 준비한다."""
+"""배포 준비 때 테크모 동작 시트, 공식 로고, 캠퍼스 사진, 제목 글자 그림을 검증해 준비한다."""
 
-from collections import deque
 from hashlib import sha256
 from io import BytesIO
 import json
-from math import cos, pi, radians, sin
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from time import monotonic
@@ -18,68 +16,19 @@ from PIL import Image, ImageDraw, ImageFont, UnidentifiedImageError
 
 ASSET_DIR = Path(__file__).resolve().parents[1] / "app/chat_web/assets"
 LOGO_URL = "https://www.kumoh.ac.kr/ko/sub01_01_08.do?mode=download&articleNo=536069&attachNo=157277"
-TECHMO_URL = "https://www.kumoh.ac.kr/_res/ko/img/sub01/img_character_pc.jpg"
 LOGO_HASH = "1cc2997436ca4deffbdde78614e6def3141cc7381494cb8870557d257193b5cd"
-TECHMO_HASH = "703d80a95afd60c22d301a7fde25be9a89d97fe95f9edef43f3fe093b0de297a"
 MAX_DOWNLOAD = 1024 * 1024
 MAX_ENTRY = 1024 * 1024
 REQUEST_TIMEOUT = 5
 TOTAL_TIMEOUT = 20
-WHITE_TOLERANCE = 25
-TECHMO_CROPS = {
-    "basic": (144, 142, 611, 555),
-    "quiet": (742, 111, 881, 293),
-    "guide": (742, 430, 881, 610),
-    "celebrate": (947, 129, 1105, 273),
-    "concert": (947, 441, 1105, 610),
-}
 # 그림 묶음(스프라이트 시트)의 칸 크기·한 줄의 칸 수·동작별 프레임 수는 이 파일 한 곳에 둔다.
 # 서버가 같은 파일을 화면에 넘기므로 화면과 그림이 어긋나지 않는다.
 TECHMO_LAYOUT_PATH = ASSET_DIR.parent / "techmo_layout.json"
-# 다섯 동작이 함께 쓰는 기준 크기. 자세 그림은 이 안에 들어가게 줄이기만 하고 키우지 않는다.
-# 가장 크게 움직이는 프레임(24px 뛰기, 10도 흔들림)도 192px 칸 안에 들어오는 값이다.
-TECHMO_BASE_BOX = (128, 148)
-TECHMO_FOOT_GAP = 4  # 칸 아래 끝에서 바닥선까지
-TECHMO_EDGE = 2  # 프레임이 칸 가장자리에서 띄워야 하는 최소 거리. 못 지키면 시트를 만들지 않는다
-TECHMO_DRAG_LIFT = 12  # 끌려가는 동안 바닥선에서 들린 높이
-TECHMO_PAD = 2  # 변형할 때 그림 테두리가 거칠게 잘리지 않게 두르는 투명 띠
-
-
-class Frame(NamedTuple):
-    """프레임 하나의 변형. 세로 배율(1보다 크면 늘이기, 작으면 누르기), 기울인 각도, 들어 올린 높이(px)."""
-
-    scale: float = 1.0
-    angle: float = 0.0
-    lift: float = 0.0
-
-
-class Motion(NamedTuple):
-    """동작 하나. 바탕이 되는 공식 자세, 기울일 때의 축(`bottom` 발끝, `top` 머리 위), 프레임 목록."""
-
-    pose: str
-    pivot: str
-    frames: tuple
-
-
-# 새 그림은 그리지 않는다. 공식 자세 그림을 기울이고, 세로로 늘이거나 누르고, 위아래로 옮기기만 한다.
-# 한 동작 안의 프레임은 모두 서로 다르고, 첫 프레임은 기울이지 않은 모습이다.
-TECHMO_MOTIONS = {
-    # 대기: 숨 쉬듯 세로 1.00→1.03→1.00. 2px 오르내림은 숨보다 한 프레임 늦게 따라온다.
-    "idle": Motion("basic", "bottom", tuple(
-        Frame(scale=1 + 0.015 * (1 - cos(pi * index / 4)), lift=1 - cos(pi * (index - 1) / 4))
-        for index in range(8))),
-    # 안내: 좌우 ±4도 끄덕임.
-    "guide": Motion("guide", "bottom", tuple(Frame(angle=angle) for angle in (0, 4, 2, -1, -4, -2))),
-    # 축하: 웅크림 → 늘어나며 뛰어오름 → 24px 꼭대기 → 내려옴 → 누르기 → 원래대로.
-    "celebrate": Motion("celebrate", "bottom", (
-        Frame(), Frame(scale=0.90), Frame(scale=1.06, lift=12), Frame(scale=1.03, lift=24),
-        Frame(lift=20), Frame(scale=1.04, lift=8), Frame(scale=0.92), Frame(scale=0.97))),
-    # 정숙: 느린 ±2도.
-    "quiet": Motion("quiet", "bottom", tuple(Frame(angle=angle) for angle in (0, 2, -1, -2))),
-    # 끌려가는 중: 머리 위를 축으로 ±10도 흔들리고 세로로 1.06 늘어난다.
-    "drag": Motion("concert", "top", tuple(
-        Frame(scale=1.06, angle=angle, lift=TECHMO_DRAG_LIFT) for angle in (0, 10, 4, -4, -10, -5))),
-}
+# 공식 테크모를 바탕으로 새로 그린 동작 시트. 저장소에 보관하므로 내려받지 않는다.
+# 그림을 바꾸면 지문도 함께 고친다. 지문이 다른 파일은 화면에 내려 주지 않는다.
+TECHMO_SPRITE_NAME = "techmo-sprite.png"
+TECHMO_SPRITE_SOURCE = ASSET_DIR.parent / "art" / TECHMO_SPRITE_NAME
+TECHMO_SPRITE_HASH = "8c514828197766d281f0eb60a9f6af5d015f4c44a5a4cc3bee1a7754133258af"
 
 
 class CampusPhoto(NamedTuple):
@@ -103,7 +52,7 @@ CAMPUS_PHOTOS = (
                 299358, "eb5c46f8a47e642e22a2dbbc55248a7eefcffb00d43f997f76459c65445555a5"),
 )
 PHOTO_DIMENSIONS = (1920, 280)
-# 사진은 로고·테크모보다 크고 학교 서버가 느릴 때가 있어 한도를 따로 넉넉히 둔다.
+# 사진은 로고보다 크고 학교 서버가 느릴 때가 있어 한도를 따로 넉넉히 둔다.
 # 4초·10초였을 때 실제 배포 준비에서 한 장이 시간 초과로 빠졌다.
 PHOTO_REQUEST_TIMEOUT = 15  # 요청 하나가 응답 없이 기다리는 시간
 PHOTO_TOTAL_TIMEOUT = 60  # 사진 한 장에 쓰는 전체 시간. 다시 시도한 시간도 여기에 든다
@@ -198,11 +147,11 @@ def download(url, *, opener=None, clock=monotonic, limit=None):
     사진 주소에는 브라우저형 요청 헤더를 붙이고 사진용 시간 한도를 쓴다. 시간 초과나
     연결 오류가 나면 같은 전체 한도 안에서 한 번 더 받는다.
     글꼴 주소는 글꼴 저장소 안에서만 받고 글꼴용 크기 한도를 쓴다.
-    로고와 테크모 요청은 전과 같다.
+    로고 요청은 전과 같다.
     """
     is_photo = any(url == photo.url for photo in CAMPUS_PHOTOS)
     is_font = any(url == title.url for title in TITLE_IMAGES)
-    if not is_photo and not is_font and url not in (LOGO_URL, TECHMO_URL):
+    if not is_photo and not is_font and url != LOGO_URL:
         raise AssetError("허용하지 않은 원본")
     host = FONT_HOST if is_font else OFFICIAL_HOST
     if limit is None:
@@ -278,39 +227,8 @@ def logo_png(data, expected_hash=LOGO_HASH):
     raise AssetError("로고 지문 불일치")
 
 
-def techmo_png(data, expected_hash=TECHMO_HASH, *, pose="basic"):
-    """가장자리와 이어진 흰색만 지워 눈의 흰자를 보존한다."""
-    if sha256(data).hexdigest() != expected_hash:
-        raise AssetError("테크모 지문 불일치")
-    with Image.open(BytesIO(data)) as source:
-        if source.format != "JPEG" or source.size != (1198, 767):
-            raise AssetError("테크모 형식 또는 크기 불일치")
-        left, top, right, bottom = TECHMO_CROPS[pose]
-        image = source.crop((left, top, right + 1, bottom + 1)).convert("RGBA")
-    width, height = image.size
-    pixels = image.load()
-    pending = deque([(x, y) for x in range(width) for y in (0, height - 1)] +
-                    [(x, y) for y in range(height) for x in (0, width - 1)])
-    visited = set()
-    while pending:
-        x, y = pending.popleft()
-        if (x, y) in visited or not (0 <= x < width and 0 <= y < height):
-            continue
-        visited.add((x, y))
-        if min(pixels[x, y][:3]) < 255 - WHITE_TOLERANCE:
-            continue
-        pixels[x, y] = (*pixels[x, y][:3], 0)
-        pending.extend(((x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)))
-    result = BytesIO()
-    image.save(result, format="PNG")
-    return result.getvalue()
-
-
 def load_techmo_layout(text=None):
-    """칸 배치를 읽어 (칸 크기, 한 줄의 칸 수, ((동작 이름, 프레임 수), ...))로 돌려준다.
-
-    동작 이름과 프레임 수가 이 스크립트의 동작 표(`TECHMO_MOTIONS`)와 다르면 그림을 만들지 않는다.
-    """
+    """칸 배치를 읽어 (칸 크기, 한 줄의 칸 수, ((동작 이름, 프레임 수), ...))로 돌려준다."""
     if text is None:
         text = TECHMO_LAYOUT_PATH.read_text(encoding="utf-8")
 
@@ -330,84 +248,37 @@ def load_techmo_layout(text=None):
         valid = False
     if not valid:
         raise AssetError("테크모 칸 배치 형식 불일치")
-    for name, frames in motions:
-        if name not in TECHMO_MOTIONS or len(TECHMO_MOTIONS[name].frames) != frames:
-            raise AssetError("테크모 칸 배치와 동작 표 불일치")
     return cell, columns, motions
 
 
-def techmo_pose_base(data, pose):
-    """자세 그림의 투명 여백을 자르고 기준 크기 안으로 줄인다. (변형용 그림, 그림 높이)를 돌려준다.
+def read_techmo_sprite():
+    """저장소에 보관한 동작 시트를 한 번 읽는다."""
+    return TECHMO_SPRITE_SOURCE.read_bytes()
 
-    변형용 그림은 색에 투명도를 미리 곱해 둔 것이다(RGBa). 이렇게 해야 기울이거나 늘일 때
-    가장자리에 투명한 점의 색이 섞여 테두리가 어두워지지 않는다.
+
+def techmo_sprite_png(data, expected_hash, layout_text=None):
+    """저장소의 동작 시트가 확인해 둔 그림과 같을 때만 읽은 바이트를 그대로 돌려준다.
+
+    지문 → PNG 형식 → 색 모드 → 크기 → 전체 디코딩 순서로 본다. 크기는 칸 배치 파일의
+    `한 줄의 칸 수 × 칸 크기`, `줄 수 × 칸 크기`와 같아야 한다. 색 모드는 원래 RGBA여야 하며
+    다른 모드를 RGBA로 바꿔 통과시키지 않는다. 다시 저장하지 않으므로 결과의 지문도 같다.
     """
-    with Image.open(BytesIO(techmo_png(data, pose=pose))) as source:
-        image = source.convert("RGBA")
-    visible = image.getchannel("A").getbbox()
-    if visible is None:
-        raise AssetError("테크모 자세가 비어 있음")
-    image = image.crop(visible)
-    image.thumbnail(TECHMO_BASE_BOX, Image.Resampling.LANCZOS)
-    padded = Image.new("RGBA", (image.width + 2 * TECHMO_PAD, image.height + 2 * TECHMO_PAD))
-    padded.paste(image, (TECHMO_PAD, TECHMO_PAD))
-    return padded.convert("RGBa"), image.height
-
-
-def techmo_frame(base, height, cell, pivot, frame):
-    """기준 그림 한 장을 프레임 하나로 변형해 칸 크기 그림으로 돌려준다.
-
-    칸보다 넓은 작업판에 그린 뒤 칸만 잘라 낸다. 칸을 넘는 프레임을 조용히 자르지 않고 찾아내기 위해서다.
-    결과의 점 (x, y)가 기준 그림의 어느 점에서 오는지를 식 하나(아핀 변환)로 넘기므로
-    그림은 프레임마다 한 번만 다시 그려진다.
-    """
-    margin = cell // 2
-    size = cell + 2 * margin
-    ground = margin + cell - TECHMO_FOOT_GAP  # 작업판에서 본 바닥선
-    turn = radians(frame.angle)
-    c, s = cos(turn), sin(turn)
-    # 기울이는 축. 발끝 가운데에서 잰 높이다.
-    pivot_y = -height * frame.scale if pivot == "top" else 0.0
-    # 가로는 칸 가운데에 두되 왼쪽 끝을 정수 자리에 맞춘다. 폭이 홀수여도 변형하지 않은 프레임이 흐려지지 않는다.
-    width = base.width - 2 * TECHMO_PAD
-    axis_x, axis_y = margin + (cell - width) // 2 + width / 2, ground - frame.lift + pivot_y
-    matrix = (
-        c, s, -c * axis_x - s * axis_y + base.width / 2,
-        -s / frame.scale, c / frame.scale,
-        (s * axis_x - c * axis_y + pivot_y) / frame.scale + base.height - TECHMO_PAD,
-    )
-    canvas = base.transform((size, size), Image.Transform.AFFINE, matrix,
-                            resample=Image.Resampling.BICUBIC).convert("RGBA")
-    visible = canvas.getchannel("A").getbbox()
-    if visible is None:
-        raise AssetError("테크모 프레임이 비어 있음")
-    # 발끝을 축으로 기울이면 한쪽 끝이 바닥선 아래로 내려간다. 가장 낮은 점을 바닥선에 다시 맞춘다.
-    shift = visible[3] - ground if frame.angle and pivot == "bottom" else 0
-    left, top = margin, margin + shift
-    if (visible[0] < left + TECHMO_EDGE or visible[1] < top + TECHMO_EDGE
-            or visible[2] > left + cell - TECHMO_EDGE or visible[3] > top + cell - TECHMO_EDGE):
-        raise AssetError("테크모 프레임이 칸을 넘음")
-    return canvas.crop((left, top, left + cell, top + cell))
-
-
-def techmo_sprite_png(data, layout_text=None):
-    """공식 자세 그림을 변형해 동작마다 한 줄씩 프레임을 놓은 한 장을 만든다.
-
-    줄 순서와 칸 수는 칸 배치 파일을 따른다. 다섯 동작이 같은 기준 크기와 바닥선을 쓰고,
-    프레임 수가 한 줄의 칸 수보다 적은 줄의 남는 칸은 투명하게 둔다.
-    같은 입력이면 같은 바이트가 나온다.
-    """
+    if sha256(data).hexdigest() != expected_hash:
+        raise AssetError("테크모 시트 지문 불일치")
     cell, columns, motions = load_techmo_layout(layout_text)
-    sheet = Image.new("RGBA", (columns * cell, len(motions) * cell))
-    for row, (name, _) in enumerate(motions):
-        motion = TECHMO_MOTIONS[name]
-        base, height = techmo_pose_base(data, motion.pose)
-        for column, frame in enumerate(motion.frames):
-            sheet.paste(techmo_frame(base, height, cell, motion.pivot, frame),
-                        (column * cell, row * cell))
-    result = BytesIO()
-    sheet.save(result, format="PNG")
-    return result.getvalue()
+    try:
+        with Image.open(BytesIO(data)) as image:
+            if image.format != "PNG":
+                raise AssetError("테크모 시트 형식 불일치")
+            if image.mode != "RGBA":
+                raise AssetError("테크모 시트 색 모드 불일치")
+            if image.size != (columns * cell, len(motions) * cell):
+                raise AssetError("테크모 시트 크기 불일치")
+            image.load()
+    except (UnidentifiedImageError, OSError, SyntaxError):
+        # 그림으로 열리지 않거나 중간에 끊긴 파일.
+        raise AssetError("테크모 시트를 열 수 없음") from None
+    return data
 
 
 def campus_jpeg(data, expected_size, expected_hash):
@@ -500,15 +371,38 @@ def atomic_write(destination, data):
             temporary.unlink(missing_ok=True)
 
 
-def main(*, downloader=download, writer=atomic_write, report=print):
+def main(*, downloader=download, writer=atomic_write, report=print,
+         sprite_reader=read_techmo_sprite):
+    def prepare(name, produce):
+        """그림 하나를 만들어 쓰고 한 줄로 보고한다. 실패하면 쓰지 않아 기존 파일이 남는다."""
+        try:
+            writer(ASSET_DIR / name, produce())
+            report(f"{name}: 준비 완료")
+        except Exception as error:
+            # 외부 응답·주소·파일 경로는 로그에 옮기지 않는다.
+            reason = str(error) if isinstance(error, AssetError) else type(error).__name__
+            report(f"{name}: 준비 실패 ({reason})")
+
+    # 동작 시트는 저장소에 있어 내려받지 않는다. 내려받기보다 먼저 준비하므로
+    # 학교 서버가 전부 막혀도 시트는 준비된다.
+    prepare(TECHMO_SPRITE_NAME, lambda: techmo_sprite_png(sprite_reader(), TECHMO_SPRITE_HASH))
+
     sources = {}
+
+    def fetch(url):
+        """주소마다 한 번만 받는다. 실패도 기억해 같은 주소를 다시 받지 않는다."""
+        if url not in sources:
+            try:
+                sources[url] = downloader(url)
+            except Exception as error:
+                sources[url] = error
+        data = sources[url]
+        if isinstance(data, Exception):
+            raise data
+        return data
+
     for name, url, convert in (
         ("kumoh-signature.png", LOGO_URL, logo_png),
-        ("techmo-basic.png", TECHMO_URL, techmo_png),
-        *((f"techmo-{pose}.png", TECHMO_URL,
-           lambda data, pose=pose: techmo_png(data, pose=pose))
-          for pose in ("quiet", "guide", "celebrate")),
-        ("techmo-sprite.png", TECHMO_URL, techmo_sprite_png),
         # 사진은 주소가 서로 달라 한 장씩 따로 받고 따로 검사한다.
         *((photo.name, photo.url,
            lambda data, photo=photo: campus_jpeg(data, photo.size, photo.sha256))
@@ -519,21 +413,7 @@ def main(*, downloader=download, writer=atomic_write, report=print):
            lambda data, title=title: title_png(data, title.size, title.sha256, title.lines))
           for title in TITLE_IMAGES),
     ):
-        try:
-            if url not in sources:
-                try:
-                    sources[url] = downloader(url)
-                except Exception as error:
-                    sources[url] = error
-            data = sources[url]
-            if isinstance(data, Exception):
-                raise data
-            writer(ASSET_DIR / name, convert(data))
-            report(f"{name}: 준비 완료")
-        except Exception as error:
-            # 외부 응답·주소·파일 경로는 로그에 옮기지 않는다.
-            reason = str(error) if isinstance(error, AssetError) else type(error).__name__
-            report(f"{name}: 준비 실패 ({reason})")
+        prepare(name, lambda: convert(fetch(url)))
     return 0
 
 

@@ -40,9 +40,8 @@ VALIDATION_ERROR_MESSAGE = "요청 형식이 올바르지 않습니다."
 CHAT_WEB_DIR = Path(__file__).with_name("chat_web")
 CHAT_WEB_MEDIA_TYPES = {
     "chat.css": "text/css", "chat.js": "text/javascript",
-    "kumoh-signature.png": "image/png", "techmo-basic.png": "image/png",
-    "techmo-quiet.png": "image/png", "techmo-guide.png": "image/png",
-    "techmo-celebrate.png": "image/png",
+    "kumoh-signature.png": "image/png",
+    # 테크모 동작 시트. 저장소의 `art/` 원본을 배포 준비 때 검사해 `assets/`에 복사한 것만 내준다.
     "techmo-sprite.png": "image/png",
     # 로그인 화면의 제목 글자 그림. 글꼴 파일은 이 목록에 넣지 않는다.
     "title-lettering.png": "image/png",
