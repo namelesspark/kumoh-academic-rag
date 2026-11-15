@@ -25,8 +25,11 @@ Base URL: `/api/v1`
 | `session_id` | string | 대화를 구분하는 값. 생략하거나 `null`을 보내면 서버가 발급 |
 | `message` | string | 사용자 질문 |
 | `use_academic_data` | bool | 학적 연동 동의 여부. `true`와 `false`만 받으며 생략 시 `false` |
+| `mode` | string | AI 답변 방식. `"fast"`(빠르게)와 `"deep"`(깊이 생각하기)만 받으며 생략 시 `"fast"`. 다른 값은 400 |
 
 `use_academic_data`를 요청마다 받는 이유 — 개인정보 조회는 사용자가 매번 통제할 수 있어야 한다.
+
+AI 답변(설정 세 개가 모두 있을 때만 켜짐, [배포 안내](RENDER_DEPLOY.md#ai-답변-연결-선택))이 켜져 있고 근거 조문이 있으면 `answer`에 AI가 쓴 완성된 답을 담는다. 근거(`citations`)는 늘 검색 결과로 만들고 모델이 쓴 주소나 조 번호는 더하지 않는다. AI 답을 만들지 못하면 지금의 조문 원문 답을 담고 `notice` 문자열 필드(`"AI 답변을 만들지 못해 근거 조문만 보여 드려요"`)를 더한다. 그 밖의 응답에는 `notice`가 없다. AI가 꺼져 있거나 보류되는 질문은 AI를 부르지 않고 지금 답을 그대로 돌려준다.
 
 ### Response
 
@@ -69,6 +72,37 @@ Base URL: `/api/v1`
 답변 불가 응답도 성공 응답과 같은 모든 필드(`session_id`, `answer`, `citations`, `answered`, `personalized`, `latency_ms`)를 항상 포함한다. 위 예시는 달라지는 값만 보인 것이다.
 
 **설계 원칙: 근거가 없으면 답을 만들지 않는다.** 이 경로가 정상 동작해야 시스템을 신뢰할 수 있다.
+
+---
+
+## POST /chat/stream
+
+`POST /chat`과 같은 요청 본문을 받아 답을 조각 전송(SSE, Server-Sent Events)으로 흘려보낸다. 조각 전송은 서버가 응답 하나를 닫지 않고 글자를 조금씩 보내는 방식이다. 수도꼭지를 틀어 두고 물을 받는 것과 같다.
+
+- 응답 헤더: `Content-Type: text/event-stream`, `Cache-Control: no-cache`, `X-Accel-Buffering: no`.
+- 이벤트 하나는 `event: 이름` 줄, 한 줄짜리 JSON인 `data:` 줄, 빈 줄로 이룬다.
+- 요청 형식 오류는 스트림을 열지 않고 `POST /chat`과 같은 400 고정 문구를 돌려준다.
+
+| 이름 | `data` 모양 | 규칙 |
+|---|---|---|
+| `meta` | `{"answered":true,"citations":[…],"session_id":"…","personalized":false}` | 항상 첫 이벤트. `citations`는 `POST /chat`과 같은 모양. 보류면 `answered:false`와 빈 목록 |
+| `thinking` | `{"text":"…"}` | `mode:"deep"`에서만 보낸다. 모델이 쓴 생각 원문이라 영어일 수 있다 |
+| `answer` | `{"text":"…","replace":false}` | 이어 붙인다. `replace:true`면 그때까지 그린 답을 지우고 새로 쓴다 |
+| `notice` | `{"text":"AI 답변을 만들지 못해 근거 조문만 보여 드려요"}` | 대체 답일 때 한 번 |
+| `done` | `{"latency_ms":{"retrieval":0,"generation":0,"total":0}}` | 정상·보류·대체의 마지막 |
+| `error` | `{"code":"stream_failed","message":"답변을 받지 못했어요"}` | 예상하지 못한 오류. 고정 문구만 싣는다 |
+
+| 상황 | 이벤트 순서 |
+|---|---|
+| AI 답 | `meta` → (`thinking`…) → `answer`… → `done` |
+| 보류 | `meta` → `answer`(보류 안내) → `done`. AI를 부르지 않는다 |
+| AI 꺼짐, 연결 실패, 시간 초과, 200이 아닌 응답, 깨진 데이터, 빈 답, 자리 대기 만료 | `meta` → (`answer`…) → `answer`(조문 원문, 앞서 보낸 답이 있으면 `replace:true`) → `notice` → `done` |
+| 검색이 연결되지 않은 임시 응답 | `meta` → `answer`(지금 답) → `done` |
+
+- `mode:"fast"`는 위쪽 서버에 `reasoning_effort:"none"`을 보내고, `"deep"`은 이 필드를 보내지 않는다. `fast`에서 생각 조각이 와도 버린다.
+- AI에는 시스템 지시, 근거 조문(규정명·조 번호·본문), 질문만 보낸다. 이전 대화와 학적 정보는 보내지 않는다. 지시 내용은 [프롬프트 설계](PROMPTING.md#ai-답변-지시)에 있다.
+- 브라우저가 연결을 끊으면 서버가 위쪽 요청과 자리 대기를 취소하고 동시 호출 자리를 돌려준다.
+- 화면은 모르는 이벤트 이름을 무시하고, `done` 없이 끝난 연결은 실패로 본다.
 
 ---
 
@@ -387,5 +421,6 @@ Base URL: `/api/v1`
 ## 미결정
 
 - 인증 방식 — 학교 통합 로그인(SSO, Single Sign-On) 연동 가능 여부에 달려 있음. 확인 전까지는 개발용 토큰. 시연 계정 로그인은 화면 시연용이며 이 결정과 무관하다.
-- 스트리밍 응답(SSE) 여부. 답변 생성이 2초를 넘으면 필요.
-- Rate limit 기준.
+- Rate limit(요청 횟수 한도) 기준. AI 동시 호출 4개 제한과는 별개다.
+
+스트리밍 응답(SSE) 여부는 이슈 #98에서 정했다. 생각을 켠 답이 약 5초 걸려 [POST /chat/stream](#post-chatstream)을 더했고, `POST /chat`은 그대로 둔다.

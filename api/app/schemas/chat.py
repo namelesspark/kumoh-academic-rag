@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import date
+from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -38,6 +39,14 @@ class ChatRequest(BaseModel):
         default=False,
         strict=True,
         description="학적 연동 동의 여부. 요청마다 받는다.",
+    )
+
+    mode: Literal["fast", "deep"] = Field(
+        default="fast",
+        description=(
+            "AI 답변 방식. fast는 생각 과정 없이 바로 답하고, deep은 생각 과정을 거친다. "
+            "다른 값은 400이다."
+        ),
     )
 
     @field_validator("message")

@@ -1,40 +1,142 @@
-"""POST /api/v1/chat에서 앱에 설정한 검색 또는 기본 임시 응답을 제공한다."""
+"""질문 주소 두 개. POST /api/v1/chat은 완성된 답 하나를, POST /api/v1/chat/stream은 조각 전송을 돌려준다.
+
+두 주소 모두 검색과 관련성 검사를 먼저 한다. 근거가 있고 AI가 설정돼 있을 때만 AI를 부른다.
+AI가 꺼져 있거나 보류인 질문은 기존 주소가 기다림 없이 지금 답을 그대로 돌려준다.
+"""
+
+import asyncio
+from collections.abc import AsyncIterator
+from contextlib import aclosing
 
 from fastapi import APIRouter, Request
+from fastapi.responses import JSONResponse
+from starlette.responses import StreamingResponse
 
 from app.schemas.chat import ChatRequest, ChatResponse
 from app.schemas.error import ErrorResponse
+from app.services.ai_chat import ERROR_EVENT, Event, chat_events, format_event
 from app.services.chat_stub import build_stub_chat_result
 
 
 router = APIRouter()
 
+# 자동 생성 설명서(OpenAPI 문서)에 400 응답이 있다고 알리는 선언.
+# 실제로 400을 만드는 일은 main.py의 예외 처리 함수(핸들러)가 한다.
+BAD_REQUEST = {400: {"model": ErrorResponse, "description": "요청 형식 오류. 고정 문구 하나만 반환한다."}}
+STREAM_HEADERS = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
+# 스트림 하나가 열려 있을 수 있는 최대 초. AI 전체 제한(90초)보다 조금 길게 잡는다.
+STREAM_TIMEOUT = 95.0
 
-@router.post(
-    "/chat",
-    response_model=ChatResponse,
-    # 자동 생성 설명서(OpenAPI 문서)에 400 응답이 있다고 알리는 선언.
-    # 실제로 400을 만드는 일은 main.py의 예외 처리 함수(핸들러)가 한다.
-    responses={400: {"model": ErrorResponse, "description": "요청 형식 오류. 고정 문구 하나만 반환한다."}},
-)
-async def post_chat(request: ChatRequest, http_request: Request) -> dict:
-    """질문을 받아 앱별 설정에 맞는 응답을 돌려준다.
 
-    요청 본문이 ChatRequest 검증을 통과하지 못하면 여기 들어오지 않고
-    main.py의 핸들러가 400을 돌려준다.
+class EventStreamResponse(StreamingResponse):
+    """조각 전송 응답. 브라우저가 연결을 끊으면 이벤트 생성기를 닫아 위쪽 요청도 취소한다.
 
-    서비스가 돌려준 dict는 `response_model=ChatResponse` 덕분에 FastAPI가
-    응답 형식 정의(스키마)에 맞춰 검사한다. 검사를 통과한 값은 FastAPI가 중괄호와
-    따옴표로 값을 적는 텍스트 형식(JSON, JavaScript Object Notation)으로 바꿔 내보낸다.
-    필드가 빠지면 서버 쪽 오류가 난다.
+    Starlette의 StreamingResponse는 끊김을 알아도 생성기를 닫지 않는다. 생성기가 위쪽
+    응답과 동시 호출 자리를 쥐고 있으므로 여기서 직접 닫는다.
     """
 
-    chat_retrieval = http_request.app.state.chat_retrieval
-    if chat_retrieval is not None:
-        return chat_retrieval.build_result(request.message, request.session_id)
+    media_type = "text/event-stream"
 
+    def __init__(self, content: AsyncIterator[bytes]) -> None:
+        super().__init__(content, media_type=self.media_type, headers=STREAM_HEADERS)
+
+    async def _stream(self, send) -> None:
+        try:
+            async for chunk in self.body_iterator:
+                await send({"type": "http.response.body", "body": chunk, "more_body": True})
+            await send({"type": "http.response.body", "body": b"", "more_body": False})
+        except OSError:
+            return  # 끊긴 연결에 보내려 한 경우
+
+    async def _watch(self, receive) -> None:
+        while (await receive())["type"] != "http.disconnect":
+            pass
+
+    async def __call__(self, scope, receive, send) -> None:
+        await send({"type": "http.response.start", "status": self.status_code, "headers": self.raw_headers})
+        streaming = asyncio.ensure_future(self._stream(send))
+        watching = asyncio.ensure_future(self._watch(receive))
+        try:
+            # 천천히 받는 연결이 보내기 대기에서 자리를 오래 붙잡지 않게 전체 시간을 둔다.
+            await asyncio.wait(
+                (streaming, watching), timeout=STREAM_TIMEOUT, return_when=asyncio.FIRST_COMPLETED
+            )
+        finally:
+            streaming.cancel()
+            watching.cancel()
+            await asyncio.gather(streaming, watching, return_exceptions=True)
+            await self.body_iterator.aclose()
+        if not streaming.cancelled() and streaming.exception() is not None:
+            raise streaming.exception()
+        if self.background is not None:
+            await self.background()
+
+
+async def encode_events(events: AsyncIterator[Event]) -> AsyncIterator[bytes]:
+    async with aclosing(events):
+        try:
+            async for name, data in events:
+                yield format_event(name, data)
+        except Exception:
+            yield format_event("error", ERROR_EVENT)
+
+
+def _search(request: ChatRequest, state) -> tuple[dict, bool]:
+    """(지금의 응답, 검색을 거쳤는지). 검색이 없으면 임시 응답(스텁)이다."""
+
+    chat_retrieval = state.chat_retrieval
+    if chat_retrieval is not None:
+        return chat_retrieval.build_result(request.message, request.session_id), True
     return build_stub_chat_result(
         message=request.message,
         session_id=request.session_id,
         use_academic_data=request.use_academic_data,
+    ), False
+
+
+@router.post("/chat", response_model=ChatResponse, responses=BAD_REQUEST)
+async def post_chat(request: ChatRequest, http_request: Request):
+    """질문을 받아 완성된 답 하나를 돌려준다.
+
+    요청 본문이 ChatRequest 검증을 통과하지 못하면 여기 들어오지 않고 main.py의 핸들러가
+    400을 돌려준다. 응답은 여섯 필드이고, AI 답을 만들지 못해 조문 원문으로 대체했을 때만
+    `notice` 필드를 더한다.
+    """
+
+    state = http_request.app.state
+    result, searched = _search(request, state)
+    ai = getattr(state, "ai_chat", None)
+    if ai is None or not searched or not result["answered"]:
+        return result
+
+    body = await ai.complete(result, request.message, request.mode)
+    notice = body.pop("notice", None)
+    if notice is None:
+        return body
+    content = ChatResponse.model_validate(body).model_dump(mode="json")
+    content["notice"] = notice
+    return JSONResponse(content)
+
+
+@router.post(
+    "/chat/stream",
+    # 응답 클래스는 처리 함수가 직접 만들어 돌려준다. 장식자에 스트림 응답 클래스를 지정하면
+    # 일부 FastAPI 버전의 설명서(OpenAPI) 생성이 깨지므로, 미디어 형식은 responses로만 알린다.
+    response_model=None,
+    responses={
+        200: {
+            "description": "meta·thinking·answer·notice·done·error 이벤트의 조각 전송",
+            "content": {"text/event-stream": {"schema": {"type": "string"}}},
+        },
+        **BAD_REQUEST,
+    },
+)
+async def post_chat_stream(request: ChatRequest, http_request: Request):
+    """질문을 받아 답을 조각 전송(SSE, Server-Sent Events)으로 흘려보낸다."""
+
+    state = http_request.app.state
+    result, searched = _search(request, state)
+    events = chat_events(
+        result, request.message, request.mode, getattr(state, "ai_chat", None), searched=searched
     )
+    return EventStreamResponse(encode_events(events))

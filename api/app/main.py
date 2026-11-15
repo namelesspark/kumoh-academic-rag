@@ -2,7 +2,7 @@
 
 웹 앱 객체는 FastAPI 라이브러리가 만든다. 이 모듈이 하는 일은 세 가지다.
 
-1. `/api/v1` 아래 라우터(health, chat)를 앱에 등록한다. 라우터는 요청 주소를 보고
+1. `/api/v1` 아래 라우터(health, chat, chat/stream 등)를 앱에 등록한다. 라우터는 요청 주소를 보고
    어느 함수가 처리할지 정하는 부품이다.
 2. 요청이 잘못됐을 때 나가는 400 응답을 고정 문구 하나로 통일한다.
    - 필드 누락, 타입 불일치, 값 검사 함수(validator) 실패는 RequestValidationError로 온다.
@@ -53,7 +53,7 @@ CHAT_WEB_MEDIA_TYPES = {
 }
 # 요청 형식 오류를 400으로만 내는 주소들. 자동 설명서에서 422를 지운다.
 # 사진 주소들은 실제로 422를 내므로 여기에 넣지 않는다.
-PATHS_WITHOUT_422 = ("/api/v1/chat", "/api/v1/demo-login")
+PATHS_WITHOUT_422 = ("/api/v1/chat", "/api/v1/chat/stream", "/api/v1/demo-login")
 # 주소에 내용 지문을 붙이는 그림. 배포 준비 때 생기므로 없을 수 있다.
 FINGERPRINTED_IMAGES = ("main-lettering.png",)
 # 테크모 그림 묶음의 칸 배치를 화면에 넘기는 자리. `index.html`에 정확히 한 번 있어야 한다.
@@ -153,6 +153,8 @@ def create_app(
     application = FastAPI(title="kumoh-rag API", version="0.1.0")
     application.state.chat_retrieval = chat_retrieval
     application.state.chunk_count = chunk_count
+    # AI 답변은 기본으로 꺼 둔다. 배포 진입점(api/serve.py)이 설정 세 개를 확인한 뒤에만 켠다.
+    application.state.ai_chat = None
 
     # /api/v1 접두사는 라우터 쪽(app/api/v1/__init__.py)에서 붙인다.
     application.include_router(api_v1_router)

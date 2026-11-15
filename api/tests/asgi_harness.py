@@ -21,6 +21,9 @@
     resp = call_app(app, "GET", "/api/v1/health")
     assert resp.status == 200
     assert resp.json()["status"] == "ok"
+
+조각 전송(SSE) 응답은 `stream_app`으로 받는다. 보낸 조각을 순서 그대로 돌려주고,
+`disconnect_after`를 주면 그만큼 조각을 받은 뒤 브라우저가 연결을 끊은 것처럼 알린다.
 """
 
 import asyncio
@@ -196,3 +199,106 @@ def call_app(
         raise AssertionError(f"http.response.start가 전송되지 않았습니다: {sent!r}")
 
     return AsgiResponse(status=status, headers=response_headers, body=b"".join(chunks))
+
+
+# 테스트가 비동기 함수를 소켓 없이 돌릴 때 쓰는 공개 이름.
+run_without_sockets = _run_without_sockets
+
+
+@dataclass
+class StreamedResponse:
+    """조각 전송 응답. `chunks`는 앱이 보낸 본문 조각을 순서 그대로 담는다."""
+
+    status: int
+    headers: dict
+    chunks: list
+    complete: bool
+
+    def text(self) -> str:
+        return b"".join(self.chunks).decode("utf-8")
+
+
+def stream_app(app, path: str, *, json_body, disconnect_after: int | None = None) -> StreamedResponse:
+    """POST 요청 하나를 보내고 조각 전송 응답을 받는다.
+
+    `disconnect_after`가 있으면 비어 있지 않은 본문 조각을 그만큼 받은 뒤 연결 종료를
+    알린다. 없으면 응답이 끝난 뒤에 알린다.
+    """
+
+    body = json.dumps(json_body, ensure_ascii=False).encode("utf-8")
+    scope = {
+        "type": "http",
+        "asgi": {"version": "3.0", "spec_version": "2.3"},
+        "http_version": "1.1",
+        "method": "POST",
+        "scheme": "http",
+        "path": path,
+        "raw_path": path.encode("utf-8"),
+        "query_string": b"",
+        "root_path": "",
+        "headers": [
+            (b"host", b"asgi-harness"),
+            (b"content-type", b"application/json"),
+            (b"content-length", str(len(body)).encode("latin-1")),
+        ],
+        "client": ("asgi-harness", 0),
+        "server": ("asgi-harness", 80),
+        "state": {},
+    }
+    sent = []
+
+    async def run():
+        disconnected = asyncio.Event()
+        pending = [{"type": "http.request", "body": body, "more_body": False}]
+        received = 0
+
+        async def receive():
+            if pending:
+                return pending.pop(0)
+            await disconnected.wait()
+            return {"type": "http.disconnect"}
+
+        async def send(message):
+            nonlocal received
+            sent.append(message)
+            if message["type"] != "http.response.body":
+                return
+            if not message.get("more_body", False):
+                disconnected.set()
+            elif message.get("body"):
+                received += 1
+                if disconnect_after is not None and received >= disconnect_after:
+                    disconnected.set()
+
+        await app(scope, receive, send)
+
+    _run_without_sockets(run())
+
+    status = None
+    headers = {}
+    chunks = []
+    complete = False
+    for message in sent:
+        if message["type"] == "http.response.start":
+            status = int(message["status"])
+            headers = {k.decode("latin-1").lower(): v.decode("latin-1") for k, v in message.get("headers", [])}
+        elif message["type"] == "http.response.body":
+            if message.get("body"):
+                chunks.append(message["body"])
+            if not message.get("more_body", False):
+                complete = True
+    if status is None:
+        raise AssertionError("http.response.start가 전송되지 않았습니다")
+    return StreamedResponse(status=status, headers=headers, chunks=chunks, complete=complete)
+
+
+def parse_events(text: str) -> list[tuple[str, dict]]:
+    """`event:`·`data:` 줄로 이룬 조각 전송 글을 (이름, 값) 목록으로 읽는다."""
+
+    events = []
+    for block in text.split("\n\n"):
+        if not block.strip():
+            continue
+        fields = dict(line.split(": ", 1) for line in block.split("\n"))
+        events.append((fields["event"], json.loads(fields["data"])))
+    return events
