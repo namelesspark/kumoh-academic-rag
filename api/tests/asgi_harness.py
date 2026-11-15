@@ -89,6 +89,7 @@ def call_app(
     raw_body: bytes | None = None,
     headers: dict | None = None,
     allow_wait: bool = False,
+    disconnect_when=None,
 ) -> AsgiResponse:
     """ASGI 앱을 한 번 호출해 응답을 돌려준다.
 
@@ -96,7 +97,12 @@ def call_app(
     Object Notation)으로 바꿔 보낸다. 파이썬 dict를 그 문자열로 바꾸는 일을 직렬화라
     한다. `raw_body`가 있으면 그대로 보낸다(깨진 JSON 테스트용). 둘 다 없으면 빈 본문이다.
     파일 응답처럼 대기가 필요한 테스트는 `allow_wait=True`로 앱을 실행할 수 있다.
+    `disconnect_when`(인자 없는 비동기 함수)을 주면 본문을 넘긴 뒤 그 함수가 끝나는 순간
+    브라우저가 연결을 끊은 것처럼 알린다. `allow_wait=True`와 함께 쓴다.
     """
+
+    if disconnect_when is not None and not allow_wait:
+        raise ValueError("disconnect_when은 allow_wait=True와 함께 써야 한다")
 
     # 1. 본문 만들기 --------------------------------------------------------
     if json_body is not None and raw_body is not None:
@@ -149,7 +155,9 @@ def call_app(
     async def receive():
         if pending:
             return pending.pop(0)
-        if response_complete is not None:
+        if disconnect_when is not None:
+            await disconnect_when()
+        elif response_complete is not None:
             await response_complete.wait()
         return {"type": "http.disconnect"}
 

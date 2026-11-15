@@ -4,7 +4,9 @@
 `test_ai_chat`의 가짜 전송으로 대신한다. 규정·질문·키는 모두 가상이다.
 """
 
+import asyncio
 import json
+import time
 import unittest
 from datetime import date
 
@@ -135,6 +137,17 @@ class StreamRouteTests(unittest.TestCase):
         self.assertEqual(transport.closed, 1)
         self.assertEqual(application.state.ai_chat.available_slots, 4)
 
+    def test_disconnect_before_first_token_returns_slot(self):
+        transport = FakeTransport(hang=True)
+        application = regulation_app(transport)
+        started = time.monotonic()
+        response, events = stream(application, {"message": QUESTION}, disconnect_after=1)
+        self.assertLess(time.monotonic() - started, 5.0)
+        self.assertFalse(response.complete)
+        self.assertEqual([n for n, _ in events], ["meta"])
+        self.assertEqual(transport.closed, 1)
+        self.assertEqual(application.state.ai_chat.available_slots, 4)
+
     def test_unexpected_error_sends_fixed_error_event(self):
         class BrokenChat(AiChat):
             async def events(self, result, message, mode):
@@ -188,6 +201,43 @@ class JsonRouteTests(unittest.TestCase):
         self.assertEqual(body["notice"], NOTICE_TEXT)
         self.assertEqual(body["answer"], FIRST_ARTICLE)
         self.assertEqual(body["citations"], [CITATION])
+
+    def assert_disconnect_cancels(self, transport, delay):
+        """요청 중 브라우저가 끊으면 위쪽 요청을 닫고 자리 4개를 돌려준다.
+
+        제한값은 기본(첫 글자 25초, 전체 90초)이다. 취소가 빠지면 제한까지 기다린 뒤에야
+        자리가 돌아오므로, 걸린 시간도 함께 본다.
+        """
+
+        opened = asyncio.Event()
+        transport.on_open = opened.set
+        application = regulation_app(transport)
+
+        async def browser_leaves():
+            await opened.wait()
+            await asyncio.sleep(delay)
+
+        started = time.monotonic()
+        response = call_app(
+            application, "POST", CHAT, json_body={"message": QUESTION}, allow_wait=True,
+            disconnect_when=browser_leaves,
+        )
+        self.assertLess(time.monotonic() - started, 5.0)
+        self.assertEqual(len(transport.calls), 1)
+        self.assertEqual(transport.closed, 1)
+        self.assertEqual(application.state.ai_chat.available_slots, 4)
+        body = response.json()
+        self.assertEqual(body["citations"], [CITATION])
+        self.assertEqual(body["answer"], FIRST_ARTICLE)
+        self.assertEqual(body["notice"], NOTICE_TEXT)
+
+    def test_disconnect_before_first_token_cancels_upstream(self):
+        self.assert_disconnect_cancels(FakeTransport(hang=True), delay=0.0)
+
+    def test_disconnect_after_first_answer_chunk_cancels_upstream(self):
+        # Codex 재현: 첫 글자 이후에 끊으면 전체 90초까지 자리가 남았다.
+        chunk = sse(delta(content="가상 첫 조각"), done=False)
+        self.assert_disconnect_cancels(FakeTransport([chunk], hang=True), delay=0.05)
 
     def test_ai_off_and_held_questions_finish_without_waiting(self):
         transport = FakeTransport([ANSWER_STREAM])

@@ -5,7 +5,7 @@ AI가 꺼져 있거나 보류인 질문은 기존 주소가 기다림 없이 지
 """
 
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable
 from contextlib import aclosing
 
 from fastapi import APIRouter, Request
@@ -14,7 +14,7 @@ from starlette.responses import StreamingResponse
 
 from app.schemas.chat import ChatRequest, ChatResponse
 from app.schemas.error import ErrorResponse
-from app.services.ai_chat import ERROR_EVENT, Event, chat_events, format_event
+from app.services.ai_chat import ERROR_EVENT, NOTICE_TEXT, Event, chat_events, format_event
 from app.services.chat_stub import build_stub_chat_result
 
 
@@ -26,6 +26,32 @@ BAD_REQUEST = {400: {"model": ErrorResponse, "description": "요청 형식 오�
 STREAM_HEADERS = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
 # 스트림 하나가 열려 있을 수 있는 최대 초. AI 전체 제한(90초)보다 조금 길게 잡는다.
 STREAM_TIMEOUT = 95.0
+
+
+async def _wait_for_disconnect(receive) -> None:
+    while (await receive())["type"] != "http.disconnect":
+        pass
+
+
+async def run_until_disconnect(receive, work: Awaitable, *, timeout: float | None = None) -> tuple[bool, object]:
+    """일을 돌리다가 브라우저가 연결을 끊거나 `timeout`초가 지나면 그 일을 취소한다.
+
+    두 주소가 함께 쓴다. 일을 취소하면 그 안의 AI 호출 생성기가 위쪽 응답을 닫고 동시 호출
+    자리를 돌려준다. 끝까지 돌았으면 (True, 결과)를, 취소했으면 (False, None)을 돌려준다.
+    일이 낸 예외는 그대로 올린다.
+    """
+
+    job = asyncio.ensure_future(work)
+    watcher = asyncio.ensure_future(_wait_for_disconnect(receive))
+    try:
+        await asyncio.wait((job, watcher), timeout=timeout, return_when=asyncio.FIRST_COMPLETED)
+    finally:
+        job.cancel()
+        watcher.cancel()
+        await asyncio.gather(job, watcher, return_exceptions=True)
+    if job.cancelled():
+        return False, None
+    return True, job.result()
 
 
 class EventStreamResponse(StreamingResponse):
@@ -48,26 +74,13 @@ class EventStreamResponse(StreamingResponse):
         except OSError:
             return  # 끊긴 연결에 보내려 한 경우
 
-    async def _watch(self, receive) -> None:
-        while (await receive())["type"] != "http.disconnect":
-            pass
-
     async def __call__(self, scope, receive, send) -> None:
         await send({"type": "http.response.start", "status": self.status_code, "headers": self.raw_headers})
-        streaming = asyncio.ensure_future(self._stream(send))
-        watching = asyncio.ensure_future(self._watch(receive))
         try:
             # 천천히 받는 연결이 보내기 대기에서 자리를 오래 붙잡지 않게 전체 시간을 둔다.
-            await asyncio.wait(
-                (streaming, watching), timeout=STREAM_TIMEOUT, return_when=asyncio.FIRST_COMPLETED
-            )
+            await run_until_disconnect(receive, self._stream(send), timeout=STREAM_TIMEOUT)
         finally:
-            streaming.cancel()
-            watching.cancel()
-            await asyncio.gather(streaming, watching, return_exceptions=True)
             await self.body_iterator.aclose()
-        if not streaming.cancelled() and streaming.exception() is not None:
-            raise streaming.exception()
         if self.background is not None:
             await self.background()
 
@@ -109,7 +122,14 @@ async def post_chat(request: ChatRequest, http_request: Request):
     if ai is None or not searched or not result["answered"]:
         return result
 
-    body = await ai.complete(result, request.message, request.mode)
+    # 브라우저가 끊으면 AI 호출을 취소해 자리를 돌려준다. 끊김을 알 수 없는 연결은 AI의
+    # 전체 90초 제한이 상한이다. 끊긴 연결에 보낼 응답은 아무도 읽지 않지만, 서버가 응답
+    # 하나를 끝내야 하므로 조문 원문과 안내를 담는다.
+    finished, body = await run_until_disconnect(
+        http_request.receive, ai.complete(result, request.message, request.mode)
+    )
+    if not finished:
+        body = {**result, "notice": NOTICE_TEXT}
     notice = body.pop("notice", None)
     if notice is None:
         return body
