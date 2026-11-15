@@ -926,6 +926,22 @@ button.card:hover { border-color: var(--focus-ink); background: var(--feature-ho
 /* 입력창을 위로 당기는 96px + 62px를 상쇄하고 인사말 아래 12px를 확보한다. */
 .main-welcome:has(#main-greeting:not(:empty)) { padding-bottom: 170px; }
 .composer-row { view-transition-name: chat-composer; }
+.composer { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 10px; }
+.composer-row { grid-column: 1; grid-row: 1; }
+.composer-meta { grid-column: 1 / -1; }
+#ai-mode { grid-column: 2; grid-row: 1; align-self: center; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; width: fit-content; margin: 0; padding: 4px 8px; border: 0; color: var(--ink); background: var(--glass-dense); border-radius: 8px; font-size: .8rem; }
+#ai-mode legend { padding: 0; font-size: .75rem; color: var(--muted); }
+#ai-mode label { display: inline-flex; align-items: center; gap: 5px; min-height: 32px; cursor: pointer; }
+#ai-mode input { width: auto; margin: 0; accent-color: var(--blue); }
+.thinking { margin-bottom: 12px; color: var(--muted); font-size: .85rem; }
+.thinking summary { cursor: pointer; }
+.thinking summary small { margin-inline-start: 8px; }
+.thinking p { max-height: 220px; overflow-y: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+.ai-notice { display: block; margin-block: 8px; color: var(--muted); }
+@media (max-width: 640px) {
+  .composer { grid-template-columns: minmax(0, 1fr); }
+  #ai-mode { grid-column: 1; grid-row: auto; margin: 4px 0 0 auto; }
+}
 .layout { view-transition-name: chat-surface; }
 /* 화면 판은 위치와 투명도로 겹쳐 전환한다. 입력창은 같은 이름으로 시작·도착 위치를 잇는다. */
 ::view-transition-group(chat-composer) { animation-duration: .35s; animation-timing-function: ease-in-out; }

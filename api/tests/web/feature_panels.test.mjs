@@ -417,6 +417,9 @@ test("클립 버튼은 파일 창을 한 번 열고, 요청 중에는 파일 입
 
   page.response.resolve({ ok: false });
   await setImmediate();
+  assert.equal(page.requests[1][0], "/api/v1/chat");
+  page.responses[1].resolve({ ok: false });
+  await setImmediate();
   assert.equal(attach.disabled, false);
   assert.equal(file.disabled, false);
   attach.click();
@@ -451,6 +454,8 @@ test("패널을 연 채 질문을 보낸 뒤 새 대화로 돌아오면 카드 �
   page.get("#composer").listeners.get("submit")({ preventDefault() {} });
   assert.equal(page.requests.length, 1);
   page.response.resolve({ ok: false });
+  await setImmediate();
+  page.responses[1].resolve({ ok: false });
   await setImmediate();
   page.get("#reset").click();
   assertState(page, null);

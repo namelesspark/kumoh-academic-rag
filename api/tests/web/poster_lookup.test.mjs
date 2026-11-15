@@ -500,7 +500,7 @@ test("질문을 보내는 중에는 사진 전송이 막힌다", async () => {
   assert.equal(page.send.disabled, true);
   submit(page);
   await setImmediate();
-  assert.deepEqual(requests, ["/api/v1/chat"]);
+  assert.deepEqual(requests, ["/api/v1/chat/stream", "/api/v1/chat"]);
   assert.equal(page.transcript.querySelectorAll(".turn").length, 1);
 
   answer({ ok: true, json: async () => ({ session_id: "fictional-session", answered: false }) });
@@ -510,7 +510,7 @@ test("질문을 보내는 중에는 사진 전송이 막힌다", async () => {
 
   submit(page);
   await setImmediate();
-  assert.deepEqual(requests, ["/api/v1/chat", photoPath]);
+  assert.deepEqual(requests, ["/api/v1/chat/stream", "/api/v1/chat", photoPath]);
   assert.equal(readCard(page).lines[0], eventTitle);
 });
 

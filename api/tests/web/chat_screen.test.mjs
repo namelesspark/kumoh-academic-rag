@@ -95,6 +95,8 @@ function page({
     Date,
     Array,
     Promise,
+    TextDecoder,
+    ReadableStream,
     AbortSignal: {
       timeout() {
       },
@@ -106,7 +108,25 @@ function page({
         requests.push({
           path,
           options,
-          resolve,
+          async resolve(response) {
+            if (path !== "/api/v1/chat/stream" || !response.ok || response.body) {
+              resolve(response);
+              return;
+            }
+            const result = await response.json();
+            const events = [
+              ["meta", { answered: result.answered, citations: result.citations,
+                session_id: result.session_id, personalized: false }],
+              ["answer", { text: result.answer, replace: false }],
+              ["done", { latency_ms: { retrieval: 0, generation: 0, total: 0 } }],
+            ];
+            resolve({ ok: true, body: new ReadableStream({ start(controller) {
+              for (const [name, data] of events) {
+                controller.enqueue(new TextEncoder().encode(`event: ${name}\ndata: ${JSON.stringify(data)}\n\n`));
+              }
+              controller.close();
+            } }) });
+          },
           reject,
         })
       );
@@ -181,7 +201,7 @@ function page({
     script.indexOf("function storedStudentId("),
   );
   const asking = script.slice(
-    script.indexOf("async function ask("),
+    script.indexOf("const aiModeKey ="),
     script.indexOf('input.addEventListener("input"'),
   );
   const submitting = script.slice(
@@ -349,6 +369,112 @@ const answer = {
   }),
 };
 
+function openStream(p) {
+  let controller;
+  const body = new ReadableStream({ start(value) { controller = value; } });
+  p.requests[0].resolve({ ok: true, body });
+  return (name, data) => controller.enqueue(new TextEncoder().encode(
+    `event: ${name}\ndata: ${JSON.stringify(data)}\n\n`,
+  ));
+}
+
+test("깊이 생각을 펼치고 답을 이어 그린 뒤 근거와 답만 기록한다", async () => {
+  const p = page();
+  p.run('aiMode="deep"');
+  const done = begin(p);
+  assert.equal(JSON.parse(p.requests[0].options.body).mode, "deep");
+  p.run('aiMode="fast"');
+  const emit = openStream(p);
+  emit("meta", { answered: true, citations: [{ document: "가상 규정", article_path: "제1조", source_url: "https://example.com/fictional" }], session_id: "fictional-session" });
+  emit("thinking", { text: "Fictional thought <script>" });
+  await setImmediate();
+  const reply = p.get(".test-reply");
+  const thinking = reply.children[0];
+  assert.equal(thinking.id, "thinking-1");
+  assert.equal(thinking.children[0].id, "thinking-1-summary");
+  assert.equal(thinking.open, true);
+  assert.equal(thinking.children[1].textContent, "Fictional thought <script>");
+  emit("answer", { text: "가상 <b>", replace: false });
+  await setImmediate();
+  assert.equal(thinking.open, false);
+  assert.equal(reply.children[1].textContent, "가상 <b>");
+  assert.equal(reply.children.length, 2);
+  assert.equal(p.run("record.messages.length"), 1);
+  emit("answer", { text: "답", replace: false });
+  await setImmediate();
+  assert.equal(reply.children[1].textContent, "가상 <b>답");
+  emit("answer", { text: "가상 근거 답", replace: true });
+  emit("notice", { text: "가상 대체 안내" });
+  emit("done", { latency_ms: {} });
+  await done;
+  assert.equal(reply.children[1].textContent, "가상 근거 답");
+  assert.equal(reply.children[2].className, "ai-notice");
+  assert.equal(reply.children.length, 4);
+  assert.equal(p.run("record.messages.at(-1).text"), "가상 근거 답");
+  assert.equal(p.run("record.messages.at(-1).sources[0].title"), "가상 규정 · 제1조");
+  assert.equal(p.run('JSON.stringify(record.committedMessages).includes("Fictional thought")'), false);
+  assert.equal(p.requests.length, 1);
+});
+
+test("빠른 답은 생각을 버리고 다른 대화 조각은 현재 테크모를 바꾸지 않는다", async () => {
+  const p = page();
+  const done = begin(p);
+  const emit = openStream(p);
+  emit("meta", { answered: true, citations: [], session_id: "fictional-session" });
+  emit("thinking", { text: "Fictional hidden thought" });
+  await setImmediate();
+  assert.equal(p.get(".test-reply").children.length, 0);
+  p.run('activeConversation=null;setChatView(false)');
+  p.get("#pet-line").textContent = "가상 현재 상태";
+  emit("answer", { text: "가상 늦은 답", replace: false });
+  await setImmediate();
+  assert.equal(p.get("#pet-line").textContent, "가상 현재 상태");
+  emit("done", {});
+  await done;
+  assert.equal(p.run("record.messages.at(-1).text"), "가상 늦은 답");
+  assert.equal(p.get("#conversation-toast").hidden, false);
+});
+
+test("삭제와 계정 변경 뒤의 생각과 답 조각을 폐기한다", async () => {
+  for (const action of ["conversations=[]", 'switchHistoryAccount("demo-d02")']) {
+    const p = page();
+    p.run('aiMode="deep"');
+    const done = begin(p);
+    const emit = openStream(p);
+    emit("meta", { answered: true, citations: [], session_id: "fictional-session" });
+    await setImmediate();
+    p.run(action);
+    emit("thinking", { text: "Fictional discarded thought" });
+    emit("answer", { text: "가상 폐기 답", replace: false });
+    emit("done", {});
+    await done;
+    assert.equal(p.get(".test-reply").children.length, 0);
+    assert.equal(p.run("record.messages.length"), 1);
+  }
+});
+
+test("중간 스트림 실패는 생각과 부분 답을 지우고 같은 방식으로 한 번 다시 묻는다", async () => {
+  const p = page();
+  p.run('aiMode="deep"');
+  const done = begin(p);
+  const emit = openStream(p);
+  emit("meta", { answered: true, citations: [], session_id: "fictional-session" });
+  emit("thinking", { text: "Fictional discarded thought" });
+  emit("answer", { text: "가상 부분 답", replace: false });
+  await setImmediate();
+  assert.equal(p.get(".test-reply").children.length, 2);
+  emit("error", { code: "stream_failed", message: "답변을 받지 못했어요" });
+  await setImmediate();
+  assert.equal(p.get(".test-reply").children.length, 0);
+  assert.equal(p.requests.length, 2);
+  assert.equal(p.requests[1].path, "/api/v1/chat");
+  assert.equal(p.requests[1].options.body, p.requests[0].options.body);
+  p.requests[1].resolve(answer);
+  await done;
+  assert.equal(p.run("record.messages.at(-1).text"), "가상 답변");
+  assert.equal(p.get(".test-reply").children.length, 1);
+});
+
 test("보고 있는 대화에는 알림을 띄우지 않고 답을 저장한다", async () => {
   const p = page();
   p.get("#conversation-toast").hidden = true;
@@ -406,6 +532,9 @@ test("실패는 해당 대화에 오류와 재시도를 남기고 도착 알림�
   const done = begin(p);
   p.run("activeConversation=null;setChatView(false)");
   p.requests[0].reject(Error("가상 연결 실패"));
+  await setImmediate();
+  assert.equal(p.requests[1].path, "/api/v1/chat");
+  p.requests[1].reject(Error("가상 재시도 연결 실패"));
   await done;
   assert.equal(p.get(".test-reply").children[0].className, "error");
   assert.equal(p.get(".test-reply").children[0].children[1].className, "retry");

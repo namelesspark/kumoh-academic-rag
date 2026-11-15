@@ -1492,6 +1492,101 @@ async function readPhoto(photo, type, question, reply, record = null) {
   showAssistant("error");
 }
 
+const aiModeKey = "kumoh-chat-ai-mode:v1";
+let aiMode = "fast";
+let chatRequestNumber = 0;
+function setupAiMode() {
+  try { aiMode = historyStorage()?.getItem(aiModeKey) === "deep" ? "deep" : "fast"; } catch { aiMode = "fast"; }
+  const group = element("fieldset");
+  group.id = "ai-mode";
+  group.append(element("legend", null, "답변 방식"));
+  const radios = [];
+  for (const [value, title] of [["fast", "빠르게"], ["deep", "깊이 생각하기"]]) {
+    const radio = element("input");
+    radio.id = "ai-mode-" + value;
+    radio.type = "radio"; radio.name = "ai-mode"; radio.value = value;
+    radio.checked = aiMode === value;
+    radios.push(radio);
+    radio.addEventListener("change", () => {
+      if (!radio.checked) return;
+      aiMode = value;
+      try {
+        const storage = historyStorage();
+        if (!storage) throw new Error("Storage unavailable");
+        storage.setItem(aiModeKey, value);
+      } catch {
+        aiMode = "fast";
+        for (const item of radios) item.checked = item.value === "fast";
+      }
+    });
+    const label = element("label");
+    label.htmlFor = radio.id;
+    label.append(radio, element("span", null, title));
+    group.append(label);
+  }
+  composer.append(group);
+}
+setupAiMode();
+
+async function readChatStream(response, onEvent) {
+  if (!response.ok || !response.body || typeof TextDecoder === "undefined") throw new Error("Stream unavailable");
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "", name = "", data = [], done = false;
+  function line(text) {
+    if (text === "") {
+      if (data.length && ["meta", "thinking", "answer", "notice", "done", "error"].includes(name)) {
+        const value = JSON.parse(data.join("\n"));
+        if (name === "error") throw new Error("Stream failed");
+        onEvent(name, value);
+        if (name === "done") done = true;
+      }
+      name = ""; data = [];
+    } else if (text.startsWith("event:")) name = text.slice(6).trim();
+    else if (text.startsWith("data:")) data.push(text.slice(5).replace(/^ /, ""));
+  }
+  try {
+    while (!done) {
+      const chunk = await reader.read();
+      buffer += decoder.decode(chunk.value, { stream: !chunk.done });
+      let boundary;
+      while ((boundary = buffer.search(/[\r\n]/)) >= 0) {
+        if (buffer[boundary] === "\r" && boundary === buffer.length - 1 && !chunk.done) break;
+        const width = buffer.slice(boundary, boundary + 2) === "\r\n" ? 2 : 1;
+        line(buffer.slice(0, boundary));
+        buffer = buffer.slice(boundary + width);
+        if (done) break;
+      }
+      if (chunk.done) break;
+    }
+    if (!done) throw new Error("Incomplete stream");
+  } finally {
+    try { await reader.cancel(); } catch { /* 읽기 실패 뒤에도 잠금을 돌려준다. */ }
+    reader.releaseLock();
+  }
+}
+async function requestChatAnswer(body, onEvent) {
+  const options = { method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body), signal: AbortSignal.timeout(100_000) };
+  let meta = null, answer = "", notice;
+  try {
+    const response = await fetch("/api/v1/chat/stream", options);
+    await readChatStream(response, (name, data) => {
+      if (!meta && name !== "meta") throw new Error("Missing metadata");
+      if (name === "meta") meta = data;
+      if (name === "answer") answer = data.replace ? data.text : answer + data.text;
+      if (name === "notice") notice = data.text;
+      onEvent(name, data);
+    });
+    return { ...meta, answer, notice };
+  } catch {
+    onEvent("reset", {});
+    const response = await fetch("/api/v1/chat", { ...options, signal: AbortSignal.timeout(100_000) });
+    if (!response.ok) throw new Error("Chat request failed");
+    return response.json();
+  }
+}
+
 async function ask(question, reply, record = activeConversation) {
   if (record?.pending) return;
   const account = historyAccount;
@@ -1500,20 +1595,45 @@ async function ask(question, reply, record = activeConversation) {
   showAssistant("searching");
   updateSend(); renderConversations();
   reply.replaceChildren();
+  const mode = aiMode;
+  const requestNumber = ++chatRequestNumber;
+  const valid = () => !record || (account === historyAccount && conversations.includes(record));
+  const visible = () => valid() && (!record || (requestedChatView && activeConversation === record));
+  let answerNode = null, thinking = null, thinkingContent = null;
   try {
-    const response = await fetch("/api/v1/chat", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message: question, session_id: record ? record.sessionId || null : sessionId,
-        use_academic_data: false }),
-      signal: AbortSignal.timeout(90_000),
+    const result = await requestChatAnswer({ message: question,
+      session_id: record ? record.sessionId || null : sessionId, use_academic_data: false, mode }, (name, data) => {
+      if (!valid()) return;
+      if (name === "reset") {
+        reply.replaceChildren(); answerNode = null; thinking = null; thinkingContent = null;
+      }
+      if (name === "thinking" && mode === "deep" && data.text) {
+        if (!thinking) {
+          thinking = element("details", "thinking"); thinking.id = `thinking-${requestNumber}`;
+          const summary = element("summary", null, "생각 과정"); summary.id = `${thinking.id}-summary`;
+          summary.append(element("small", null, "모델이 쓴 원문, 영어일 수 있음"));
+          thinkingContent = element("p"); thinkingContent.id = `${thinking.id}-content`;
+          thinking.append(summary, thinkingContent); reply.append(thinking);
+        }
+        thinking.open = !answerNode;
+        thinkingContent.textContent += data.text;
+      }
+      if (name === "answer" && typeof data.text === "string") {
+        if (thinking) thinking.open = false;
+        if (!answerNode) { answerNode = element("p"); reply.append(answerNode); }
+        answerNode.textContent = data.replace ? data.text : answerNode.textContent + data.text;
+        if (visible()) showAssistant("answer");
+      }
+      if (visible()) scrollToLatest();
     });
-    if (!response.ok) throw new Error("Chat request failed");
-    const result = await response.json();
     if (record && (account !== historyAccount || !conversations.includes(record))) return;
     if (record) record.sessionId = result.session_id;
     else sessionId = result.session_id;
     const text = result.answered ? result.answer : "이 질문은 가상 규정에서 근거를 찾지 못했어요.";
-    reply.append(element("p", result.answered ? null : "fallback", text));
+    if (!answerNode) { answerNode = element("p"); reply.append(answerNode); }
+    answerNode.className = result.answered ? "" : "fallback";
+    answerNode.textContent = text;
+    if (result.notice) reply.append(element("small", "ai-notice", result.notice));
     const citations = result.answered && Array.isArray(result.citations) ? result.citations : [];
     for (const citation of citations) reply.append(citationCard(citation));
     if (record) {

@@ -505,6 +505,7 @@ test("질문 요청의 잠금은 졸업 체크의 별도 잠금과 분리한다"
   page.input.value = "가상 질문";
   page.composer.listeners.get("submit")({ preventDefault() {} });
   assert.notEqual(page.button.disabled, true);
+  await setImmediate();
   answer({ ok: true, json: async () => ({ session_id: "fictional-session", answered: false }) });
   await setImmediate();
 });
