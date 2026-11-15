@@ -128,6 +128,8 @@ let assistantTimer = null;
 let techmoDropTimer = null;
 let techmoDropCelebrating = false;
 let techmoPosition = null;
+const techmoBubbleTimers = new Map();
+let techmoNarrow = null;
 let openedCard = null;
 let panelTransition = null;
 let panelChange = 0;
@@ -432,6 +434,7 @@ function loginMessage(line, pose = "guide") {
   if (loginPetLine) loginPetLine.textContent = line;
   loginPet?.setAttribute("data-pose", pose);
   applyTechmoMotion(loginPet, pose);
+  setTechmoBubbleVisibility(loginPet, true);
 }
 function showScreen(main) {
   if (loginScreen) loginScreen.hidden = main;
@@ -731,6 +734,7 @@ function showAssistant(state, message) {
   // 상태 이름은 쉬는 자세를 평소와 답변 표시에서만 돌리려고 chat.css가 읽는다. 타이머는 쓰지 않는다.
   assistant.setAttribute("data-state", state);
   assistantLine.textContent = message ?? line;
+  setTechmoBubbleVisibility(assistant, assistantLine.textContent !== assistantStates.idle[1]);
   assistantDots.hidden = state !== "searching";
   updateTechmoMotion();
   if (assistant.dataset?.dragging !== "true") techmoBubble();
@@ -1685,6 +1689,28 @@ let techmoFrame = null;
 let techmoSuppressClick = false;
 const techmoViewport = () => ({ width: window.innerWidth, height: window.innerHeight });
 const techmoHeadRatio = 44 / 192;
+function setTechmoBubbleVisibility(target, active) {
+  if (!target?.dataset) return;
+  if (techmoBubbleTimers.has(target)) {
+    clearTimeout(techmoBubbleTimers.get(target));
+    techmoBubbleTimers.delete(target);
+  }
+  const narrow = window.innerWidth <= 680;
+  target.dataset.bubbleVisible = String(!narrow || active);
+  if (narrow && active && typeof setTimeout === "function") {
+    techmoBubbleTimers.set(target, setTimeout(() => {
+      target.dataset.bubbleVisible = "false";
+      techmoBubbleTimers.delete(target);
+    }, 4000));
+  }
+}
+function refreshTechmoBubbleVisibility() {
+  const narrow = window.innerWidth <= 680;
+  if (techmoNarrow === narrow) return;
+  techmoNarrow = narrow;
+  setTechmoBubbleVisibility(assistant, assistantLine.textContent !== assistantStates.idle[1]);
+  setTechmoBubbleVisibility(loginPet, true);
+}
 const techmoSize = () => {
   const rect = pet.getBoundingClientRect();
   return { width: rect.width, height: rect.height };
@@ -1698,13 +1724,16 @@ function techmoBubble() {
   const headY = rect.top + rect.height * techmoHeadRatio;
   if (techmoPosition) assistant.dataset.facing = headX < viewport.width / 2 ? "right" : "left";
   const bubble = assistantLine?.parentElement;
-  const defaultWidth = !techmoPosition && viewport.width >= 961
-    ? (viewport.width >= 1464 ? 184 : 144) : 240;
+  const reserved = !techmoPosition && viewport.width >= 961;
+  const reserve = viewport.width >= 1464 ? 192 : 152;
+  // 기본 자리에서는 본문과 화면 가장자리 양쪽에 8px씩 남긴다.
+  const defaultWidth = reserved ? reserve - 16 : 240;
   const width = Math.min(defaultWidth, viewport.width - 16);
   assistant.style?.setProperty("--techmo-bubble-width", `${width}px`);
   const height = bubble?.getBoundingClientRect?.().height || 64;
   const below = headY - 8 - 10 - height < 8;
-  const x = Math.max(8, Math.min(headX - width / 2, viewport.width - width - 8));
+  const minX = reserved ? viewport.width - reserve + 8 : 8;
+  const x = Math.max(minX, Math.min(headX - width / 2, viewport.width - width - 8));
   const y = below ? rect.top + rect.height + 8 + 10 : headY - 8 - 10 - height;
   assistant.dataset.bubbleBelow = String(below);
   assistant.style?.setProperty("--techmo-bubble-x", `${x}px`);
@@ -1836,6 +1865,7 @@ function restoreTechmoPosition() {
   if (position) { techmoPlace(position); techmoDrawPosition(); techmoBubble(); }
 }
 window.addEventListener?.("resize", () => {
+  refreshTechmoBubbleVisibility();
   restoreTechmoPosition();
   techmoBubble();
 });
@@ -1869,6 +1899,7 @@ for (const slot of document.querySelectorAll?.("[data-brand-slot]") ?? []) {
 }
 
 updateSend();
+refreshTechmoBubbleVisibility();
 if (window.location?.hash === "#chat") {
   window.history?.replaceState(null, "", window.location.pathname + window.location.search);
 }

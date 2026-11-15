@@ -681,6 +681,7 @@ textarea:hover { border-color: var(--link-ink); }
 }
 
 @media (max-width: 680px) {
+  :root { --techmo-dock-height: 96px; }
   .masthead-inner, .layout, .site-footer { width: calc(100% - 24px); }
   .masthead-inner { min-height: 63px; padding-block: 8px; gap: 6px; }
   .brand { flex: 0 0 140px; font-size: .8rem; }
@@ -696,7 +697,7 @@ textarea:hover { border-color: var(--link-ink); }
   .chat { height: auto; min-height: max(350px, calc(100dvh - 180px - var(--techmo-dock-height))); }
   .transcript, .composer, .status, .pet-dock { padding-inline: 15px; }
   .pet-dock { gap: 10px; }
-  .pet { width: 104px; }
+  .pet { width: 72px; }
   .pet-says { padding: 6px 10px; font-size: .86rem; line-height: 1.4; }
   .transcript { padding-block: 15px; }
   /* 소개 영역을 낮춰 질문 입력창이 더 위로 오게 한다. 글은 자르지 않고 크기·간격·배치만 줄인다. */
@@ -1053,6 +1054,11 @@ body[data-techmo-dragging="true"] { user-select: none; }
 .pet-dock .pet-says::after { bottom: -10px; border-width: 10px 9px 0; border-color: var(--glass-dense) transparent transparent; }
 .pet-dock[data-bubble-below="true"] .pet-says::before { top: -11px; bottom: auto; border-width: 0 10px 10px; border-color: transparent transparent var(--line); }
 .pet-dock[data-bubble-below="true"] .pet-says::after { top: -10px; bottom: auto; border-width: 0 9px 10px; border-color: transparent transparent var(--glass-dense); }
+@media (max-width: 680px) {
+  .pet-dock .pet-says, .login-pet #login-pet-line { visibility: hidden; }
+  .pet-dock[data-bubble-visible="true"] .pet-says,
+  .login-pet[data-bubble-visible="true"] #login-pet-line { visibility: visible; }
+}
 .pet-dock[data-dragging="true"] .pet-says { visibility: hidden; }
 .pet-dock[data-facing="right"] .pet-float { transform: scaleX(-1); animation: none; }
 .pet-dock[data-sprite-layout="animated"] .pet-hop,
