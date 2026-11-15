@@ -295,6 +295,23 @@ class RequestTests(unittest.TestCase):
         for part in ("가상 구름 도서관 규정", "제3조(달빛 열람)", ARTICLE, QUESTION):
             self.assertIn(part, user["content"])
 
+    def test_system_prompt_asks_for_plain_sentences_without_basis_line(self):
+        # 화면이 모델 글을 textContent로 그려 마크다운 별표가 그대로 보였고, 답 끝에
+        # 근거 상자와 겹치는 "근거:" 줄이 붙었다 (실제 LM Studio 확인, 2026-11-16).
+        transport = FakeTransport([ANSWER_STREAM])
+        collect(AiChat(SETTINGS, transport=transport))
+        system = transport.calls[0]["body"]["messages"][0]["content"]
+        self.assertEqual(system, ai_chat.SYSTEM_PROMPT)
+        for phrase in (
+            "마크다운 기호(**, #, -, 표, 코드 블록)를 쓰지 말고 평범한 문장으로 씁니다.",
+            '조 번호는 문장 안에서 밝힙니다. 예: "제3조에 따르면 …".',
+            '답 끝에 "근거:" 줄을 따로 붙이지 않습니다.',
+        ):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, system)
+        rules = [line for line in system.splitlines() if line[:1].isdigit()]
+        self.assertEqual([rule.split(".", 1)[0] for rule in rules], ["1", "2", "3", "4", "5", "6"])
+
     def test_section_marks_inside_question_are_removed(self):
         transport = FakeTransport([ANSWER_STREAM])
         chat = AiChat(SETTINGS, transport=transport)
