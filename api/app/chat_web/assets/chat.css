@@ -1,6 +1,7 @@
 /* 색 값은 이 블록에만 적는다. 아래 규칙은 변수 이름으로만 색을 쓰고,
    landing_design.test.mjs가 변수를 따라가 글자 4.5:1, 테두리·초점 표시 3:1을 계산한다. */
 :root {
+  --techmo-dock-height: 184px;
   --white: #ffffff;
   --paper: #F5F9FC;
   --sky: #00A3D9;
@@ -215,7 +216,9 @@ h1, h2, h3, p { margin-top: 0; }
   bottom: 0;
   z-index: 2;
   display: flex;
-  align-items: center;
+  align-items: flex-end;
+  justify-content: flex-end;
+  height: var(--techmo-dock-height);
   gap: 12px;
   padding: 6px 28px;
   border-top: 1px solid var(--line);
@@ -235,20 +238,6 @@ h1, h2, h3, p { margin-top: 0; }
   line-height: 1.45;
   word-break: keep-all;
 }
-/* 말풍선 꼬리. 네모를 45도 돌려 두 변만 테두리를 그린다. 펫 쪽(오른쪽)을 가리킨다. */
-.pet-says::after {
-  content: "";
-  position: absolute;
-  top: 50%;
-  right: -6px;
-  width: 10px;
-  height: 10px;
-  margin-top: -5px;
-  border: solid var(--edge);
-  border-width: 1px 1px 0 0;
-  background: var(--white);
-  transform: rotate(45deg);
-}
 .pet-dots { display: inline-flex; gap: 4px; margin-left: 4px; vertical-align: middle; }
 .pet-dots span {
   width: 6px;
@@ -265,7 +254,7 @@ h1, h2, h3, p { margin-top: 0; }
 }
 
 /* 펫은 누르는 버튼이다. 크기를 고정해 그림이 늦게 와도 말풍선과 입력창이 밀리지 않는다. */
-.pet { flex: none; width: 56px; padding: 0; border: 0; border-radius: 14px; background: transparent; }
+.pet { flex: none; width: 104px; padding: 0; border: 0; border-radius: 14px; background: transparent; }
 /* 버튼 안의 그림은 스프라이트 시트가 실제로 받아졌는지 확인하는 데만 쓴다. 화면에는 아래 배경 그림이 보인다. */
 .pet img { display: none; }
 .pet-float, .pet-hop, .pet-frame { display: block; }
@@ -341,13 +330,13 @@ h1, h2, h3, p { margin-top: 0; }
     bottom: 24px;
     flex-direction: column;
     gap: 12px;
-    width: 168px;
+    width: 128px;
+    height: auto;
     padding: 0;
     border: 0;
     background: transparent;
   }
   .pet-says { flex: none; width: 100%; text-align: center; }
-  .pet-says::after { top: auto; right: auto; bottom: -6px; left: 50%; margin: 0 0 0 -5px; border-width: 0 1px 1px 0; }
   .pet { width: 128px; }
 }
 
@@ -489,7 +478,7 @@ button.card:hover .card-title { text-decoration: underline; text-underline-offse
 .features:has(> .feature-panel:not([hidden])) > .cards { display: none; }
 /* 좁은 화면의 펫 줄은 화면 아래에 붙어 떠 있어 그 밑의 내용을 가린다. 초점을 받아 화면에 들어오는
    버튼과 패널 제목이 그 줄 밑에 숨지 않게, 화면을 옮길 때 아래쪽에 펫 줄 높이만큼 여유를 둔다. */
-.empty button, .panel-title { scroll-margin-block: 12px 120px; }
+.empty button, .panel-title { scroll-margin-block: 12px calc(var(--techmo-dock-height) + 12px); }
 
 /* 카드가 패널로 커지는 전환. 브라우저는 바뀌기 전후 화면에서 이름이 같은 요소를 하나로 이어 그린다
    (View Transitions). chat.js는 누른 카드에 data-morph를 붙였다 뗄 뿐이고, 이름은 여기서만 준다.
@@ -704,10 +693,10 @@ textarea:hover { border-color: var(--link-ink); }
   .login { padding-inline: 10px; font-size: .82rem; }
   .layout { grid-template-columns: minmax(0, 1fr); gap: 10px; margin-block: 12px; }
   /* 펫 줄은 대화 영역 안에 있어 영역 높이를 늘리지 않는다. 대화 내용 칸이 그 줄 높이만큼 줄어든다. */
-  .chat { height: calc(100dvh - 180px); min-height: 350px; }
+  .chat { height: auto; min-height: max(350px, calc(100dvh - 180px - var(--techmo-dock-height))); }
   .transcript, .composer, .status, .pet-dock { padding-inline: 15px; }
   .pet-dock { gap: 10px; }
-  .pet { width: 48px; }
+  .pet { width: 104px; }
   .pet-says { padding: 6px 10px; font-size: .86rem; line-height: 1.4; }
   .transcript { padding-block: 15px; }
   /* 소개 영역을 낮춰 질문 입력창이 더 위로 오게 한다. 글은 자르지 않고 크기·간격·배치만 줄인다. */
@@ -812,7 +801,7 @@ button.card:hover { border-color: var(--focus-ink); background: var(--feature-ho
   .main-welcome { width: calc(100% - 32px); min-height: 270px; padding-top: 28px; }
   .main-welcome p { font-size: .95rem; }
   .layout { width: 100%; padding-inline: 16px; margin-top: -96px; }
-  .chat { min-height: 350px; }
+  .chat { min-height: max(350px, calc(100dvh - 180px - var(--techmo-dock-height))); }
   .composer { padding: 0; }
   .transcript { padding: 22px 0; }
   .card { padding: 14px; min-height: 124px; }
@@ -980,19 +969,19 @@ body[data-view="chat"] .composer textarea { height: 44px; min-height: 44px; max-
 #conversation-toast-open { flex: 1; min-width: 0; text-align: left; overflow-wrap: anywhere; }
 #conversation-toast-close { flex: none; }
 @media (min-width: 961px) {
-  :root { --pet-reserve: 136px; }
+  :root { --pet-reserve: 152px; }
   #conversation-toggle { display: none; }
-  .pet-dock { right: 24px; width: 112px; }
-  .pet-dock .pet { width: 96px; }
+  .pet-dock { right: 24px; width: 128px; }
+  .pet-dock .pet { width: 128px; }
 }
 @media (min-width: 1464px) {
   :root { --pet-reserve: 192px; }
   .pet-dock { width: 168px; }
-  .pet-dock .pet { width: 128px; }
+  .pet-dock .pet { width: 168px; }
 }
 @media (max-width: 960px) {
-  body[data-view="chat"] .layout { grid-template-columns: minmax(0, 1fr); bottom: 78px; }
-  body[data-view="chat"] .pet-dock { position: fixed; inset: auto 12px 0; height: 78px; padding: 6px 12px; background: var(--glass-dense); }
+  body[data-view="chat"] .layout { grid-template-columns: minmax(0, 1fr); bottom: var(--techmo-dock-height); }
+  body[data-view="chat"] .pet-dock { position: fixed; inset: auto 12px 0; height: var(--techmo-dock-height); padding: 6px 12px; background: var(--glass-dense); }
   #conversation-sidebar { position: fixed; inset: 0 auto 0 0; z-index: 11; width: min(300px, calc(100vw - 36px)); border-radius: 0 16px 16px 0; transform: translateX(-105%); transition: transform .35s ease; }
   body[data-conversation-drawer="open"] #conversation-sidebar { transform: translateX(0); }
   #conversation-close { display: block; }
@@ -1031,19 +1020,39 @@ body[data-techmo-dragging="true"] { user-select: none; }
   border: 0;
   display: block;
   background: transparent;
-  transform: translate(var(--techmo-x), var(--techmo-y));
+  left: var(--techmo-x);
+  top: var(--techmo-y);
+  transform: none;
   z-index: 20;
 }
 .pet-dock[data-placed="true"] .pet { width: 100%; }
-.pet-dock[data-placed="true"] .pet-says {
-  position: absolute;
+.pet-dock .pet-says {
+  position: fixed;
   left: var(--techmo-bubble-x);
   top: var(--techmo-bubble-y);
   width: var(--techmo-bubble-width);
   max-width: calc(100vw - 16px);
   text-align: left;
+  overflow-wrap: anywhere;
 }
-.pet-dock[data-placed="true"] .pet-says::after { display: none; }
+/* 꼬리 끝은 상자에서 정확히 10px 떨어지고 바깥 삼각형이 테두리를 맡는다. */
+.pet-dock .pet-says::before, .pet-dock .pet-says::after {
+  content: "";
+  position: absolute;
+  left: calc(var(--techmo-bubble-tail-x) - 1px);
+  right: auto;
+  top: auto;
+  width: 0;
+  height: 0;
+  margin: 0;
+  background: transparent;
+  transform: translateX(-50%);
+  border-style: solid;
+}
+.pet-dock .pet-says::before { bottom: -11px; border-width: 10px 10px 0; border-color: var(--line) transparent transparent; }
+.pet-dock .pet-says::after { bottom: -10px; border-width: 10px 9px 0; border-color: var(--glass-dense) transparent transparent; }
+.pet-dock[data-bubble-below="true"] .pet-says::before { top: -11px; bottom: auto; border-width: 0 10px 10px; border-color: transparent transparent var(--line); }
+.pet-dock[data-bubble-below="true"] .pet-says::after { top: -10px; bottom: auto; border-width: 0 9px 10px; border-color: transparent transparent var(--glass-dense); }
 .pet-dock[data-dragging="true"] .pet-says { visibility: hidden; }
 .pet-dock[data-facing="right"] .pet-float { transform: scaleX(-1); animation: none; }
 .pet-dock[data-sprite-layout="animated"] .pet-hop,
