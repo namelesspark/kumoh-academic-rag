@@ -1,4 +1,7 @@
-"""가상 그림과 응답만으로 공식 그림 준비와 제공을 확인함."""
+"""가상 그림과 응답만으로 그림 준비와 제공을 확인함.
+
+저장소에 보관한 테크모 동작 시트는 한 테스트가 읽기만 해서 지문과 크기를 본다.
+"""
 
 from hashlib import sha256
 from html.parser import HTMLParser
@@ -20,27 +23,42 @@ from app import main as web_main
 from asgi_harness import call_app
 from api.scripts import prepare_brand_assets as assets
 
-BRAND_NAMES = ("kumoh-signature.png", "techmo-basic.png", "techmo-quiet.png",
-               "techmo-guide.png", "techmo-celebrate.png", "techmo-sprite.png")
-POSE_CASES = (("quiet", (742, 111, 881, 293), (140, 183)),
-              ("guide", (742, 430, 881, 610), (140, 181)),
-              ("celebrate", (947, 129, 1105, 273), (159, 145)),
-              ("concert", (947, 441, 1105, 610), (159, 170)))
+BRAND_NAMES = ("kumoh-signature.png", "techmo-sprite.png")
+SPRITE_NAME = "techmo-sprite.png"
+# 공식 그림을 잘라 만들던 낱장 자세 그림. 화면이 쓰지 않아 만들지도 내주지도 않는다.
+RETIRED_POSE_NAMES = ("techmo-basic.png", "techmo-quiet.png", "techmo-guide.png",
+                      "techmo-celebrate.png")
+RETIRED_TECHMO_URL = "https://www.kumoh.ac.kr/_res/ko/img/sub01/img_character_pc.jpg"
+# 이슈 #95에 적은 저장소 그림의 지문.
+SPRITE_HASH = "8c514828197766d281f0eb60a9f6af5d015f4c44a5a4cc3bee1a7754133258af"
 
 
-def image_bytes(size, image_format="PNG"):
-    image = Image.new("RGB", size, "white")
-    if size == (1198, 767):
-        draw = ImageDraw.Draw(image)
-        draw.rectangle((240, 240, 340, 340), fill="black")
-        draw.rectangle((260, 260, 320, 320), fill="white")
-        for _, (left, top, right, bottom), _ in POSE_CASES:
-            draw.rectangle((left + 20, top + 20, left + 90, top + 90), fill="black")
-            draw.rectangle((left + 40, top + 40, left + 70, top + 70), fill="white")
-            draw.rectangle((right - 4, bottom - 4, right + 4, bottom + 4), fill="black")
+def image_bytes(size, image_format="PNG", mode="RGB"):
     output = BytesIO()
-    image.save(output, format=image_format)
+    Image.new(mode, size, "white").save(output, format=image_format)
     return output.getvalue()
+
+
+def sheet_bytes(size=(1536, 960), mode="RGBA"):
+    """투명 바탕에 사각형 하나만 그린 가상 동작 시트. 실제 테크모 그림과 관계없다."""
+    image = Image.new(mode, size)
+    ImageDraw.Draw(image).rectangle((40, 40, 150, 180), fill="red")
+    output = BytesIO()
+    image.save(output, format="PNG")
+    return output.getvalue()
+
+
+SHEET = sheet_bytes()
+
+
+def run_prepare(*, sheet=SHEET, **arguments):
+    """준비 스크립트를 가상 시트로 돌린다. 저장소 그림 대신 `sheet`와 그 지문을 쓴다.
+
+    읽기 함수를 따로 넘기면 그 함수를 쓴다. 지문은 그대로 `sheet`의 것이다.
+    """
+    arguments.setdefault("sprite_reader", lambda: sheet)
+    with patch.object(assets, "TECHMO_SPRITE_HASH", sha256(sheet).hexdigest()):
+        return assets.main(**arguments)
 
 
 def archive_bytes(png):
@@ -100,15 +118,13 @@ class TestCampusPhotos(unittest.TestCase):
         cls.by_url = {photo.url: data for photo, data in zip(cls.photos, cls.sources)}
 
     def run_main(self, downloader, written, logs):
-        """로고와 테크모는 통과한 것으로 두고 사진 네 장의 처리만 본다."""
+        """로고는 통과한 것으로 두고 사진 네 장의 처리만 본다. 동작 시트는 가상 시트로 준비된다."""
         with (
             patch.object(assets, "CAMPUS_PHOTOS", self.photos),
             patch.object(assets, "TITLE_IMAGES", ()),
-            patch.object(assets, "techmo_sprite_png", return_value=b"sprite"),
             patch.object(assets, "logo_png", return_value=b"logo"),
-            patch.object(assets, "techmo_png", return_value=b"pose"),
         ):
-            return assets.main(downloader=downloader,
+            return run_prepare(downloader=downloader,
                                writer=lambda path, data: written.__setitem__(path.name, data),
                                report=logs.append)
 
@@ -181,12 +197,17 @@ class TestCampusPhotos(unittest.TestCase):
                 self.assertEqual(request.get_header("Referer"), "https://www.kumoh.ac.kr/ko/index.do")
                 self.assertEqual(len(request.header_items()), 2)
 
-    def test_logo_and_techmo_requests_are_unchanged(self):
-        for url in (assets.LOGO_URL, assets.TECHMO_URL):
-            with self.subTest(url=url):
-                opener = Mock(return_value=FakeResponse(b"fictional", url=url))
-                assets.download(url, opener=opener)
-                opener.assert_called_once_with(url, timeout=assets.REQUEST_TIMEOUT)
+    def test_logo_request_is_unchanged_and_the_retired_techmo_source_is_refused(self):
+        url = assets.LOGO_URL
+        opener = Mock(return_value=FakeResponse(b"fictional", url=url))
+        assets.download(url, opener=opener)
+        opener.assert_called_once_with(url, timeout=assets.REQUEST_TIMEOUT)
+        # 테크모 자세 모음은 더 받지 않는다. 주소 상수도 없고 요청도 나가지 않는다.
+        self.assertFalse(hasattr(assets, "TECHMO_URL"))
+        opener = Mock()
+        with self.assertRaises(assets.AssetError):
+            assets.download(RETIRED_TECHMO_URL, opener=opener)
+        opener.assert_not_called()
 
     def test_photo_total_timeout_is_separate_from_the_brand_timeout(self):
         url = REAL_PHOTOS[0].url
@@ -300,8 +321,8 @@ class TestCampusPhotos(unittest.TestCase):
         self.assertEqual([call.kwargs for call in opener.call_args_list],
                          [{"timeout": assets.PHOTO_REQUEST_TIMEOUT}, {"timeout": 1}])
 
-    def test_logo_techmo_and_font_requests_are_not_retried(self):
-        for url in (assets.LOGO_URL, assets.TECHMO_URL, assets.TITLE_IMAGES[0].url):
+    def test_logo_and_font_requests_are_not_retried(self):
+        for url in (assets.LOGO_URL, assets.TITLE_IMAGES[0].url):
             with self.subTest(url=url):
                 opener = Mock(side_effect=TimeoutError("fictional timeout"))
                 with self.assertRaises(TimeoutError):
@@ -375,7 +396,9 @@ class TestCampusPhotos(unittest.TestCase):
             with self.subTest(name=name):
                 self.assertEqual(written[name], data)
                 self.assertIn(f"{name}: 준비 완료", logs)
-        self.assertEqual(len(logs), 10)
+        # 동작 시트, 로고, 사진 네 장.
+        self.assertEqual(len(logs), 6)
+        self.assertEqual(written[SPRITE_NAME], SHEET)
         # 사진은 주소마다 한 번씩만 받는다.
         for photo in self.photos:
             self.assertEqual(sum(call.args == (photo.url,) for call in downloader.call_args_list), 1)
@@ -423,10 +446,8 @@ class TestCampusPhotos(unittest.TestCase):
 
         with patch.object(assets, "CAMPUS_PHOTOS", self.photos), \
                 patch.object(assets, "TITLE_IMAGES", ()), \
-                patch.object(assets, "techmo_sprite_png", return_value=b"sprite"), \
-                patch.object(assets, "logo_png", return_value=b"logo"), \
-                patch.object(assets, "techmo_png", return_value=b"pose"):
-            code = assets.main(downloader=lambda url: self.by_url.get(url, b"fictional"),
+                patch.object(assets, "logo_png", return_value=b"logo"):
+            code = run_prepare(downloader=lambda url: self.by_url.get(url, b"fictional"),
                                writer=writer, report=logs.append)
         self.assertEqual(code, 0)
         self.assertEqual(written["campus-hill.jpg"], b"previous")
@@ -434,15 +455,17 @@ class TestCampusPhotos(unittest.TestCase):
         self.assertEqual(sum("준비 실패" in line for line in logs), 1)
 
     def test_unverified_real_constants_never_reach_the_writer(self):
-        # 진짜 지문에는 가상 그림이 맞을 수 없다. 사진 네 줄과 제목 그림 두 줄까지 모두 실패하고 종료 코드는 0이다.
+        # 진짜 지문에는 가상 그림이 맞을 수 없다. 동작 시트, 로고, 사진 네 줄, 제목 그림 두 줄이
+        # 모두 실패하고 종료 코드는 0이다. 지문을 바꿔 끼우지 않고 스크립트를 그대로 부른다.
         writer, logs = Mock(), []
-        self.assertEqual(assets.main(downloader=lambda url: self.sources[0],
-                                     writer=writer, report=logs.append), 0)
+        self.assertEqual(assets.main(downloader=lambda url: self.sources[0], writer=writer,
+                                     report=logs.append, sprite_reader=lambda: SHEET), 0)
         writer.assert_not_called()
-        self.assertEqual(len(logs), 12)
-        self.assertEqual([line.split(":")[0] for line in logs[6:]],
-                         [*PHOTO_NAMES, "title-lettering.png", "main-lettering.png"])
+        self.assertEqual([line.split(":")[0] for line in logs],
+                         [SPRITE_NAME, "kumoh-signature.png", *PHOTO_NAMES,
+                          "title-lettering.png", "main-lettering.png"])
         self.assertTrue(all("준비 실패" in line for line in logs))
+        self.assertEqual(logs[0], f"{SPRITE_NAME}: 준비 실패 (테크모 시트 지문 불일치)")
 
 
 TITLE_NAME = "title-lettering.png"
@@ -477,11 +500,9 @@ class TestTitleLettering(unittest.TestCase):
         with (
             patch.object(assets, "CAMPUS_PHOTOS", ()),
             patch.object(assets, "TITLE_IMAGES", (title,)),
-            patch.object(assets, "techmo_sprite_png", return_value=b"sprite"),
             patch.object(assets, "logo_png", return_value=b"logo"),
-            patch.object(assets, "techmo_png", return_value=b"pose"),
         ):
-            return assets.main(downloader=downloader,
+            return run_prepare(downloader=downloader,
                                writer=lambda path, data: written.__setitem__(path.name, data),
                                report=logs.append)
 
@@ -625,11 +646,9 @@ class TestTitleLettering(unittest.TestCase):
             patch.object(assets, "TITLE_IMAGES", titles),
             patch.object(assets, "TITLE_LINES", LATIN_LINES),
             patch.object(assets.ImageFont, "truetype", return_value=self.font),
-            patch.object(assets, "techmo_sprite_png", return_value=b"sprite"),
             patch.object(assets, "logo_png", return_value=b"logo"),
-            patch.object(assets, "techmo_png", return_value=b"pose"),
         ):
-            code = assets.main(downloader=downloader,
+            code = run_prepare(downloader=downloader,
                                writer=lambda path, data: written.__setitem__(path.name, data),
                                report=logs.append)
         self.assertEqual(code, 0)
@@ -654,11 +673,9 @@ class TestTitleLettering(unittest.TestCase):
 
         with (
             patch.object(assets, "CAMPUS_PHOTOS", ()),
-            patch.object(assets, "techmo_sprite_png", return_value=b"sprite"),
             patch.object(assets, "logo_png", return_value=b"logo"),
-            patch.object(assets, "techmo_png", return_value=b"pose"),
         ):
-            code = assets.main(downloader=fetch,
+            code = run_prepare(downloader=fetch,
                                writer=lambda path, data: written.__setitem__(path.name, data),
                                report=logs.append)
         self.assertEqual(code, 0)
@@ -725,7 +742,8 @@ class TestTitleLettering(unittest.TestCase):
             self.assertEqual(self.run_main(downloader, written, logs, title), 0)
         self.assertEqual(written[TITLE_NAME], self.png)
         self.assertIn(f"{TITLE_NAME}: 준비 완료", logs)
-        self.assertEqual(len(logs), 7)
+        # 동작 시트, 로고, 제목 그림.
+        self.assertEqual(len(logs), 3)
         self.assertNotIn(font_bytes, written.values())
         self.assertFalse([name for name in written if name.endswith(".ttf")])
         self.assertEqual(sum(call.args == (FONT_URL,) for call in downloader.call_args_list), 1)
@@ -755,7 +773,7 @@ class TestTitleLettering(unittest.TestCase):
 
 class TestBrandPreparation(unittest.TestCase):
     def setUp(self):
-        # 이 묶음은 로고와 테크모만 본다. 사진 네 장은 TestCampusPhotos가, 제목 그림은 TestTitleLettering이 맡는다.
+        # 이 묶음은 동작 시트와 로고만 본다. 사진 네 장은 TestCampusPhotos가, 제목 그림은 TestTitleLettering이 맡는다.
         for name in ("CAMPUS_PHOTOS", "TITLE_IMAGES"):
             patcher = patch.object(assets, name, ())
             patcher.start()
@@ -766,50 +784,21 @@ class TestBrandPreparation(unittest.TestCase):
                    '{"name":"guide","frames":6},{"name":"celebrate","frames":8},'
                    '{"name":"quiet","frames":4},{"name":"drag","frames":6}]}')
     MOTIONS = (("idle", 8), ("guide", 6), ("celebrate", 8), ("quiet", 4), ("drag", 6))
-    # 동작마다 바탕이 되는 자세, 가상 그림의 크기와 색. 색으로 줄과 자세의 짝을 확인한다.
-    POSES = {"basic": ((468, 414), (255, 0, 0)), "guide": ((140, 181), (0, 0, 255)),
-             "celebrate": ((159, 145), (255, 165, 0)), "quiet": ((140, 183), (0, 128, 0)),
-             "concert": ((159, 170), (128, 0, 128))}
-    MOTION_POSES = ("basic", "guide", "celebrate", "quiet", "concert")
 
-    @staticmethod
-    def pose_png(size, color):
-        """투명 여백 4px를 두른 단색 사각형. 실제 테크모 그림과 관계없다."""
-        image = Image.new("RGBA", (size[0] + 8, size[1] + 8))
-        image.paste(Image.new("RGBA", size, (*color, 255)), (4, 4))
-        output = BytesIO()
-        image.save(output, format="PNG")
-        return output.getvalue()
+    def check(self, data, layout_text=None):
+        """가상 그림을 그 그림의 지문과 함께 넘긴다. 지문은 통과하므로 그 뒤의 검사까지 간다."""
+        return assets.techmo_sprite_png(data, sha256(data).hexdigest(), layout_text)
 
-    def build_sheet(self, poses=None, layout_text=None):
-        """가상 자세 그림으로 시트를 만들어 (PNG 바이트, 자세 요청 순서, 줄마다 칸 그림 목록)을 돌려준다."""
-        poses = poses or {pose: self.pose_png(size, color)
-                          for pose, (size, color) in self.POSES.items()}
-        asked = []
-
-        def convert(data, *, pose="basic"):
-            asked.append(pose)
-            return poses[pose]
-
-        with patch.object(assets, "techmo_png", side_effect=convert):
-            result = assets.techmo_sprite_png(b"fictional source", layout_text)
-        with Image.open(BytesIO(result)) as sheet:
-            self.assertEqual((sheet.format, sheet.mode), ("PNG", "RGBA"))
-            columns, rows = sheet.width // 192, sheet.height // 192
-            cells = [[sheet.crop((column * 192, row * 192, (column + 1) * 192, (row + 1) * 192))
-                      for column in range(columns)] for row in range(rows)]
-            size = sheet.size
-        return result, asked, cells, size
-
-    @staticmethod
-    def box(cell):
-        """조금이라도 보이는 점을 모두 감싸는 영역."""
-        return cell.getchannel("A").getbbox()
-
-    @staticmethod
-    def solid(cell):
-        """절반 넘게 불투명한 점만 감싸는 영역. 늘인 그림 가장자리의 옅은 번짐을 빼고 크기를 잰다."""
-        return cell.getchannel("A").point(lambda alpha: 255 if alpha >= 128 else 0).getbbox()
+    def prepare_sprite(self, *, sheet=SHEET, reader=None, writer=None):
+        """시트 한 줄만 돌려 (쓰기 기록, 로그)를 돌려준다. 내려받기는 모두 실패하게 둔다."""
+        written = {SPRITE_NAME: b"previous sprite"}
+        logs = []
+        arguments = {"sprite_reader": reader} if reader else {}
+        code = run_prepare(sheet=sheet, downloader=Mock(side_effect=TimeoutError("fictional timeout")),
+                           writer=writer or (lambda path, data: written.__setitem__(path.name, data)),
+                           report=logs.append, **arguments)
+        self.assertEqual(code, 0)
+        return written, logs
 
     def test_layout_file_is_the_agreed_text_and_the_script_reads_it(self):
         text = assets.TECHMO_LAYOUT_PATH.read_text(encoding="utf-8")
@@ -819,132 +808,154 @@ class TestBrandPreparation(unittest.TestCase):
                          (web_main.CHAT_WEB_DIR / web_main.TECHMO_LAYOUT_FILE).resolve())
         self.assertEqual(assets.load_techmo_layout(), (192, 8, self.MOTIONS))
         self.assertEqual(assets.load_techmo_layout(self.LAYOUT_TEXT), (192, 8, self.MOTIONS))
-        # 동작 표의 프레임 수와 바탕 자세가 약속과 같다.
-        self.assertEqual(tuple((name, len(motion.frames)) for name, motion in assets.TECHMO_MOTIONS.items()),
-                         self.MOTIONS)
-        self.assertEqual(tuple(motion.pose for motion in assets.TECHMO_MOTIONS.values()),
-                         self.MOTION_POSES)
 
-    def test_sheet_size_rows_spare_cells_and_edges(self):
-        result, asked, cells, size = self.build_sheet()
-        self.assertEqual(size, (1536, 960))
-        # 자세 그림은 동작마다 한 번씩, 줄 순서대로 만든다.
-        self.assertEqual(asked, list(self.MOTION_POSES))
-        for row, (name, frames) in enumerate(self.MOTIONS):
-            color = self.POSES[self.MOTION_POSES[row]][1]
-            for column, cell in enumerate(cells[row]):
-                with self.subTest(motion=name, column=column):
-                    visible = self.box(cell)
-                    if column >= frames:
-                        # 남는 칸은 완전히 투명하다.
-                        self.assertIsNone(visible)
-                        continue
-                    self.assertIsNotNone(visible)
-                    # 칸 가장자리 2px는 비어 있어 옆 칸으로 번지지 않는다.
-                    self.assertGreaterEqual(min(visible[0], visible[1]), 2)
-                    self.assertLessEqual(max(visible[2], visible[3]), 190)
-                    for corner in ((0, 0), (191, 0), (0, 191), (191, 191)):
-                        self.assertEqual(cell.getpixel(corner)[3], 0)
-                    # 몸통 한가운데는 그 줄의 자세 색 그대로다. 새 그림이나 다른 자세가 섞이지 않았다.
-                    pixel = cell.getpixel((96, 140))
-                    self.assertEqual(pixel[3], 255)
-                    self.assertLessEqual(max(abs(got - want) for got, want in zip(pixel, color)), 2)
-            # 한 줄의 프레임은 모두 서로 다르다.
-            self.assertEqual(len({cell.tobytes() for cell in cells[row][:frames]}), frames)
-        # 같은 입력이면 같은 바이트가 나온다.
-        self.assertEqual(self.build_sheet()[0], result)
+    def test_generation_code_and_single_pose_images_are_gone(self):
+        # 공식 그림을 변형해 프레임을 만들던 코드와 낱장 자세 그림 생성은 지웠다.
+        for name in ("TECHMO_MOTIONS", "Frame", "Motion", "techmo_pose_base", "techmo_frame",
+                     "techmo_png", "TECHMO_URL", "TECHMO_HASH", "TECHMO_CROPS", "WHITE_TOLERANCE",
+                     "TECHMO_BASE_BOX", "TECHMO_FOOT_GAP", "TECHMO_EDGE", "TECHMO_DRAG_LIFT",
+                     "TECHMO_PAD", "deque", "cos", "sin", "radians", "pi"):
+            with self.subTest(name=name):
+                self.assertFalse(hasattr(assets, name))
 
-    def test_motions_share_the_base_size_and_the_ground_line(self):
-        _, _, cells, _ = self.build_sheet()
-        self.assertEqual(assets.TECHMO_BASE_BOX, (128, 148))
-        expected = {}
-        for pose, (size, color) in self.POSES.items():
-            image = Image.new("RGBA", size, color)
-            image.thumbnail(assets.TECHMO_BASE_BOX, Image.Resampling.LANCZOS)
-            expected[pose] = image.size
-        # 안내·축하·정숙의 첫 프레임은 변형하지 않은 그림이다. 가로 가운데, 바닥선 188px에 선다.
-        for row in (1, 2, 3):
-            width, height = expected[self.MOTION_POSES[row]]
-            left = (192 - width) // 2
-            with self.subTest(motion=self.MOTIONS[row][0]):
-                self.assertEqual(self.solid(cells[row][0]), (left, 188 - height, left + width, 188))
-                self.assertEqual(self.box(cells[row][0]), (left, 188 - height, left + width, 188))
-        # 기울인 프레임도 가장 낮은 점이 바닥선에 닿는다.
-        for row in (1, 3):
-            for cell in cells[row][:self.MOTIONS[row][1]]:
-                self.assertEqual(self.box(cell)[3], 188)
-        # 대기: 발은 바닥선에서 2px 넘게 뜨지 않고, 키는 3%쯤 늘었다 줄어든다.
-        idle = [self.solid(cell) for cell in cells[0]]
-        base_height = expected["basic"][1]
-        self.assertTrue(all(186 <= visible[3] <= 188 for visible in idle))
-        heights = [visible[3] - visible[1] for visible in idle]
-        self.assertLessEqual(min(heights), base_height + 1)
-        self.assertTrue(1.015 <= max(heights) / base_height <= 1.05, heights)
+    def test_repository_sheet_matches_the_agreed_hash_and_the_layout(self):
+        # 저장소의 실제 그림을 읽기만 한다. 쓰지 않는다.
+        self.assertEqual(assets.TECHMO_SPRITE_HASH, SPRITE_HASH)
+        self.assertEqual(assets.TECHMO_SPRITE_SOURCE.resolve(),
+                         (web_main.CHAT_WEB_DIR / "art" / SPRITE_NAME).resolve())
+        # 원본은 화면에 내려 주는 폴더 밖에 있다.
+        self.assertNotEqual(assets.TECHMO_SPRITE_SOURCE.parent.resolve(), assets.ASSET_DIR.resolve())
+        data = assets.read_techmo_sprite()
+        self.assertEqual(sha256(data).hexdigest(), SPRITE_HASH)
+        # 지문·형식·색 모드·크기 검사를 모두 지나 읽은 바이트 그대로 나온다.
+        self.assertIs(assets.techmo_sprite_png(data, assets.TECHMO_SPRITE_HASH), data)
+        cell, columns, motions = assets.load_techmo_layout()
+        with Image.open(BytesIO(data)) as image:
+            self.assertEqual((image.format, image.mode), ("PNG", "RGBA"))
+            self.assertEqual(image.size, (columns * cell, len(motions) * cell))
+            self.assertEqual(image.size, (1536, 960))
 
-    def test_celebrate_jumps_24px_and_stretches_then_squashes(self):
-        _, _, cells, _ = self.build_sheet()
-        boxes = [self.solid(cell) for cell in cells[2]]
-        base_height = boxes[0][3] - boxes[0][1]
-        bottoms = [visible[3] for visible in boxes]
-        ratios = [(visible[3] - visible[1]) / base_height for visible in boxes]
-        # 첫 프레임과 마지막 세 프레임 가운데 착지한 프레임은 바닥선에 있다.
-        self.assertEqual((bottoms[0], bottoms[1], bottoms[6], bottoms[7]), (188, 188, 188, 188))
-        # 가장 높이 뜬 프레임의 발끝이 바닥선보다 정확히 24px 위다.
-        self.assertEqual(min(bottoms), 188 - 24)
-        self.assertEqual(bottoms.index(min(bottoms)), 3)
-        # 웅크림 → 늘이기 → 착지 때 누르기.
-        self.assertTrue(0.86 <= ratios[1] <= 0.94, ratios)
-        self.assertTrue(1.04 <= max(ratios) <= 1.08, ratios)
-        self.assertEqual(ratios.index(max(ratios)), 2)
-        self.assertTrue(0.88 <= ratios[6] <= 0.96, ratios)
-        # 가로 폭은 바뀌지 않는다. 세로만 늘이고 누른다.
-        self.assertEqual({visible[2] - visible[0] for visible in boxes}, {boxes[0][2] - boxes[0][0]})
-
-    def test_tilt_ranges_of_guide_quiet_and_drag(self):
-        self.assertEqual([frame.angle for frame in assets.TECHMO_MOTIONS["guide"].frames],
-                         [0, 4, 2, -1, -4, -2])
-        self.assertEqual([frame.angle for frame in assets.TECHMO_MOTIONS["quiet"].frames],
-                         [0, 2, -1, -2])
-        drag = assets.TECHMO_MOTIONS["drag"]
-        self.assertEqual(drag.pivot, "top")
-        self.assertEqual((max(frame.angle for frame in drag.frames),
-                          min(frame.angle for frame in drag.frames)), (10, -10))
-        self.assertEqual({frame.scale for frame in drag.frames}, {1.06})
-        _, _, cells, _ = self.build_sheet()
-        boxes = [self.solid(cell) for cell in cells[4][:6]]
-        concert = Image.new("RGBA", self.POSES["concert"][0])
-        concert.thumbnail(assets.TECHMO_BASE_BOX, Image.Resampling.LANCZOS)
-        # 끌기의 첫 프레임은 기울이지 않고 세로로 1.06 늘인 그림이다. 바닥선에서 들려 있다.
-        height = boxes[0][3] - boxes[0][1]
-        self.assertTrue(1.04 <= height / concert.height <= 1.08, height)
-        self.assertEqual(boxes[0][2] - boxes[0][0], concert.width)
-        self.assertLess(boxes[0][3], 188)
-        # 머리 위가 축이라 흔들릴수록 아래쪽이 좌우로 벌어진다. 양쪽으로 다 흔들린다.
-        self.assertLess(min(visible[0] for visible in boxes), boxes[0][0] - 10)
-        self.assertGreater(max(visible[2] for visible in boxes), boxes[0][2] + 10)
-        # 축 근처인 위쪽 끝은 아래쪽 끝보다 덜 움직인다.
-        self.assertLess(max(visible[1] for visible in boxes) - min(visible[1] for visible in boxes), 16)
-
-    def test_small_pose_is_not_enlarged(self):
-        poses = {pose: self.pose_png((20, 30), color) for pose, (_, color) in self.POSES.items()}
-        _, _, cells, _ = self.build_sheet(poses)
-        for row in (1, 2, 3):
-            self.assertEqual(self.solid(cells[row][0]), (86, 158, 106, 188))
-
-    def test_frame_that_leaves_the_cell_or_an_empty_pose_stops_the_sheet(self):
-        # 기준 크기를 칸만큼 키우면 뛰어오르거나 기울인 프레임이 칸을 넘는다. 잘라 넣지 않고 멈춘다.
-        with patch.object(assets, "TECHMO_BASE_BOX", (190, 190)):
-            with self.assertRaises(assets.AssetError) as caught:
-                self.build_sheet()
-        self.assertEqual(str(caught.exception), "테크모 프레임이 칸을 넘음")
-        empty = BytesIO()
-        Image.new("RGBA", (20, 20)).save(empty, format="PNG")
-        poses = {pose: empty.getvalue() for pose in self.POSES}
+    def test_verified_sheet_is_returned_byte_for_byte(self):
+        # 다시 저장하지 않으므로 넘긴 바이트와 같은 객체다.
+        self.assertIs(self.check(SHEET), SHEET)
+        # 크기는 칸 배치를 따른다. 두 줄짜리 가상 배치에는 두 줄짜리 그림이 맞다.
+        two_rows = ('{"version":1,"cell":192,"columns":8,"motions":[{"name":"drag","frames":6},'
+                    '{"name":"idle","frames":8}]}')
+        short = sheet_bytes((1536, 384))
+        self.assertIs(self.check(short, two_rows), short)
         with self.assertRaises(assets.AssetError) as caught:
-            self.build_sheet(poses)
-        self.assertEqual(str(caught.exception), "테크모 자세가 비어 있음")
+            self.check(SHEET, two_rows)
+        self.assertEqual(str(caught.exception), "테크모 시트 크기 불일치")
 
-    def test_broken_or_mismatched_layout_stops_the_sheet(self):
+    def test_hash_is_checked_before_the_image_is_opened(self):
+        with patch.object(assets.Image, "open", side_effect=AssertionError("열면 안 됨")):
+            for data in (SHEET[:-1] + b"\x00", SHEET + b"\x00", b""):
+                with self.subTest(length=len(data)), self.assertRaises(assets.AssetError) as caught:
+                    assets.techmo_sprite_png(data, sha256(SHEET).hexdigest())
+                self.assertEqual(str(caught.exception), "테크모 시트 지문 불일치")
+
+    def test_format_mode_size_and_damage_are_checked_when_the_hash_matches(self):
+        opaque = Image.new("RGB", (1536, 960), "white")
+        palette = BytesIO()
+        opaque.convert("P").save(palette, format="PNG")
+        cases = (
+            ("jpeg", image_bytes((1536, 960), "JPEG"), "테크모 시트 형식 불일치"),
+            # RGB나 팔레트 그림을 RGBA로 바꿔 통과시키지 않는다.
+            ("rgb", sheet_bytes(mode="RGB"), "테크모 시트 색 모드 불일치"),
+            ("palette", palette.getvalue(), "테크모 시트 색 모드 불일치"),
+            ("narrow", sheet_bytes((1535, 960)), "테크모 시트 크기 불일치"),
+            ("short", sheet_bytes((1536, 768)), "테크모 시트 크기 불일치"),
+            ("swapped", sheet_bytes((960, 1536)), "테크모 시트 크기 불일치"),
+            ("old sheet", sheet_bytes((960, 192)), "테크모 시트 크기 불일치"),
+            ("not an image", b"fictional broken image", "테크모 시트를 열 수 없음"),
+            ("truncated", SHEET[: len(SHEET) // 2], "테크모 시트를 열 수 없음"),
+        )
+        for label, data, reason in cases:
+            with self.subTest(label=label):
+                with self.assertRaises(assets.AssetError) as caught:
+                    self.check(data)
+                self.assertEqual(str(caught.exception), reason)
+                # 준비 스크립트는 기존 시트를 남기고 사유를 한 줄로 보고한다.
+                written, logs = self.prepare_sprite(sheet=data)
+                self.assertEqual(written, {SPRITE_NAME: b"previous sprite"})
+                self.assertEqual(logs[0], f"{SPRITE_NAME}: 준비 실패 ({reason})")
+
+    def test_sheet_is_copied_even_when_every_download_fails(self):
+        written, logs = self.prepare_sprite()
+        # 쓴 바이트가 읽은 바이트와 같다. 내려받기는 로고 한 줄만 실패한다.
+        self.assertIs(written[SPRITE_NAME], SHEET)
+        self.assertEqual(logs, [f"{SPRITE_NAME}: 준비 완료",
+                                "kumoh-signature.png: 준비 실패 (TimeoutError)"])
+
+    def test_sheet_is_prepared_before_any_download_and_without_one(self):
+        events = []
+
+        def fetch(url):
+            events.append("download")
+            return b"fictional"
+
+        with patch.object(assets, "logo_png", return_value=b"logo"):
+            run_prepare(downloader=fetch,
+                        writer=lambda path, data: events.append(path.name),
+                        report=lambda line: None)
+        self.assertEqual(events, [SPRITE_NAME, "download", "kumoh-signature.png"])
+        # 시트는 내려 주는 폴더의 약속한 이름으로만 쓴다.
+        paths = []
+        run_prepare(downloader=Mock(side_effect=OSError), report=lambda line: None,
+                    writer=lambda path, data: paths.append(path))
+        self.assertEqual(paths, [assets.ASSET_DIR / SPRITE_NAME])
+
+    def test_missing_or_unreadable_sheet_keeps_the_previous_file(self):
+        for error in (FileNotFoundError("fictional/private/path"), PermissionError("fictional"),
+                      OSError("fictional read failure")):
+            with self.subTest(error=type(error).__name__):
+                written, logs = self.prepare_sprite(reader=Mock(side_effect=error))
+                self.assertEqual(written, {SPRITE_NAME: b"previous sprite"})
+                # 사유에는 예외 종류만 남고 경로는 옮기지 않는다.
+                self.assertEqual(logs[0], f"{SPRITE_NAME}: 준비 실패 ({type(error).__name__})")
+                self.assertNotIn("fictional", "".join(logs))
+
+    def test_sheet_is_read_once(self):
+        reader = Mock(return_value=SHEET)
+        written, logs = self.prepare_sprite(reader=reader)
+        reader.assert_called_once_with()
+        self.assertIs(written[SPRITE_NAME], SHEET)
+
+    def test_write_or_replace_failure_keeps_the_previous_sheet(self):
+        # 쓰기 함수가 실패한 경우.
+        written = {SPRITE_NAME: b"previous sprite"}
+
+        def writer(path, data):
+            if path.name == SPRITE_NAME:
+                raise OSError("fictional write failure")
+            written[path.name] = data
+
+        _, logs = self.prepare_sprite(writer=writer)
+        self.assertEqual(written, {SPRITE_NAME: b"previous sprite"})
+        self.assertEqual(logs[0], f"{SPRITE_NAME}: 준비 실패 (OSError)")
+        # 실제 쓰기 함수에서 임시 파일 쓰기나 이름 바꿔 끼우기가 실패한 경우. 디스크는 건드리지 않는다.
+        for failing in ("write", "replace"):
+            with self.subTest(failing=failing):
+                stream = Mock()
+                stream.name = "virtual-assets/temporary"
+                stream.__enter__ = Mock(return_value=stream)
+                stream.__exit__ = Mock(return_value=False)
+                if failing == "write":
+                    stream.write.side_effect = OSError("fictional write error")
+                replaced = Mock(side_effect=OSError("fictional replace error")
+                                if failing == "replace" else AssertionError("바꿔 끼우면 안 됨"))
+                with (
+                    patch.object(assets, "NamedTemporaryFile", return_value=stream),
+                    patch.object(Path, "replace", replaced),
+                    patch.object(Path, "unlink") as unlink,
+                ):
+                    _, logs = self.prepare_sprite(writer=assets.atomic_write)
+                self.assertEqual(logs[0], f"{SPRITE_NAME}: 준비 실패 (OSError)")
+                self.assertEqual(replaced.call_count, 1 if failing == "replace" else 0)
+                # 쓰다 만 임시 파일은 지운다.
+                unlink.assert_called_with(missing_ok=True)
+
+    def test_broken_layout_stops_the_sheet_and_other_motion_names_are_accepted(self):
         good = self.LAYOUT_TEXT
         broken = (
             "", "not json", "[]", "null", good.replace('"version":1', '"version":2'),
@@ -958,55 +969,19 @@ class TestBrandPreparation(unittest.TestCase):
             with self.subTest(text=text[:40]), self.assertRaises(assets.AssetError) as caught:
                 assets.load_techmo_layout(text)
             self.assertEqual(str(caught.exception), "테크모 칸 배치 형식 불일치")
-        # 형식은 맞지만 이 스크립트의 동작 표와 다른 배치.
-        for text in (good.replace('"name":"drag"', '"name":"fly"'),
-                     good.replace('"frames":6}]', '"frames":5}]')):
-            with self.subTest(text=text[-40:]), self.assertRaises(assets.AssetError) as caught:
-                assets.load_techmo_layout(text)
-            self.assertEqual(str(caught.exception), "테크모 칸 배치와 동작 표 불일치")
-        # 배치가 깨지면 자세 그림을 만들기 전에 멈추고, 준비 스크립트는 기존 시트를 남긴다.
-        written = {"techmo-sprite.png": b"previous sprite"}
+        # 동작 이름과 프레임 수는 배치 파일이 정한다. 스크립트에 따로 둔 동작 표와 견주지 않는다.
+        renamed = good.replace('"name":"drag"', '"name":"fly"').replace('"frames":6}]', '"frames":5}]')
+        self.assertEqual(assets.load_techmo_layout(renamed)[2][-1], ("fly", 5))
+        self.assertIs(self.check(SHEET, renamed), SHEET)
+        # 배치가 깨지면 그림을 열기 전에 멈추고, 준비 스크립트는 기존 시트를 남긴다.
         with (
-            patch.object(assets, "load_techmo_layout", side_effect=assets.AssetError("테크모 칸 배치 형식 불일치")),
-            patch.object(assets, "logo_png", return_value=b"logo"),
-            patch.object(assets, "techmo_png", return_value=self.pose_png((20, 20), (255, 0, 0))),
+            patch.object(assets, "load_techmo_layout",
+                         side_effect=assets.AssetError("테크모 칸 배치 형식 불일치")),
+            patch.object(assets.Image, "open", side_effect=AssertionError("열면 안 됨")),
         ):
-            logs = []
-            self.assertEqual(assets.main(downloader=lambda url: b"fictional",
-                                         writer=lambda path, data: written.__setitem__(path.name, data),
-                                         report=logs.append), 0)
-        self.assertEqual(written["techmo-sprite.png"], b"previous sprite")
-        self.assertIn("techmo-sprite.png: 준비 실패 (테크모 칸 배치 형식 불일치)", logs)
-
-    def test_rows_follow_the_order_of_the_layout(self):
-        # 줄 순서는 배치 파일의 동작 순서다. 순서를 바꾼 가상 배치로 확인한다.
-        swapped = ('{"version":1,"cell":192,"columns":8,"motions":[{"name":"drag","frames":6},'
-                   '{"name":"idle","frames":8}]}')
-        _, asked, cells, size = self.build_sheet(layout_text=swapped)
-        self.assertEqual(size, (1536, 384))
-        self.assertEqual(asked, ["concert", "basic"])
-        self.assertIsNone(self.box(cells[0][6]))
-        self.assertIsNotNone(self.box(cells[1][7]))
-
-    def test_sprite_failure_preserves_existing_result(self):
-        for failure in ('hash', 'pose', 'write'):
-            with self.subTest(failure=failure):
-                written = {'techmo-sprite.png': b'previous sprite'}
-
-                def convert(data, *, pose='basic'):
-                    if failure == 'hash' or (failure == 'pose' and pose == 'concert'):
-                        raise assets.AssetError('가상 변환 실패')
-                    return image_bytes((20, 20))
-
-                def writer(path, data):
-                    if failure == 'write' and path.name == 'techmo-sprite.png':
-                        raise OSError('fictional write failure')
-                    written[path.name] = data
-
-                with patch.object(assets, 'logo_png', return_value=b'logo'), patch.object(assets, 'techmo_png', side_effect=convert):
-                    self.assertEqual(assets.main(downloader=lambda url: b'fictional',
-                                                 writer=writer, report=lambda line: None), 0)
-                self.assertEqual(written['techmo-sprite.png'], b'previous sprite')
+            written, logs = self.prepare_sprite()
+        self.assertEqual(written, {SPRITE_NAME: b"previous sprite"})
+        self.assertEqual(logs[0], f"{SPRITE_NAME}: 준비 실패 (테크모 칸 배치 형식 불일치)")
 
     def test_logo_uses_hash_instead_of_filename(self):
         png = image_bytes((782, 113))
@@ -1035,46 +1010,12 @@ class TestBrandPreparation(unittest.TestCase):
     def setUpClass(cls):
         cls.logo_archive = archive_bytes(image_bytes((782, 113)))
 
-    def test_techmo_crop_and_enclosed_eye_white(self):
-        jpg = image_bytes((1198, 767), "JPEG")
-        result = assets.techmo_png(jpg, sha256(jpg).hexdigest())
-        with Image.open(BytesIO(result)) as image:
-            self.assertEqual(image.format, "PNG")
-            self.assertEqual(image.size, (468, 414))
-            self.assertEqual(image.getpixel((0, 0))[3], 0)
-            self.assertEqual(image.getpixel((290 - 144, 290 - 142))[3], 255)
-            self.assertEqual(image.getpixel((245 - 144, 245 - 142))[3], 255)
-
-    def test_pose_crops_include_end_pixels_and_preserve_enclosed_white(self):
-        jpg = image_bytes((1198, 767), "JPEG")
-        for pose, box, size in POSE_CASES:
-            with self.subTest(pose=pose):
-                result = assets.techmo_png(jpg, sha256(jpg).hexdigest(), pose=pose)
-                with Image.open(BytesIO(result)) as image:
-                    self.assertEqual(image.format, "PNG")
-                    self.assertEqual(image.size, size)
-                    self.assertEqual(image.getpixel((0, 0))[3], 0)
-                    self.assertEqual(image.getpixel((25, 25))[3], 255)
-                    self.assertEqual(image.getpixel((55, 55))[3], 255)
-                    self.assertGreater(min(image.getpixel((55, 55))[:3]), 230)
-                    self.assertEqual(image.getpixel((size[0] - 1, size[1] - 1))[3], 255)
-
-    def test_techmo_hash_and_dimensions_are_checked(self):
-        jpg = image_bytes((1198, 767), "JPEG")
-        with self.assertRaises(ValueError):
-            assets.techmo_png(jpg, "0" * 64)
-        wrong = image_bytes((1197, 767), "JPEG")
-        with self.assertRaises(ValueError):
-            assets.techmo_png(wrong, sha256(wrong).hexdigest())
-
     def test_broken_images_and_archive_are_rejected(self):
         broken = b"fictional broken image"
         with self.assertRaises(BadZipFile):
             assets.logo_png(broken)
         with self.assertRaises(UnidentifiedImageError):
             assets.logo_png(archive_bytes(broken), sha256(broken).hexdigest())
-        with self.assertRaises(UnidentifiedImageError):
-            assets.techmo_png(broken, sha256(broken).hexdigest())
 
     def test_download_uses_fake_response_and_request_timeout(self):
         opener = Mock(return_value=FakeResponse(b"fictional"))
@@ -1131,124 +1072,78 @@ class TestBrandPreparation(unittest.TestCase):
 
     def test_main_success_writes_only_validated_results_to_memory(self):
         png = image_bytes((782, 113))
-        jpg = image_bytes((1198, 767), "JPEG")
         written = {}
         logs = []
-        original_logo, original_techmo = assets.logo_png, assets.techmo_png
-        downloader = Mock(side_effect=lambda url: archive_bytes(png) if url == assets.LOGO_URL else jpg)
-        with (
-            patch.object(assets, "logo_png", lambda data: original_logo(data, sha256(png).hexdigest())),
-            patch.object(assets, "techmo_png", lambda data, **kwargs: original_techmo(data, sha256(jpg).hexdigest(), **kwargs)),
-        ):
-            code = assets.main(
+        original_logo = assets.logo_png
+        downloader = Mock(return_value=archive_bytes(png))
+        with patch.object(assets, "logo_png",
+                          lambda data: original_logo(data, sha256(png).hexdigest())):
+            code = run_prepare(
                 downloader=downloader,
                 writer=lambda path, data: written.__setitem__(path.name, data),
                 report=logs.append,
             )
         self.assertEqual(code, 0)
-        self.assertEqual(set(written), set(BRAND_NAMES))
-        self.assertEqual(len(logs), 6)
-        self.assertEqual(downloader.call_count, 2)
-        self.assertEqual(sum(call.args == (assets.TECHMO_URL,) for call in downloader.call_args_list), 1)
+        self.assertEqual(written, {SPRITE_NAME: SHEET, "kumoh-signature.png": png})
+        self.assertEqual(logs, [f"{SPRITE_NAME}: 준비 완료", "kumoh-signature.png: 준비 완료"])
+        # 내려받는 것은 로고뿐이다. 낱장 자세 그림은 만들지 않는다.
+        downloader.assert_called_once_with(assets.LOGO_URL)
+        self.assertFalse(set(written) & set(RETIRED_POSE_NAMES))
 
     def test_one_failure_keeps_previous_file_and_other_asset_succeeds(self):
-        for failed_url in (assets.LOGO_URL, assets.TECHMO_URL):
-            with self.subTest(failed_url=failed_url):
-                written = {"kumoh-signature.png": b"previous logo", "techmo-basic.png": b"previous techmo"}
+        for failed in BRAND_NAMES:
+            with self.subTest(failed=failed):
+                written = {name: b"previous" for name in BRAND_NAMES}
                 logs = []
-
-                def fetch(url):
-                    if url == failed_url:
-                        raise TimeoutError("fictional timeout")
-                    return b"fictional input"
-
-                with (
-                    patch.object(assets, "techmo_sprite_png", return_value=b"sprite"),
-                    patch.object(assets, "logo_png", return_value=b"new logo"),
-                    patch.object(assets, "techmo_png", return_value=b"new techmo"),
-                ):
-                    code = assets.main(downloader=fetch,
+                arguments = {}
+                if failed == SPRITE_NAME:
+                    arguments["sprite_reader"] = Mock(side_effect=FileNotFoundError("fictional"))
+                    fetch = lambda url: b"fictional input"
+                else:
+                    fetch = Mock(side_effect=TimeoutError("fictional timeout"))
+                with patch.object(assets, "logo_png", return_value=b"new logo"):
+                    code = run_prepare(downloader=fetch,
                                        writer=lambda path, data: written.__setitem__(path.name, data),
-                                       report=logs.append)
+                                       report=logs.append, **arguments)
                 self.assertEqual(code, 0)
-                failed_name = "kumoh-signature.png" if failed_url == assets.LOGO_URL else "techmo-basic.png"
-                self.assertTrue(written[failed_name].startswith(b"previous"))
-                failures = 1 if failed_url == assets.LOGO_URL else 5
-                self.assertEqual(sum("준비 실패" in line for line in logs), failures)
-                self.assertEqual(sum("준비 완료" in line for line in logs), 6 - failures)
+                other = BRAND_NAMES[1 - BRAND_NAMES.index(failed)]
+                self.assertEqual(written[failed], b"previous")
+                self.assertEqual(written[other], SHEET if other == SPRITE_NAME else b"new logo")
+                self.assertEqual([line.split(":")[0] for line in logs if "준비 실패" in line], [failed])
+                self.assertEqual([line.split(":")[0] for line in logs if "준비 완료" in line], [other])
 
-    def test_pose_failure_preserves_previous_file_and_rerun_recovers(self):
-        written = {name: b"previous" for name in BRAND_NAMES}
-        logs = []
-
-        def convert(data, *, pose="basic"):
-            if pose == "quiet":
-                raise assets.AssetError("가상 자세 변환 실패")
-            return pose.encode("ascii")
-
-        def writer(path, data):
-            written[path.name] = data
-
-        with (
-            patch.object(assets, "techmo_sprite_png", return_value=b"sprite"),
-            patch.object(assets, "logo_png", return_value=b"logo"),
-            patch.object(assets, "techmo_png", side_effect=convert),
-        ):
-            self.assertEqual(assets.main(downloader=lambda url: b"fictional", writer=writer,
-                                         report=logs.append), 0)
-        self.assertEqual(written["techmo-quiet.png"], b"previous")
-        self.assertEqual(written["techmo-guide.png"], b"guide")
-        self.assertEqual(written["techmo-celebrate.png"], b"celebrate")
-        self.assertEqual(sum("준비 실패" in line for line in logs), 1)
-        with (
-            patch.object(assets, "techmo_sprite_png", return_value=b"sprite"),
-            patch.object(assets, "logo_png", return_value=b"logo"),
-            patch.object(assets, "techmo_png", side_effect=lambda data, *, pose="basic": pose.encode("ascii")),
-        ):
-            for _ in range(2):
-                self.assertEqual(assets.main(downloader=lambda url: b"fictional", writer=writer,
-                                             report=lambda line: None), 0)
-        self.assertEqual(written["techmo-quiet.png"], b"quiet")
-        self.assertEqual(set(written), set(BRAND_NAMES))
-
-    def test_pose_write_failure_does_not_stop_later_poses(self):
-        written = {"techmo-guide.png": b"previous guide"}
-        logs = []
-
-        def writer(path, data):
-            if path.name == "techmo-guide.png":
-                raise OSError("fictional write failure")
-            written[path.name] = data
-
-        with (
-            patch.object(assets, "techmo_sprite_png", return_value=b"sprite"),
-            patch.object(assets, "logo_png", return_value=b"logo"),
-            patch.object(assets, "techmo_png", return_value=b"pose"),
-        ):
-            self.assertEqual(assets.main(downloader=lambda url: b"fictional", writer=writer,
-                                         report=logs.append), 0)
-        self.assertEqual(written["techmo-guide.png"], b"previous guide")
-        self.assertEqual(written["techmo-celebrate.png"], b"pose")
-        self.assertEqual(sum("준비 실패" in line for line in logs), 1)
+    def test_failed_sheet_recovers_on_the_next_run(self):
+        written = {SPRITE_NAME: b"previous sprite"}
+        writer = lambda path, data: written.__setitem__(path.name, data)
+        fetch = Mock(side_effect=TimeoutError("fictional timeout"))
+        run_prepare(downloader=fetch, writer=writer, report=lambda line: None,
+                    sprite_reader=lambda: sheet_bytes((960, 192)))
+        self.assertEqual(written[SPRITE_NAME], b"previous sprite")
+        for _ in range(2):
+            run_prepare(downloader=fetch, writer=writer, report=lambda line: None)
+            self.assertEqual(written[SPRITE_NAME], SHEET)
 
     def test_invalid_source_never_reaches_writer_and_returns_zero(self):
         writer = Mock()
         logs = []
-        self.assertEqual(assets.main(downloader=lambda url: b"fictional invalid source",
+        self.assertEqual(run_prepare(downloader=lambda url: b"fictional invalid source",
+                                     sprite_reader=lambda: b"fictional invalid source",
                                      writer=writer, report=logs.append), 0)
         writer.assert_not_called()
-        self.assertEqual(len(logs), 6)
+        self.assertEqual(len(logs), 2)
         self.assertTrue(all("준비 실패" in line for line in logs))
 
     def test_failure_reason_is_specific_without_external_exception_text(self):
         logs = []
         with patch.object(assets, "logo_png", side_effect=assets.AssetError("로고 지문 불일치")):
-            assets.main(downloader=lambda url: b"fictional", writer=Mock(), report=logs.append)
-        self.assertIn("로고 지문 불일치", logs[0])
+            run_prepare(downloader=lambda url: b"fictional", writer=Mock(), report=logs.append)
+        self.assertEqual(logs, [f"{SPRITE_NAME}: 준비 완료",
+                                "kumoh-signature.png: 준비 실패 (로고 지문 불일치)"])
         logs.clear()
-        assets.main(downloader=Mock(side_effect=OSError("private detail")),
+        run_prepare(downloader=Mock(side_effect=OSError("private detail")),
+                    sprite_reader=Mock(side_effect=OSError("private detail")),
                     writer=Mock(), report=logs.append)
-        self.assertEqual(len(logs), 6)
+        self.assertEqual(len(logs), 2)
         self.assertTrue(all("OSError" in line and "private detail" not in line for line in logs))
 
     def test_atomic_write_replaces_only_after_complete_write(self):
@@ -1311,6 +1206,24 @@ class TestBrandAssetRoutes(unittest.TestCase):
                     self.assertEqual(response.headers["content-type"], "image/png")
                     self.assertEqual(response.body, png)
                     self.assertEqual(response.headers['cache-control'], 'no-cache')
+
+    def test_retired_pose_images_and_the_art_folder_are_not_served(self):
+        self.assertFalse(set(RETIRED_POSE_NAMES) & set(web_main.CHAT_WEB_MEDIA_TYPES))
+        self.assertEqual(web_main.CHAT_WEB_MEDIA_TYPES[SPRITE_NAME], "image/png")
+        # 예전에 만든 낱장 그림이 디스크에 남아 있어도 내주지 않는다. 디스크를 보지도 않는다.
+        # 원본 폴더(`art/`)와 칸 배치 파일은 어떤 모양의 주소로도 닿지 않는다.
+        names = (*RETIRED_POSE_NAMES, "art/techmo-sprite.png", "art",
+                 "../art/techmo-sprite.png", "..\\art\\techmo-sprite.png",
+                 "art\\techmo-sprite.png", "%2e%2e/art/techmo-sprite.png",
+                 "techmo_layout.json", "../techmo_layout.json")
+        with (
+            patch.object(Path, "is_file", side_effect=AssertionError("읽으면 안 됨")),
+            patch.object(web_main, "FileResponse", side_effect=AssertionError("내주면 안 됨")),
+        ):
+            for name in names:
+                with self.subTest(name=name):
+                    response = call_app(web_main.app, "GET", f"/chat-assets/{name}", allow_wait=True)
+                    self.assertEqual(response.status, 404)
 
     def test_missing_campus_photos_return_404(self):
         with patch.object(Path, "is_file", return_value=False):
