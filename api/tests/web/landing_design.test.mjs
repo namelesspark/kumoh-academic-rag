@@ -499,7 +499,7 @@ test("그림이 실패한 뒤에도 질문을 보낼 수 있고, 새 대화가 �
   shown.composer.fire("submit");
   assert.equal(shown.transcript.children.includes(shown.empty), false);
   await setImmediate();
-  assert.deepEqual(shown.requests, [chatPath]);
+  assert.deepEqual(shown.requests, ["/api/v1/chat/stream", chatPath]);
   assert.equal(shown.transcript.children.length, 1);
 
   shown.reset.fire("click");
@@ -573,11 +573,11 @@ test("대화 요청 중에도 홈 기능의 입력 초점과 사진 선택은 �
   shown.input.value = "가상 질문";
   shown.composer.fire("submit");
   for (const control of shown.controls) control.fire("click");
-  assert.deepEqual(requests, [chatPath]);
+  assert.deepEqual(requests, ["/api/v1/chat/stream"]);
   assert.equal(shown.file.clicked, 1);
   assert.equal(shown.input.focused, 3);
 
   release();
   await setImmediate();
-  assert.deepEqual(requests, [chatPath]);
+  assert.deepEqual(requests, ["/api/v1/chat/stream", chatPath]);
 });

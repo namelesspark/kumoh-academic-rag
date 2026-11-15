@@ -82,7 +82,7 @@ async function submitQuestion(citations) {
   elements.get("#question").value = question;
   elements.get("#composer").listeners.get("submit")({ preventDefault() {} });
   await setImmediate();
-  assert.deepEqual(requests, [["/api/v1/chat", question]]);
+  assert.deepEqual(requests, [["/api/v1/chat/stream", question], ["/api/v1/chat", question]]);
   const [turn] = elements.get("#transcript").children;
   const [, reply] = turn.children;
   const [answer, ...cards] = reply.children;

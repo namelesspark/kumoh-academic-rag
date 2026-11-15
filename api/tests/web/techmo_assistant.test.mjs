@@ -700,7 +700,7 @@ test("요청이 실패하면 오류 말과 함께 점이 사라지고, 다시 �
   second.resolve(ok(answeredChat));
   await setImmediate();
   assert.deepEqual(shown(page), found);
-  assert.deepEqual(page.requests, [chatPath, chatPath]);
+  assert.deepEqual(page.requests, ["/api/v1/chat/stream", chatPath, "/api/v1/chat/stream", chatPath]);
 });
 
 test("축하 뒤 전환을 기다리는 동안 새 질문을 보내면 예약한 전환을 취소한다", async () => {
@@ -895,7 +895,7 @@ test("요청 중 펫으로 새 대화를 열면 늦은 답이 새 대화에 섞�
   page.pet.fire("click");
   assert.equal(page.input.focuses.length, 1);
   assert.equal(page.input.scrolls.length, 0);
-  assert.deepEqual(page.requests, [chatPath]);
+  assert.deepEqual(page.requests, ["/api/v1/chat/stream"]);
 
   reply.resolve(ok(answeredChat));
   await setImmediate();

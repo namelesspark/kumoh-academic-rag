@@ -323,7 +323,7 @@ test("입력창 안에 사진 첨부 칸이 있고, 별도의 현수막 칸과 �
   assert.equal(script.includes("/api/v1/poster-lookup"), false);
 });
 
-test("질문만 보내면 기존 채팅 주소로만 가고 판독문 칸은 생기지 않는다", async () => {
+test("질문만 보내면 스트림 실패 뒤 기존 채팅 주소로 가고 판독문 칸은 생기지 않는다", async () => {
   const requests = [];
   const page = loadChat(serving({
     [chatPath]: ok({ session_id: "s-1", answered: true, answer: "가상 답변입니다.", citations: [] }),
@@ -331,7 +331,7 @@ test("질문만 보내면 기존 채팅 주소로만 가고 판독문 칸은 생
 
   await sendFrom(page, { question: "가상 열람증은 누가 내주나요?" });
 
-  assert.deepEqual(paths(requests), [chatPath]);
+  assert.deepEqual(paths(requests), ["/api/v1/chat/stream", chatPath]);
   assert.equal(JSON.parse(requests[0].body).message, "가상 열람증은 누가 내주나요?");
   assert.equal(page.transcript.querySelectorAll(".reading").length, 0);
   assert.equal(text(page.transcript.querySelectorAll(".question")[0]), "내 질문: 가상 열람증은 누가 내주나요?");
@@ -451,8 +451,8 @@ test("사진 대화는 앞선 글 질문과 별도의 서버 대화로 시작한
   await sendFrom(page, { question: "가상 질문" });
   await sendFrom(page, { question: "여기 어디야?", file: photo() });
 
-  assert.deepEqual(paths(requests), [chatPath, photoPath, textPath]);
-  assert.equal(sentText(requests[2]).session_id, null);
+  assert.deepEqual(paths(requests), ["/api/v1/chat/stream", chatPath, photoPath, textPath]);
+  assert.equal(sentText(requests[3]).session_id, null);
 });
 
 test("글자 주소가 행사라고 답하면 같은 행사 카드를 서버가 준 주소로 그린다", async () => {
@@ -851,7 +851,7 @@ test("첨부 제거를 누르면 고른 사진이 비워져 질문만 채팅 주
   assert.equal(requests.length, 0);
 
   await sendFrom(page, { question: "가상 질문" });
-  assert.deepEqual(paths(requests), [chatPath]);
+  assert.deepEqual(paths(requests), ["/api/v1/chat/stream", chatPath]);
 });
 
 test("새 대화를 누르면 고른 사진과 알림, 대화가 함께 비워진다", async () => {
@@ -887,7 +887,7 @@ test("사진은 보낸 뒤 바로 비워져, 다음 질문에 같은 사진이 �
   assert.equal(page.send.disabled, true);
 
   await sendFrom(page, { question: "가상 질문" });
-  assert.deepEqual(paths(requests), [photoPath, chatPath]);
+  assert.deepEqual(paths(requests), [photoPath, "/api/v1/chat/stream", chatPath]);
 });
 
 for (const [label, file, expected] of [
