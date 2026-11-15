@@ -171,8 +171,8 @@ test("패널은 자리를 차지하는 상자라 펫·말풍선·입력창 위�
     assert.doesNotMatch(body, /(?:^|; )(?:position|z-index|inset|top|bottom|transform): /, selector);
   }
   assert.match(first(".feature-panel"), /^display: grid;/);
-  // 화면에 고정하는 요소는 넓은 화면의 펫 줄과 공통 배경뿐이다.
-  assert.deepEqual(rules.filter(([, body]) => body.includes("position: fixed")).map(([selector]) => selector), [".pet-dock", ".campus-backdrop", 'body[data-view="chat"] .layout', "#conversation-toast", 'body[data-view="chat"] .pet-dock', "#conversation-sidebar", "#conversation-backdrop", '.pet-dock[data-placed="true"], body[data-view="chat"] .pet-dock[data-placed="true"]']);
+  // 고정 말풍선도 펫과 함께 화면 좌표로 배치한다.
+  assert.deepEqual(rules.filter(([, body]) => body.includes("position: fixed")).map(([selector]) => selector), [".pet-dock", ".campus-backdrop", 'body[data-view="chat"] .layout', "#conversation-toast", 'body[data-view="chat"] .pet-dock', "#conversation-sidebar", "#conversation-backdrop", '.pet-dock[data-placed="true"], body[data-view="chat"] .pet-dock[data-placed="true"]', ".pet-dock .pet-says"]);
 
   // 닫기와 시작 버튼은 손가락으로 누를 만한 높이다.
   assert.equal(value(first(".panel-close"), "min-height"), "44px");
@@ -181,11 +181,8 @@ test("패널은 자리를 차지하는 상자라 펫·말풍선·입력창 위�
 
 test("초점을 받은 버튼과 패널 제목이 좁은 화면의 펫 줄 밑에 숨지 않게 아래쪽 여유를 둔다", () => {
   const margin = value(first(".empty button, .panel-title"), "scroll-margin-block") ?? "";
-  const [top, bottom] = margin.split(" ").map(pixels);
-  assert.ok(top >= 0);
-  // 펫 줄은 펫 그림(56px)과 위아래 여백으로 70px쯤이다. 말풍선이 두 줄이 되어도 가리지 않을 만큼 둔다.
-  const petWidth = pixels(/^flex: none; width: (\d+px);/.exec(first(".pet"))?.[1]);
-  assert.ok(bottom >= petWidth * 2, `아래쪽 여유 ${bottom}px`);
+  assert.match(margin, /^12px calc\(var\(--techmo-dock-height\) \+ 12px\)$/);
+  assert.match(first(":root"), /--techmo-dock-height: 184px;/);
   // 부드러운 이동을 문서 전체에 걸지 않는다. 대화 칸의 overscroll-behavior는 다른 속성이다.
   assert.doesNotMatch(styles, /(?<!over)scroll-behavior/);
 });

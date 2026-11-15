@@ -17,7 +17,7 @@ function body(selector) {
 test("가운데 정렬과 테크모 예약 폭은 합의한 경계와 폭을 쓴다", () => {
   assert.match(
     css,
-    /@media \(min-width: 961px\) \{\s*:root \{ --pet-reserve: 136px;/,
+    /@media \(min-width: 961px\) \{\s*:root \{ --pet-reserve: 152px;/,
   );
   assert.match(
     css,
@@ -29,9 +29,10 @@ test("가운데 정렬과 테크모 예약 폭은 합의한 경계와 폭을 쓴
   );
   assert.match(css, /right: 24px;/);
   const expected = [
-    [961, 136, 689, 405],
-    [1280, 136, 1008, 724],
-    [1352, 136, 1080, 760],
+    [961, 152, 657, 373],
+    [1280, 152, 976, 692],
+    [1384, 152, 1080, 760],
+    [1463, 152, 1080, 760],
     [1464, 192, 1080, 760],
     [2000, 192, 1080, 760],
   ];

@@ -131,20 +131,19 @@ test("그림 칸은 스프라이트 한 장의 배경 위치로만 고른다: 0�
 test("기본 배치는 입력창 앞에 붙는 낮은 줄이고, 넓은 화면에서만 오른쪽 아래에 고정하며 그만큼 본문 칸을 비운다", () => {
   // 기본: 줄이 자리를 차지하므로 입력창을 덮지 않고, 입력창이 화면 밖이면 화면 아래에 붙는다.
   assert.match(first(".pet-dock"), /^position: sticky; bottom: 0;/);
-  assert.match(first(".pet"), /^flex: none; width: 56px;/);
+  assert.match(first(".pet"), /^flex: none; width: 104px;/);
   assert.match(first(".pet-says"), /flex: 1; min-width: 0;/);
 
   // 넓은 화면의 실제 여백은 뒤의 선언까지 적용한 별도 검사에서 계산한다.
   assert.match(
     wide,
-    /\.pet-dock \{ position: fixed; right: 24px; bottom: 24px;[^}]*\bwidth: 168px;/,
+    /\.pet-dock \{ position: fixed; right: 24px; bottom: 24px;[^}]*\bwidth: 128px;/,
   );
   assert.ok(wide.includes(".pet { width: 128px; }"));
 
   // 좁은 화면: 배치 방식은 기본 그대로 두고 크기만 줄인다. 대화 영역 높이는 펫 줄을 뺀 예전 값으로 돌아온다.
   assert.doesNotMatch(narrow, /\.pet-dock \{[^}]*position/);
-  assert.ok(narrow.includes(".pet { width: 48px; }"));
-  assert.ok(narrow.includes(".chat { height: calc(100dvh - 180px); min-height: 350px; }"));
+  assert.ok(narrow.includes(".pet { width: 72px; }"));
 });
 
 // 화면 너비에 맞는 규칙만 순서대로 읽는다. 뒤에 나온 기본 규칙이 앞의 @media를 덮는 경우도 포함한다.
@@ -169,7 +168,7 @@ function declarationsAtWidth(selector, width, source = styles) {
       const active = limits.length > 0 && limits.every(([, limit, pixels]) =>
         limit === "min" ? width >= Number(pixels) : width <= Number(pixels));
       if (active) Object.assign(declarations, declarationsAtWidth(selector, width, body));
-    } else if (header.split(",").map(name => name.trim()).includes(selector)) {
+    } else if (header === selector || header.split(",").map(name => name.trim()).includes(selector)) {
       for (const declaration of body.split(";")) {
         const colon = declaration.indexOf(":");
         if (colon === -1) continue;
@@ -211,7 +210,7 @@ test("인사말이 있으면 입력창까지 12px 이상 확보하고 빈 인사
 
 function pixels(value, width) {
   assert.ok(value, "계산할 길이 선언이 있어야 한다");
-  const expression = value.replace(/var\(--pet-reserve\)/g, width >= 1464 ? "192px" : "136px").replace(/([\d.]+)%/g, (_, amount) => String(width * Number(amount) / 100))
+  const expression = value.replace(/var\(--pet-reserve\)/g, width >= 1464 ? "192px" : "152px").replace(/([\d.]+)%/g, (_, amount) => String(width * Number(amount) / 100))
     .replace(/px\b/g, "").replace(/\bcalc\(/g, "(").replace(/\bmax\(/g, "Math.max(");
   assert.match(expression, /^[\d\s.+*/(),\-Mathmax]+$/, value);
   return runInNewContext(expression, {}, { timeout: 100 });
@@ -239,13 +238,44 @@ test("1024·1280·1440px의 최종 선언에서 본문이 고정 테크모와 �
     const dock = declarationsAtWidth(".pet-dock", width);
     assert.equal(layout["grid-template-columns"].replace(/\s+/g, ""), "minmax(0,1fr)");
     assert.equal(dock.position, "fixed");
-    const contentRight = Math.min(width - 2 * (width >= 1464 ? 192 : 136), 1080) / 2 + width / 2;
+    const contentRight = Math.min(width - 2 * (width >= 1464 ? 192 : 152), 1080) / 2 + width / 2;
     const dockLeft = width - pixels(dock.right, width) - pixels(dock.width, width);
-    const bubble = declarationsAtWidth(".pet-says", width);
     const dockWidth = pixels(dock.width, width);
-    assert.equal(dockWidth, width >= 1464 ? 168 : 112);
-    assert.ok(pixels(bubble.width, dockWidth) <= dockWidth, `${width}px 말풍선 너비`);
+    assert.equal(dockWidth, width >= 1464 ? 168 : 128);
     assert.ok(dockLeft - contentRight >= 0, `${width}px: 본문 ${contentRight}, 테크모 ${dockLeft}`);
+  }
+});
+
+test("680·960·961·1463·1464px에서 버튼과 판과 예약 폭을 함께 적용한다", () => {
+  for (const [width, button, reserve] of [[390, 72, 12], [680, 72, 12], [681, 104, 24], [960, 104, 24], [961, 128, 152], [1463, 128, 152], [1464, 168, 192]]) {
+    const pet = { ...declarationsAtWidth(".pet", width), ...declarationsAtWidth(".pet-dock .pet", width) };
+    assert.equal(pet.width, `${button}px`, `${width}px 버튼`);
+    assert.equal(declarationsAtWidth(":root", width)["--pet-reserve"], `${reserve}px`, `${width}px 예약`);
+    if (width >= 961) {
+      assert.equal(declarationsAtWidth(".pet-dock", width).width, `${button}px`, `${width}px 판`);
+    } else {
+      const root = declarationsAtWidth(":root", width);
+      const dock = declarationsAtWidth('body[data-view="chat"] .pet-dock', width);
+      const layout = declarationsAtWidth('body[data-view="chat"] .layout', width);
+      assert.equal(dock.height, "var(--techmo-dock-height)");
+      assert.equal(layout.bottom, dock.height);
+      assert.equal(root["--techmo-dock-height"], width <= 680 ? "96px" : "184px");
+      assert.ok(Number.parseFloat(root["--techmo-dock-height"]) >= button + 12);
+    }
+  }
+  assert.match(declarationsAtWidth(".chat", 680)["min-height"], /max\(350px, calc\(100dvh - 180px - var\(--techmo-dock-height\)\)\)/);
+});
+
+test("로그인 테크모는 112px 정사각 칸에 공통 시트 크기와 줄을 쓰고 부모가 자르지 않는다", () => {
+  for (const width of [680, 960, 961, 1464]) {
+    assert.equal(declarationsAtWidth(".login-techmo", width).width, "112px");
+    assert.equal(declarationsAtWidth(".pet-frame", width)["aspect-ratio"], "1");
+    const sprite = declarationsAtWidth(':is(.pet-dock, .login-pet)[data-sprite-layout="animated"] .pet-frame', width);
+    assert.equal(sprite["background-size"], "var(--techmo-sheet-width) var(--techmo-sheet-height)");
+    assert.equal(sprite["background-position"], "0 var(--techmo-row)");
+    for (const selector of [".login-pet", ".login-card"]) {
+      assert.doesNotMatch(Object.keys(declarationsAtWidth(selector, width)).join(" "), /overflow/);
+    }
   }
 });
 
@@ -447,11 +477,12 @@ const techmoLayout = { version: 1, cell: 192, columns: 8, motions: [
   { name: "quiet", frames: 4 }, { name: "drag", frames: 6 },
 ] };
 
-function loadAssistant({ routes = {}, timers = true, sprite = null, motion = { matches: false }, layout = null, stored = null, storageFails = false, readFails = false, writeFails = false, screenVisibility = false } = {}) {
+function loadAssistant({ routes = {}, timers = true, sprite = null, motion = { matches: false }, layout = null, stored = null, storageFails = false, readFails = false, writeFails = false, screenVisibility = false, petRect = null, bubbleSize = null, initialWidth = 1280 } = {}) {
   const requests = [];
   const elements = new Map();
   const pending = new Map();
   let nextTimer = 1;
+  let clock = 0;
   const animationFrames = new Map();
   const windowEvents = new Map();
   const storedValues = new Map(stored === null ? [] : [["kumoh-techmo-position:v1", stored]]);
@@ -474,9 +505,9 @@ function loadAssistant({ routes = {}, timers = true, sprite = null, motion = { m
       return { left: 0, top: 0, width: 0, height: 0 };
     }
     return {
-      left: Number.parseFloat(dock.properties.get("--techmo-x") ?? "1100"),
-      top: Number.parseFloat(dock.properties.get("--techmo-y") ?? "620"),
-      width: 128, height: 128,
+      left: Number.parseFloat(dock.properties.get("--techmo-x") ?? petRect?.left ?? "1100"),
+      top: Number.parseFloat(dock.properties.get("--techmo-y") ?? petRect?.top ?? "620"),
+      width: petRect?.width ?? 128, height: petRect?.height ?? 128,
     };
   };
   if (sprite) {
@@ -494,6 +525,11 @@ function loadAssistant({ routes = {}, timers = true, sprite = null, motion = { m
         if (!elements.has(selector)) {
           elements.set(selector, new FakeElement(selector));
           if (selector === "#demo-students") elements.get(selector).hidden = true;
+          if (selector === "#pet-line") {
+            const bubble = new FakeElement("div");
+            bubble.getBoundingClientRect = () => ({ width: 144, height: bubbleSize?.height ?? 64 });
+            elements.get(selector).parentElement = bubble;
+          }
         }
         return elements.get(selector);
       },
@@ -502,7 +538,7 @@ function loadAssistant({ routes = {}, timers = true, sprite = null, motion = { m
       createTextNode: value => value,
     },
     window: {
-      innerWidth: 1280, innerHeight: 800, localStorage: storage,
+      innerWidth: initialWidth, innerHeight: 800, localStorage: storage,
       matchMedia: query => (query.includes("prefers-reduced-motion") ? motion : { matches: false }),
       addEventListener(name, callback) { windowEvents.set(name, callback); },
       requestAnimationFrame(callback) { const id = nextTimer++; animationFrames.set(id, callback); return id; },
@@ -525,7 +561,7 @@ function loadAssistant({ routes = {}, timers = true, sprite = null, motion = { m
     context.setTimeout = (callback, delay) => {
       const id = nextTimer;
       nextTimer += 1;
-      pending.set(id, { callback, delay });
+      pending.set(id, { callback, delay, due: clock + delay });
       return id;
     };
     context.clearTimeout = id => {
@@ -571,6 +607,18 @@ function loadAssistant({ routes = {}, timers = true, sprite = null, motion = { m
         pending.delete(id);
         timer.callback();
       }
+    },
+    advance(milliseconds) {
+      const end = clock + milliseconds;
+      for (;;) {
+        const next = [...pending].filter(([, timer]) => timer.due <= end).sort((a, b) => a[1].due - b[1].due)[0];
+        if (!next) break;
+        const [id, timer] = next;
+        pending.delete(id);
+        clock = timer.due;
+        timer.callback();
+      }
+      clock = end;
     },
   };
   // index.html의 처음 모습을 가짜 화면에 옮긴다.
@@ -1003,7 +1051,7 @@ test("저장 위치는 다시 열기와 창 크기 변경에 복원되며 Home�
   const page = loadAssistant({ stored, sprite: { complete: true, naturalWidth: 960, naturalHeight: 192 } });
   assert.equal(coordinate(page, "x"), 320);
   assert.equal(page.assistant.dataset.facing, "right");
-  assert.equal(page.assistant.dataset.bubbleBelow, "true");
+  assert.equal(page.assistant.dataset.bubbleBelow, "false");
   page.resize(390, 800);
   assert.equal(coordinate(page, "x"), 97.5);
   assert.equal(page.storage.get("kumoh-techmo-position:v1"), stored);
@@ -1022,6 +1070,209 @@ test("저장 위치는 다시 열기와 창 크기 변경에 복원되며 Home�
   const noWrite = loadAssistant({ writeFails: true });
   noWrite.pet.fire("keydown", { key: "ArrowLeft" });
   assert.equal(noWrite.assistant.dataset.placed, undefined);
+});
+
+function assertBubble(page, { width, height = 64, below = false }) {
+  const value = name => Number.parseFloat(page.assistant.properties.get(`--techmo-bubble-${name}`));
+  const rect = page.pet.getBoundingClientRect();
+  const x = value("x");
+  const y = value("y");
+  assert.equal(value("width"), width);
+  assert.equal(page.assistant.dataset.bubbleBelow, String(below));
+  assert.ok(x >= 8 && x + width <= page.context.window.innerWidth - 8);
+  assert.ok(y >= 8 && y + height <= page.context.window.innerHeight - 8);
+  assert.ok(Math.abs(x + value("tail-x") - rect.left - rect.width / 2) < .0001);
+  if (below) assert.equal(y - 10 - (rect.top + rect.height), 8);
+  else assert.ok(Math.abs(rect.top + rect.height * 44 / 192 - (y + height + 10) - 8) < .0001);
+}
+
+test("기본 자리도 머리 위 8px에 꼬리 끝을 붙이고 넓은 화면 예약 폭 안에서 줄바꿈한다", () => {
+  const page = loadAssistant();
+  page.context.techmoBubble();
+  assertBubble(page, { width: 136 });
+  page.resize(1464, 900);
+  assertBubble(page, { width: 176 });
+  page.resize(960, 900);
+  assertBubble(page, { width: 240 });
+});
+
+test("961px 이상 기본 말풍선은 본문 오른쪽에서 8px를 비우고 꼬리는 머리를 가리킨다", () => {
+  for (const viewportWidth of [961, 1024, 1280, 1384, 1463, 1464, 2000]) {
+    const reserve = viewportWidth >= 1464 ? 192 : 152;
+    const button = viewportWidth >= 1464 ? 168 : 128;
+    const page = loadAssistant({ initialWidth: viewportWidth, petRect: { left: viewportWidth - reserve, top: 620, width: button, height: button } });
+    page.context.techmoBubble();
+    assertBubble(page, { width: reserve - 16 });
+    const x = Number.parseFloat(page.assistant.properties.get("--techmo-bubble-x"));
+    const homeRight = (viewportWidth + Math.min(1080, viewportWidth - 2 * reserve)) / 2;
+    const chatRight = viewportWidth - reserve;
+    assert.ok(x >= homeRight + 8, `${viewportWidth}px 홈`);
+    assert.ok(x >= chatRight + 8, `${viewportWidth}px 채팅`);
+    page.context.techmoPlace({ x: 400, y: 400 });
+    page.context.techmoDrawPosition();
+    page.context.techmoBubble();
+    assertBubble(page, { width: 240 });
+    assert.ok(Number.parseFloat(page.assistant.properties.get("--techmo-bubble-x")) < chatRight + 8);
+  }
+});
+
+test("680px 이하 대기 말풍선은 숨기고 상태 문구는 움직임 줄이기와 무관하게 4초만 보인다", () => {
+  for (const reduced of [false, true]) {
+    const page = loadAssistant({ initialWidth: 390, motion: { matches: reduced } });
+    page.context.showAssistant("idle");
+    assert.equal(page.assistant.dataset.bubbleVisible, "false");
+    assert.equal(page.line.textContent, idle[1]);
+    for (const [state, expected] of [["searching", searching[1]], ["answer", answer[1]], ["hold", hold[1]], ["error", failed[1]]]) {
+      page.context.showAssistant(state);
+      assert.equal(page.assistant.dataset.bubbleVisible, "true", state);
+      page.advance(3999);
+      assert.equal(page.assistant.dataset.bubbleVisible, "true", state);
+      page.advance(1);
+      assert.equal(page.assistant.dataset.bubbleVisible, "false", state);
+      assert.equal(page.line.textContent, expected);
+    }
+    page.context.showAssistant("idle", "답변이 도착했어요");
+    assert.equal(page.assistant.dataset.bubbleVisible, "true");
+    page.advance(3000);
+    page.context.showAssistant("error");
+    page.advance(1000);
+    assert.equal(page.assistant.dataset.bubbleVisible, "true");
+    page.advance(3000);
+    assert.equal(page.assistant.dataset.bubbleVisible, "false");
+  }
+});
+
+test("좁은 화면 로그인 안내도 문구를 유지하며 4초 후 말풍선만 숨긴다", () => {
+  const page = loadAssistant({ initialWidth: 680 });
+  const login = page.context.document.querySelector("#login-pet");
+  const line = page.context.document.querySelector("#login-pet-line");
+  page.context.loginMessage("가상 로그인 안내");
+  assert.equal(login.dataset.bubbleVisible, "true");
+  page.advance(3999);
+  assert.equal(login.dataset.bubbleVisible, "true");
+  page.advance(1);
+  assert.equal(login.dataset.bubbleVisible, "false");
+  assert.equal(line.textContent, "가상 로그인 안내");
+});
+
+test("681~960px에서는 대기와 상태 말풍선을 계속 표시한다", () => {
+  for (const width of [681, 960]) {
+    const page = loadAssistant({ initialWidth: width });
+    page.context.showAssistant("idle");
+    page.advance(4000);
+    assert.notEqual(page.assistant.dataset.bubbleVisible, "false");
+    page.context.showAssistant("error");
+    page.advance(4000);
+    assert.notEqual(page.assistant.dataset.bubbleVisible, "false");
+  }
+});
+
+test("말풍선 표시 시간이 지나도 읽기 도구용 요청 상태는 유지된다", () => {
+  const page = loadAssistant({ initialWidth: 390 });
+  page.context.setBusy(true, "가상 요청을 처리하고 있어요");
+  const status = page.status.textContent;
+  assert.ok(status.length > 0);
+  page.advance(4000);
+  assert.equal(page.assistant.dataset.bubbleVisible, "false");
+  assert.equal(page.status.textContent, status);
+  assert.equal(page.line.textContent, searching[1]);
+  page.context.showAssistant("hold");
+  page.context.setBusy(false);
+  assert.equal(page.assistant.dataset.bubbleVisible, "true");
+  assert.equal(page.line.textContent, hold[1]);
+});
+
+test("680px 경계를 넘으면 표시 규칙을 바꾸고 같은 좁은 화면 크기 변경은 숨김 시간을 늘리지 않는다", () => {
+  const page = loadAssistant({ initialWidth: 390 });
+  page.context.showAssistant("error");
+  page.advance(3000);
+  page.resize(600, 800);
+  page.advance(1000);
+  assert.equal(page.assistant.dataset.bubbleVisible, "false");
+  page.resize(681, 800);
+  assert.equal(page.assistant.dataset.bubbleVisible, "true");
+  page.advance(4000);
+  assert.equal(page.assistant.dataset.bubbleVisible, "true");
+  page.resize(680, 800);
+  assert.equal(page.assistant.dataset.bubbleVisible, "true");
+  page.advance(4000);
+  assert.equal(page.assistant.dataset.bubbleVisible, "false");
+  page.context.showAssistant("searching");
+  page.context.showAssistant("idle");
+  assert.equal(page.assistant.dataset.bubbleVisible, "false");
+});
+
+test("680px 이하 말풍선 숨김은 시각 규칙이며 본문 상태 영역에 적용하지 않는다", () => {
+  const hidden = '.pet-dock .pet-says, .login-pet #login-pet-line';
+  assert.equal(declarationsAtWidth(hidden, 680).visibility, "hidden");
+  assert.equal(declarationsAtWidth('.pet-dock[data-bubble-visible="true"] .pet-says', 680).visibility, "visible");
+  assert.equal(declarationsAtWidth('.login-pet[data-bubble-visible="true"] #login-pet-line', 680).visibility, "visible");
+  assert.equal(declarationsAtWidth(hidden, 681).visibility, undefined);
+  assert.equal(declarationsAtWidth(".status", 680).visibility, undefined);
+});
+
+test("옮긴 자리와 양쪽 끝에서 말풍선을 화면 안으로 밀어도 꼬리는 머리 가운데를 가리킨다", () => {
+  const page = loadAssistant();
+  for (const left of [8, 500, 1144]) {
+    page.context.techmoPlace({ x: left, y: 400 });
+    page.context.techmoDrawPosition();
+    page.context.techmoBubble();
+    assertBubble(page, { width: 240 });
+  }
+  assert.equal(Number.parseFloat(page.assistant.properties.get("--techmo-bubble-x")), 1032);
+  assert.ok(Number.parseFloat(page.assistant.properties.get("--techmo-bubble-tail-x")) > 120);
+});
+
+test("실제 말풍선 높이로 위쪽 부족을 판단하고 긴 문구도 머리 간격을 지킨다", () => {
+  const size = { height: 64 };
+  const page = loadAssistant({ petRect: { left: 300, top: 8, width: 128, height: 128 }, bubbleSize: size });
+  page.context.techmoBubble();
+  assertBubble(page, { width: 136, below: true });
+  page.context.techmoPlace({ x: 300, y: 180 });
+  page.context.techmoDrawPosition();
+  page.context.techmoBubble();
+  assertBubble(page, { width: 240 });
+  size.height = 220;
+  page.context.showAssistant("error");
+  assertBubble(page, { width: 240, height: 220, below: true });
+});
+
+test("창 크기 변경과 Home 복귀와 그림 로드가 기본 자리 말풍선 좌표를 다시 계산한다", () => {
+  const page = loadAssistant({ sprite: { complete: false, naturalWidth: 0 } });
+  page.pet.image.complete = true;
+  page.pet.image.naturalWidth = 960;
+  page.pet.image.fire("load");
+  assertBubble(page, { width: 136 });
+  page.pet.fire("keydown", { key: "ArrowLeft" });
+  assertBubble(page, { width: 240 });
+  page.resize(390, 800);
+  assertBubble(page, { width: 240 });
+  page.pet.fire("keydown", { key: "Home" });
+  assert.equal(page.assistant.dataset.placed, undefined);
+  assert.equal(page.assistant.dataset.facing, undefined);
+  assert.equal(page.assistant.properties.has("--techmo-x"), false);
+  page.resize(1280, 800);
+  assertBubble(page, { width: 136 });
+  page.context.techmoDefaultPosition();
+  assert.equal(page.assistant.dataset.bubbleBelow, undefined);
+  for (const name of ["x", "y", "width", "tail-x"]) assert.equal(page.assistant.properties.has(`--techmo-bubble-${name}`), false);
+});
+
+test("끄는 동안 말풍선을 숨기고 꼬리 방향은 위아래 배치에 따라 바뀐다", () => {
+  assert.match(first('.pet-dock[data-dragging="true"] .pet-says'), /visibility: hidden/);
+  assert.match(first(".pet-dock .pet-says::before, .pet-dock .pet-says::after"), /left: calc\(var\(--techmo-bubble-tail-x\) - 1px\)/);
+  assert.match(first(".pet-dock .pet-says::before"), /bottom: -11px/);
+  assert.match(first('.pet-dock[data-bubble-below="true"] .pet-says::before'), /top: -11px/);
+  assert.match(styles, /\.pet-says::before[^{}]*\{[^}]*border-width: 10px 10px 0/);
+  assert.match(styles, /data-bubble-below="true"[^{}]*::before[^{}]*\{[^}]*border-width: 0 10px 10px/);
+  const page = loadAssistant();
+  page.context.techmoBubble();
+  const y = page.assistant.properties.get("--techmo-bubble-y");
+  page.pet.fire("pointerdown", pointer(100, 100));
+  page.pet.fire("pointermove", pointer(90, 90));
+  assert.equal(page.assistant.dataset.dragging, "true");
+  page.context.techmoBubble();
+  assert.equal(page.assistant.properties.get("--techmo-bubble-y"), y);
 });
 
 test("화살표는 16px, Shift 화살표는 64px 움직이며 Space 기본 클릭이 한 번 실행된다", () => {
@@ -1113,5 +1364,16 @@ test("본문이 숨은 동안 받은 그림의 저장 위치는 로그인과 둘
     assert.equal(coordinate(page, "y"), 400);
     assert.equal(page.assistant.properties.get("--techmo-pet-size"), "128px");
     assert.equal(page.storage.get("kumoh-techmo-position:v1"), stored);
+  }
+});
+
+test("본문이 숨은 동안 받은 그림도 로그인과 둘러보기 직후 기본 말풍선을 계산한다", async () => {
+  for (const entry of ["login", "browse"]) {
+    const page = loadAssistant({ screenVisibility: true, sprite: { complete: true, naturalWidth: 960, naturalHeight: 192 } });
+    assert.equal(page.pet.getBoundingClientRect().width, 0);
+    if (entry === "login") await page.selectStudent();
+    else page.context.document.querySelector("#browse-main").fire("click");
+    assertBubble(page, { width: 136 });
+    assert.equal(page.assistant.dataset.placed, undefined);
   }
 });

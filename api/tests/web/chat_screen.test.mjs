@@ -140,6 +140,7 @@ function page({
     statusLine: get("#status"),
     graduationTurn: null,
     changeFeature() {},
+    techmoBubble() {},
     photoTypes: ["image/jpeg", "image/png"],
     photoMaxBytes: 5_000_000,
     photoRejections: {},
