@@ -40,10 +40,12 @@ function page({
     clicks = 0;
     remove() {}
     append(...children) {
+      for (const child of children) if (child instanceof Node) child.parentNode = this;
       this.children.push(...children);
     }
     replaceChildren(...children) {
-      this.children = children;
+      this.children = [];
+      this.append(...children);
     }
     contains(node) {
       return node === this || this.children.some(child => child instanceof Node && child.contains(node));
@@ -62,7 +64,9 @@ function page({
       this.listeners.get(type)?.(event);
       return event;
     }
+    // 브라우저처럼 자신이나 조상이 inert면 초점을 옮기지 않는다.
     focus(options) {
+      for (let node = this; node; node = node.parentNode) if (node.inert) return;
       focus = this;
       this.focusOptions = options;
     }
@@ -1234,6 +1238,49 @@ test("확인 창이나 메뉴가 열린 채 뒤로 가기로 홈에 가면 취�
   assert.equal(menuNode(p).hidden, false);
   p.windowEvents.get("popstate")();
   assert.equal(menuNode(p).hidden, true);
+  assert.equal(p.focus(), p.get("#question"));
+});
+
+test("좁은 화면의 서랍에서 확인 창·메뉴를 연 채 뒤로 가면 서랍 inert가 풀린 뒤 입력창에 초점을 둔다", () => {
+  for (const overlay of ["confirm", "menu"]) {
+    const p = page();
+    p.window.matchMedia = () => ({ matches: true });
+    // 실제 화면처럼 입력창을 composer 안에 둔다. 서랍이 composer에 건 inert가 입력창 초점을 막는다.
+    p.get("#composer").append(p.get("#question"));
+    p.run("setChatView(true)");
+    history(p, [fictional("a", 2), fictional("b", 1)]);
+    const sidebar = p.get("#conversation-sidebar");
+    sidebar.append(p.get("#conversation-list"));
+    p.get("#conversation-toggle").click();
+    assert.equal(p.get("#composer").inert, true, overlay);
+    listItems(p)[0].children[1].click();
+    if (overlay === "confirm") {
+      menuNode(p).fire("keydown", { key: "End" });
+      menuNode(p).fire("keydown", { key: "Enter" });
+      assert.equal(scrimNode(p).hidden, false, overlay);
+    }
+    p.window.location.hash = "";
+    p.windowEvents.get("popstate")();
+    assert.equal(p.document.body.attributes.has("data-conversation-drawer"), false, overlay);
+    assert.equal(p.get("#composer").inert, false, overlay);
+    assert.equal(menuNode(p).hidden, true, overlay);
+    if (scrimNode(p)) assert.equal(scrimNode(p).hidden, true, overlay);
+    assert.equal(p.run("conversations.length"), 2, overlay);
+    assert.equal(p.focus(), p.get("#question"), overlay);
+  }
+});
+
+test("서랍 목록에 초점이 있는 채 뒤로 가 목록이 숨으면 입력창으로 초점을 옮긴다", () => {
+  const p = page();
+  p.window.matchMedia = () => ({ matches: true });
+  p.get("#composer").append(p.get("#question"));
+  p.run("setChatView(true)");
+  history(p, [fictional("a", 2)]);
+  p.get("#conversation-sidebar").append(p.get("#conversation-list"));
+  p.get("#conversation-toggle").click();
+  listItems(p)[0].children[0].focus();
+  p.window.location.hash = "";
+  p.windowEvents.get("popstate")();
   assert.equal(p.focus(), p.get("#question"));
 });
 

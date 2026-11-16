@@ -172,6 +172,8 @@ const longPressMs = 500;
 const longPressSlop = 10;
 let archiveOpen = false;
 let archiveToggle = null;
+// 확인 창·메뉴가 열린 채 화면을 옮기면 켠다. 전환을 적용하는 apply가 한 번 쓰고 끈다.
+let focusInputAfterView = false;
 let conversationNodes = new Map();
 let conversationOrder = [];
 let menu = null, menuItems = [], menuRecord = null, menuOrigin = null;
@@ -256,18 +258,18 @@ function updateSidebarAvailability() {
   if (sidebar) sidebar.inert = !drawerOpen && Boolean(narrow);
 }
 function setChatView(next, push = true) {
-  // 뒤로 가기 같은 화면 이동은 inert로 막을 수 없다. 떠 있는 확인 창과 메뉴를 취소로 닫고,
-  // 숨을 수 있는 목록 대신 두 화면 모두에 있는 입력창으로 초점을 보낸다.
-  const overlay = Boolean(confirmRequest || menuRecord);
+  // 뒤로 가기 같은 화면 이동은 inert로 막을 수 없다. 떠 있는 확인 창과 메뉴를 취소로 닫는다.
+  // 이 시점에는 서랍의 inert가 입력창 위에 남아 있어 초점을 보내도 실패한다. 초점은 apply 끝에서 보낸다.
+  if (confirmRequest || menuRecord) focusInputAfterView = true;
   if (confirmRequest) closeConfirm(false, false);
   closeMenu(false);
-  if (overlay) input.focus?.();
   requestedChatView = next;
   const sequence = ++screenSequence;
   const changed = next !== chatView;
   if (next && !chatView) homeNodes = Array.from(transcript.children);
   const apply = () => {
     if (sequence !== screenSequence) return;
+    const focusInList = Boolean(sidebar?.contains?.(document.activeElement));
     if (next && !chatView) {
       transcript.replaceChildren();
     } else if (!next && chatView) transcript.replaceChildren(...(homeNodes || [empty]));
@@ -283,6 +285,12 @@ function setChatView(next, push = true) {
     closeDrawer(false);
     updateSend();
     techmoBubble();
+    // 화면 전환과 서랍 닫기로 inert가 모두 풀린 뒤에 초점을 옮긴다. 숨거나 inert가 된 목록에
+    // 초점이 남은 경우도 같은 자리에서 두 화면 모두에 있는 입력창으로 보낸다.
+    if (focusInputAfterView || (focusInList && !listVisible())) {
+      focusInputAfterView = false;
+      input.focus?.();
+    }
   };
   document.body?.setAttribute("data-chat-direction", next ? "forward" : "back");
   if (push && window.history) {
