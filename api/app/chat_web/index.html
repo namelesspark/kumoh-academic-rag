@@ -27,7 +27,9 @@
         <p id="login-pet-line">학번으로 들어와 보세요!</p>
         <span class="login-techmo" data-brand-slot hidden><img src="/chat-assets/techmo-sprite.png" alt="" width="960" height="192"><span class="pet-frame"></span></span>
       </div>
-      <span class="login-brand" data-brand-slot hidden><img src="/chat-assets/kumoh-signature.png" alt="국립금오공과대학교" width="782" height="113"></span>
+      <!-- 남색 바탕에 판 없이 올리는 밝은 로고. 그림이 없으면 바로 뒤 글자가 보인다. -->
+      <span class="login-brand" data-brand-slot hidden><img src="/chat-assets/kumoh-signature-light.png" alt="국립금오공과대학교" width="782" height="113"></span>
+      <span class="login-brand-name">금오공대 학사 안내</span>
       <h2 id="login-title">로그인</h2>
       <p class="login-help">시연 계정으로 이수 내역을 확인해 보세요.</p>
       <form id="login-form">
@@ -47,6 +49,16 @@
       </section>
       <button type="button" class="browse-main" id="browse-main">로그인 없이 둘러보기</button>
     </div>
+    <!-- 교내 주요 사이트 링크는 새 탭에서 열린다. 읽기 이름에는 「(새 창)」을 덧붙이고 아이콘은 읽지 않는다. -->
+    <footer class="site-footer" id="login-site-footer">
+      <p class="campus-site-label">교내 주요 사이트</p>
+      <nav class="campus-site-links" id="login-campus-site-links" aria-label="교내 주요 사이트">
+        <a class="campus-site-link" href="https://www.kumoh.ac.kr/ko/index.do" target="_blank" rel="noopener noreferrer">학교 홈페이지<span class="sr-only"> (새 창)</span><svg class="external-link-icon" viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M9.5 2.5h4v4M13.5 2.5 7.5 8.5M11.5 9.5v4h-9v-9h4"/></svg></a>
+        <a class="campus-site-link" href="https://onekit.kumoh.ac.kr/" target="_blank" rel="noopener noreferrer">포털(Onekit)<span class="sr-only"> (새 창)</span><svg class="external-link-icon" viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M9.5 2.5h4v4M13.5 2.5 7.5 8.5M11.5 9.5v4h-9v-9h4"/></svg></a>
+        <a class="campus-site-link" href="https://biskit.kumoh.ac.kr/" target="_blank" rel="noopener noreferrer">BISKIT<span class="sr-only"> (새 창)</span><svg class="external-link-icon" viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M9.5 2.5h4v4M13.5 2.5 7.5 8.5M11.5 9.5v4h-9v-9h4"/></svg></a>
+      </nav>
+      <p class="site-footer-note">교내 대회 출품작 · 가상 학생 데이터로 동작하는 시연입니다</p>
+    </footer>
   </section>
   <div id="main-screen" hidden>
   <header class="masthead">
@@ -56,7 +68,7 @@
       <h1 class="brand">
         <!-- 그림 자리는 숨긴 채 시작한다. chat.js가 로드 성공을 확인한 뒤에만 보이게 바꾼다. -->
         <span class="brand-logo" data-brand-slot hidden>
-          <img src="/chat-assets/kumoh-signature.png" alt="국립금오공과대학교" width="782" height="113">
+          <img src="/chat-assets/kumoh-signature-light.png" alt="국립금오공과대학교" width="782" height="113">
         </span>
         <span class="brand-name">금오공대 학사 안내</span>
       </h1>
@@ -90,6 +102,11 @@
       <ul class="conversation-list" id="conversation-list"></ul>
       <button type="button" class="conversation-clear" id="clear-conversations">기록 모두 지우기</button>
       <p class="conversation-note">대화 기록은 이 브라우저에만 저장돼요</p>
+      <nav class="campus-site-links campus-site-links--compact" id="sidebar-campus-site-links" aria-label="교내 주요 사이트">
+        <a class="campus-site-link" href="https://www.kumoh.ac.kr/ko/index.do" target="_blank" rel="noopener noreferrer">학교 홈페이지<span class="sr-only"> (새 창)</span><svg class="external-link-icon" viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M9.5 2.5h4v4M13.5 2.5 7.5 8.5M11.5 9.5v4h-9v-9h4"/></svg></a>
+        <a class="campus-site-link" href="https://onekit.kumoh.ac.kr/" target="_blank" rel="noopener noreferrer">포털(Onekit)<span class="sr-only"> (새 창)</span><svg class="external-link-icon" viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M9.5 2.5h4v4M13.5 2.5 7.5 8.5M11.5 9.5v4h-9v-9h4"/></svg></a>
+        <a class="campus-site-link" href="https://biskit.kumoh.ac.kr/" target="_blank" rel="noopener noreferrer">BISKIT<span class="sr-only"> (새 창)</span><svg class="external-link-icon" viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M9.5 2.5h4v4M13.5 2.5 7.5 8.5M11.5 9.5v4h-9v-9h4"/></svg></a>
+      </nav>
     </aside>
     <div class="conversation-backdrop" id="conversation-backdrop" hidden></div>
     <section class="chat" aria-labelledby="chat-heading">
@@ -219,6 +236,16 @@
       <noscript><p class="status">채팅을 사용하려면 브라우저에서 JavaScript를 켜 주세요.</p></noscript>
       <p class="status" id="status" role="status"></p>
     </section>
+    <!-- 바닥은 큰 판 안의 마지막 자리다. 판이 화면 맨 아래까지 이어진다. 채팅 화면에서는 chat.css가 숨긴다. -->
+    <footer class="site-footer" id="main-site-footer">
+      <p class="campus-site-label">교내 주요 사이트</p>
+      <nav class="campus-site-links" id="main-campus-site-links" aria-label="교내 주요 사이트">
+        <a class="campus-site-link" href="https://www.kumoh.ac.kr/ko/index.do" target="_blank" rel="noopener noreferrer">학교 홈페이지<span class="sr-only"> (새 창)</span><svg class="external-link-icon" viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M9.5 2.5h4v4M13.5 2.5 7.5 8.5M11.5 9.5v4h-9v-9h4"/></svg></a>
+        <a class="campus-site-link" href="https://onekit.kumoh.ac.kr/" target="_blank" rel="noopener noreferrer">포털(Onekit)<span class="sr-only"> (새 창)</span><svg class="external-link-icon" viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M9.5 2.5h4v4M13.5 2.5 7.5 8.5M11.5 9.5v4h-9v-9h4"/></svg></a>
+        <a class="campus-site-link" href="https://biskit.kumoh.ac.kr/" target="_blank" rel="noopener noreferrer">BISKIT<span class="sr-only"> (새 창)</span><svg class="external-link-icon" viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M9.5 2.5h4v4M13.5 2.5 7.5 8.5M11.5 9.5v4h-9v-9h4"/></svg></a>
+      </nav>
+      <p class="site-footer-note">교내 대회 출품작 · 가상 학생 데이터로 동작하는 시연입니다</p>
+    </footer>
   </main>
       <!-- 테크모 펫과 말풍선. chat.js는 이 줄의 data-pose·data-state만 바꾸고, chat.css가 그 값으로 그림 칸과 움직임을 고른다.
            펫 버튼은 숨긴 채 시작하고, 안에 든 그림이 로드에 성공해야 보인다. 그림이 없어도 말풍선은 남는다.
@@ -240,10 +267,6 @@
         <button type="button" class="conversation-toast-close" id="conversation-toast-close" aria-label="알림 닫기"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
       </div>
       <p class="sr-only" id="conversation-announce" role="status"></p>
-
-  <footer class="site-footer">
-    <p>교내 대회 출품작 · 가상 학생 데이터로 동작하는 시연입니다</p>
-  </footer>
   </div>
 </body>
 </html>
