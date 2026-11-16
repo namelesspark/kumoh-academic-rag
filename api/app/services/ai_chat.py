@@ -282,7 +282,10 @@ def build_messages(result: dict, message: str) -> list[dict]:
         f"본문:\n{_clean(citation['snippet'])}"
         for citation in result["citations"]
     )
-    user = f"<조문>\n{articles}\n</조문>\n\n<질문>\n{_clean(message)}\n</질문>"
+    user = (
+        f"<조문>\n{articles}\n</조문>\n\n<질문>\n{_clean(message)}\n</질문>\n\n"
+        "답 형식: 「제N조에 따르면 …입니다.」처럼 마침표로 끝나는 완결된 문장 한두 개."
+    )
     return [{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": user}]
 
 

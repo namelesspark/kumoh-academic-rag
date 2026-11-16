@@ -295,6 +295,20 @@ class RequestTests(unittest.TestCase):
         for part in ("가상 구름 도서관 규정", "제3조(달빛 열람)", ARTICLE, QUESTION):
             self.assertIn(part, user["content"])
 
+    def test_sent_user_message_ends_with_answer_format_only_for_normal_answers(self):
+        format_line = "답 형식: 「제N조에 따르면 …입니다.」처럼 마침표로 끝나는 완결된 문장 한두 개."
+        held = {**RESULT, "answered": False, "citations": []}
+        for result in (RESULT, held):
+            with self.subTest(answered=result["answered"]):
+                transport = FakeTransport([ANSWER_STREAM])
+                collect(AiChat(SETTINGS, transport=transport), result=result, mode="fast")
+                user = transport.calls[0]["body"]["messages"][1]["content"]
+                if result["answered"]:
+                    self.assertEqual(user.splitlines()[-3:], ["</질문>", "", format_line])
+                else:
+                    self.assertEqual(user, f"<질문>\n{QUESTION}\n</질문>")
+                    self.assertNotIn(format_line, user)
+
     def test_system_prompt_asks_for_plain_sentences_without_basis_line(self):
         # 화면이 모델 글을 textContent로 그려 마크다운 별표가 그대로 보였고, 답 끝에
         # 근거 상자와 겹치는 "근거:" 줄이 붙었다 (실제 LM Studio 확인, 2026-11-16).
