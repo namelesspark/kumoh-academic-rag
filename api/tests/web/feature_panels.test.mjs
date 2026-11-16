@@ -82,6 +82,7 @@ function loadPage({ transition, reduced = false, legacy = false, now = "2027-02-
     }
   }
   const document = {
+    body: new Element(),
     addEventListener() {},
     querySelector(selector) {
       if (selector === "#feature-cards" && legacy) return null;
@@ -216,6 +217,18 @@ test("함수가 아닌 전환 속성은 호출하지 않는다", () => {
   const page = loadPage({ transition: {} });
   page.cards[0].click();
   assertState(page, 0);
+});
+
+test("닫은 카드의 떠오름 억제는 다음 포인터와 키보드 조작에서 해제한다", () => {
+  const page = loadPage();
+  const card = page.cards[0];
+  for (const type of ["pointerleave", "pointerdown", "keydown"]) {
+    card.click();
+    page.close(0);
+    assert.equal(card.attributes.has("data-restored"), true);
+    card.listeners.get(type)({});
+    assert.equal(card.attributes.has("data-restored"), false);
+  }
 });
 
 test("지원 환경에서 열고 닫는 동안 원래 카드에만 모핑 표시를 두고 완료하면 지운다", async () => {

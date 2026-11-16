@@ -69,7 +69,7 @@ const parents = {
   ".composer-row":".composer", ".composer-meta":".composer", ".composer textarea":".composer-row", ".composer textarea:hover":".composer-row", ".attach-button":".composer-row", ".attach-button:hover":".composer-row",
   ".card.soon":".layout", ".fallback":".reply", ".poster-result.unconfirmed":".reply", ".graduation thead th":".graduation table", ".graduation .item th":".graduation table", ".graduation .item td":".graduation table", "[data-panel-content] > .panel-action":".feature-panel", "[data-panel-content] > .panel-action:hover":".feature-panel",
   "#login-form input":".login-card", "#login-form input:focus":".login-card", "#demo-student-list button":".login-card", "#demo-student-list button:hover":".login-card", ".login-safety":".login-card", ".login-submit":".login-card",
-  ".card":".layout", "button.card:hover":".layout", ".feature-panel":".layout", ".chat":".layout", ".composer":".layout", "textarea":".composer", ".primary":".composer", ".primary:not(:disabled):hover":".composer", ".reply":".layout", ".question":".layout",
+  ".card":".layout", "button.card:hover:not([data-restored])":".layout", ".feature-panel":".layout", ".chat":".layout", ".composer":".layout", "textarea":".composer", ".primary":".composer", ".primary:not(:disabled):hover":".composer", ".reply":".layout", ".question":".layout",
   ".reset":".masthead", ".reset:not(:disabled):hover":".masthead", ".login":".masthead", ".panel-close":".feature-panel", ".panel-close:hover":".feature-panel", ".cta":".feature-panel", ".cta:hover":".feature-panel", ".check":".reply", ".check:not(:disabled):hover":".reply", ".evidence":".reply", ".graduation table":".reply", ".error":".reply", ".badge.met":".reply", ".badge.short":".reply", ".badge.needs-check":".reply", ".reading":".reply", ".reading textarea":".reading", ".biskit .program":".reply", ".poster-result":".reply",
 };
 function fills(selector, photo) {
@@ -102,18 +102,21 @@ test("남색 유리의 양 끝과 밝고 어두운 사진 양쪽에서 글자 �
     [":root",":root"],[".masthead",".masthead"],[".reset",".reset"],[".reset:not(:disabled):hover",".reset:not(:disabled):hover"],[".login",".login"],
     [".login-card",".login-card"],[".login-help",".login-card"],["#login-form label",".login-card"],["#login-form input","#login-form input"],["#login-form input::placeholder","#login-form input"],["#login-form input::placeholder","#login-form input:focus"],["#login-error",".login-card"],[".browse-main",".login-card"],
     [".login-safety",".login-safety"],["#demo-student-list strong","#demo-student-list button"],["#demo-student-list button","#demo-student-list button"],["#demo-student-list strong","#demo-student-list button:hover"],["#demo-student-list button","#demo-student-list button:hover"],
-    [".card-title",".card"],[".card-text",".card"],[".card-title","button.card:hover"],[".card-text","button.card:hover"],[".panel-title",".feature-panel"],[".panel-text",".feature-panel"],[".panel-close",".panel-close"],[".panel-close:hover",".panel-close:hover"],[".status",".layout"],
+    [".card-title",".card"],[".card-text",".card"],[".card-title","button.card:hover:not([data-restored])"],[".card-text","button.card:hover:not([data-restored])"],[".panel-title",".feature-panel"],[".panel-text",".feature-panel"],[".panel-close",".panel-close"],[".panel-close:hover",".panel-close:hover"],[".status",".layout"],
     [".reply",".reply"],[".evidence h3",".evidence"],[".evidence .date",".evidence"],[".evidence .source-link",".evidence"],[".graduation caption",".graduation table"],[".graduation .source",".graduation table"],[".graduation .shortfall",".graduation table"],
     [".badge.met",".badge.met"],[".badge.short",".badge.short"],[".badge.needs-check",".badge.needs-check"],[".error",".error"],[".retry",".error"],
     [".reading textarea",".reading textarea"],[".reading textarea::placeholder",".reading textarea"],[".source-link",".reply"],[".source-link",".biskit .program"],[".source-link",".feature-panel"],[".source-link",".poster-result"],
     [".composer textarea",".composer textarea"],[".composer textarea::placeholder",".composer textarea"],[".composer p",".composer-meta"],[".attach-clear",".composer-meta"],
     [".conversation-menu",".conversation-menu"],[".conversation-menu-item.danger",".conversation-menu"],[".confirm-box",".confirm-box"],[".confirm-actions .confirm-delete",".confirm-actions .confirm-delete"],
+    [".campus-site-link", ".site-footer"], [".campus-site-link", "#login-site-footer"], [".campus-site-link", "#conversation-sidebar"],
+    [".site-footer .campus-site-label", ".site-footer"], [".site-footer .campus-site-label", "#login-site-footer"],
+    [".site-footer p", ".site-footer"], [".site-footer p", "#login-site-footer"],
     [".login-submit",".login-submit"],[".primary",".primary"],[".primary:not(:disabled):hover",".primary:not(:disabled):hover"],[".pet-says",".pet-says"],["#login-pet-line","#login-pet-line"],
   ]);
 });
 
 test("테두리와 초점은 유리 안쪽 바탕과 3 이상이고 밝은 입력창은 안쪽 경계를 보강한다", () => {
-  const selectors=[".login-card",".layout",".card","button.card:hover",".feature-panel","#demo-student-list button","#demo-student-list button:hover","#login-form input","#login-form input:focus",".reset",".login",".panel-close",".login-submit",".primary",".primary:not(:disabled):hover",".login-safety",".attach-button","textarea",".composer textarea",".composer textarea:hover"];
+  const selectors=[".login-card",".card","button.card:hover:not([data-restored])",".feature-panel","#demo-student-list button","#demo-student-list button:hover","#login-form input","#login-form input:focus",".reset",".login",".panel-close",".login-submit",".primary",".primary:not(:disabled):hover",".login-safety",".attach-button","textarea",".composer textarea",".composer textarea:hover"];
   const failures=[];
   for(const photo of [[4,20,38],[255,255,255]]) for(const selector of selectors) for(const back of fills(selector,photo)) {
     const edge=colors(declared(selector,["border","border-color"]))[0]; const ratio=contrast(blend(edge,back),back);
@@ -172,7 +175,7 @@ test("내용 구분선과 상태색은 지정 변수를 사용하고 글 상자�
   }
 });
 
-test("전체 CSS에서 남은 밝은 바탕은 입력 줄과 그림 받침이며 글자 대비를 확인한다", () => {
+test("전체 CSS에서 남은 밝은 바탕은 입력 줄과 상태 표시이며 글자 대비를 확인한다", () => {
   const backgrounds = new Map();
   for (const rule of rules) {
     for (const selector of rule.selectors) {
@@ -185,8 +188,8 @@ test("전체 CSS에서 남은 밝은 바탕은 입력 줄과 그림 받침이며
     colors(value).some(color => color[3] >= .8 && luminance(color.slice(0, 3)) > .5)
   ).map(([selector]) => selector).sort();
   assert.deepEqual(lightSurfaces, [
-    ".attach-button:hover", ".brand-logo", ".composer textarea", ".composer-row", ".conversation-unread", ".intro-badge::before",
-    ".login-brand", ".login-safety::before", ".pet-dots span", '[data-campus-step][data-current="true"]',
+    ".attach-button:hover", ".composer textarea", ".composer-row", ".conversation-unread", ".intro-badge::before",
+    ".login-safety::before", ".pet-dots span", '[data-campus-step][data-current="true"]',
   ]);
   checkText([
     [".composer-row", ".composer-row"], [".composer textarea", ".composer textarea"],
@@ -202,20 +205,22 @@ test("로그인과 보내기 gradient 양 끝은 흰 글자 대비 4.5 이상이
   }
 });
 
-test("유리 흐림은 1.5px 이하이고 판은 흐리지 않으며 로고에 흰 판을 받친다", () => {
+test("유리 흐림은 1.5px 이하이고 로고는 여백 없이 띠 위에 놓는다", () => {
   assert.equal(declared(".login-card",["backdrop-filter"]),"blur(1.5px) saturate(1.2)");
   assert.equal(declared(".masthead",["backdrop-filter"]),"blur(1.5px) saturate(1.2)");
   assert.equal(declared(".layout",["backdrop-filter"]),"none");
-  assert.equal(declared(".brand-logo",["padding"]),"7px 12px");
-  assert.equal(declared(".login-brand",["border-radius"]),"12px");
+  assert.equal(declared(".brand-logo",["padding"]),"0");
+  assert.equal(declared(".login-brand",["border-radius"]),"0");
   assert.equal(declared(".chat",["background"]),"transparent");
 });
 
-test("두 로고의 흰 판은 블록 그림과 여백 전체를 감싸는 상자로 그린다", () => {
+test("두 로고는 받침과 테두리 없이 밝은 그림을 표시한다", () => {
   for (const selector of [".brand-logo", ".login-brand"]) {
     assert.ok(["block", "inline-block"].includes(declared(selector, ["display"])), selector);
-    assert.equal(declared(selector, ["padding"]), "7px 12px");
-    assert.equal(declared(selector, ["background"]), "var(--glass-composer)");
+    assert.equal(declared(selector, ["padding"]), "0");
+    assert.equal(declared(selector, ["background"]), "transparent");
+    assert.equal(declared(selector, ["border"]), "0");
+    assert.equal(declared(selector, ["box-shadow"]), "none");
   }
 });
 
@@ -257,7 +262,7 @@ test("그림 자리는 숨긴 채 시작하며 서버가 준비하는 주소만 
   const images=[...html.matchAll(/<img\b[^>]*>/g)].map(m=>m[0]);
   const slots=[...html.matchAll(/<\w+[^>]*\bdata-brand-slot\b[^>]*>\s*(<img\b[^>]*>)/g)];
   assert.deepEqual(slots.map(m=>m[1]),images); for(const [slot]of slots)assert.match(slot,/data-brand-slot hidden>/);
-  const allowed = new Set(["/chat-assets/title-lettering.png", "/chat-assets/main-lettering.png", "/chat-assets/techmo-sprite.png", "/chat-assets/kumoh-signature.png"]);
+  const allowed = new Set(["/chat-assets/title-lettering.png", "/chat-assets/main-lettering.png", "/chat-assets/techmo-sprite.png", "/chat-assets/kumoh-signature.png", "/chat-assets/kumoh-signature-light.png"]);
   for (const image of images) assert.ok(allowed.has(/src="([^"]+)"/.exec(image)[1]));
 });
 

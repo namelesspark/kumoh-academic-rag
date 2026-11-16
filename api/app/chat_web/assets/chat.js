@@ -949,6 +949,7 @@ function changeFeature(card, { animate = true, focus = true } = {}) {
   panelTransition = null;
   for (const node of featureCards) node.removeAttribute("data-morph");
   const source = card ?? previous;
+  if (document.body) document.body.dataset.featureDirection = card ? "open" : "back";
   let applied = false;
   const apply = () => {
     if (change !== panelChange || applied) return;
@@ -956,6 +957,7 @@ function changeFeature(card, { animate = true, focus = true } = {}) {
     if (featureList) featureList.hidden = Boolean(card);
     for (const node of featurePanels) node.hidden = node !== panel;
     for (const node of featureCards) node.setAttribute("aria-expanded", String(node === card));
+    if (!card) previous?.setAttribute("data-restored", "");
     if (["calendar", "campus"].includes(card?.dataset.feature)) void loadFeaturePanel(panel, change);
     if (focus) {
       const target = card ? panel.querySelector("[data-panel-title]") : previous;
@@ -968,12 +970,16 @@ function changeFeature(card, { animate = true, focus = true } = {}) {
     current: () => change === panelChange,
     cleanup: () => {
       source?.removeAttribute("data-morph");
+      if (document.body) delete document.body.dataset.featureDirection;
       panelTransition = null;
     },
   });
 }
 
 for (const card of featureCards) {
+  for (const type of ["pointerleave", "pointerdown", "keydown"]) {
+    card.addEventListener(type, () => card.removeAttribute("data-restored"));
+  }
   card.addEventListener("click", () => changeFeature(card));
 }
 for (const panel of featurePanels) {

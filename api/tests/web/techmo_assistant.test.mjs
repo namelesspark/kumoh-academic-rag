@@ -217,6 +217,27 @@ function pixels(value, width) {
   return runInNewContext(expression, {}, { timeout: 100 });
 }
 
+test("360·680px 상단은 한 줄과 40px 버튼을 유지하고 보조 줄을 숨긴다", () => {
+  for (const width of [360, 680]) {
+    assert.equal(declarationsAtWidth("#demo-identity", width)["flex-wrap"], "nowrap");
+    assert.equal(declarationsAtWidth("#demo-identity .hint", width).display, "none");
+    assert.equal(declarationsAtWidth("#demo-label", width)["text-overflow"], "ellipsis");
+    assert.equal(declarationsAtWidth(".brand-logo img", width).height, "22px");
+    assert.equal(declarationsAtWidth(".login-brand img", width).height, "22px");
+    assert.ok(Number.parseInt(declarationsAtWidth("#demo-logout", width)["min-height"], 10) >= 40);
+    assert.ok(Number.parseInt(declarationsAtWidth(".masthead-actions > .reset", width)["min-height"], 10) >= 40);
+    assert.equal(declarationsAtWidth(".campus-site-links", width)["flex-wrap"], "wrap");
+  }
+});
+
+test("큰 판은 56px 경계만 부드럽게 잇고 바닥과 같은 면을 쓴다", () => {
+  const layout = declarationsAtWidth(".layout", 1280);
+  assert.equal(layout.border, "0");
+  assert.equal(layout["border-radius"], "0");
+  assert.equal(layout.background, "linear-gradient(180deg, transparent, var(--panel-surface) 56px)");
+  assert.equal(declarationsAtWidth('body[data-view="chat"] .layout', 1280).border, "0");
+});
+
 test("일정 내용의 제목과 상자는 격자 간격 12px만 남긴다", () => {
   for (const width of [1280, 680]) {
     const content = declarationsAtWidth("[data-panel-content]", width);
@@ -298,9 +319,12 @@ test("펫의 움직임 네 가지는 서로 다른 요소·속성에 걸고, 움
     [allOff, "none !important"],
     [transitionOff, "none !important"],
     [".hero-art::before", "shape-morph 12s ease-in-out infinite"],
+    ["::view-transition-old(feature-morph)", "feature-old-out .32s linear both"],
+    ["::view-transition-new(feature-morph)", "feature-new-in .32s linear both"],
+    ["::view-transition-old(feature-cards)", "feature-cards-out .2s ease both"],
+    ["::view-transition-new(feature-cards)", "feature-cards-out .2s ease reverse both"],
     [".login-card", "login-rise .8s ease-out"],
     [".login-techmo", "login-float 3.6s ease-in-out infinite"],
-    ["button.card:hover", "card-lift .18s ease-out forwards"],
   ]);
   // 움직임 줄이기 묶음은 하나뿐이고, 펫·대기 점·도형과 카드 전환을 함께 끈다.
   assert.ok(styles.split("prefers-reduced-motion").length >= 3);
