@@ -295,6 +295,20 @@ class RequestTests(unittest.TestCase):
         for part in ("가상 구름 도서관 규정", "제3조(달빛 열람)", ARTICLE, QUESTION):
             self.assertIn(part, user["content"])
 
+    def test_sent_user_message_ends_with_answer_format_only_for_normal_answers(self):
+        format_line = "답 형식: 「제N조에 따르면 …입니다.」처럼 마침표로 끝나는 완결된 문장 한두 개."
+        held = {**RESULT, "answered": False, "citations": []}
+        for result in (RESULT, held):
+            with self.subTest(answered=result["answered"]):
+                transport = FakeTransport([ANSWER_STREAM])
+                collect(AiChat(SETTINGS, transport=transport), result=result, mode="fast")
+                user = transport.calls[0]["body"]["messages"][1]["content"]
+                if result["answered"]:
+                    self.assertEqual(user.splitlines()[-3:], ["</질문>", "", format_line])
+                else:
+                    self.assertEqual(user, f"<질문>\n{QUESTION}\n</질문>")
+                    self.assertNotIn(format_line, user)
+
     def test_system_prompt_asks_for_plain_sentences_without_basis_line(self):
         # 화면이 모델 글을 textContent로 그려 마크다운 별표가 그대로 보였고, 답 끝에
         # 근거 상자와 겹치는 "근거:" 줄이 붙었다 (실제 LM Studio 확인, 2026-11-16).
@@ -310,7 +324,10 @@ class RequestTests(unittest.TestCase):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, system)
         rules = [line for line in system.splitlines() if line[:1].isdigit()]
-        self.assertEqual([rule.split(".", 1)[0] for rule in rules], ["1", "2", "3", "4", "5", "6"])
+        self.assertEqual([rule.split(".", 1)[0] for rule in rules], ["1", "2", "3", "4", "5", "6", "7"])
+        for phrase in ("한두 문장", "마침표", "되풀이하지 않고", "한 문장"):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, rules[-1])
 
     def test_section_marks_inside_question_are_removed(self):
         transport = FakeTransport([ANSWER_STREAM])
@@ -415,6 +432,106 @@ class EventTests(unittest.TestCase):
                     events = collect(AiChat(SETTINGS, transport=transport, limits=SHORT))
                 assert_no_secret_in_logs(self, records, API_KEY, QUESTION, "별지기가 내줍니다", "Looking at article")
                 self.assertNotIn(API_KEY, json.dumps(events, ensure_ascii=False, default=str))
+
+
+class AnswerCleanupTests(unittest.TestCase):
+    def test_normal_answers_trim_first_marker_and_match_json(self):
+        cases = (
+            (("제3조에 따르면 별지기가 내줍니다. 근거: 가상 조문",), "제3조에 따르면 별지기가 내줍니다."),
+            (("가상 답입니다.\n규정명: 가상 규정",), "가상 답입니다."),
+            (("가상 답입니다. 근거: 가상 조문 규정명: 가상 규정",), "가상 답입니다."),
+            (("가상 답입니다. 규정명: 가상 규정 근거: 가상 조문",), "가상 답입니다."),
+            (("  가상 답입니다. \t근거: 가상 조문",), "  가상 답입니다."),
+            (("가상 문장 중간 근거: 이후도 문장입니다.",), "가상 문장 중간"),
+            (("가상 답입니다. 근", "거: 가상 조문"), "가상 답입니다."),
+            (("가상 답입니다. 규정", "명: 가상 규정"), "가상 답입니다."),
+        )
+        for parts, expected in cases:
+            with self.subTest(parts=parts):
+                transport = FakeTransport([sse(*(delta(content=part) for part in parts))])
+                chat = AiChat(SETTINGS, transport=transport)
+                events = collect(chat)
+                replacements = [data for name, data in events if name == "answer" and data["replace"]]
+                self.assertEqual(replacements, [{"text": expected, "replace": True}])
+                self.assertEqual(events[-2], ("answer", replacements[0]))
+                self.assertEqual(events[-1][0], "done")
+                self.assertEqual(answer_text(events), expected)
+                self.assertEqual(events[0][1]["citations"][0]["snippet"], ARTICLE)
+                self.assertNotIn("notice", [name for name, _ in events])
+                self.assertNotIn("guided", events[-1][1])
+                self.assertNotIn("answered", events[-1][1])
+                body = run_without_sockets(chat.complete(RESULT, QUESTION, "deep"))
+                self.assertEqual(body["answer"], expected)
+                self.assertEqual(body["citations"], RESULT["citations"])
+                self.assertIs(body["answered"], True)
+                self.assertNotIn("notice", body)
+                self.assertNotIn("guided", body)
+
+    def test_no_marker_or_empty_prefix_preserves_original_without_replacement(self):
+        for original in (" \t가상 답입니다.\n ", "근거: 가상 조문", " \t규정명: 가상 규정", "\n근거: 가상 조문 규정명: 가상 규정"):
+            with self.subTest(original=original):
+                chat = AiChat(SETTINGS, transport=FakeTransport([sse(delta(content=original))]))
+                events = collect(chat)
+                self.assertEqual(answer_text(events), original)
+                self.assertFalse(any(data["replace"] for name, data in events if name == "answer"))
+                body = run_without_sockets(chat.complete(RESULT, QUESTION, "fast"))
+                self.assertEqual(body["answer"], original)
+
+    def test_refusal_precedes_marker_cleanup_in_both_modes(self):
+        original = " \n" + ai_chat.REFUSAL_PREFIX + ". 근거: 가상 조문"
+        held = {**RESULT, "answer": ai_chat.UNANSWERABLE_TEXT, "answered": False, "citations": []}
+        for result in (RESULT, held):
+            with self.subTest(answered=result["answered"]):
+                chat = AiChat(SETTINGS, transport=FakeTransport([sse(delta(content=original))]))
+                events = collect(chat, result=result)
+                replacements = [data for name, data in events if name == "answer" and data["replace"]]
+                self.assertEqual(replacements, [{"text": ai_chat.UNANSWERABLE_TEXT, "replace": True}])
+                self.assertEqual(events[-2], ("answer", replacements[0]))
+                self.assertIs(events[-1][1]["answered"], False)
+                self.assertNotIn("guided", events[-1][1])
+                body = run_without_sockets(chat.complete(result, QUESTION, "fast"))
+                self.assertEqual(body["answer"], ai_chat.UNANSWERABLE_TEXT)
+                self.assertEqual(body["citations"], [])
+                self.assertNotIn("notice", body)
+
+    def test_guidance_answer_keeps_markers_and_whitespace(self):
+        held = {**RESULT, "answer": ai_chat.UNANSWERABLE_TEXT, "answered": False, "citations": []}
+        original = "  가상 안내입니다. 근거: 가상 표식 규정명: 가상 이름\n"
+        chat = AiChat(SETTINGS, transport=FakeTransport([sse(delta(content=original))]))
+        events = collect(chat, result=held)
+        self.assertEqual(answer_text(events), original)
+        self.assertFalse(any(data["replace"] for name, data in events if name == "answer"))
+        self.assertIs(events[-1][1]["guided"], True)
+        body = run_without_sockets(chat.complete(held, QUESTION, "fast"))
+        self.assertEqual(body["answer"], original)
+        self.assertIs(body["guided"], True)
+        self.assertIs(body["answered"], False)
+        self.assertEqual(body["citations"], [])
+        self.assertNotIn("notice", body)
+
+    def test_static_and_failure_answers_keep_markers(self):
+        original = "가상 원문입니다. 근거: 가상 조문 규정명: 가상 규정"
+        result = {**RESULT, "answer": original}
+
+        async def static():
+            return [event async for event in ai_chat.static_events(result, notice=True)]
+
+        events = run_without_sockets(static())
+        self.assertEqual(answer_text(events), original)
+        self.assertEqual(events[1], ("answer", {"text": original, "replace": False}))
+        self.assertEqual(events[-2], ("notice", {"text": NOTICE_TEXT}))
+        for stream in (sse(delta(content=" ")), sse(delta(content="가상 조각 근거: 가상 표식"), done=False)):
+            with self.subTest(stream=stream):
+                chat = AiChat(SETTINGS, transport=FakeTransport([stream]))
+                events = collect(chat, result=result)
+                self.assertEqual(events[-3], ("answer", {"text": original, "replace": True}))
+                self.assertEqual(events[-2], ("notice", {"text": NOTICE_TEXT}))
+                self.assertEqual(answer_text(events), original)
+                self.assertEqual(sum(name == "answer" and data["replace"] for name, data in events), 1)
+                body = run_without_sockets(chat.complete(result, QUESTION, "fast"))
+                self.assertEqual(body["answer"], original)
+                self.assertEqual(body["notice"], NOTICE_TEXT)
+                self.assertEqual(body["citations"], RESULT["citations"])
 
 
 class SlotTests(unittest.TestCase):
