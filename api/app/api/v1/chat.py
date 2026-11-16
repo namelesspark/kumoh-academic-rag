@@ -99,7 +99,9 @@ def _search(request: ChatRequest, state) -> tuple[dict, bool]:
 
     chat_retrieval = state.chat_retrieval
     if chat_retrieval is not None:
-        return chat_retrieval.build_result(request.message, request.session_id), True
+        return chat_retrieval.build_result(
+            request.message, request.session_id, relaxed=getattr(state, "ai_chat", None) is not None
+        ), True
     return build_stub_chat_result(
         message=request.message,
         session_id=request.session_id,
@@ -119,7 +121,7 @@ async def post_chat(request: ChatRequest, http_request: Request):
     state = http_request.app.state
     result, searched = _search(request, state)
     ai = getattr(state, "ai_chat", None)
-    if ai is None or not searched or not result["answered"]:
+    if ai is None or not searched:
         return result
 
     # 브라우저가 끊으면 AI 호출을 취소해 자리를 돌려준다. 끊김을 알 수 없는 연결은 AI의
@@ -129,12 +131,18 @@ async def post_chat(request: ChatRequest, http_request: Request):
         http_request.receive, ai.complete(result, request.message, request.mode)
     )
     if not finished:
-        body = {**result, "notice": NOTICE_TEXT}
+        body = dict(result)
+        if result["answered"]:
+            body["notice"] = NOTICE_TEXT
     notice = body.pop("notice", None)
-    if notice is None:
+    guided = body.pop("guided", None)
+    if notice is None and guided is not True:
         return body
     content = ChatResponse.model_validate(body).model_dump(mode="json")
-    content["notice"] = notice
+    if notice is not None:
+        content["notice"] = notice
+    if guided is True:
+        content["guided"] = True
     return JSONResponse(content)
 
 
