@@ -18,7 +18,7 @@ function page({
     windowEvents = new Map(),
     timers = new Map(),
     requests = [];
-  const photoRequests = [];
+  const photoRequests = [], states = [], saved = [];
   let focus = null, id = 0;
   class Node {
     children = [];
@@ -175,6 +175,7 @@ function page({
     scrollToLatest() {
     },
     showAssistant(state, line) {
+      states.push(state);
       get("#pet-line").textContent = line;
     },
     element(tag, className, text) {
@@ -187,7 +188,9 @@ function page({
     sourceLink() {
       return null;
     },
-    saveConversations() {
+    saveConversations(storage, account, records) {
+      saved.push(records.map(({ id, time, title, messages }) =>
+        JSON.parse(JSON.stringify({ id, time, title, messages }))));
     },
     loadConversations() {
       return JSON.parse(JSON.stringify(storedConversations));
@@ -227,6 +230,8 @@ function page({
     windowEvents,
     requests,
     photoRequests,
+    states,
+    saved,
     focus: () => focus,
     run: (code) => runInNewContext(code, context),
     tick(ms) {
@@ -369,6 +374,20 @@ const answer = {
   }),
 };
 
+const trimConversations = runInNewContext(
+  script.slice(0, script.indexOf("const transcript =")) +
+    script.slice(script.indexOf("function isSafeSourceUrl("), script.indexOf("function citationCard(")) +
+    "\ntrimConversations",
+  { URL },
+);
+const heldText = "이 질문은 가상 규정에서 근거를 찾지 못했어요.";
+
+function reopen(saved) {
+  const p = page({ storedConversations: trimConversations(saved) });
+  p.run('switchHistoryAccount("browse"); var restored = conversations[0]; openConversation(restored)');
+  return p.get("#transcript").children[0].children;
+}
+
 function openStream(p) {
   let controller;
   const body = new ReadableStream({ start(value) { controller = value; } });
@@ -473,6 +492,78 @@ test("중간 스트림 실패는 생각과 부분 답을 지우고 같은 방식
   await done;
   assert.equal(p.run("record.messages.at(-1).text"), "가상 답변");
   assert.equal(p.get(".test-reply").children.length, 1);
+});
+
+test("meta가 답함이어도 done.answered가 false면 근거·안내 없이 보류로 끝나고 다시 묻지 않는다", async () => {
+  const p = page();
+  const finished = begin(p);
+  const emit = openStream(p);
+  emit("meta", { answered: true, citations: [{ document: "가상 규정", article_path: "제1조", source_url: "https://example.com/fictional" }], session_id: "fictional-session" });
+  emit("answer", { text: "가상 교체 보류", replace: true });
+  emit("notice", { text: "가상 남은 안내" });
+  emit("done", { latency_ms: {}, answered: false });
+  await finished;
+  const reply = p.get(".test-reply");
+  assert.equal(reply.children.length, 1);
+  assert.equal(reply.children[0].className, "fallback");
+  assert.equal(reply.children[0].textContent, heldText);
+  assert.equal(p.requests.length, 1);
+  assert.equal(p.states.at(-1), "hold");
+  const message = p.run("record.messages.at(-1)");
+  assert.equal(message.answered, false);
+  assert.equal(Object.hasOwn(message, "guided"), false);
+  assert.equal(message.sources.length, 0);
+  const [question, restored] = reopen(p.saved.at(-1));
+  assert.equal(question.className, "question");
+  assert.equal(restored.className, "reply fallback");
+  assert.equal(restored.textContent, heldText);
+});
+
+test("안내 답은 받은 글 그대로 일반 말풍선에 그리고 저장·재개 뒤에도 보류와 구별한다", async () => {
+  const p = page();
+  const finished = begin(p);
+  const emit = openStream(p);
+  emit("meta", { answered: false, citations: [], session_id: "fictional-session" });
+  emit("answer", { text: "가상 안내 ", replace: false });
+  emit("answer", { text: "답 <b>", replace: false });
+  emit("done", { latency_ms: {}, answered: false, guided: true });
+  await finished;
+  const reply = p.get(".test-reply");
+  assert.equal(reply.children.length, 1);
+  assert.equal(reply.children[0].className, "");
+  assert.equal(reply.children[0].textContent, "가상 안내 답 <b>");
+  assert.equal(p.requests.length, 1);
+  assert.equal(p.states.at(-1), "hold");
+  const message = p.run("record.messages.at(-1)");
+  assert.equal(message.answered, false);
+  assert.equal(message.guided, true);
+  const restored = reopen(p.saved.at(-1))[1];
+  assert.equal(restored.className, "reply");
+  assert.equal(restored.textContent, "가상 안내 답 <b>");
+});
+
+test("JSON 주소의 guided 답도 말풍선으로 그리고 빈 안내 답은 보류 문구로 바꾼다", async () => {
+  for (const [answer, className, text] of [["가상 JSON 안내", "", "가상 JSON 안내"], ["  ", "fallback", heldText]]) {
+    const p = page();
+    const finished = begin(p);
+    p.requests[0].reject(Error("가상 스트림 실패"));
+    await setImmediate();
+    p.requests[1].resolve({ ok: true, json: async () => ({ session_id: "fictional-session",
+      answered: false, guided: true, answer, citations: [] }) });
+    await finished;
+    const reply = p.get(".test-reply");
+    assert.equal(reply.children[0].className, className);
+    assert.equal(reply.children[0].textContent, text);
+    assert.equal(p.run("record.messages.at(-1).guided === true"), className === "");
+  }
+});
+
+test("보류 표시가 없는 옛 기록은 근거 없는 답도 일반 말풍선으로 연다", () => {
+  const [, restored] = reopen([{ id: "fictional-old", time: 1, messages: [
+    { role: "question", text: "가상 옛 질문", sources: [] },
+    { role: "answer", text: heldText, sources: [] },
+  ] }]);
+  assert.equal(restored.className, "reply");
 });
 
 test("보고 있는 대화에는 알림을 띄우지 않고 답을 저장한다", async () => {

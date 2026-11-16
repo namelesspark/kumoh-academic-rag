@@ -759,3 +759,35 @@ node --test api/tests/web/campus_backdrop.test.mjs api/tests/web/citation_link.t
 
 `git diff --check` 종료 코드는 0이다. Git은 CSS·화면 테스트·이 문서의 LF를 CRLF로 바꾼다는
 경고를 냈다. 이번 보완의 Python 검사와 통합본 브라우저 실측은 미확인이다.
+
+## AI 보류 판정과 안내 답 표시 (#101)
+
+조각 전송(SSE, 서버가 답을 조각으로 흘려보내는 방식)은 meta 이벤트를 먼저 보낸다. 서버는 AI 답을
+다 받은 뒤에야 조문으로 답할 수 없다고 판정할 수 있어서, 화면은 최종 모양을 done 이벤트에서 정한다.
+택배 송장(meta)에 「도착 예정」이 찍혀 있어도 실제 수령 여부는 받는 순간(done)에 확인하는 것과 같다.
+
+- `requestChatAnswer()`는 done의 값을 보관한다. `done.answered`가 boolean이면 meta 값보다 앞서고,
+  없으면 meta 값을 따른다. 안내 답은 SSE에서는 `done.guided === true`, JSON 주소에서는 응답 본문의
+  `guided === true`일 때만 인정한다. meta에 들어온 `guided`는 쓰지 않는다.
+- 보류는 근거 상자와 notice 없이 지금의 보류 문구와 `fallback` 모양으로 그린다. done까지 정상으로 받은
+  응답이라 JSON 주소로 다시 묻지 않는다.
+- 안내 답은 받은 글 그대로 일반 말풍선에 그린다. 근거 상자와 notice는 붙이지 않고 테크모는 보류 상태로 둔다.
+  안내 글이 비었거나 공백뿐이면 보류로 그린다.
+- 서버 글은 지금처럼 `textContent`로만 넣는다.
+
+### 기록
+
+- 답 말풍선 기록에는 보류와 안내 답 모두 `answered:false`, 안내 답이면 `guided:true`를 더한다.
+  일반 답에는 두 필드를 넣지 않는다.
+- `trimConversations()`는 답 말풍선의 `answered === false`, `guided === true`만 복사한다. 문자열 값,
+  질문 말풍선의 값, `answered:false` 없이 들어온 `guided`는 버린다.
+- 저장한 대화를 다시 열면 보류는 `reply fallback`, 안내 답은 `reply` 모양으로 그린다. 필드가 없는 옛 기록은
+  글이 보류 문구여도 보류로 바꾸지 않는다.
+
+### 화면 테스트 명령
+
+저장소 루트에서 15개 파일 전부를 실행한다. 이전 목록에 빠져 있던 `chat_stream.test.mjs`를 더했다.
+
+```
+node --test api/tests/web/campus_backdrop.test.mjs api/tests/web/chat_layout.test.mjs api/tests/web/chat_screen.test.mjs api/tests/web/chat_stream.test.mjs api/tests/web/citation_link.test.mjs api/tests/web/conversation_store.test.mjs api/tests/web/demo_login.test.mjs api/tests/web/feature_panels.test.mjs api/tests/web/graduation_demo.test.mjs api/tests/web/landing_design.test.mjs api/tests/web/motion_layout.test.mjs api/tests/web/photo_input.test.mjs api/tests/web/poster_lookup.test.mjs api/tests/web/student_login.test.mjs api/tests/web/techmo_assistant.test.mjs
+```

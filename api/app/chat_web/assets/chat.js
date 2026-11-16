@@ -10,6 +10,9 @@ function trimConversations(records) {
         !/\b\d{8,10}\b/.test(message.text))
         .slice(-40).map(message => ({ role: message.role, text: message.text,
           time: Number(message.time) || 0,
+          // 보류와 안내 답은 boolean으로만 남긴다. 필드가 없는 옛 기록은 보류로 바꾸지 않는다.
+          ...(message.role === "answer" && message.answered === false ? { answered: false } : {}),
+          ...(message.role === "answer" && message.answered === false && message.guided === true ? { guided: true } : {}),
           sources: (Array.isArray(message.sources) ? message.sources : [])
             .filter(source => source && typeof source.title === "string" && isSafeSourceUrl(source.url))
             .map(source => ({ title: source.title, url: source.url })) })),
@@ -297,7 +300,8 @@ function openConversation(record) {
     for (const message of record.messages) {
       if (message.role === "question" || !record.turns.length) record.turns.push(element("div", "turn"));
       const node = record.turns[record.turns.length - 1];
-      node.append(element("p", message.role === "question" ? "question" : "reply", message.text));
+      const held = message.role === "answer" && message.answered === false && message.guided !== true;
+      node.append(element("p", message.role === "question" ? "question" : held ? "reply fallback" : "reply", message.text));
       for (const source of message.sources || []) {
         const link = sourceLink(source.url, source.title, source.title);
         if (link) node.append(link);
@@ -1568,7 +1572,7 @@ async function readChatStream(response, onEvent) {
 async function requestChatAnswer(body, onEvent) {
   const options = { method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body), signal: AbortSignal.timeout(100_000) };
-  let meta = null, answer = "", notice;
+  let meta = null, answer = "", notice, done = null;
   try {
     const response = await fetch("/api/v1/chat/stream", options);
     await readChatStream(response, (name, data) => {
@@ -1576,9 +1580,13 @@ async function requestChatAnswer(body, onEvent) {
       if (name === "meta") meta = data;
       if (name === "answer") answer = data.replace ? data.text : answer + data.text;
       if (name === "notice") notice = data.text;
+      if (name === "done") done = data;
       onEvent(name, data);
     });
-    return { ...meta, answer, notice };
+    // 최종 상태는 done에서 정한다. done.answered가 boolean이면 meta보다 앞서고, 안내 답은 done.guided로만 안다.
+    const result = { ...meta, answer, notice, guided: done?.guided === true };
+    if (typeof done?.answered === "boolean") result.answered = done.answered;
+    return result;
   } catch {
     onEvent("reset", {});
     const response = await fetch("/api/v1/chat", { ...options, signal: AbortSignal.timeout(100_000) });
@@ -1629,17 +1637,20 @@ async function ask(question, reply, record = activeConversation) {
     if (record && (account !== historyAccount || !conversations.includes(record))) return;
     if (record) record.sessionId = result.session_id;
     else sessionId = result.session_id;
-    const text = result.answered ? result.answer : "이 질문은 가상 규정에서 근거를 찾지 못했어요.";
+    // 안내 답은 근거 없이 받은 글 그대로 일반 말풍선에 그린다. 빈 안내 답과 보류는 고정 보류 문구로 그린다.
+    const guided = result.answered !== true && result.guided === true &&
+      typeof result.answer === "string" && result.answer.trim() !== "";
+    const text = result.answered || guided ? result.answer : "이 질문은 가상 규정에서 근거를 찾지 못했어요.";
     if (!answerNode) { answerNode = element("p"); reply.append(answerNode); }
-    answerNode.className = result.answered ? "" : "fallback";
+    answerNode.className = result.answered || guided ? "" : "fallback";
     answerNode.textContent = text;
-    if (result.notice) reply.append(element("small", "ai-notice", result.notice));
+    if (result.answered && result.notice) reply.append(element("small", "ai-notice", result.notice));
     const citations = result.answered && Array.isArray(result.citations) ? result.citations : [];
     for (const citation of citations) reply.append(citationCard(citation));
     if (record) {
       record.messages.push({ role: "answer", text, time: Date.now(), sources: citations.map(citation => ({
         title: citation.document + " · " + citation.article_path, url: citation.source_url,
-      })) });
+      })), ...(result.answered ? {} : { answered: false }), ...(guided ? { guided: true } : {}) });
       record.messages = record.messages.slice(-40);
       record.time = Date.now(); record.saved = true;
       record.committedMessages = [

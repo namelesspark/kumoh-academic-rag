@@ -177,6 +177,34 @@ test("대체 안내와 done을 받은 스트림은 다시 묻지 않는다", asy
   assert.equal(result.notice, "가상 대체 안내");
 });
 
+test("done.answered가 boolean이면 meta보다 앞서고 안내 여부는 done.guided로 정한다", async () => {
+  const run = async (done, metaValue = meta) => {
+    let calls = 0;
+    const result = await requester(async () => {
+      calls++;
+      return responseFor([bytes(event("meta", metaValue) +
+        event("answer", { text: "가상 교체 답", replace: true }) + event("done", done))]);
+    })({ message: "가상 질문", mode: "fast" }, () => {});
+    assert.equal(calls, 1);
+    return result;
+  };
+  const held = await run({ latency_ms: {}, answered: false });
+  assert.equal(held.answered, false);
+  assert.equal(held.guided, false);
+  const guided = await run({ latency_ms: {}, answered: false, guided: true }, { ...meta, answered: false });
+  assert.equal(guided.answered, false);
+  assert.equal(guided.guided, true);
+  assert.equal(guided.answer, "가상 교체 답");
+  const plain = await run({ latency_ms: {} });
+  assert.equal(plain.answered, true);
+  assert.equal(plain.guided, false);
+  const ignored = await run({ answered: "false", guided: "true" });
+  assert.equal(ignored.answered, true);
+  assert.equal(ignored.guided, false);
+  const metaOnly = await run({}, { ...meta, answered: false, guided: true });
+  assert.equal(metaOnly.guided, false);
+});
+
 test("JSON 재질문도 실패하면 추가 요청 없이 실패한다", async () => {
   let calls = 0;
   await assert.rejects(requester(async () => {
