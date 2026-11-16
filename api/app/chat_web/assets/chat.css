@@ -490,7 +490,7 @@ button.card:hover .card-title { text-decoration: underline; text-underline-offse
 ::view-transition-old(feature-morph), ::view-transition-new(feature-morph) { height: 100%; object-fit: none; object-position: left top; }
 ::view-transition-old(feature-morph) { animation: feature-old-out .32s linear both; }
 ::view-transition-new(feature-morph) { animation: feature-new-in .32s linear both; }
-#feature-cards { view-transition-name: feature-cards; }
+body[data-feature-direction] #feature-cards { view-transition-name: feature-cards; }
 ::view-transition-old(feature-cards) { animation: feature-cards-out .2s ease both; }
 ::view-transition-new(feature-cards) { animation: feature-cards-out .2s ease reverse both; }
 html:has(body[data-feature-direction="back"])::view-transition-old(feature-morph) { animation-name: feature-new-in; animation-direction: reverse; }
@@ -865,7 +865,7 @@ button.card:hover:not([data-restored]) { border-color: var(--focus-ink); backgro
 .pet-dock { background: transparent; }
 .pet-dots span { background: var(--link-ink); }
 .demo-account > #demo-notice { background: var(--glass-dense); }
-.site-footer { color: var(--ink); background: transparent; }
+.site-footer { color: var(--ink); background: var(--panel-surface); }
 #login-site-footer { grid-column: 1 / -1; background: var(--glass-dense); }
 #main-site-footer { align-self: end; }
 .campus-site-links { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px 20px; min-width: 0; margin: 8px 0 12px; }

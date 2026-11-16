@@ -108,7 +108,9 @@ test("남색 유리의 양 끝과 밝고 어두운 사진 양쪽에서 글자 �
     [".reading textarea",".reading textarea"],[".reading textarea::placeholder",".reading textarea"],[".source-link",".reply"],[".source-link",".biskit .program"],[".source-link",".feature-panel"],[".source-link",".poster-result"],
     [".composer textarea",".composer textarea"],[".composer textarea::placeholder",".composer textarea"],[".composer p",".composer-meta"],[".attach-clear",".composer-meta"],
     [".conversation-menu",".conversation-menu"],[".conversation-menu-item.danger",".conversation-menu"],[".confirm-box",".confirm-box"],[".confirm-actions .confirm-delete",".confirm-actions .confirm-delete"],
-    [".campus-site-link", ".layout"], [".campus-site-link", "#conversation-sidebar"], [".site-footer .campus-site-label", ".layout"],
+    [".campus-site-link", ".site-footer"], [".campus-site-link", "#login-site-footer"], [".campus-site-link", "#conversation-sidebar"],
+    [".site-footer .campus-site-label", ".site-footer"], [".site-footer .campus-site-label", "#login-site-footer"],
+    [".site-footer p", ".site-footer"], [".site-footer p", "#login-site-footer"],
     [".login-submit",".login-submit"],[".primary",".primary"],[".primary:not(:disabled):hover",".primary:not(:disabled):hover"],[".pet-says",".pet-says"],["#login-pet-line","#login-pet-line"],
   ]);
 });

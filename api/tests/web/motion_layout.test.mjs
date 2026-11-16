@@ -146,7 +146,8 @@ test("학생 로그인 버튼은 좁은 화면에서도 글자를 한 줄로 유
 
 test("전환 이름은 CSS가 누른 카드와 열린 패널에만 주고, 패널이 열리면 카드 목록은 보이지 않는다", () => {
   const named = rules.filter(([, body]) => body.includes("view-transition-name"));
-  assert.deepEqual(named, [[".card[data-morph], .feature-panel:not([hidden])", "view-transition-name: feature-morph;"], ["#feature-cards", "view-transition-name: feature-cards;"], [".composer-row", "view-transition-name: chat-composer;"], [".layout", "view-transition-name: chat-surface;"]]);
+  assert.deepEqual(named, [[".card[data-morph], .feature-panel:not([hidden])", "view-transition-name: feature-morph;"], ["body[data-feature-direction] #feature-cards", "view-transition-name: feature-cards;"], [".composer-row", "view-transition-name: chat-composer;"], [".layout", "view-transition-name: chat-surface;"]]);
+  assert.ok(rules.filter(([selector]) => selector === "#feature-cards").every(([, declarations]) => !declarations.includes("view-transition-name")));
   // 숨긴 요소는 그려지지 않아 이름을 갖지 않는다. hidden 속성이 display 선언에 지지 않아야 한다.
   assert.equal(first("[hidden]"), "display: none !important;");
   // 같은 이름이 한 화면에 둘 보이지 않게, 패널이 열려 있으면 카드 목록을 그리지 않는다.
