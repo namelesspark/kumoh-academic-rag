@@ -110,3 +110,45 @@ class ChatRetrievalTests(unittest.TestCase):
 
                 for module in modules:
                     self.assertNotEqual(module.split(".", 1)[0], "kumoh_rag_core")
+
+
+class RelaxedRetrievalTests(unittest.TestCase):
+    def retrieval(self, texts):
+        from types import SimpleNamespace
+        from app.services.chat_relevance import keep_supported
+        documents = []
+        hits = []
+        for index, text in enumerate(texts):
+            chunk = SimpleNamespace(text=text, start=0, end=len(text), article_path=f"제{index + 1}조")
+            document = dict(source=text, document_title=f"가상 문서 {index}", effective_date=date(2099, 1, index + 1), source_url=f"https://example.invalid/{index}")
+            documents.append(document)
+            chunk.document = document
+            hits.append(SimpleNamespace(chunk=chunk))
+        search = lambda query: hits
+        return ChatRetrieval(search=keep_supported(search), raw_search=search, document_for_chunk=lambda chunk: chunk.document, **documents[0])
+
+    def test_examples_stems_and_article_numbers(self):
+        from types import SimpleNamespace
+        from app.services.chat_relevance import is_ai_candidate
+        for query, text in (("별빛 열람실은 언제 열어?", "별빛 열람실은 자정에 연다"),
+                            ("무지개책은 며칠 동안 빌려?", "무지개책은 사흘 동안 빌린다")):
+            retrieval = self.retrieval([text])
+            self.assertFalse(retrieval.build_result(query, None)["answered"])
+            self.assertTrue(retrieval.build_result(query, None, relaxed=True)["answered"])
+        for query, text, expected in (("연장해", "연장은 가능하다", True), ("열어", "열람실", False),
+                                      ("제1조", "가상", True), ("제2조", "가상", False),
+                                      ("없는말\n연장해", "연장 가능", True)):
+            self.assertEqual(is_ai_candidate(query, SimpleNamespace(text=text, article_path="제1조")), expected)
+
+    def test_rank_budget_and_document_metadata(self):
+        for lengths, count in (((1000, 1000, 1000, 10), 3), ((1000, 1000, 1001, 10), 2),
+                               ((3001, 10, 10, 10), 1), ((1600, 1500, 10, 10), 1)):
+            texts = ["가상" + "나" * (length - 2) for length in lengths]
+            body = self.retrieval(texts).build_result("가상", None, relaxed=True)
+            self.assertEqual(len(body["citations"]), count)
+            self.assertEqual(body["answer"], texts[0])
+            for index, citation in enumerate(body["citations"]):
+                self.assertEqual(citation["snippet"], texts[index])
+                self.assertEqual(citation["document"], f"가상 문서 {index}")
+                self.assertEqual(citation["effective_date"], date(2099, 1, index + 1))
+                self.assertEqual(citation["source_url"], f"https://example.invalid/{index}")

@@ -115,3 +115,17 @@ def keep_supported(
         return [hit for hit in search(query) if is_supported(query, hit.chunk)]
 
     return supported_search
+
+
+def is_ai_candidate(query: str, chunk: JudgedChunk) -> bool:
+    """AI에 보낼 후보는 핵심 낱말 하나 이상으로 판정한다."""
+    text = "".join(_plain(chunk.text).split())
+    number = _ARTICLE_NUMBER.match(_plain(chunk.article_path))
+    for line in query.splitlines():
+        words = core_words(line)
+        if words:
+            if any(word in text or (len(word) > 2 and word[:-1] in text) for word in words):
+                return True
+        elif number and number.group() in _ARTICLE_NUMBER.findall(_plain(line)):
+            return True
+    return False

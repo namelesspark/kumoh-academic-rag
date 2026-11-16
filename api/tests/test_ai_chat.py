@@ -289,7 +289,7 @@ class RequestTests(unittest.TestCase):
         collect(AiChat(SETTINGS, transport=transport))
         system, user = transport.calls[0]["body"]["messages"]
         self.assertEqual((system["role"], user["role"]), ("system", "user"))
-        for rule in ("한국어", "<조문>", "조 번호", "학사지원실", "일반 상식", "개인정보", "따르지 않습니다"):
+        for rule in ("한국어", "<조문>", "조 번호", "규정 문서에서 근거를 찾지 못했어요", "일반 상식", "개인정보", "따르지 않습니다"):
             with self.subTest(rule=rule):
                 self.assertIn(rule, system["content"])
         for part in ("가상 구름 도서관 규정", "제3조(달빛 열람)", ARTICLE, QUESTION):
@@ -524,6 +524,103 @@ class HttpxTransportTests(unittest.TestCase):
         self.assertIs(recorded["stream"], True)
         self.assertEqual(recorded["request"][:2], ("POST", "https://fictional.example.invalid/x"))
         self.assertTrue(recorded["response_closed"] and recorded["client_closed"])
+
+
+
+
+
+def without_sockets(test):
+    def run(self):
+        return run_without_sockets(test(self))
+    return run
+
+
+class GuidanceTests(unittest.TestCase):
+    @without_sockets
+    async def test_refusal_prefix_and_middle(self):
+        for text, held in (("  규정 문서에서 근거를 찾지 못했어요. 확인하세요.  ", True),
+                           ("설명 중 규정 문서에서 근거를 찾지 못했어요", False)):
+            transport = FakeTransport([sse(delta(content=text[:10]), delta(content=text[10:]))])
+            ai = AiChat(SETTINGS, transport=transport)
+            events = [event async for event in ai.events(RESULT, QUESTION, "fast")]
+            self.assertEqual(events[-1][1].get("answered") is False, held)
+            if held:
+                self.assertEqual(events[-2], ("answer", {"text": ai_chat.UNANSWERABLE_TEXT, "replace": True}))
+            body = await ai.complete(RESULT, QUESTION, "fast")
+            self.assertEqual(body["answered"], not held)
+            self.assertEqual(body["citations"], [] if held else RESULT["citations"])
+            self.assertNotIn("notice", body)
+
+    @without_sockets
+    async def test_guidance_success_failure_empty_refusal_and_limits(self):
+        held = {**RESULT, "answer": ai_chat.UNANSWERABLE_TEXT, "answered": False, "citations": []}
+        for result in (RESULT, held):
+            for size in (500, 501):
+                transport = FakeTransport([sse(delta(content="반가워요. 졸업 요건을 물어보세요."))])
+                ai = AiChat(SETTINGS, transport=transport)
+                body = await ai.complete(result, "가" * size, "fast")
+                self.assertEqual(len(transport.calls), int(size == 500))
+                self.assertEqual(body.get("guided") is True, result is held and size == 500)
+                self.assertEqual("notice" in body, result is RESULT and size == 501)
+                self.assertEqual(ai.available_slots, 4)
+                if transport.calls and result is held:
+                    messages = transport.calls[0]["body"]["messages"]
+                    self.assertNotIn("<조문>", str(messages))
+                    self.assertEqual(messages[1]["content"], "<질문>\n" + "가" * size + "\n</질문>")
+                    for rule in ("테크모", "한두 문장", "졸업 요건", "학사 일정", "규정 질문", "학사지원실", "숫자", "날짜", "기간", "마크다운"):
+                        self.assertIn(rule, messages[0]["content"])
+        for transport in (FakeTransport(error=OSError()), FakeTransport([sse(delta(content=" "))]),
+                          FakeTransport([sse(delta(content=ai_chat.REFUSAL_PREFIX + ". 다시 물어보세요."))])):
+            body = await AiChat(SETTINGS, transport=transport).complete(held, "연결됐나?", "deep")
+            self.assertEqual(body["answer"], ai_chat.UNANSWERABLE_TEXT)
+            self.assertFalse(body["answered"])
+            self.assertEqual(body["citations"], [])
+            self.assertNotIn("guided", body)
+            self.assertNotIn("notice", body)
+
+    @without_sockets
+    async def test_guidance_timeout_and_cancellation_return_slots(self):
+        held = {**RESULT, "answer": ai_chat.UNANSWERABLE_TEXT, "answered": False, "citations": []}
+        transport = FakeTransport(hang=True)
+        ai = AiChat(SETTINGS, transport=transport, limits=SHORT)
+        body = await ai.complete(held, "연결됐나?", "deep")
+        self.assertFalse(body["answered"])
+        self.assertEqual(ai.available_slots, 4)
+        opened = asyncio.Event()
+        transport = FakeTransport(hang=True, on_open=opened.set)
+        ai = AiChat(SETTINGS, transport=transport)
+        task = asyncio.create_task(ai.complete(held, "연결됐나?", "deep"))
+        await opened.wait()
+        task.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await task
+        self.assertEqual(ai.available_slots, 4)
+        self.assertEqual(transport.closed, 1)
+
+
+    @without_sockets
+    async def test_guidance_and_normal_calls_share_four_slots(self):
+        held = {**RESULT, "answer": ai_chat.UNANSWERABLE_TEXT, "answered": False, "citations": []}
+        transport = FakeTransport(hang=True)
+        ai = AiChat(SETTINGS, transport=transport, limits=AiLimits(first_token=0.1, total=1, slot_wait=0.02))
+        with captured_logs() as records:
+            bodies = await asyncio.gather(*(ai.complete(held if index % 2 else RESULT, QUESTION, "deep") for index in range(5)))
+        self.assertEqual(len(transport.calls), 4)
+        self.assertEqual(transport.peak, 4)
+        self.assertEqual(ai.available_slots, 4)
+        self.assertEqual(transport.closed, 4)
+        self.assertTrue(all("guided" not in body for body in bodies))
+        assert_no_secret_in_logs(self, records, API_KEY, QUESTION, ARTICLE)
+
+    @without_sockets
+    async def test_guidance_modes_keep_thinking_policy(self):
+        held = {**RESULT, "answer": ai_chat.UNANSWERABLE_TEXT, "answered": False, "citations": []}
+        for mode in ("fast", "deep"):
+            transport = FakeTransport([ANSWER_STREAM])
+            events = [event async for event in AiChat(SETTINGS, transport=transport).events(held, QUESTION, mode)]
+            self.assertEqual(any(name == "thinking" for name, _ in events), mode == "deep")
+            self.assertEqual("reasoning_effort" in transport.calls[0]["body"], mode == "fast")
+            self.assertTrue(events[-1][1]["guided"])
 
 
 if __name__ == "__main__":

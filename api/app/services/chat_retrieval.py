@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from datetime import date
 from typing import Protocol, TypedDict
 
+from app.services.chat_relevance import is_ai_candidate
 from app.services.chat_stub import UNANSWERABLE_TEXT, ZERO_LATENCY
 
 
@@ -17,6 +18,9 @@ class RegulationDocument(TypedDict):
 
 
 class SearchChunk(Protocol):
+    @property
+    def text(self) -> str: ...
+
     @property
     def article_path(self) -> str: ...
 
@@ -45,14 +49,20 @@ class ChatRetrieval:
         default=None, kw_only=True
     )
 
-    def build_result(self, message: str, session_id: str | None) -> dict:
-        """관련도 순으로 받은 결과 중 첫 조각을 인용한다."""
+    raw_search: Callable[[str], Sequence[SearchHit]] | None = field(default=None, kw_only=True)
 
-        hits = self.search(message)
+    def build_result(self, message: str, session_id: str | None, *, relaxed: bool = False) -> dict:
+        """엄격한 검사는 첫 조각을 인용하고 AI 후보는 순위와 본문 길이로 제한한다."""
+
+        if relaxed:
+            search = self.raw_search or self.search
+            hits = [hit for hit in search(message) if is_ai_candidate(message, hit.chunk)][:3]
+        else:
+            hits = self.search(message)[:1]
         answer = UNANSWERABLE_TEXT
         citations = []
-        if hits:
-            chunk = hits[0].chunk
+        for hit in hits:
+            chunk = hit.chunk
             document = (
                 self.document_for_chunk(chunk)
                 if self.document_for_chunk is not None
@@ -63,14 +73,19 @@ class ChatRetrieval:
                     source_url=self.source_url,
                 )
             )
-            answer = document["source"][chunk.start:chunk.end]
+            snippet = document["source"][chunk.start:chunk.end]
+            if not citations:
+                answer = snippet
             citations.append({
                 "article_path": chunk.article_path,
                 "document": document["document_title"],
                 "effective_date": document["effective_date"],
-                "snippet": answer,
+                "snippet": snippet,
                 "source_url": document["source_url"],
             })
+
+        while relaxed and len(citations) > 1 and sum(len(c["snippet"]) for c in citations) > 3000:
+            citations.pop()
 
         return {
             "session_id": session_id or str(uuid.uuid4()),

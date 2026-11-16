@@ -99,14 +99,15 @@ class StreamRouteTests(unittest.TestCase):
         self.assertEqual(transport.calls[0]["body"]["reasoning_effort"], "none")
         self.assertNotIn("thinking", [n for n, _ in events])
 
-    def test_held_question_never_calls_ai(self):
-        transport = FakeTransport([ANSWER_STREAM])
+    def test_held_question_calls_guidance(self):
+        transport = FakeTransport([sse(delta(content="반가워요. 규정 질문을 물어보세요."))])
         _, events = stream(regulation_app(transport), {"message": HOLD_QUESTION, "mode": "deep"})
-        self.assertEqual(transport.calls, [])
-        self.assertEqual([n for n, _ in events], ["meta", "answer", "done"])
-        self.assertEqual(events[0][1]["answered"], False)
+        self.assertEqual(len(transport.calls), 1)
+        self.assertFalse(events[0][1]["answered"])
         self.assertEqual(events[0][1]["citations"], [])
-        self.assertEqual(events[1][1], {"text": UNANSWERABLE_TEXT, "replace": False})
+        self.assertTrue(events[-1][1]["guided"])
+        self.assertFalse(events[-1][1]["answered"])
+        self.assertNotIn("notice", [name for name, _ in events])
 
     def test_ai_off_sends_article_with_notice(self):
         _, events = stream(regulation_app(), {"message": QUESTION})
@@ -241,13 +242,41 @@ class JsonRouteTests(unittest.TestCase):
 
     def test_ai_off_and_held_questions_finish_without_waiting(self):
         transport = FakeTransport([ANSWER_STREAM])
-        cases = ((regulation_app(), QUESTION, FIRST_ARTICLE), (regulation_app(transport), HOLD_QUESTION, UNANSWERABLE_TEXT))
+        cases = ((regulation_app(), QUESTION, FIRST_ARTICLE), (regulation_app(), HOLD_QUESTION, UNANSWERABLE_TEXT))
         for application, question, answer in cases:
             with self.subTest(question=question):
                 body = self.ask(application, question, wait=False)
                 self.assertEqual(set(body), SIX_FIELDS)
                 self.assertEqual(body["answer"], answer)
         self.assertEqual(transport.calls, [])
+
+    def test_guidance_and_refusal_json_and_stream_agree(self):
+        for question, text, guided in ((HOLD_QUESTION, "반가워요. 학사 일정을 물어보세요.", True),
+                                       (QUESTION, "규정 문서에서 근거를 찾지 못했어요. 확인하세요.", False)):
+            application = regulation_app(FakeTransport([sse(delta(content=text))]))
+            body = self.ask(application, question)
+            self.assertFalse(body["answered"])
+            self.assertEqual(body["citations"], [])
+            self.assertNotIn("notice", body)
+            self.assertEqual(body.get("guided") is True, guided)
+            _, events = stream(application, {"message": question})
+            self.assertFalse(events[-1][1]["answered"])
+            self.assertEqual(events[-1][1].get("guided") is True, guided)
+            self.assertEqual(joined_answer(events), body["answer"])
+
+    def test_inflected_questions_only_reach_ai_when_enabled(self):
+        source = "제1조(별빛 열람실) 별빛 열람실은 자정에 연다.\n제2조(무지개책) 무지개책은 사흘 동안 빌린다."
+        for question, expected in (("별빛 열람실은 언제 열어?", "별빛"), ("무지개책은 며칠 동안 빌려?", "무지개책")):
+            application = create_regulation_app(source, document_title="가상 도서관", effective_date=EFFECTIVE_DATE, source_url=None)
+            self.assertFalse(self.ask(application, question, wait=False)["answered"])
+            transport = FakeTransport([ANSWER_STREAM])
+            application.state.ai_chat = AiChat(SETTINGS, transport=transport)
+            body = self.ask(application, question)
+            self.assertTrue(body["answered"])
+            self.assertIn(expected, body["citations"][0]["snippet"])
+            sent = transport.calls[0]["body"]["messages"][1]["content"]
+            for citation in body["citations"]:
+                self.assertIn(citation["snippet"], sent)
 
     def test_question_answer_and_key_stay_out_of_logs(self):
         with captured_logs() as records:

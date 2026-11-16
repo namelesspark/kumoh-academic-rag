@@ -52,6 +52,7 @@ def create_regulations_app(
     chat_retrieval = ChatRetrieval(
         # 글자 몇 개만 겹친 후보는 답으로 쓰지 않는다.
         search=keep_supported(retriever.retrieve),
+        raw_search=retriever.retrieve,
         document_for_chunk=_owning_document,
         **documents[0],
     )
@@ -73,6 +74,7 @@ def create_regulation_app(
     retriever = BM25Retriever(chunks)
     chat_retrieval = ChatRetrieval(
         search=keep_supported(retriever.retrieve),
+        raw_search=retriever.retrieve,
         source=source,
         document_title=document_title,
         effective_date=effective_date,
