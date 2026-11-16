@@ -132,17 +132,11 @@ const pixels = text => {
   return Number.parseInt(text, 10);
 };
 
-test("모바일 로고는 높이 20px 이상과 비율에 맞는 자리를 확보한다", () => {
-  const logo = first(".brand-logo img", narrowRules);
-  const minimumHeight = pixels(value(logo, "min-height"));
-  assert.ok(minimumHeight >= 20);
-  assert.ok(pixels(value(logo, "height")) >= minimumHeight);
+test("모바일 로고는 높이 22px로 비율을 유지한다", () => {
+  const logo = first(".brand-logo img, .login-brand img");
+  assert.equal(value(logo, "height"), "22px");
+  assert.equal(value(logo, "min-height"), "22px");
   assert.equal(value(logo, "width"), "auto");
-
-  const brandFlex = value(first(".brand", narrowRules), "flex");
-  assert.match(brandFlex, /^0 0 \d+px$/);
-  const reservedWidth = pixels(brandFlex.split(" ")[2]);
-  assert.ok(reservedWidth >= minimumHeight * 782 / 113);
 });
 
 test("학생 로그인 버튼은 좁은 화면에서도 글자를 한 줄로 유지한다", () => {
@@ -152,16 +146,26 @@ test("학생 로그인 버튼은 좁은 화면에서도 글자를 한 줄로 유
 
 test("전환 이름은 CSS가 누른 카드와 열린 패널에만 주고, 패널이 열리면 카드 목록은 보이지 않는다", () => {
   const named = rules.filter(([, body]) => body.includes("view-transition-name"));
-  assert.deepEqual(named, [[".card[data-morph], .feature-panel:not([hidden])", "view-transition-name: feature-morph;"], [".composer-row", "view-transition-name: chat-composer;"], [".layout", "view-transition-name: chat-surface;"]]);
+  assert.deepEqual(named, [[".card[data-morph], .feature-panel:not([hidden])", "view-transition-name: feature-morph;"], ["#feature-cards", "view-transition-name: feature-cards;"], [".composer-row", "view-transition-name: chat-composer;"], [".layout", "view-transition-name: chat-surface;"]]);
   // 숨긴 요소는 그려지지 않아 이름을 갖지 않는다. hidden 속성이 display 선언에 지지 않아야 한다.
   assert.equal(first("[hidden]"), "display: none !important;");
   // 같은 이름이 한 화면에 둘 보이지 않게, 패널이 열려 있으면 카드 목록을 그리지 않는다.
   assert.equal(first(".features:has(> .feature-panel:not([hidden])) > .cards"), "display: none;");
 
-  // 전환의 길이만 정한다. 움직임 자체는 브라우저 기본값을 쓴다.
   const group = first("::view-transition-group(feature-morph)");
-  assert.match(value(group, "animation-duration") ?? "", /^\.\d+s$/);
-  assert.ok(Number.parseFloat(`0${value(group, "animation-duration")}`) <= 0.5);
+  assert.equal(value(group, "animation-duration"), ".32s");
+  assert.equal(value(group, "animation-timing-function"), "cubic-bezier(.2,.8,.2,1)");
+  const images = first("::view-transition-old(feature-morph), ::view-transition-new(feature-morph)");
+  assert.equal(value(images, "height"), "100%");
+  assert.equal(value(images, "object-fit"), "none");
+  assert.equal(value(images, "object-position"), "left top");
+  assert.equal(value(first("::view-transition-image-pair(feature-morph)"), "overflow"), "hidden");
+  assert.equal(block("@keyframes feature-old-out"), "0% { opacity: 1; } 40%, 100% { opacity: 0; }");
+  assert.equal(block("@keyframes feature-new-in"), "0%, 30% { opacity: 0; } 100% { opacity: 1; }");
+  assert.equal(value(first("::view-transition-old(feature-cards)"), "animation"), "feature-cards-out .2s ease both");
+  for (const side of ["old", "new"]) {
+    assert.equal(value(first(`html:has(body[data-feature-direction="back"])::view-transition-${side}(feature-morph)`), "animation-direction"), "reverse");
+  }
 });
 
 test("패널은 자리를 차지하는 상자라 펫·말풍선·입력창 위에 뜨지 않는다", () => {
@@ -260,7 +264,7 @@ test("390px 묶음은 그림을 120px 이하로 줄여 제목 옆에 놓고 카�
 test("움직임 줄이기 설정은 도형·펫·대기 점·카드 전환의 움직임을 모두 끈다", () => {
   assert.equal(styles.split("prefers-reduced-motion").length, 4);
   assert.ok(calmRules.length >= 2);
-  for (const [selector, body] of calmRules) assert.match(body, /(?:animation|transition): none(?: !important)?;/, selector);
+  for (const [selector, body] of calmRules) assert.match(body, /(?:animation|transition|transform): none(?: !important)?;/, selector);
 
   const stopped = calmRules.flatMap(([selector]) => selector.split(", "));
   // 묶음 밖에서 움직임을 거는 요소는 모두 이 목록에 있어야 한다. 새 움직임을 넣고 끄는 것을 잊으면 여기서 걸린다.
@@ -276,9 +280,13 @@ test("움직임 줄이기 설정은 도형·펫·대기 점·카드 전환의 �
   for (const pseudo of ["::view-transition-group(*)", "::view-transition-old(*)", "::view-transition-new(*)"]) {
     assert.ok(stopped.includes(pseudo), pseudo);
   }
-  // 움직임은 animation으로만 만든다. transition 선언이 있으면 이 묶음이 끄지 못한다.
+  // 상태를 따라가는 카드와 목록 판의 transition도 움직임 줄이기에서 끈다.
   for (const [selector, body] of rules) {
     if (selector === "#conversation-sidebar" && body.includes("transition:")) assert.match(body, /transition: (?:transform \.35s ease|none);/);
+    else if (selector === "button.card" && body.includes("transition:")) {
+      assert.match(body, /transition: (?:transform \.18s ease-out, background-color \.18s ease-out, border-color \.18s ease-out|none);/);
+      assert.ok(calmRules.some(([name, declarations]) => name === selector && value(declarations, "transition") === "none"));
+    }
     else assert.doesNotMatch(body, /(?:^|; )transition(?:-[a-z]+)?: /, selector);
   }
 });
@@ -290,7 +298,7 @@ test("설계 문서가 펫·말풍선·패널·모핑을 지금 화면대로 설
     assert.ok(notes.includes(kept), kept);
   }
   // 화면과 스크립트가 함께 지키는 이름이 문서에도 같은 글자로 적혀 있다.
-  for (const name of ["data-feature", "data-panel", "data-panel-title", "data-panel-close", "data-morph", "feature-morph", "login-rise", "login-float", "card-lift"]) {
+  for (const name of ["data-feature", "data-panel", "data-panel-title", "data-panel-close", "data-morph", "feature-morph", "login-rise", "login-float", "data-restored"]) {
     assert.ok(notes.includes(name), name);
   }
   for (const [, title, soon, label] of features) {
