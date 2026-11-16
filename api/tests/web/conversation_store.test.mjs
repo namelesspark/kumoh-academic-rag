@@ -175,3 +175,30 @@ test("사진·학번·비밀번호·서버 세션과 허용하지 않은 근거 
     "title,url",
   );
 });
+
+test("보류와 안내 답 표시는 boolean으로만 남기고 옛 기록은 그대로 둔다", () => {
+  const api = functions();
+  const storage = store();
+  const answer = (text, extra) => ({ role: "answer", text, time: 1, sources: [], ...extra });
+  api.saveConversations(storage, "browse", [{
+    id: "fictional-flags", time: 1,
+    messages: [
+      { role: "question", text: "가상 질문", answered: false, guided: true, sources: [] },
+      answer("가상 보류 답", { answered: false }),
+      answer("가상 안내 답", { answered: false, guided: true }),
+      answer("가상 옛 답"),
+      answer("가상 문자열 값", { answered: "false", guided: "true" }),
+      answer("가상 안내만 있는 값", { guided: true }),
+      answer("가상 일반 답", { answered: true, guided: true }),
+    ],
+  }]);
+  const messages = api.loadConversations(storage, "browse")[0].messages;
+  assert.equal(messages[1].answered, false);
+  assert.equal(messages[2].answered, false);
+  for (const index of [0, 3, 4, 5, 6]) {
+    assert.equal(Object.hasOwn(messages[index], "answered"), false, String(index));
+    assert.equal(Object.hasOwn(messages[index], "guided"), false, String(index));
+  }
+  assert.equal(Object.hasOwn(messages[1], "guided"), false);
+  assert.equal(messages[2].guided, true);
+});
