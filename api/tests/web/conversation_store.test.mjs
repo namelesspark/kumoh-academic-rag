@@ -176,6 +176,21 @@ test("사진·학번·비밀번호·서버 세션과 허용하지 않은 근거 
   );
 });
 
+test("보관은 archived === true만 인정하고 20개 한도와 최근 순은 보관 여부와 상관없다", () => {
+  const api = functions();
+  const storage = store();
+  const values = [true, "true", 1, null, undefined, false];
+  api.saveConversations(storage, "browse", Array.from({ length: 25 }, (_, index) => ({
+    ...record(String(index)), archived: values[index % values.length],
+  })));
+  const records = api.loadConversations(storage, "browse");
+  assert.equal(records.length, 20);
+  assert.deepEqual(Array.from(records, value => value.id), Array.from({ length: 20 }, (_, index) => String(24 - index)));
+  for (const loaded of records) {
+    assert.equal(loaded.archived, values[Number(loaded.id) % values.length] === true, loaded.id);
+  }
+});
+
 test("보류와 안내 답 표시는 boolean으로만 남기고 옛 기록은 그대로 둔다", () => {
   const api = functions();
   const storage = store();
