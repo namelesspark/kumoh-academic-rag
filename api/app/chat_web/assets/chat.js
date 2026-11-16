@@ -4,6 +4,8 @@ function trimConversations(records) {
   return records.filter(record => record && !record.photo && typeof record.id === "string" && Array.isArray(record.messages))
     .map(record => ({
       id: record.id, time: Number(record.time) || 0, unread: record.unread === true,
+      // 보관은 true일 때만 인정한다. 없거나 깨진 값은 보관하지 않은 대화로 본다. 20개 한도는 보관 여부와 무관하다.
+      archived: record.archived === true,
       title: conversationTitle(record),
       messages: record.messages.filter(message => message && !message.photo &&
         ["question", "answer"].includes(message.role) && typeof message.text === "string" &&
@@ -164,6 +166,20 @@ let toastTimer = null;
 let toastRecord = null;
 let drawerOpen = false;
 let hiddenAnswers = 0;
+// 대화 메뉴와 삭제 확인 창은 처음 열 때 한 번 만들어 다시 쓴다. 목록은 다시 그릴 때마다 노드를 새로 만들므로
+// 초점을 돌려줄 자리는 노드 대신 대화 ID와 버튼 종류로 기억한다.
+const longPressMs = 500;
+const longPressSlop = 10;
+let archiveOpen = false;
+let archiveToggle = null;
+// 확인 창·메뉴가 열린 채 화면을 옮기면 켠다. 전환을 적용하는 apply가 한 번 쓰고 끈다.
+let focusInputAfterView = false;
+let conversationNodes = new Map();
+let conversationOrder = [];
+let menu = null, menuItems = [], menuRecord = null, menuOrigin = null;
+let pressTimer = null, pressStart = null, suppressOpenClick = false;
+let confirmScrim = null, confirmBox = null, confirmTitle = null, confirmText = null;
+let confirmDelete = null, confirmCancel = null, confirmRequest = null, confirmInert = [];
 const originalTitle = document.title;
 function runViewChange(update, { animate = true, current = () => true, cleanup = () => {}, ready = () => {} } = {}) {
   let applied = false;
@@ -207,6 +223,8 @@ function switchHistoryAccount(account) {
   conversations = loadConversations(historyStorage(), historyAccount)
     .map(record => ({ ...record, saved: true, committedMessages: record.messages.slice() }));
   activeConversation = null;
+  archiveOpen = false;
+  closeMenu(false);
   setChatView(false, false);
   renderConversations();
 }
@@ -240,12 +258,18 @@ function updateSidebarAvailability() {
   if (sidebar) sidebar.inert = !drawerOpen && Boolean(narrow);
 }
 function setChatView(next, push = true) {
+  // 뒤로 가기 같은 화면 이동은 inert로 막을 수 없다. 떠 있는 확인 창과 메뉴를 취소로 닫는다.
+  // 이 시점에는 서랍의 inert가 입력창 위에 남아 있어 초점을 보내도 실패한다. 초점은 apply 끝에서 보낸다.
+  if (confirmRequest || menuRecord) focusInputAfterView = true;
+  if (confirmRequest) closeConfirm(false, false);
+  closeMenu(false);
   requestedChatView = next;
   const sequence = ++screenSequence;
   const changed = next !== chatView;
   if (next && !chatView) homeNodes = Array.from(transcript.children);
   const apply = () => {
     if (sequence !== screenSequence) return;
+    const focusInList = Boolean(sidebar?.contains?.(document.activeElement));
     if (next && !chatView) {
       transcript.replaceChildren();
     } else if (!next && chatView) transcript.replaceChildren(...(homeNodes || [empty]));
@@ -261,6 +285,12 @@ function setChatView(next, push = true) {
     closeDrawer(false);
     updateSend();
     techmoBubble();
+    // 화면 전환과 서랍 닫기로 inert가 모두 풀린 뒤에 초점을 옮긴다. 숨거나 inert가 된 목록에
+    // 초점이 남은 경우도 같은 자리에서 두 화면 모두에 있는 입력창으로 보낸다.
+    if (focusInputAfterView || (focusInList && !listVisible())) {
+      focusInputAfterView = false;
+      input.focus?.();
+    }
   };
   document.body?.setAttribute("data-chat-direction", next ? "forward" : "back");
   if (push && window.history) {
@@ -312,49 +342,321 @@ function openConversation(record) {
   setChatView(true);
   renderConversations();
 }
+function isArchived(record) {
+  return record?.archived === true;
+}
+// 보관은 같은 객체의 archived만 바꾼다. 늦은 답은 conversations.includes(record)로 유효성을 보므로
+// 배열에서 빼거나 객체를 새로 만들면 보관한 대화의 답과 알림이 사라진다.
 function renderConversations() {
   if (!conversationList) return;
   conversationList.replaceChildren();
-  for (const record of [...conversations].sort((a, b) => b.time - a.time)) {
-    const item = element("li", "conversation-item");
-    item.setAttribute("data-conversation-id", record.id);
-    if (record === activeConversation) item.setAttribute("aria-current", "true");
-    const open = element("button", "conversation-open");
-    open.type = "button";
-    const title = conversationTitle(record) || "새 대화";
-    const chars = Array.from(title);
-    const date = new Date(record.time);
-    const today = date.toDateString() === new Date().toDateString();
-    open.append(element("span", "conversation-title", chars.slice(0, 28).join("") + (chars.length > 28 ? "…" : "")),
-      element("span", "conversation-time", today ? date.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", hour12: false }) : `${date.getMonth() + 1}/${date.getDate()}`));
-    open.addEventListener("click", () => openConversation(record));
-    if (record.pending) {
-      item.setAttribute("data-conversation-state", "pending");
-      const pending = element("span", "conversation-pending");
-      pending.append(element("span", "sr-only", "답변 기다리는 중"));
-      open.append(pending);
-    }
-    if (record.unread) {
-      const dot = element("span", "conversation-unread");
-      dot.append(element("span", "sr-only", "읽지 않은 답변"));
-      open.append(dot);
-    }
-    const remove = element("button", "conversation-delete");
-    const icon = element("span", "conversation-delete-icon");
-    icon.setAttribute("aria-hidden", "true");
-    remove.append(icon);
-    remove.type = "button";
-    remove.setAttribute("aria-label", "이 대화 삭제");
-    remove.addEventListener("click", () => {
-      if (!window.confirm("이 대화를 지울까요?")) return;
-      conversations = conversations.filter(value => value !== record);
-      if (toastRecord === record) dismissConversationToast();
-      if (activeConversation === record) { activeConversation = null; renderActiveConversation(); }
-      persistConversations(); renderConversations(); updateSend();
-    });
-    item.append(open, remove);
-    conversationList.append(item);
+  conversationNodes = new Map();
+  conversationOrder = [];
+  archiveToggle = null;
+  const sorted = [...conversations].sort((a, b) => b.time - a.time);
+  const archived = sorted.filter(isArchived);
+  for (const record of sorted) if (!isArchived(record)) conversationList.append(conversationItem(record, true));
+  if (!archived.length) return;
+  const group = element("li", "conversation-archive");
+  const toggle = element("button", "conversation-archive-toggle", `보관함 (${archived.length})`);
+  const list = element("ul", "conversation-archive-list");
+  toggle.type = "button";
+  list.id = "conversation-archive-list";
+  list.hidden = !archiveOpen;
+  toggle.setAttribute("aria-expanded", String(archiveOpen));
+  toggle.setAttribute("aria-controls", list.id);
+  if (!archiveOpen && archived.some(record => record.unread)) {
+    const dot = element("span", "conversation-unread");
+    dot.append(element("span", "sr-only", "읽지 않은 답변 있음"));
+    toggle.append(dot);
   }
+  toggle.addEventListener("click", () => {
+    archiveOpen = !archiveOpen;
+    renderConversations();
+    archiveToggle?.focus();
+  });
+  archiveToggle = toggle;
+  for (const record of archived) list.append(conversationItem(record, archiveOpen));
+  group.append(toggle, list);
+  conversationList.append(group);
+}
+function conversationItem(record, visible) {
+  const item = element("li", "conversation-item");
+  item.setAttribute("data-conversation-id", record.id);
+  if (record === activeConversation) item.setAttribute("aria-current", "true");
+  const open = element("button", "conversation-open");
+  open.type = "button";
+  const title = conversationTitle(record) || "새 대화";
+  const chars = Array.from(title);
+  const date = new Date(record.time);
+  const today = date.toDateString() === new Date().toDateString();
+  open.append(element("span", "conversation-title", chars.slice(0, 28).join("") + (chars.length > 28 ? "…" : "")),
+    element("span", "conversation-time", today ? date.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", hour12: false }) : `${date.getMonth() + 1}/${date.getDate()}`));
+  // 길게 눌러 메뉴를 연 뒤 손을 떼면 클릭이 한 번 따라온다. 그 클릭은 대화를 열지 않는다.
+  open.addEventListener("click", () => {
+    if (suppressOpenClick) { suppressOpenClick = false; return; }
+    openConversation(record);
+  });
+  open.addEventListener("pointerdown", event => startPress(event, record));
+  open.addEventListener("pointermove", movePress);
+  for (const type of ["pointerup", "pointercancel", "pointerleave"]) open.addEventListener(type, cancelPress);
+  if (record.pending) {
+    item.setAttribute("data-conversation-state", "pending");
+    const pending = element("span", "conversation-pending");
+    pending.append(element("span", "sr-only", "답변 기다리는 중"));
+    open.append(pending);
+  }
+  if (record.unread) {
+    const dot = element("span", "conversation-unread");
+    dot.append(element("span", "sr-only", "읽지 않은 답변"));
+    open.append(dot);
+  }
+  const more = element("button", "conversation-more");
+  const icon = element("span", "conversation-more-icon");
+  icon.setAttribute("aria-hidden", "true");
+  more.append(icon);
+  more.type = "button";
+  more.setAttribute("aria-label", "대화 메뉴");
+  more.setAttribute("aria-haspopup", "menu");
+  more.setAttribute("aria-controls", "conversation-menu");
+  more.setAttribute("aria-expanded", String(menuRecord === record));
+  more.addEventListener("click", () => {
+    if (menuRecord === record) closeMenu();
+    else openMenu(record, "more", anchorPoint(more));
+  });
+  const part = target => within(more, target) ? "more" : "open";
+  // 기본 우클릭 메뉴는 대화 항목 안에서만 막는다. 키보드로 연 contextmenu는 좌표가 0이라 버튼 아래에 띄운다.
+  item.addEventListener("contextmenu", event => {
+    event.preventDefault?.();
+    // 손가락으로 누르는 중에 온 contextmenu는 길게 누르기와 같은 몸짓이라 뒤따르는 클릭을 막는다.
+    const touching = Boolean(pressStart);
+    cancelPress();
+    if (menuRecord === record) return;
+    const from = part(event.target);
+    const point = event.clientX || event.clientY ? { x: event.clientX, y: event.clientY } : anchorPoint(from === "more" ? more : open);
+    openMenu(record, from, point);
+    if (touching && menuRecord === record) suppressOpenClick = true;
+  });
+  item.addEventListener("keydown", event => {
+    if (event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10")) return;
+    event.preventDefault?.();
+    const from = part(event.target);
+    openMenu(record, from, anchorPoint(from === "more" ? more : open));
+  });
+  if (visible) {
+    conversationNodes.set(record.id, { open, more });
+    conversationOrder.push(record.id);
+  }
+  item.append(open, more);
+  return item;
+}
+function within(container, target) {
+  return Boolean(container && target) && (container === target || Boolean(container.contains?.(target)));
+}
+function startPress(event, record) {
+  suppressOpenClick = false;
+  cancelPress();
+  // 마우스는 우클릭이 있으므로 손가락과 펜의 첫 접촉만 센다.
+  if (event.pointerType === "mouse" || event.isPrimary === false || typeof setTimeout !== "function") return;
+  pressStart = { x: event.clientX || 0, y: event.clientY || 0 };
+  pressTimer = setTimeout(() => {
+    const point = pressStart;
+    pressTimer = null; pressStart = null;
+    openMenu(record, "open", point);
+    if (menuRecord === record) suppressOpenClick = true;
+  }, longPressMs);
+}
+function movePress(event) {
+  if (!pressStart) return;
+  if (Math.hypot((event.clientX || 0) - pressStart.x, (event.clientY || 0) - pressStart.y) > longPressSlop) cancelPress();
+}
+function cancelPress() {
+  if (pressTimer !== null) clearTimeout(pressTimer);
+  pressTimer = null;
+  pressStart = null;
+}
+function anchorPoint(node) {
+  const rect = node?.getBoundingClientRect?.();
+  return rect ? { x: rect.left, y: rect.bottom + 4 } : { x: 0, y: 0 };
+}
+function conversationMenu() {
+  if (menu) return menu;
+  menu = element("div", "conversation-menu");
+  menu.id = "conversation-menu";
+  menu.hidden = true;
+  menu.setAttribute("role", "menu");
+  menu.setAttribute("aria-label", "대화 메뉴");
+  menuItems = [["archive", "보관하기"], ["delete", "삭제"]].map(([action, label]) => {
+    const item = element("button", `conversation-menu-item${action === "delete" ? " danger" : ""}`, label);
+    item.type = "button";
+    item.tabIndex = -1;
+    item.setAttribute("role", "menuitem");
+    item.addEventListener("click", () => runMenu(action));
+    return item;
+  });
+  menu.addEventListener("keydown", event => {
+    const index = menuItems.indexOf(document.activeElement);
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault?.();
+      focusMenuItem(index < 0 ? 0 : index + (event.key === "ArrowDown" ? 1 : -1));
+    } else if (event.key === "Home" || event.key === "End") {
+      event.preventDefault?.();
+      focusMenuItem(event.key === "Home" ? 0 : menuItems.length - 1);
+    } else if (event.key === "Enter") {
+      // 버튼 기본 동작의 클릭과 겹치지 않게 막고 한 번만 실행한다.
+      event.preventDefault?.();
+      if (index >= 0) runMenu(index === 0 ? "archive" : "delete");
+    } else if (event.key === "Tab") {
+      event.preventDefault?.();
+      closeMenu();
+    }
+  });
+  // 메뉴 키를 뗄 때 오는 contextmenu는 이미 메뉴로 옮긴 초점에 도착한다.
+  menu.addEventListener("contextmenu", event => event.preventDefault?.());
+  menu.append(...menuItems);
+  document.body?.append(menu);
+  return menu;
+}
+function focusMenuItem(index) {
+  const count = menuItems.length;
+  menuItems[((index % count) + count) % count]?.focus();
+}
+function openMenu(record, part, point) {
+  if (!conversations.includes(record) || confirmRequest) return;
+  closeMenu(false);
+  const node = conversationMenu();
+  menuRecord = record;
+  menuOrigin = { id: record.id, part };
+  menuItems[0].textContent = isArchived(record) ? "보관 해제" : "보관하기";
+  node.hidden = false;
+  placeMenu(point);
+  conversationNodes.get(record.id)?.more?.setAttribute("aria-expanded", "true");
+  focusMenuItem(0);
+}
+// 누른 자리나 버튼 아래에 두되 화면 가장자리 8px 안으로 민다. 좌표는 CSS 변수로만 넘긴다.
+function placeMenu(point) {
+  const rect = menu.getBoundingClientRect?.() || { width: 0, height: 0 };
+  const fit = (value, size, limit) => limit > 0 ? Math.max(8, Math.min(value, limit - size - 8)) : value;
+  const x = fit(point.x, rect.width, window.innerWidth || 0);
+  const y = fit(point.y, rect.height, window.innerHeight || 0);
+  menu.style?.setProperty("--conversation-menu-x", `${Math.round(x)}px`);
+  menu.style?.setProperty("--conversation-menu-y", `${Math.round(y)}px`);
+}
+function closeMenu(restore = true, options) {
+  suppressOpenClick = false;
+  if (!menuRecord) return;
+  const origin = menuOrigin;
+  conversationNodes.get(menuRecord.id)?.more?.setAttribute("aria-expanded", "false");
+  menuRecord = null;
+  menuOrigin = null;
+  if (menu) menu.hidden = true;
+  if (restore) focusConversation(origin, null, options);
+}
+// 다시 그린 목록에서 대화 ID로 버튼을 찾는다. 없으면 목록의 다음 항목, 그것도 없으면 새 대화 버튼으로 간다.
+function focusConversation(origin, nextId, options) {
+  if (!listVisible()) { input.focus?.(options); return; }
+  const nodes = origin && conversationNodes.get(origin.id);
+  const target = nodes?.[origin.part] || (nextId && conversationNodes.get(nextId)?.open) ||
+    document.querySelector("#new-conversation");
+  target?.focus?.(options);
+}
+// 목록이 숨었거나(홈 화면) 닫힌 서랍이라 inert이면 목록 버튼은 초점을 받지 못한다.
+function listVisible() {
+  return !sidebar?.hidden && !sidebar?.inert;
+}
+function nextConversationId(id) {
+  const index = conversationOrder.indexOf(id);
+  return index < 0 ? null : conversationOrder[index + 1] ?? null;
+}
+function runMenu(action) {
+  const record = menuRecord, origin = menuOrigin;
+  if (!record) return;
+  const next = nextConversationId(record.id);
+  closeMenu(false);
+  if (!conversations.includes(record)) { focusConversation(origin, next); return; }
+  if (action === "delete") { askDelete(record, origin); return; }
+  const archiving = !isArchived(record);
+  record.archived = archiving;
+  persistConversations();
+  // 보던 대화를 보관하면 새 대화 화면으로 넘어가고 초점은 입력창이 받는다.
+  if (archiving && activeConversation === record) { startNewConversation(); return; }
+  renderConversations();
+  focusConversation(origin, next);
+}
+function askDelete(record, origin) {
+  const title = Array.from(conversationTitle(record)).slice(0, 20).join("") || "새 대화";
+  const next = nextConversationId(record.id);
+  openConfirm({
+    title: "정말로 삭제하시겠습니까?",
+    text: `‘${title}’ 대화를 지우면 되돌릴 수 없어요.`,
+    run: () => removeConversation(record),
+    restore: () => focusConversation(origin, next),
+  });
+}
+// 기다리던 요청이 있으면 그 요청의 유효성 검사가 늦은 답을 버린다.
+function removeConversation(record) {
+  conversations = conversations.filter(value => value !== record);
+  if (toastRecord === record) dismissConversationToast();
+  if (activeConversation === record) { activeConversation = null; renderActiveConversation(); }
+  persistConversations(); renderConversations(); updateSend();
+}
+function confirmDialog() {
+  if (confirmScrim) return;
+  confirmScrim = element("div", "confirm-scrim");
+  confirmScrim.hidden = true;
+  confirmBox = element("div", "confirm-box");
+  confirmBox.setAttribute("role", "alertdialog");
+  confirmBox.setAttribute("aria-modal", "true");
+  confirmTitle = element("h2", "confirm-title");
+  confirmTitle.id = "confirm-title";
+  confirmText = element("p", "confirm-text");
+  confirmText.id = "confirm-text";
+  confirmBox.setAttribute("aria-labelledby", confirmTitle.id);
+  confirmBox.setAttribute("aria-describedby", confirmText.id);
+  const actions = element("div", "confirm-actions");
+  confirmDelete = element("button", "confirm-delete", "삭제");
+  confirmCancel = element("button", "confirm-cancel", "취소");
+  for (const button of [confirmDelete, confirmCancel]) button.type = "button";
+  confirmDelete.addEventListener("click", () => closeConfirm(true));
+  confirmCancel.addEventListener("click", () => closeConfirm(false));
+  // 버튼이 둘뿐이므로 Tab과 Shift+Tab 모두 창 안의 다른 버튼으로 옮긴다.
+  confirmBox.addEventListener("keydown", event => {
+    if (event.key !== "Tab") return;
+    event.preventDefault?.();
+    const buttons = [confirmDelete, confirmCancel];
+    const index = buttons.indexOf(document.activeElement);
+    const step = event.shiftKey ? -1 : 1;
+    buttons[index < 0 ? (event.shiftKey ? 1 : 0) : (index + step + buttons.length) % buttons.length].focus();
+  });
+  confirmScrim.addEventListener("click", event => { if (event.target === confirmScrim) closeConfirm(false); });
+  actions.append(confirmDelete, confirmCancel);
+  confirmBox.append(confirmTitle, confirmText, actions);
+  confirmScrim.append(confirmBox);
+  document.body?.append(confirmScrim);
+}
+// 확인 창이 열린 동안 뒤쪽은 inert로 막는다. 닫을 때는 서랍이 걸어 둔 값까지 원래대로 되돌린다.
+function openConfirm(request) {
+  if (confirmRequest) return;
+  closeMenu(false);
+  confirmDialog();
+  confirmRequest = request;
+  confirmTitle.textContent = request.title;
+  confirmText.textContent = request.text;
+  confirmInert = [...(document.body?.children || [])].filter(node => node !== confirmScrim)
+    .map(node => [node, node.inert]);
+  for (const [node] of confirmInert) node.inert = true;
+  confirmScrim.hidden = false;
+  confirmCancel.focus();
+}
+function closeConfirm(accepted, restore = true) {
+  const request = confirmRequest;
+  if (!request) return;
+  confirmRequest = null;
+  confirmScrim.hidden = true;
+  for (const [node, value] of confirmInert) node.inert = value;
+  confirmInert = [];
+  if (accepted) request.run();
+  if (restore) request.restore();
 }
 function notifyConversation(record) {
   record.unread = true;
@@ -395,13 +697,35 @@ function startNewConversation() {
   setChatView(true); renderConversations(); input.focus();
 }
 document.querySelector("#new-conversation")?.addEventListener("click", startNewConversation);
-document.querySelector("#clear-conversations")?.addEventListener("click", () => {
-  if (!window.confirm("대화 기록을 모두 지울까요?")) return;
-  clearConversations(historyStorage(), historyAccount);
-  dismissConversationToast();
-  conversations = []; activeConversation = null; renderConversations(); renderActiveConversation(); updateSend();
+const clearButton = document.querySelector("#clear-conversations");
+clearButton?.addEventListener("click", () => openConfirm({
+  title: "대화 기록을 모두 삭제하시겠습니까?",
+  text: `보관함을 포함한 대화 ${conversations.length}개가 지워지고 되돌릴 수 없어요.`,
+  run: () => {
+    clearConversations(historyStorage(), historyAccount);
+    dismissConversationToast();
+    conversations = []; activeConversation = null; renderConversations(); renderActiveConversation(); updateSend();
+  },
+  restore: () => (listVisible() ? clearButton : input).focus(),
+}));
+// Esc는 확인 창 → 메뉴 → 서랍 순으로 맨 위의 하나만 닫는다.
+document.addEventListener?.("keydown", event => {
+  if (event.key !== "Escape") return;
+  if (confirmRequest) { event.preventDefault?.(); closeConfirm(false); }
+  else if (menuRecord) { event.preventDefault?.(); closeMenu(); }
+  else if (drawerOpen) closeDrawer();
 });
-document.addEventListener?.("keydown", event => { if (event.key === "Escape" && drawerOpen) closeDrawer(); });
+// 메뉴 밖을 누르면 닫는다. 메뉴를 연 점 세 개 버튼은 자기 클릭으로 닫으므로 여기서 건너뛴다.
+document.addEventListener?.("pointerdown", event => {
+  if (!menuRecord || within(menu, event.target)) return;
+  if (within(conversationNodes.get(menuRecord.id)?.more, event.target)) return;
+  closeMenu();
+}, true);
+// 어느 칸이든 스크롤하면 길게 누르기를 취소하고, 메뉴는 위치가 어긋나므로 닫는다.
+document.addEventListener?.("scroll", () => {
+  cancelPress();
+  if (menuRecord) closeMenu(true, { preventScroll: true });
+}, true);
 document.addEventListener?.("visibilitychange", () => {
   if (!document.hidden) { hiddenAnswers = 0; document.title = originalTitle; }
 });
@@ -1717,6 +2041,8 @@ composer.addEventListener("submit", event => {
     if (chatView && requestedChatView) renderActiveConversation();
   }
   const record = activeConversation;
+  // 입력 검사를 통과해 전송을 받아들인 이 시점에만 보관을 푼다. 위에서 돌려보낸 전송은 보관을 유지한다.
+  if (record.archived === true) { record.archived = false; persistConversations(); }
   record.messages.push({ role: "question", text: question, time: Date.now(), sources: [] });
   record.messages = record.messages.slice(-40);
   if (!chatView || !requestedChatView) setChatView(true);

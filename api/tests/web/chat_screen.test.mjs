@@ -20,10 +20,19 @@ function page({
     requests = [];
   const photoRequests = [], states = [], saved = [];
   let focus = null, id = 0;
+  // 같은 종류의 처리기를 여러 개 붙여도 덮어쓰지 않는다. get(type)은 붙인 순서대로 모두 부르는 함수를 돌려준다.
+  const listen = (map, type, callback) => {
+    const callbacks = [...(map.get(type)?.callbacks ?? []), callback];
+    const dispatch = (event = {}) => { for (const each of callbacks) each(event); };
+    dispatch.callbacks = callbacks;
+    map.set(type, dispatch);
+  };
   class Node {
     children = [];
     attributes = new Map();
     listeners = new Map();
+    properties = new Map();
+    style = { setProperty: (name, value) => this.properties.set(name, String(value)) };
     hidden = false;
     textContent = "";
     value = "";
@@ -31,10 +40,15 @@ function page({
     clicks = 0;
     remove() {}
     append(...children) {
+      for (const child of children) if (child instanceof Node) child.parentNode = this;
       this.children.push(...children);
     }
     replaceChildren(...children) {
-      this.children = children;
+      this.children = [];
+      this.append(...children);
+    }
+    contains(node) {
+      return node === this || this.children.some(child => child instanceof Node && child.contains(node));
     }
     setAttribute(key, value) {
       this.attributes.set(key, String(value));
@@ -43,14 +57,22 @@ function page({
       this.attributes.delete(key);
     }
     addEventListener(type, callback) {
-      this.listeners.set(type, callback);
+      listen(this.listeners, type, callback);
     }
-    focus() {
+    fire(type, values = {}) {
+      const event = { target: this, prevented: false, preventDefault() { event.prevented = true; }, ...values };
+      this.listeners.get(type)?.(event);
+      return event;
+    }
+    // 브라우저처럼 자신이나 조상이 inert면 초점을 옮기지 않는다.
+    focus(options) {
+      for (let node = this; node; node = node.parentNode) if (node.inert) return;
       focus = this;
+      this.focusOptions = options;
     }
     click() {
       this.clicks++;
-      this.listeners.get("click")?.({});
+      this.listeners.get("click")?.({ target: this });
       this.onclick?.();
     }
   }
@@ -64,7 +86,10 @@ function page({
     body: get("body"),
     querySelector: get,
     createTextNode: (text) => text,
-    addEventListener: (name, callback) => events.set(name, callback),
+    addEventListener: (name, callback) => listen(events, name, callback),
+    get activeElement() {
+      return focus;
+    },
   };
   if (transition) {
     document.startViewTransition = (callback) => transition(callback);
@@ -86,8 +111,11 @@ function page({
         location.hash = "";
       },
     },
-    addEventListener: (name, callback) => windowEvents.set(name, callback),
-    confirm: () => true,
+    addEventListener: (name, callback) => listen(windowEvents, name, callback),
+    // 삭제 확인은 화면 안 확인 창이 맡는다. 브라우저 기본 확인 창을 부르면 테스트가 실패한다.
+    confirm: () => { throw Error("window.confirm을 부르면 안 된다"); },
+    innerWidth: 0,
+    innerHeight: 0,
   };
   const context = {
     document,
@@ -189,8 +217,8 @@ function page({
       return null;
     },
     saveConversations(storage, account, records) {
-      saved.push(records.map(({ id, time, title, messages }) =>
-        JSON.parse(JSON.stringify({ id, time, title, messages }))));
+      saved.push(records.map(({ id, time, title, messages, archived, unread }) =>
+        JSON.parse(JSON.stringify({ id, time, title, messages, archived, unread }))));
     },
     loadConversations() {
       return JSON.parse(JSON.stringify(storedConversations));
@@ -810,4 +838,460 @@ test("홈에서는 배경 대화가 답을 기다려도 첨부·제거·초기�
   p.requests[0].resolve(answer);
   await done;
   assert.equal(p.run("record.messages.at(-1).text"), "가상 답변");
+});
+
+// --- 대화 메뉴·보관함·삭제 확인 창 (#104) -------------------------------------------------------
+
+function history(p, records) {
+  p.run(`conversations = ${JSON.stringify(records)}.map(record => ({ turns: [], saved: true, ...record }));
+    var byId = id => conversations.find(record => record.id === id); renderConversations();`);
+}
+const fictional = (id, time, extra = {}) => ({
+  id, time, messages: [{ role: "question", text: `가상 질문 ${id}`, sources: [] }], ...extra,
+});
+const listItems = p => p.get("#conversation-list").children.filter(node => node.className === "conversation-item");
+const archiveGroup = p => p.get("#conversation-list").children.find(node => node.className === "conversation-archive");
+const ids = nodes => nodes.map(node => node.attributes.get("data-conversation-id"));
+const menuNode = p => p.document.body.children.find(node => node.attributes.get("role") === "menu");
+const scrimNode = p => p.document.body.children.find(node => node.className === "confirm-scrim");
+const escape = p => p.events.get("keydown")({ key: "Escape" });
+
+test("점 세 개 버튼·우클릭·메뉴 키·Shift+F10이 같은 메뉴를 열고 화살표로 옮기며 Esc는 연 자리로 초점을 돌린다", () => {
+  const p = page();
+  history(p, [fictional("a", 2)]);
+  const item = listItems(p)[0];
+  const [open, more] = item.children;
+  assert.equal(more.attributes.get("aria-label"), "대화 메뉴");
+  assert.equal(more.attributes.get("aria-haspopup"), "menu");
+  more.click();
+  const menu = menuNode(p);
+  assert.equal(menu.hidden, false);
+  assert.equal(menu.id, "conversation-menu");
+  assert.deepEqual(menu.children.map(node => node.textContent), ["보관하기", "삭제"]);
+  assert.deepEqual(menu.children.map(node => node.attributes.get("role")), ["menuitem", "menuitem"]);
+  assert.equal(more.attributes.get("aria-expanded"), "true");
+  assert.equal(p.focus(), menu.children[0]);
+  menu.fire("keydown", { key: "ArrowDown" });
+  assert.equal(p.focus(), menu.children[1]);
+  menu.fire("keydown", { key: "ArrowDown" });
+  assert.equal(p.focus(), menu.children[0]);
+  menu.fire("keydown", { key: "ArrowUp" });
+  assert.equal(p.focus(), menu.children[1]);
+  escape(p);
+  assert.equal(menu.hidden, true);
+  assert.equal(more.attributes.get("aria-expanded"), "false");
+  assert.equal(p.focus(), more);
+
+  const context = item.fire("contextmenu", { target: open, clientX: 50, clientY: 60 });
+  assert.equal(context.prevented, true);
+  assert.equal(menu.hidden, false);
+  assert.equal(menu.properties.get("--conversation-menu-x"), "50px");
+  assert.equal(menu.properties.get("--conversation-menu-y"), "60px");
+  escape(p);
+  assert.equal(p.focus(), open);
+  for (const keys of [{ key: "ContextMenu" }, { key: "F10", shiftKey: true }]) {
+    const pressed = item.fire("keydown", { target: open, ...keys });
+    assert.equal(pressed.prevented, true, keys.key);
+    assert.equal(menu.hidden, false, keys.key);
+    escape(p);
+    assert.equal(p.focus(), open, keys.key);
+  }
+  item.fire("keydown", { target: open, key: "F10" });
+  assert.equal(menu.hidden, true);
+  // 메뉴는 하나만 만들어 다시 쓰고, 문서 전체의 우클릭 메뉴는 막지 않는다.
+  assert.equal(p.document.body.children.filter(node => node.attributes.get("role") === "menu").length, 1);
+  assert.equal(p.events.has("contextmenu"), false);
+  assert.equal(p.document.body.children.some(node => node.attributes.has("style")), false);
+});
+
+test("메뉴가 화면 밖으로 나가면 가장자리 8px 안으로 민다", () => {
+  const p = page();
+  history(p, [fictional("a", 2)]);
+  const item = listItems(p)[0];
+  item.children[1].click();
+  const menu = menuNode(p);
+  escape(p);
+  Object.assign(p.window, { innerWidth: 300, innerHeight: 200 });
+  menu.getBoundingClientRect = () => ({ width: 160, height: 100 });
+  item.fire("contextmenu", { target: item.children[0], clientX: 290, clientY: 190 });
+  assert.equal(menu.properties.get("--conversation-menu-x"), "132px");
+  assert.equal(menu.properties.get("--conversation-menu-y"), "92px");
+  escape(p);
+  item.children[1].getBoundingClientRect = () => ({ left: 4, bottom: 3 });
+  item.children[1].click();
+  assert.equal(menu.properties.get("--conversation-menu-x"), "8px");
+  assert.equal(menu.properties.get("--conversation-menu-y"), "8px");
+});
+
+test("바깥 누르기·스크롤·같은 버튼 다시 누르기로 메뉴를 닫는다", () => {
+  const p = page();
+  history(p, [fictional("a", 2)]);
+  const more = listItems(p)[0].children[1];
+  more.click();
+  const menu = menuNode(p);
+  p.events.get("pointerdown")({ target: menu.children[0] });
+  assert.equal(menu.hidden, false);
+  p.events.get("pointerdown")({ target: p.get("#question") });
+  assert.equal(menu.hidden, true);
+  assert.equal(p.focus(), more);
+  more.click();
+  p.events.get("scroll")({});
+  assert.equal(menu.hidden, true);
+  assert.equal(p.focus(), more);
+  assert.equal(more.focusOptions?.preventScroll, true);
+  more.click();
+  p.events.get("pointerdown")({ target: more });
+  assert.equal(menu.hidden, false);
+  more.click();
+  assert.equal(menu.hidden, true);
+});
+
+test("길게 누르기는 500ms 뒤 누른 자리에 메뉴를 열고 따라오는 클릭 한 번은 대화를 열지 않는다", () => {
+  const p = page();
+  history(p, [fictional("a", 2)]);
+  const open = listItems(p)[0].children[0];
+  const touch = { pointerType: "touch", isPrimary: true, clientX: 20, clientY: 30 };
+  open.fire("pointerdown", touch);
+  p.tick(499);
+  assert.equal(menuNode(p), undefined);
+  p.tick(500);
+  const menu = menuNode(p);
+  assert.equal(menu.hidden, false);
+  assert.equal(menu.properties.get("--conversation-menu-x"), "20px");
+  open.fire("pointerup", touch);
+  open.click();
+  assert.equal(p.run("activeConversation"), null);
+  assert.equal(menu.hidden, false);
+  escape(p);
+  open.click();
+  assert.equal(p.run("activeConversation === byId('a')"), true);
+});
+
+test("길게 누르기는 손 떼기·이동·스크롤·pointercancel에서 취소하고 마우스는 세지 않는다", () => {
+  const cancels = [
+    ["손 떼기", open => open.fire("pointerup")],
+    ["벗어남", open => open.fire("pointerleave")],
+    ["pointercancel", open => open.fire("pointercancel")],
+    ["이동", open => open.fire("pointermove", { clientX: 31, clientY: 30 })],
+    ["스크롤", (open, p) => p.events.get("scroll")({})],
+  ];
+  for (const [name, cancel] of cancels) {
+    const p = page();
+    history(p, [fictional("a", 2)]);
+    const open = listItems(p)[0].children[0];
+    open.fire("pointerdown", { pointerType: "touch", isPrimary: true, clientX: 20, clientY: 30 });
+    cancel(open, p);
+    p.tick(500);
+    assert.equal(menuNode(p), undefined, name);
+    open.click();
+    assert.equal(p.run("activeConversation === byId('a')"), true, name);
+  }
+  const p = page();
+  history(p, [fictional("a", 2)]);
+  const open = listItems(p)[0].children[0];
+  open.fire("pointerdown", { pointerType: "touch", isPrimary: true, clientX: 20, clientY: 30 });
+  open.fire("pointermove", { clientX: 25, clientY: 34 });
+  p.tick(500);
+  assert.equal(menuNode(p).hidden, false, "10px 안의 떨림은 취소하지 않는다");
+  escape(p);
+  open.fire("pointerdown", { pointerType: "mouse", isPrimary: true, clientX: 20, clientY: 30 });
+  p.tick(500);
+  assert.equal(menuNode(p).hidden, true);
+});
+
+test("보관함은 접힌 채 시작하고 보관·해제는 같은 객체의 archived만 바꿔 원래 최근 순 자리로 돌아온다", () => {
+  const p = page();
+  history(p, [fictional("c", 3), fictional("a", 2, { archived: true }), fictional("b", 1)]);
+  assert.deepEqual(ids(listItems(p)), ["c", "b"]);
+  let group = archiveGroup(p);
+  const [toggle, archived] = group.children;
+  assert.equal(toggle.textContent, "보관함 (1)");
+  assert.equal(toggle.attributes.get("aria-expanded"), "false");
+  assert.equal(archived.hidden, true);
+  toggle.click();
+  group = archiveGroup(p);
+  assert.equal(group.children[0].attributes.get("aria-expanded"), "true");
+  assert.equal(group.children[1].hidden, false);
+  assert.equal(p.focus(), group.children[0]);
+  const record = p.run("byId('a')");
+  group.children[1].children[0].children[1].click();
+  const menu = menuNode(p);
+  assert.deepEqual(menu.children.map(node => node.textContent), ["보관 해제", "삭제"]);
+  menu.fire("keydown", { key: "Enter" });
+  assert.deepEqual(ids(listItems(p)), ["c", "a", "b"]);
+  assert.equal(archiveGroup(p), undefined);
+  assert.equal(p.run("byId('a')"), record);
+  assert.equal(record.archived, false);
+  assert.equal(record.time, 2);
+  assert.equal(p.focus(), listItems(p)[1].children[1]);
+  assert.equal(p.saved.at(-1).find(saved => saved.id === "a").archived, false);
+
+  // 보관하면 접힌 보관함으로 옮기고, 초점은 목록의 다음 항목으로 간다.
+  p.run("archiveOpen = false; renderConversations()");
+  listItems(p)[1].children[1].click();
+  menuNode(p).fire("keydown", { key: "Enter" });
+  assert.equal(record.archived, true);
+  assert.equal(p.run("conversations.length"), 3);
+  assert.deepEqual(ids(listItems(p)), ["c", "b"]);
+  assert.equal(archiveGroup(p).children[0].textContent, "보관함 (1)");
+  assert.equal(p.focus(), listItems(p)[1].children[0]);
+  assert.equal(p.saved.at(-1).find(saved => saved.id === "a").archived, true);
+});
+
+test("보던 대화를 보관하면 새 대화 화면을 열고, 전송을 받아들일 때만 보관을 푼다", async () => {
+  const p = page();
+  history(p, [fictional("a", 2)]);
+  p.run("openConversation(byId('a'))");
+  listItems(p)[0].children[1].click();
+  menuNode(p).fire("keydown", { key: "Enter" });
+  assert.equal(p.run("byId('a').archived"), true);
+  assert.equal(p.run("activeConversation"), null);
+  assert.equal(p.document.body.attributes.get("data-view"), "chat");
+  assert.equal(p.focus(), p.get("#question"));
+  p.run("openConversation(byId('a'))");
+  assert.equal(p.run("byId('a').archived"), true, "열기만 해서는 보관이 풀리지 않는다");
+  const submit = () => p.get("#composer").listeners.get("submit")({ preventDefault() {} });
+  p.get("#question").value = "   ";
+  submit();
+  p.run("byId('a').pending = true");
+  p.get("#question").value = "가상 거부될 질문";
+  submit();
+  assert.equal(p.run("byId('a').archived"), true, "거부된 전송은 보관을 유지한다");
+  assert.equal(p.requests.length, 0);
+  p.run("byId('a').pending = false");
+  p.get("#question").value = "가상 이어 묻기";
+  submit();
+  assert.equal(p.run("byId('a').archived"), false);
+  assert.equal(p.run("activeConversation === byId('a')"), true);
+  assert.equal(p.saved.at(-1)[0].archived, false);
+  assert.deepEqual(ids(listItems(p)), ["a"]);
+  p.requests[0].resolve(answer);
+  await setImmediate();
+});
+
+test("보관된 대화에도 늦은 답·도착 알림·읽지 않음 점이 붙는다", async () => {
+  const p = page();
+  const done = begin(p);
+  p.run("record.archived = true; activeConversation = null; setChatView(false)");
+  p.requests[0].resolve(answer);
+  await done;
+  assert.equal(p.run("record.messages.at(-1).text"), "가상 답변");
+  assert.equal(p.run("record.unread"), true);
+  assert.equal(p.get("#conversation-toast").hidden, false);
+  const [toggle, archived] = archiveGroup(p).children;
+  assert.equal(toggle.children.at(-1).className, "conversation-unread");
+  assert.equal(archived.children[0].children[0].children.at(-1).className, "conversation-unread");
+});
+
+test("하나 삭제는 화면 안 alertdialog로 묻고 취소는 기록을 바꾸지 않으며 삭제 뒤 초점은 다음 항목으로 간다", () => {
+  const p = page();
+  history(p, [fictional("a", 3), { ...fictional("b", 2), title: "가상 스물다섯 글자를 넘기는 아주 긴 대화 제목" }, fictional("c", 1)]);
+  const openDelete = index => {
+    listItems(p)[index].children[1].click();
+    const menu = menuNode(p);
+    menu.fire("keydown", { key: "ArrowDown" });
+    menu.fire("keydown", { key: "Enter" });
+  };
+  openDelete(1);
+  const scrim = scrimNode(p);
+  const box = scrim.children[0];
+  const [title, text, actions] = box.children;
+  const [remove, cancel] = actions.children;
+  assert.equal(scrim.hidden, false);
+  assert.equal(menuNode(p).hidden, true);
+  assert.equal(box.attributes.get("role"), "alertdialog");
+  assert.equal(box.attributes.get("aria-modal"), "true");
+  assert.equal(box.attributes.get("aria-labelledby"), title.id);
+  assert.equal(box.attributes.get("aria-describedby"), text.id);
+  assert.equal(title.textContent, "정말로 삭제하시겠습니까?");
+  assert.equal(text.textContent, "‘가상 스물다섯 글자를 넘기는 아주 긴’ 대화를 지우면 되돌릴 수 없어요.");
+  assert.deepEqual([remove.textContent, cancel.textContent], ["삭제", "취소"]);
+  assert.equal(remove.className, "confirm-delete");
+  assert.equal(p.focus(), cancel);
+  assert.equal(menuNode(p).inert, true, "뒤쪽은 inert로 막는다");
+  box.fire("keydown", { key: "Tab" });
+  assert.equal(p.focus(), remove);
+  box.fire("keydown", { key: "Tab" });
+  assert.equal(p.focus(), cancel);
+  const back = box.fire("keydown", { key: "Tab", shiftKey: true });
+  assert.equal(back.prevented, true);
+  assert.equal(p.focus(), remove);
+
+  const more = listItems(p)[1].children[1];
+  escape(p);
+  assert.equal(scrim.hidden, true);
+  assert.notEqual(menuNode(p).inert, true);
+  assert.equal(p.run("conversations.length"), 3);
+  assert.equal(p.focus(), more);
+  openDelete(1);
+  scrim.fire("click", { target: box });
+  assert.equal(scrim.hidden, false, "상자 안 클릭은 닫지 않는다");
+  scrim.click();
+  assert.equal(scrim.hidden, true);
+  assert.equal(p.run("conversations.length"), 3);
+  openDelete(1);
+  remove.click();
+  assert.equal(p.run("conversations.some(record => record.id === 'b')"), false);
+  assert.deepEqual(Array.from(p.saved.at(-1), record => record.id), ["a", "c"]);
+  assert.equal(p.focus(), listItems(p)[1].children[0]);
+  openDelete(1);
+  remove.click();
+  assert.equal(p.focus(), p.get("#new-conversation"));
+  assert.equal(p.document.body.children.filter(node => node.className === "confirm-scrim").length, 1);
+});
+
+test("제목이 없는 대화의 삭제 확인은 새 대화라고 부른다", () => {
+  const p = page();
+  history(p, [{ id: "a", time: 1, messages: [{ role: "question", text: "", sources: [] }] }]);
+  listItems(p)[0].children[1].click();
+  menuNode(p).fire("keydown", { key: "End" });
+  menuNode(p).fire("keydown", { key: "Enter" });
+  assert.equal(scrimNode(p).children[0].children[1].textContent, "‘새 대화’ 대화를 지우면 되돌릴 수 없어요.");
+});
+
+test("답을 기다리는 대화를 지우면 늦은 답을 버리고 취소하면 요청을 그대로 둔다", async () => {
+  const p = page();
+  const done = begin(p);
+  p.run("renderConversations()");
+  const openDelete = () => {
+    listItems(p)[0].children[1].click();
+    menuNode(p).fire("keydown", { key: "End" });
+    menuNode(p).fire("keydown", { key: "Enter" });
+  };
+  openDelete();
+  escape(p);
+  assert.equal(p.run("record.pending"), true);
+  openDelete();
+  scrimNode(p).children[0].children[2].children[0].click();
+  assert.equal(p.run("conversations.length"), 0);
+  assert.equal(p.run("activeConversation"), null);
+  p.get("#conversation-toast").hidden = true;
+  p.requests[0].resolve(answer);
+  await done;
+  assert.equal(p.run("record.messages.length"), 1);
+  assert.equal(p.get("#conversation-toast").hidden, true);
+});
+
+test("기록 모두 지우기는 보관함을 포함한 개수를 묻고 확인 창 → 메뉴 → 서랍 순으로 Esc가 하나씩 닫는다", () => {
+  const p = page();
+  p.window.matchMedia = () => ({ matches: true });
+  history(p, [fictional("a", 2), fictional("b", 1, { archived: true })]);
+  p.run("setChatView(true)");
+  const shell = p.get(".fictional-shell"), kept = p.get(".fictional-kept");
+  shell.inert = false;
+  kept.inert = true;
+  p.document.body.append(shell, kept);
+  p.get("#conversation-toggle").click();
+  assert.equal(p.get("#composer").inert, true);
+  const clear = p.get("#clear-conversations");
+  clear.click();
+  const scrim = scrimNode(p);
+  const [title, text] = scrim.children[0].children;
+  assert.equal(title.textContent, "대화 기록을 모두 삭제하시겠습니까?");
+  assert.equal(text.textContent, "보관함을 포함한 대화 2개가 지워지고 되돌릴 수 없어요.");
+  assert.equal(shell.inert, true);
+  escape(p);
+  assert.equal(scrim.hidden, true);
+  assert.equal(p.document.body.attributes.get("data-conversation-drawer"), "open", "확인 창만 닫는다");
+  assert.equal(shell.inert, false);
+  assert.equal(kept.inert, true, "원래 inert 값을 되돌린다");
+  assert.equal(p.get("#composer").inert, true, "서랍의 inert는 그대로다");
+  assert.equal(p.focus(), clear);
+  assert.equal(p.run("conversations.length"), 2);
+
+  listItems(p)[0].children[1].click();
+  escape(p);
+  assert.equal(menuNode(p).hidden, true);
+  assert.equal(p.document.body.attributes.get("data-conversation-drawer"), "open", "메뉴만 닫는다");
+  escape(p);
+  assert.equal(p.document.body.attributes.has("data-conversation-drawer"), false);
+
+  p.get("#conversation-toggle").click();
+  clear.click();
+  scrim.children[0].children[2].children[0].click();
+  assert.equal(p.run("conversations.length"), 0);
+  assert.equal(p.focus(), clear);
+});
+
+test("확인 창이나 메뉴가 열린 채 뒤로 가기로 홈에 가면 취소로 닫고 보이는 입력창에 초점을 둔다", () => {
+  const p = page();
+  p.run("setChatView(true)");
+  history(p, [fictional("a", 2), fictional("b", 1)]);
+  listItems(p)[0].children[1].click();
+  menuNode(p).fire("keydown", { key: "End" });
+  menuNode(p).fire("keydown", { key: "Enter" });
+  const scrim = scrimNode(p);
+  assert.equal(scrim.hidden, false);
+  p.window.location.hash = "";
+  p.windowEvents.get("popstate")();
+  assert.equal(p.document.body.attributes.get("data-view"), "home");
+  assert.equal(p.get("#conversation-sidebar").hidden, true);
+  assert.equal(scrim.hidden, true);
+  assert.notEqual(menuNode(p).inert, true);
+  assert.equal(p.run("conversations.length"), 2, "화면 이동은 취소다");
+  assert.equal(p.focus(), p.get("#question"));
+  escape(p);
+  assert.equal(p.focus(), p.get("#question"));
+
+  p.run("setChatView(true)");
+  listItems(p)[0].children[1].click();
+  assert.equal(menuNode(p).hidden, false);
+  p.windowEvents.get("popstate")();
+  assert.equal(menuNode(p).hidden, true);
+  assert.equal(p.focus(), p.get("#question"));
+});
+
+test("좁은 화면의 서랍에서 확인 창·메뉴를 연 채 뒤로 가면 서랍 inert가 풀린 뒤 입력창에 초점을 둔다", () => {
+  for (const overlay of ["confirm", "menu"]) {
+    const p = page();
+    p.window.matchMedia = () => ({ matches: true });
+    // 실제 화면처럼 입력창을 composer 안에 둔다. 서랍이 composer에 건 inert가 입력창 초점을 막는다.
+    p.get("#composer").append(p.get("#question"));
+    p.run("setChatView(true)");
+    history(p, [fictional("a", 2), fictional("b", 1)]);
+    const sidebar = p.get("#conversation-sidebar");
+    sidebar.append(p.get("#conversation-list"));
+    p.get("#conversation-toggle").click();
+    assert.equal(p.get("#composer").inert, true, overlay);
+    listItems(p)[0].children[1].click();
+    if (overlay === "confirm") {
+      menuNode(p).fire("keydown", { key: "End" });
+      menuNode(p).fire("keydown", { key: "Enter" });
+      assert.equal(scrimNode(p).hidden, false, overlay);
+    }
+    p.window.location.hash = "";
+    p.windowEvents.get("popstate")();
+    assert.equal(p.document.body.attributes.has("data-conversation-drawer"), false, overlay);
+    assert.equal(p.get("#composer").inert, false, overlay);
+    assert.equal(menuNode(p).hidden, true, overlay);
+    if (scrimNode(p)) assert.equal(scrimNode(p).hidden, true, overlay);
+    assert.equal(p.run("conversations.length"), 2, overlay);
+    assert.equal(p.focus(), p.get("#question"), overlay);
+  }
+});
+
+test("서랍 목록에 초점이 있는 채 뒤로 가 목록이 숨으면 입력창으로 초점을 옮긴다", () => {
+  const p = page();
+  p.window.matchMedia = () => ({ matches: true });
+  p.get("#composer").append(p.get("#question"));
+  p.run("setChatView(true)");
+  history(p, [fictional("a", 2)]);
+  p.get("#conversation-sidebar").append(p.get("#conversation-list"));
+  p.get("#conversation-toggle").click();
+  listItems(p)[0].children[0].focus();
+  p.window.location.hash = "";
+  p.windowEvents.get("popstate")();
+  assert.equal(p.focus(), p.get("#question"));
+});
+
+test("목록이 숨은 뒤 확인 창을 취소하면 숨은 목록 대신 입력창으로 초점을 보낸다", () => {
+  const p = page();
+  history(p, [fictional("a", 2)]);
+  listItems(p)[0].children[1].click();
+  menuNode(p).fire("keydown", { key: "End" });
+  menuNode(p).fire("keydown", { key: "Enter" });
+  p.get("#conversation-sidebar").hidden = true;
+  escape(p);
+  assert.equal(scrimNode(p).hidden, true);
+  assert.equal(p.focus(), p.get("#question"));
 });

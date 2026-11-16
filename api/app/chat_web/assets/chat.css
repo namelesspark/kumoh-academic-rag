@@ -972,11 +972,20 @@ body[data-view="chat"] .composer textarea { height: 44px; min-height: 44px; max-
 #conversation-sidebar .conversation-open { flex: 1; min-width: 0; border: 0; text-align: left; }
 .conversation-title { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .conversation-time { display: block; margin-top: 4px; color: var(--muted); font-size: .75rem; }
-#conversation-sidebar .conversation-delete { flex: none; width: 36px; min-height: 44px; padding: 8px; border: 0; }
-.conversation-delete-icon { position: relative; display: block; width: 18px; height: 20px; margin: auto; border: 1.7px solid currentColor; border-top: 0; border-radius: 0 0 3px 3px; transform: scale(.72); }
-.conversation-delete-icon::before { content: ""; position: absolute; inset: -5px -4px auto; height: 1.7px; background: currentColor; }
-.conversation-delete-icon::after { content: ""; position: absolute; inset: -9px 4px auto; height: 4px; border: 1.7px solid currentColor; border-bottom: 0; }
-.conversation-delete svg, #conversation-toggle svg, #conversation-close svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+/* 점 세 개 `대화 메뉴` 버튼. 휴지통 버튼이 있던 자리와 크기를 그대로 쓴다. */
+#conversation-sidebar .conversation-more { flex: none; width: 36px; min-height: 44px; padding: 8px; border: 0; }
+.conversation-more-icon { position: relative; display: block; width: 4px; height: 4px; margin: auto; border-radius: 50%; background: currentColor; }
+.conversation-more-icon::before, .conversation-more-icon::after { content: ""; position: absolute; left: 0; width: 4px; height: 4px; border-radius: 50%; background: currentColor; }
+.conversation-more-icon::before { top: -7px; }
+.conversation-more-icon::after { top: 7px; }
+/* 길게 누를 때 기기의 글자 선택·미리 보기 창이 메뉴를 가리지 않게 한다. */
+.conversation-open { -webkit-touch-callout: none; user-select: none; }
+.conversation-archive { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--content-line); }
+#conversation-sidebar .conversation-archive-toggle { display: flex; align-items: center; gap: 8px; width: 100%; border: 0; text-align: left; font-weight: 700; }
+.conversation-archive-toggle::before { content: ""; flex: none; width: 0; height: 0; border-style: solid; border-width: 5px 0 5px 7px; border-color: transparent transparent transparent currentColor; }
+.conversation-archive-toggle[aria-expanded="true"]::before { transform: rotate(90deg); }
+.conversation-archive-list { margin: 4px 0 0; padding: 0; list-style: none; }
+#conversation-toggle svg, #conversation-close svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 .conversation-note { margin: 0; color: var(--muted); font-size: .75rem; line-height: 1.5; }
 .conversation-unread { display: inline-block; flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--yellow); align-self: center; }
 .conversation-pending { display: inline-block; width: 10px; height: 10px; border: 2px solid var(--content-line); border-top-color: var(--yellow); border-radius: 50%; animation: conversation-wait .8s linear infinite; }
@@ -1111,3 +1120,32 @@ body[data-techmo-dragging="true"] { user-select: none; }
 @media (prefers-reduced-motion: reduce) {
   :is(.pet-dock, .login-pet)[data-sprite-layout="animated"] .pet-frame { animation: none !important; background-position: 0 var(--techmo-row); }
 }
+
+/* 대화 메뉴와 삭제 확인 창은 chat.js가 body 끝에 한 번 만들어 다시 쓴다. 서랍(11)과 테크모(20) 위에 뜬다.
+   메뉴 좌표는 --conversation-menu-x·y 변수로만 받고, 화면 밖으로 나가는 값은 스크립트가 안쪽으로 민다. */
+.conversation-menu {
+  position: fixed;
+  left: var(--conversation-menu-x, 8px);
+  top: var(--conversation-menu-y, 8px);
+  z-index: 30;
+  display: grid;
+  width: max-content;
+  min-width: 160px;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--navy);
+  color: var(--ink);
+  box-shadow: 0 10px 30px var(--shadow-panel);
+}
+.conversation-menu-item { min-height: 44px; padding: 8px 14px; border: 0; border-radius: 6px; background: transparent; color: var(--ink); font: inherit; text-align: left; white-space: nowrap; }
+.conversation-menu-item:hover, .conversation-menu-item:focus-visible { background: var(--feature-hover); }
+.conversation-menu-item.danger { color: var(--bad); }
+.confirm-scrim { position: fixed; inset: 0; z-index: 40; display: grid; place-items: center; padding: 16px; background: var(--conversation-scrim); }
+.confirm-box { width: min(400px, 100%); padding: 22px; border: 1px solid var(--line); border-radius: 16px; background: var(--navy); color: var(--ink); box-shadow: 0 30px 80px var(--shadow-card); }
+.confirm-title { margin: 0 0 8px; color: var(--ink); font-size: 1.1rem; line-height: 1.4; }
+.confirm-text { margin: 0; color: var(--ink); line-height: 1.6; overflow-wrap: anywhere; }
+.confirm-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }
+.confirm-actions button { min-height: 44px; padding: 8px 18px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--ink); font-weight: 700; }
+.confirm-actions .confirm-cancel:hover { background: var(--feature-hover); }
+.confirm-actions .confirm-delete { border-color: var(--bad-line); background: var(--bad-bg); color: var(--bad); }

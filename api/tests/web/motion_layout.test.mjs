@@ -172,7 +172,7 @@ test("패널은 자리를 차지하는 상자라 펫·말풍선·입력창 위�
   }
   assert.match(first(".feature-panel"), /^display: grid;/);
   // 고정 말풍선도 펫과 함께 화면 좌표로 배치한다.
-  assert.deepEqual(rules.filter(([, body]) => body.includes("position: fixed")).map(([selector]) => selector), [".pet-dock", ".campus-backdrop", 'body[data-view="chat"] .layout', "#conversation-toast", 'body[data-view="chat"] .pet-dock', "#conversation-sidebar", "#conversation-backdrop", '.pet-dock[data-placed="true"], body[data-view="chat"] .pet-dock[data-placed="true"]', ".pet-dock .pet-says"]);
+  assert.deepEqual(rules.filter(([, body]) => body.includes("position: fixed")).map(([selector]) => selector), [".pet-dock", ".campus-backdrop", 'body[data-view="chat"] .layout', "#conversation-toast", 'body[data-view="chat"] .pet-dock', "#conversation-sidebar", "#conversation-backdrop", '.pet-dock[data-placed="true"], body[data-view="chat"] .pet-dock[data-placed="true"]', ".pet-dock .pet-says", ".conversation-menu", ".confirm-scrim"]);
 
   // 닫기와 시작 버튼은 손가락으로 누를 만한 높이다.
   assert.equal(value(first(".panel-close"), "min-height"), "44px");
