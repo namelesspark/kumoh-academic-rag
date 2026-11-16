@@ -256,6 +256,12 @@ function updateSidebarAvailability() {
   if (sidebar) sidebar.inert = !drawerOpen && Boolean(narrow);
 }
 function setChatView(next, push = true) {
+  // 뒤로 가기 같은 화면 이동은 inert로 막을 수 없다. 떠 있는 확인 창과 메뉴를 취소로 닫고,
+  // 숨을 수 있는 목록 대신 두 화면 모두에 있는 입력창으로 초점을 보낸다.
+  const overlay = Boolean(confirmRequest || menuRecord);
+  if (confirmRequest) closeConfirm(false, false);
+  closeMenu(false);
+  if (overlay) input.focus?.();
   requestedChatView = next;
   const sequence = ++screenSequence;
   const changed = next !== chatView;
@@ -540,10 +546,15 @@ function closeMenu(restore = true, options) {
 }
 // 다시 그린 목록에서 대화 ID로 버튼을 찾는다. 없으면 목록의 다음 항목, 그것도 없으면 새 대화 버튼으로 간다.
 function focusConversation(origin, nextId, options) {
+  if (!listVisible()) { input.focus?.(options); return; }
   const nodes = origin && conversationNodes.get(origin.id);
   const target = nodes?.[origin.part] || (nextId && conversationNodes.get(nextId)?.open) ||
     document.querySelector("#new-conversation");
   target?.focus?.(options);
+}
+// 목록이 숨었거나(홈 화면) 닫힌 서랍이라 inert이면 목록 버튼은 초점을 받지 못한다.
+function listVisible() {
+  return !sidebar?.hidden && !sidebar?.inert;
 }
 function nextConversationId(id) {
   const index = conversationOrder.indexOf(id);
@@ -629,7 +640,7 @@ function openConfirm(request) {
   confirmScrim.hidden = false;
   confirmCancel.focus();
 }
-function closeConfirm(accepted) {
+function closeConfirm(accepted, restore = true) {
   const request = confirmRequest;
   if (!request) return;
   confirmRequest = null;
@@ -637,7 +648,7 @@ function closeConfirm(accepted) {
   for (const [node, value] of confirmInert) node.inert = value;
   confirmInert = [];
   if (accepted) request.run();
-  request.restore();
+  if (restore) request.restore();
 }
 function notifyConversation(record) {
   record.unread = true;
@@ -687,7 +698,7 @@ clearButton?.addEventListener("click", () => openConfirm({
     dismissConversationToast();
     conversations = []; activeConversation = null; renderConversations(); renderActiveConversation(); updateSend();
   },
-  restore: () => clearButton.focus(),
+  restore: () => (listVisible() ? clearButton : input).focus(),
 }));
 // Esc는 확인 창 → 메뉴 → 서랍 순으로 맨 위의 하나만 닫는다.
 document.addEventListener?.("keydown", event => {

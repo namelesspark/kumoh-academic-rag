@@ -1202,8 +1202,49 @@ test("기록 모두 지우기는 보관함을 포함한 개수를 묻고 확인 
   escape(p);
   assert.equal(p.document.body.attributes.has("data-conversation-drawer"), false);
 
+  p.get("#conversation-toggle").click();
   clear.click();
   scrim.children[0].children[2].children[0].click();
   assert.equal(p.run("conversations.length"), 0);
   assert.equal(p.focus(), clear);
+});
+
+test("확인 창이나 메뉴가 열린 채 뒤로 가기로 홈에 가면 취소로 닫고 보이는 입력창에 초점을 둔다", () => {
+  const p = page();
+  p.run("setChatView(true)");
+  history(p, [fictional("a", 2), fictional("b", 1)]);
+  listItems(p)[0].children[1].click();
+  menuNode(p).fire("keydown", { key: "End" });
+  menuNode(p).fire("keydown", { key: "Enter" });
+  const scrim = scrimNode(p);
+  assert.equal(scrim.hidden, false);
+  p.window.location.hash = "";
+  p.windowEvents.get("popstate")();
+  assert.equal(p.document.body.attributes.get("data-view"), "home");
+  assert.equal(p.get("#conversation-sidebar").hidden, true);
+  assert.equal(scrim.hidden, true);
+  assert.notEqual(menuNode(p).inert, true);
+  assert.equal(p.run("conversations.length"), 2, "화면 이동은 취소다");
+  assert.equal(p.focus(), p.get("#question"));
+  escape(p);
+  assert.equal(p.focus(), p.get("#question"));
+
+  p.run("setChatView(true)");
+  listItems(p)[0].children[1].click();
+  assert.equal(menuNode(p).hidden, false);
+  p.windowEvents.get("popstate")();
+  assert.equal(menuNode(p).hidden, true);
+  assert.equal(p.focus(), p.get("#question"));
+});
+
+test("목록이 숨은 뒤 확인 창을 취소하면 숨은 목록 대신 입력창으로 초점을 보낸다", () => {
+  const p = page();
+  history(p, [fictional("a", 2)]);
+  listItems(p)[0].children[1].click();
+  menuNode(p).fire("keydown", { key: "End" });
+  menuNode(p).fire("keydown", { key: "Enter" });
+  p.get("#conversation-sidebar").hidden = true;
+  escape(p);
+  assert.equal(scrimNode(p).hidden, true);
+  assert.equal(p.focus(), p.get("#question"));
 });
