@@ -114,6 +114,14 @@ NEW_BUTTON_IDS = (
     "clear-conversations", "conversation-toast-open", "conversation-toast-close",
 )
 MAIN_LETTERING = "/chat-assets/main-lettering.png"
+LIGHT_LOGO = "/chat-assets/kumoh-signature-light.png"
+# 이슈 #107의 교내 주요 사이트. (보이는 이름, 주소) 순서다.
+CAMPUS_SITES = (
+    ("학교 홈페이지", "https://www.kumoh.ac.kr/ko/index.do"),
+    ("포털(Onekit)", "https://onekit.kumoh.ac.kr/"),
+    ("BISKIT", "https://biskit.kumoh.ac.kr/"),
+)
+FOOTER_NOTE = "교내 대회 출품작 · 가상 학생 데이터로 동작하는 시연입니다"
 # 이슈 #91의 테크모 칸 배치. 화면 담당과 함께 쓰는 값이라 글자 하나까지 같아야 한다.
 TECHMO_LAYOUT_TEXT = ('{"version":1,"cell":192,"columns":8,"motions":[{"name":"idle","frames":8},'
                       '{"name":"guide","frames":6},{"name":"celebrate","frames":8},'
@@ -287,7 +295,7 @@ class TestChatWeb(unittest.TestCase):
         self.assertEqual([(child["tag"], child["attrs"].get("id") or child["attrs"].get("class"))
                           for child in layout["children"]],
                          [("aside", "conversation-sidebar"), ("div", "conversation-backdrop"),
-                          ("section", "chat")])
+                          ("section", "chat"), ("footer", "main-site-footer")])
 
         sidebar = by_id(page, "conversation-sidebar")
         self.assertEqual(sidebar["attrs"].get("aria-label"), "지난 대화")
@@ -299,7 +307,8 @@ class TestChatWeb(unittest.TestCase):
              ("button", "conversation-close", "닫기"),
              ("ul", "conversation-list", ""),
              ("button", "clear-conversations", "기록 모두 지우기"),
-             ("p", "conversation-note", "대화 기록은 이 브라우저에만 저장돼요")])
+             ("p", "conversation-note", "대화 기록은 이 브라우저에만 저장돼요"),
+             ("nav", "sidebar-campus-site-links", "")])
         # 목록 항목은 스크립트가 만든다. 처음 화면에는 지난 대화가 한 줄도 없다.
         self.assertEqual(by_id(page, "conversation-list")["children"], [])
 
@@ -346,6 +355,93 @@ class TestChatWeb(unittest.TestCase):
                      "궁금한 학사 규정부터 캠퍼스 생활까지"):
             self.assertNotIn(gone, html)
 
+    def test_both_logo_slots_use_the_light_logo_and_keep_a_text_fallback(self):
+        page = parse_page(read_index())
+        for slot_class, fallback_class in (("brand-logo", "brand-name"),
+                                           ("login-brand", "login-brand-name")):
+            with self.subTest(slot=slot_class):
+                slot = by_class(page, slot_class)
+                self.assertEqual(slot["tag"], "span")
+                self.assertIn("data-brand-slot", slot["attrs"])
+                self.assertIn("hidden", slot["attrs"])
+                (image,) = slot["children"]
+                self.assertEqual(image["attrs"], {"src": LIGHT_LOGO, "alt": "국립금오공과대학교",
+                                                  "width": "782", "height": "113"})
+                # 그림이 없을 때 보이는 글자가 바로 뒤에 있다.
+                fallback = next_sibling(slot)
+                self.assertEqual((fallback["tag"], fallback["attrs"].get("class")),
+                                 ("span", fallback_class))
+                self.assertEqual(fallback["text"].strip(), "금오공대 학사 안내")
+
+    def assert_campus_links(self, nav):
+        self.assertEqual(nav["tag"], "nav")
+        self.assertEqual(nav["attrs"].get("aria-label"), "교내 주요 사이트")
+        links = nav["children"]
+        self.assertEqual([(link["text"], link["attrs"].get("href")) for link in links],
+                         list(CAMPUS_SITES))
+        for link in links:
+            with self.subTest(href=link["attrs"].get("href")):
+                self.assertEqual(link["tag"], "a")
+                self.assertEqual(link["attrs"].get("class"), "campus-site-link")
+                self.assertEqual(link["attrs"].get("target"), "_blank")
+                self.assertEqual(link["attrs"].get("rel"), "noopener noreferrer")
+                self.assertTrue(link["attrs"]["href"].startswith("https://"))
+                hint, icon = link["children"]
+                # 읽기 이름은 「학교 홈페이지 (새 창)」처럼 끝난다. 아이콘은 읽지 않는다.
+                self.assertEqual((hint["tag"], hint["attrs"].get("class"), hint["text"]),
+                                 ("span", "sr-only", " (새 창)"))
+                self.assertEqual(icon["tag"], "svg")
+                self.assertEqual(icon["attrs"].get("class"), "external-link-icon")
+                self.assertEqual(icon["attrs"].get("aria-hidden"), "true")
+                self.assertEqual(icon["attrs"].get("focusable"), "false")
+                # 선으로만 그린다. 그림 파일이나 채운 도형은 쓰지 않는다.
+                self.assertEqual(icon["attrs"].get("fill"), "none")
+                self.assertEqual(icon["attrs"].get("stroke"), "currentColor")
+                self.assertTrue(icon["children"])
+                self.assertEqual({child["tag"] for child in icon["children"]}, {"path"})
+                for child in icon["children"]:
+                    self.assertNotIn("fill", child["attrs"])
+
+    def test_login_and_main_footers_carry_the_campus_links_and_the_demo_note(self):
+        page = parse_page(read_index())
+        for screen_id, footer_id, nav_id in (
+            ("login-screen", "login-site-footer", "login-campus-site-links"),
+            ("main-screen", "main-site-footer", "main-campus-site-links"),
+        ):
+            with self.subTest(footer=footer_id):
+                footer = by_id(page, footer_id)
+                self.assertEqual((footer["tag"], footer["attrs"].get("class")), ("footer", "site-footer"))
+                # 로그인 바닥은 로그인 화면의, 메인 바닥은 큰 판의 마지막 자식이다.
+                parent = by_id(page, screen_id) if screen_id == "login-screen" else by_class(page, "layout")
+                self.assertIs(parent["children"][-1], footer)
+                self.assertEqual([(child["tag"], child["attrs"].get("id") or child["attrs"].get("class"))
+                                  for child in footer["children"]],
+                                 [("p", "campus-site-label"), ("nav", nav_id), ("p", "site-footer-note")])
+                label, nav, note = footer["children"]
+                self.assertEqual(label["text"], "교내 주요 사이트")
+                self.assertEqual(note["text"], FOOTER_NOTE)
+                self.assertEqual(nav["attrs"].get("class"), "campus-site-links")
+                self.assert_campus_links(nav)
+        # 바닥은 두 곳뿐이다. 메인 화면 끝에 따로 떠 있던 바닥은 지웠다.
+        footers = [node for node in page.elements if node["tag"] == "footer"]
+        self.assertEqual([node["attrs"].get("id") for node in footers],
+                         ["login-site-footer", "main-site-footer"])
+        main_screen = by_id(page, "main-screen")
+        self.assertFalse([node for node in footers if node["parent"] is main_screen])
+
+    def test_sidebar_ends_with_one_compact_line_of_campus_links(self):
+        page = parse_page(read_index())
+        nav = by_id(page, "sidebar-campus-site-links")
+        self.assertIs(by_id(page, "conversation-sidebar")["children"][-1], nav)
+        self.assertIs(next_sibling(by_class(page, "conversation-note")), nav)
+        self.assertEqual(nav["attrs"].get("class"), "campus-site-links campus-site-links--compact")
+        self.assert_campus_links(nav)
+        # 세 묶음은 같은 이름으로 불린다. 링크는 모두 아홉 개다.
+        navs = [node for node in page.elements if node["tag"] == "nav"]
+        self.assertEqual([node["attrs"].get("id") for node in navs],
+                         ["login-campus-site-links", "sidebar-campus-site-links", "main-campus-site-links"])
+        self.assertEqual(len([node for node in page.elements if node["tag"] == "a"]), 9)
+
     def test_reply_toast_follows_the_pet_and_the_announcer_is_always_present(self):
         page = parse_page(read_index())
         toast = next_sibling(by_id(page, "pet-dock"))
@@ -366,7 +462,9 @@ class TestChatWeb(unittest.TestCase):
         self.assertEqual((announce["tag"], announce["attrs"]),
                          ("p", {"class": "sr-only", "id": "conversation-announce", "role": "status"}))
         self.assertEqual((announce["children"], announce["text"]), ([], ""))
-        self.assertEqual(next_sibling(announce)["tag"], "footer")
+        # 예전 바닥은 큰 판 안으로 옮겼다. 알림 자리가 메인 화면의 마지막 요소다.
+        self.assertIsNone(next_sibling(announce))
+        self.assertIs(announce["parent"], by_id(page, "main-screen"))
         # 브라우저 알림 권한은 쓰지 않는다.
         self.assertNotIn("Notification", read_index())
 
@@ -407,9 +505,10 @@ class TestChatWeb(unittest.TestCase):
         page = parse_page(read_index())
         self.assertEqual(image_addresses(page), [
             "/chat-assets/title-lettering.png", "/chat-assets/techmo-sprite.png",
-            "/chat-assets/kumoh-signature.png", "/chat-assets/kumoh-signature.png",
-            MAIN_LETTERING, "/chat-assets/techmo-sprite.png",
+            LIGHT_LOGO, LIGHT_LOGO, MAIN_LETTERING, "/chat-assets/techmo-sprite.png",
         ])
+        # 판에 담던 원래 로고는 화면이 더 요청하지 않는다. 서버는 그대로 내준다.
+        self.assertNotIn("/chat-assets/kumoh-signature.png", image_addresses(page))
         # 그림은 모두 숨긴 그림 자리 바로 안에 있다. 로드에 성공해야 스크립트가 자리를 보인다.
         for node in page.elements:
             if node["tag"] == "img":
@@ -433,6 +532,22 @@ class TestChatWeb(unittest.TestCase):
         self.assertEqual(image_addresses(parse_page(html)).count(MAIN_LETTERING), 1)
         self.assertEqual(html.count("?v="), 2)
 
+    def test_light_logo_addresses_are_fingerprinted_only_when_prepared(self):
+        png = b"fictional light logo bytes"
+        digest = sha256(png).hexdigest()
+        with patch.object(web_main, "read_prepared_images",
+                          return_value={"kumoh-signature-light.png": png}):
+            html = call_app(create_app(), "GET", "/", allow_wait=True).text()
+        # 상단 띠와 로그인 카드, 두 자리 모두 같은 지문이 붙는다.
+        self.assertEqual(image_addresses(parse_page(html)).count(f"{LIGHT_LOGO}?v={digest}"), 2)
+        self.assertNotIn(f'"{LIGHT_LOGO}"', html)
+        self.assertEqual(html.count("?v="), 4)
+
+        with patch.object(web_main, "read_prepared_images", return_value={}):
+            html = call_app(create_app(), "GET", "/", allow_wait=True).text()
+        self.assertEqual(image_addresses(parse_page(html)).count(LIGHT_LOGO), 2)
+        self.assertEqual(html.count("?v="), 2)
+
     def test_image_fingerprint_depends_on_content_and_leaves_other_addresses(self):
         html = ('<img src="/chat-assets/main-lettering.png" alt="">'
                 '<img src="/chat-assets/main-lettering.png.bak" alt="">'
@@ -450,7 +565,8 @@ class TestChatWeb(unittest.TestCase):
         self.assertEqual(web_main.fingerprint_prepared_images("", {"main-lettering.png": b"fictional"}), "")
 
     def test_missing_or_unreadable_lettering_does_not_stop_startup(self):
-        self.assertEqual(web_main.FINGERPRINTED_IMAGES, ("main-lettering.png",))
+        self.assertEqual(web_main.FINGERPRINTED_IMAGES,
+                         ("main-lettering.png", "kumoh-signature-light.png"))
         real_read = Path.read_bytes
         target = CHAT_WEB_DIR / "assets" / "main-lettering.png"
         for failure in (FileNotFoundError(2, "fictional missing"), PermissionError(13, "fictional denied")):
@@ -478,12 +594,19 @@ class TestChatWeb(unittest.TestCase):
     def test_prepared_lettering_bytes_are_read_from_the_assets_folder(self):
         real_read = Path.read_bytes
 
+        asked = []
+
         def read(path):
-            return b"fictional png bytes" if path.name == "main-lettering.png" else real_read(path)
+            if path.name in web_main.FINGERPRINTED_IMAGES:
+                asked.append(path)
+                return f"fictional {path.name}".encode()
+            return real_read(path)
 
         with patch.object(Path, "read_bytes", autospec=True, side_effect=read):
             self.assertEqual(web_main.read_prepared_images(),
-                             {"main-lettering.png": b"fictional png bytes"})
+                             {"main-lettering.png": b"fictional main-lettering.png",
+                              "kumoh-signature-light.png": b"fictional kumoh-signature-light.png"})
+        self.assertEqual(asked, [CHAT_WEB_DIR / "assets" / name for name in web_main.FINGERPRINTED_IMAGES])
 
     def test_page_has_no_folding_box_hint_line_or_style_attribute(self):
         html = call_app(app, "GET", "/", allow_wait=True).text()

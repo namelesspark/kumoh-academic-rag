@@ -1,5 +1,6 @@
-"""배포 준비 때 테크모 동작 시트, 공식 로고, 캠퍼스 사진, 제목 글자 그림을 검증해 준비한다."""
+"""배포 준비 때 테크모 동작 시트, 공식 로고와 밝은 로고, 캠퍼스 사진, 제목 글자 그림을 검증해 준비한다."""
 
+import colorsys
 from hashlib import sha256
 from io import BytesIO
 import json
@@ -17,6 +18,14 @@ from PIL import Image, ImageDraw, ImageFont, UnidentifiedImageError
 ASSET_DIR = Path(__file__).resolve().parents[1] / "app/chat_web/assets"
 LOGO_URL = "https://www.kumoh.ac.kr/ko/sub01_01_08.do?mode=download&articleNo=536069&attachNo=157277"
 LOGO_HASH = "1cc2997436ca4deffbdde78614e6def3141cc7381494cb8870557d257193b5cd"
+LOGO_NAME = "kumoh-signature.png"
+# 남색 띠 위에 판 없이 올리는 밝은 로고. 같은 공식 로고를 받아 배포 준비 때 바꿔 그린다.
+# 파란 공은 그대로 두고, 나머지(검정 kit·회색 학교 이름·흰 바탕)는 흰색으로 바꿔 어두울수록 진하게 남긴다.
+LIGHT_LOGO_NAME = "kumoh-signature-light.png"
+LIGHT_KEEP_SATURATION = 0.35  # 채도가 이보다 크고
+LIGHT_KEEP_BLUE_OVER_RED = 20  # 파랑이 빨강보다 이보다 크면 원래 색을 둔다
+LIGHT_ALPHA_GAIN = 1.15  # 알파 = 원래 알파 × min(1, (1 − 명도) × 이 값)
+LIGHT_WHITE = (255, 255, 255)
 MAX_DOWNLOAD = 1024 * 1024
 MAX_ENTRY = 1024 * 1024
 REQUEST_TIMEOUT = 5
@@ -227,6 +236,36 @@ def logo_png(data, expected_hash=LOGO_HASH):
     raise AssetError("로고 지문 불일치")
 
 
+def light_logo_png(data):
+    """검사를 마친 로고 PNG를 남색 바탕용 밝은 로고 PNG로 바꿔 돌려준다.
+
+    픽셀마다 HSV(색상·채도·명도)로 본다. 채도가 `LIGHT_KEEP_SATURATION`보다 크고 B−R이
+    `LIGHT_KEEP_BLUE_OVER_RED`보다 크면(파란 공) 그대로 둔다. 나머지는 흰색으로 바꾸고
+    알파를 `round(원래 알파 × min(1, (1 − 명도) × LIGHT_ALPHA_GAIN))`로 정한다.
+    흰 바탕은 투명이 되고, 검정 글자는 흰 글자, 회색 글자는 밝은 회색처럼 보인다.
+    """
+    try:
+        with Image.open(BytesIO(data)) as source:
+            if source.format != "PNG":
+                raise AssetError("밝은 로고를 만들 수 없음")
+            image = source.convert("RGBA")
+    except (UnidentifiedImageError, OSError, SyntaxError):
+        raise AssetError("밝은 로고를 만들 수 없음") from None
+    raw = image.tobytes()
+    result = bytearray(len(raw))
+    for at in range(0, len(raw), 4):
+        red, green, blue, alpha = raw[at:at + 4]
+        _, saturation, value = colorsys.rgb_to_hsv(red / 255, green / 255, blue / 255)
+        if saturation > LIGHT_KEEP_SATURATION and blue - red > LIGHT_KEEP_BLUE_OVER_RED:
+            result[at:at + 4] = raw[at:at + 4]
+        else:
+            result[at:at + 4] = bytes((*LIGHT_WHITE,
+                                       round(alpha * min(1, (1 - value) * LIGHT_ALPHA_GAIN))))
+    output = BytesIO()
+    Image.frombytes("RGBA", image.size, bytes(result)).save(output, format="PNG")
+    return output.getvalue()
+
+
 def load_techmo_layout(text=None):
     """칸 배치를 읽어 (칸 크기, 한 줄의 칸 수, ((동작 이름, 프레임 수), ...))로 돌려준다."""
     if text is None:
@@ -402,7 +441,9 @@ def main(*, downloader=download, writer=atomic_write, report=print,
         return data
 
     for name, url, convert in (
-        ("kumoh-signature.png", LOGO_URL, logo_png),
+        (LOGO_NAME, LOGO_URL, lambda data: logo_png(data)),
+        # 밝은 로고는 같은 주소라 위에서 받은 바이트를 다시 쓴다. 원본 지문을 통과해야만 바꿔 그린다.
+        (LIGHT_LOGO_NAME, LOGO_URL, lambda data: light_logo_png(logo_png(data))),
         # 사진은 주소가 서로 달라 한 장씩 따로 받고 따로 검사한다.
         *((photo.name, photo.url,
            lambda data, photo=photo: campus_jpeg(data, photo.size, photo.sha256))

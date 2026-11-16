@@ -25,6 +25,9 @@ from api.scripts import prepare_brand_assets as assets
 
 BRAND_NAMES = ("kumoh-signature.png", "techmo-sprite.png")
 SPRITE_NAME = "techmo-sprite.png"
+# 이슈 #107의 밝은 로고. 같은 공식 로고를 받아 배포 준비 때 바꿔 그린다.
+LIGHT_LOGO_NAME = "kumoh-signature-light.png"
+SERVED_PNG_NAMES = (*BRAND_NAMES, LIGHT_LOGO_NAME)
 # 공식 그림을 잘라 만들던 낱장 자세 그림. 화면이 쓰지 않아 만들지도 내주지도 않는다.
 RETIRED_POSE_NAMES = ("techmo-basic.png", "techmo-quiet.png", "techmo-guide.png",
                       "techmo-celebrate.png")
@@ -123,6 +126,7 @@ class TestCampusPhotos(unittest.TestCase):
             patch.object(assets, "CAMPUS_PHOTOS", self.photos),
             patch.object(assets, "TITLE_IMAGES", ()),
             patch.object(assets, "logo_png", return_value=b"logo"),
+            patch.object(assets, "light_logo_png", return_value=b"light logo"),
         ):
             return run_prepare(downloader=downloader,
                                writer=lambda path, data: written.__setitem__(path.name, data),
@@ -396,8 +400,8 @@ class TestCampusPhotos(unittest.TestCase):
             with self.subTest(name=name):
                 self.assertEqual(written[name], data)
                 self.assertIn(f"{name}: 준비 완료", logs)
-        # 동작 시트, 로고, 사진 네 장.
-        self.assertEqual(len(logs), 6)
+        # 동작 시트, 로고, 밝은 로고, 사진 네 장.
+        self.assertEqual(len(logs), 7)
         self.assertEqual(written[SPRITE_NAME], SHEET)
         # 사진은 주소마다 한 번씩만 받는다.
         for photo in self.photos:
@@ -446,7 +450,8 @@ class TestCampusPhotos(unittest.TestCase):
 
         with patch.object(assets, "CAMPUS_PHOTOS", self.photos), \
                 patch.object(assets, "TITLE_IMAGES", ()), \
-                patch.object(assets, "logo_png", return_value=b"logo"):
+                patch.object(assets, "logo_png", return_value=b"logo"), \
+                patch.object(assets, "light_logo_png", return_value=b"light logo"):
             code = run_prepare(downloader=lambda url: self.by_url.get(url, b"fictional"),
                                writer=writer, report=logs.append)
         self.assertEqual(code, 0)
@@ -455,15 +460,18 @@ class TestCampusPhotos(unittest.TestCase):
         self.assertEqual(sum("준비 실패" in line for line in logs), 1)
 
     def test_unverified_real_constants_never_reach_the_writer(self):
-        # 진짜 지문에는 가상 그림이 맞을 수 없다. 동작 시트, 로고, 사진 네 줄, 제목 그림 두 줄이
+        # 진짜 지문에는 가상 그림이 맞을 수 없다. 동작 시트, 로고 두 줄, 사진 네 줄, 제목 그림 두 줄이
         # 모두 실패하고 종료 코드는 0이다. 지문을 바꿔 끼우지 않고 스크립트를 그대로 부른다.
         writer, logs = Mock(), []
         self.assertEqual(assets.main(downloader=lambda url: self.sources[0], writer=writer,
                                      report=logs.append, sprite_reader=lambda: SHEET), 0)
         writer.assert_not_called()
         self.assertEqual([line.split(":")[0] for line in logs],
-                         [SPRITE_NAME, "kumoh-signature.png", *PHOTO_NAMES,
+                         [SPRITE_NAME, "kumoh-signature.png", LIGHT_LOGO_NAME, *PHOTO_NAMES,
                           "title-lettering.png", "main-lettering.png"])
+        # 원본 지문을 통과하지 못하면 밝은 로고도 같은 사유로 만들지 않는다.
+        self.assertEqual(logs[1:3], ["kumoh-signature.png: 준비 실패 (BadZipFile)",
+                                     f"{LIGHT_LOGO_NAME}: 준비 실패 (BadZipFile)"])
         self.assertTrue(all("준비 실패" in line for line in logs))
         self.assertEqual(logs[0], f"{SPRITE_NAME}: 준비 실패 (테크모 시트 지문 불일치)")
 
@@ -501,6 +509,7 @@ class TestTitleLettering(unittest.TestCase):
             patch.object(assets, "CAMPUS_PHOTOS", ()),
             patch.object(assets, "TITLE_IMAGES", (title,)),
             patch.object(assets, "logo_png", return_value=b"logo"),
+            patch.object(assets, "light_logo_png", return_value=b"light logo"),
         ):
             return run_prepare(downloader=downloader,
                                writer=lambda path, data: written.__setitem__(path.name, data),
@@ -647,6 +656,7 @@ class TestTitleLettering(unittest.TestCase):
             patch.object(assets, "TITLE_LINES", LATIN_LINES),
             patch.object(assets.ImageFont, "truetype", return_value=self.font),
             patch.object(assets, "logo_png", return_value=b"logo"),
+            patch.object(assets, "light_logo_png", return_value=b"light logo"),
         ):
             code = run_prepare(downloader=downloader,
                                writer=lambda path, data: written.__setitem__(path.name, data),
@@ -674,6 +684,7 @@ class TestTitleLettering(unittest.TestCase):
         with (
             patch.object(assets, "CAMPUS_PHOTOS", ()),
             patch.object(assets, "logo_png", return_value=b"logo"),
+            patch.object(assets, "light_logo_png", return_value=b"light logo"),
         ):
             code = run_prepare(downloader=fetch,
                                writer=lambda path, data: written.__setitem__(path.name, data),
@@ -742,8 +753,8 @@ class TestTitleLettering(unittest.TestCase):
             self.assertEqual(self.run_main(downloader, written, logs, title), 0)
         self.assertEqual(written[TITLE_NAME], self.png)
         self.assertIn(f"{TITLE_NAME}: 준비 완료", logs)
-        # 동작 시트, 로고, 제목 그림.
-        self.assertEqual(len(logs), 3)
+        # 동작 시트, 로고, 밝은 로고, 제목 그림.
+        self.assertEqual(len(logs), 4)
         self.assertNotIn(font_bytes, written.values())
         self.assertFalse([name for name in written if name.endswith(".ttf")])
         self.assertEqual(sum(call.args == (FONT_URL,) for call in downloader.call_args_list), 1)
@@ -882,10 +893,11 @@ class TestBrandPreparation(unittest.TestCase):
 
     def test_sheet_is_copied_even_when_every_download_fails(self):
         written, logs = self.prepare_sprite()
-        # 쓴 바이트가 읽은 바이트와 같다. 내려받기는 로고 한 줄만 실패한다.
+        # 쓴 바이트가 읽은 바이트와 같다. 내려받기는 같은 주소의 로고 두 줄만 실패한다.
         self.assertIs(written[SPRITE_NAME], SHEET)
         self.assertEqual(logs, [f"{SPRITE_NAME}: 준비 완료",
-                                "kumoh-signature.png: 준비 실패 (TimeoutError)"])
+                                "kumoh-signature.png: 준비 실패 (TimeoutError)",
+                                f"{LIGHT_LOGO_NAME}: 준비 실패 (TimeoutError)"])
 
     def test_sheet_is_prepared_before_any_download_and_without_one(self):
         events = []
@@ -894,11 +906,13 @@ class TestBrandPreparation(unittest.TestCase):
             events.append("download")
             return b"fictional"
 
-        with patch.object(assets, "logo_png", return_value=b"logo"):
+        with patch.object(assets, "logo_png", return_value=b"logo"), \
+                patch.object(assets, "light_logo_png", return_value=b"light logo"):
             run_prepare(downloader=fetch,
                         writer=lambda path, data: events.append(path.name),
                         report=lambda line: None)
-        self.assertEqual(events, [SPRITE_NAME, "download", "kumoh-signature.png"])
+        # 밝은 로고는 같은 주소라 다시 받지 않는다.
+        self.assertEqual(events, [SPRITE_NAME, "download", "kumoh-signature.png", LIGHT_LOGO_NAME])
         # 시트는 내려 주는 폴더의 약속한 이름으로만 쓴다.
         paths = []
         run_prepare(downloader=Mock(side_effect=OSError), report=lambda line: None,
@@ -1084,9 +1098,11 @@ class TestBrandPreparation(unittest.TestCase):
                 report=logs.append,
             )
         self.assertEqual(code, 0)
-        self.assertEqual(written, {SPRITE_NAME: SHEET, "kumoh-signature.png": png})
-        self.assertEqual(logs, [f"{SPRITE_NAME}: 준비 완료", "kumoh-signature.png: 준비 완료"])
-        # 내려받는 것은 로고뿐이다. 낱장 자세 그림은 만들지 않는다.
+        self.assertEqual(written, {SPRITE_NAME: SHEET, "kumoh-signature.png": png,
+                                   LIGHT_LOGO_NAME: assets.light_logo_png(png)})
+        self.assertEqual(logs, [f"{SPRITE_NAME}: 준비 완료", "kumoh-signature.png: 준비 완료",
+                                f"{LIGHT_LOGO_NAME}: 준비 완료"])
+        # 내려받는 것은 로고 한 번뿐이다. 밝은 로고도 그 바이트로 만든다. 낱장 자세 그림은 만들지 않는다.
         downloader.assert_called_once_with(assets.LOGO_URL)
         self.assertFalse(set(written) & set(RETIRED_POSE_NAMES))
 
@@ -1101,16 +1117,26 @@ class TestBrandPreparation(unittest.TestCase):
                     fetch = lambda url: b"fictional input"
                 else:
                     fetch = Mock(side_effect=TimeoutError("fictional timeout"))
-                with patch.object(assets, "logo_png", return_value=b"new logo"):
+                with patch.object(assets, "logo_png", return_value=b"new logo"), \
+                        patch.object(assets, "light_logo_png", return_value=b"new light logo"):
                     code = run_prepare(downloader=fetch,
                                        writer=lambda path, data: written.__setitem__(path.name, data),
                                        report=logs.append, **arguments)
                 self.assertEqual(code, 0)
-                other = BRAND_NAMES[1 - BRAND_NAMES.index(failed)]
                 self.assertEqual(written[failed], b"previous")
-                self.assertEqual(written[other], SHEET if other == SPRITE_NAME else b"new logo")
-                self.assertEqual([line.split(":")[0] for line in logs if "준비 실패" in line], [failed])
-                self.assertEqual([line.split(":")[0] for line in logs if "준비 완료" in line], [other])
+                if failed == SPRITE_NAME:
+                    failed_names = [SPRITE_NAME]
+                    done_names = ["kumoh-signature.png", LIGHT_LOGO_NAME]
+                    self.assertEqual(written["kumoh-signature.png"], b"new logo")
+                    self.assertEqual(written[LIGHT_LOGO_NAME], b"new light logo")
+                else:
+                    # 로고를 받지 못하면 같은 주소로 만드는 밝은 로고도 쓰지 않는다.
+                    failed_names = ["kumoh-signature.png", LIGHT_LOGO_NAME]
+                    done_names = [SPRITE_NAME]
+                    self.assertEqual(written[SPRITE_NAME], SHEET)
+                    self.assertNotIn(LIGHT_LOGO_NAME, written)
+                self.assertEqual([line.split(":")[0] for line in logs if "준비 실패" in line], failed_names)
+                self.assertEqual([line.split(":")[0] for line in logs if "준비 완료" in line], done_names)
 
     def test_failed_sheet_recovers_on_the_next_run(self):
         written = {SPRITE_NAME: b"previous sprite"}
@@ -1130,7 +1156,7 @@ class TestBrandPreparation(unittest.TestCase):
                                      sprite_reader=lambda: b"fictional invalid source",
                                      writer=writer, report=logs.append), 0)
         writer.assert_not_called()
-        self.assertEqual(len(logs), 2)
+        self.assertEqual(len(logs), 3)
         self.assertTrue(all("준비 실패" in line for line in logs))
 
     def test_failure_reason_is_specific_without_external_exception_text(self):
@@ -1138,12 +1164,13 @@ class TestBrandPreparation(unittest.TestCase):
         with patch.object(assets, "logo_png", side_effect=assets.AssetError("로고 지문 불일치")):
             run_prepare(downloader=lambda url: b"fictional", writer=Mock(), report=logs.append)
         self.assertEqual(logs, [f"{SPRITE_NAME}: 준비 완료",
-                                "kumoh-signature.png: 준비 실패 (로고 지문 불일치)"])
+                                "kumoh-signature.png: 준비 실패 (로고 지문 불일치)",
+                                f"{LIGHT_LOGO_NAME}: 준비 실패 (로고 지문 불일치)"])
         logs.clear()
         run_prepare(downloader=Mock(side_effect=OSError("private detail")),
                     sprite_reader=Mock(side_effect=OSError("private detail")),
                     writer=Mock(), report=logs.append)
-        self.assertEqual(len(logs), 2)
+        self.assertEqual(len(logs), 3)
         self.assertTrue(all("OSError" in line and "private detail" not in line for line in logs))
 
     def test_atomic_write_replaces_only_after_complete_write(self):
@@ -1179,10 +1206,93 @@ class TestBrandPreparation(unittest.TestCase):
             replace.assert_not_called()
 
 
+def fake_logo_bytes(pixels, mode="RGBA"):
+    """한 줄짜리 가짜 로고. 실제 공식 로고와 관계없다."""
+    image = Image.new(mode, (len(pixels), 1))
+    image.putdata(pixels)
+    output = BytesIO()
+    image.save(output, format="PNG")
+    return output.getvalue()
+
+
+def pixels_of(png):
+    with Image.open(BytesIO(png)) as image:
+        image.load()
+        return image.format, image.mode, image.size, list(image.tobytes())
+
+
+class TestLightLogo(unittest.TestCase):
+    BLUE = (20, 90, 200, 255)  # 파란 공: 채도 0.9, B−R 180
+    WHITE = (255, 255, 255, 255)  # 흰 바탕
+    BLACK = (0, 0, 0, 255)  # 검정 kit
+    GRAY = (128, 128, 128, 255)  # 회색 학교 이름
+
+    def convert(self, *pixels):
+        image_format, mode, size, raw = pixels_of(assets.light_logo_png(fake_logo_bytes(pixels)))
+        self.assertEqual((image_format, mode, size), ("PNG", "RGBA", (len(pixels), 1)))
+        return [tuple(raw[at:at + 4]) for at in range(0, len(raw), 4)]
+
+    def test_constants_match_the_agreed_rule(self):
+        self.assertEqual(assets.LIGHT_LOGO_NAME, LIGHT_LOGO_NAME)
+        self.assertEqual((assets.LIGHT_KEEP_SATURATION, assets.LIGHT_KEEP_BLUE_OVER_RED,
+                          assets.LIGHT_ALPHA_GAIN), (0.35, 20, 1.15))
+
+    def test_blue_stays_white_becomes_clear_and_black_becomes_white(self):
+        blue, white, black, gray = self.convert(self.BLUE, self.WHITE, self.BLACK, self.GRAY)
+        self.assertEqual(blue, self.BLUE)
+        self.assertEqual(white, (255, 255, 255, 0))
+        self.assertEqual(black, (255, 255, 255, 255))
+        # 명도 128/255: round(255 × (1 − 128/255) × 1.15) = 146. 밝은 회색처럼 보인다.
+        self.assertEqual(gray, (255, 255, 255, 146))
+
+    def test_original_alpha_is_kept_as_the_upper_bound(self):
+        # 반투명 검정 가장자리는 원래 알파를 넘지 않는다. 완전 투명은 그대로 투명이다.
+        edge, clear, half_gray = self.convert((0, 0, 0, 100), (0, 0, 0, 0), (64, 64, 64, 128))
+        self.assertEqual(edge, (255, 255, 255, 100))
+        self.assertEqual(clear, (255, 255, 255, 0))
+        self.assertEqual(half_gray, (255, 255, 255, round(128 * min(1, (1 - 64 / 255) * 1.15))))
+
+    def test_only_saturated_blue_keeps_its_color(self):
+        red, pale_blue, cyan_edge = self.convert(
+            (220, 30, 30, 255),  # 채도는 높지만 파랑이 빨강보다 작다
+            (200, 200, 215, 255),  # 파랑이 크지만 채도가 0.35 이하다
+            (150, 160, 170, 255))  # 채도 0.12, B−R 20: 둘 다 넘지 않는다
+        for pixel in (red, pale_blue, cyan_edge):
+            self.assertEqual(pixel[:3], (255, 255, 255))
+        kept = self.convert((100, 140, 175, 255))[0]  # 채도 0.43, B−R 75
+        self.assertEqual(kept, (100, 140, 175, 255))
+
+    def test_logo_without_alpha_and_full_size_logo_are_converted(self):
+        _, mode, size, raw = pixels_of(assets.light_logo_png(image_bytes((782, 113))))
+        self.assertEqual((mode, size), ("RGBA", (782, 113)))
+        # 흰 바탕만 있는 그림은 모두 투명해진다.
+        self.assertEqual(set(raw[3::4]), {0})
+
+    def test_unreadable_or_non_png_input_is_rejected_with_a_fixed_reason(self):
+        for label, data in (("broken", b"fictional broken image"),
+                            ("jpeg", image_bytes((4, 4), "JPEG")),
+                            ("truncated", SHEET[: len(SHEET) // 2])):
+            with self.subTest(label=label), self.assertRaises(assets.AssetError) as caught:
+                assets.light_logo_png(data)
+            self.assertEqual(str(caught.exception), "밝은 로고를 만들 수 없음")
+
+    def test_light_logo_is_made_only_from_the_verified_logo(self):
+        # 원본 지문이 다르면 밝은 로고를 쓰지 않아 이전 파일이 남는다. 받기는 한 번뿐이다.
+        written = {LIGHT_LOGO_NAME: b"previous light"}
+        logs = []
+        downloader = Mock(return_value=archive_bytes(fake_logo_bytes([self.BLUE])))
+        with patch.object(assets, "CAMPUS_PHOTOS", ()), patch.object(assets, "TITLE_IMAGES", ()):
+            run_prepare(downloader=downloader, report=logs.append,
+                        writer=lambda path, data: written.__setitem__(path.name, data))
+        self.assertEqual(written, {SPRITE_NAME: SHEET, LIGHT_LOGO_NAME: b"previous light"})
+        self.assertEqual(logs[-1], f"{LIGHT_LOGO_NAME}: 준비 실패 (로고 지문 불일치)")
+        downloader.assert_called_once_with(assets.LOGO_URL)
+
+
 class TestBrandAssetRoutes(unittest.TestCase):
     def test_missing_brand_assets_return_404(self):
         with patch.object(Path, "is_file", return_value=False):
-            for name in BRAND_NAMES:
+            for name in SERVED_PNG_NAMES:
                 with self.subTest(name=name):
                     response = call_app(web_main.app, "GET", f"/chat-assets/{name}", allow_wait=True)
                     self.assertEqual(response.status, 404)
@@ -1192,14 +1302,14 @@ class TestBrandAssetRoutes(unittest.TestCase):
         png = image_bytes((2, 2))
 
         def memory_response(path, *, media_type, headers):
-            self.assertIn(path.name, BRAND_NAMES)
+            self.assertIn(path.name, SERVED_PNG_NAMES)
             return web_main.Response(content=png, media_type=media_type, headers=headers)
 
         with (
             patch.object(Path, "is_file", return_value=True),
             patch.object(web_main, "FileResponse", side_effect=memory_response),
         ):
-            for name in BRAND_NAMES:
+            for name in SERVED_PNG_NAMES:
                 with self.subTest(name=name):
                     response = call_app(web_main.app, "GET", f"/chat-assets/{name}", allow_wait=True)
                     self.assertEqual(response.status, 200)
@@ -1382,8 +1492,10 @@ class TestScreenAssetReferences(unittest.TestCase):
             "chat.css": asset_names(read("assets", "chat.css")),
             "chat.js": asset_names(read("assets", "chat.js")),
         }
-        # 화면은 적어도 스타일·스크립트·로고를 요청한다. 빈 목록이면 읽기가 잘못된 것이다.
-        self.assertTrue({"chat.css", "chat.js", "kumoh-signature.png"} <= set(requested["index.html"]))
+        # 화면은 적어도 스타일·스크립트·밝은 로고를 요청한다. 빈 목록이면 읽기가 잘못된 것이다.
+        self.assertTrue({"chat.css", "chat.js", LIGHT_LOGO_NAME} <= set(requested["index.html"]))
+        self.assertEqual(web_main.CHAT_WEB_MEDIA_TYPES[LIGHT_LOGO_NAME], "image/png")
+        self.assertIn(LIGHT_LOGO_NAME, web_main.FINGERPRINTED_IMAGES)
         for source, names in requested.items():
             with self.subTest(source=source):
                 self.assertEqual(unlisted(names), [],

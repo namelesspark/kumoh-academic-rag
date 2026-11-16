@@ -41,6 +41,8 @@ CHAT_WEB_DIR = Path(__file__).with_name("chat_web")
 CHAT_WEB_MEDIA_TYPES = {
     "chat.css": "text/css", "chat.js": "text/javascript",
     "kumoh-signature.png": "image/png",
+    # 남색 띠 위에 판 없이 올리는 밝은 로고. 같은 공식 로고로 배포 준비 때 만든다.
+    "kumoh-signature-light.png": "image/png",
     # 테크모 동작 시트. 저장소의 `art/` 원본을 배포 준비 때 검사해 `assets/`에 복사한 것만 내준다.
     "techmo-sprite.png": "image/png",
     # 로그인 화면의 제목 글자 그림. 글꼴 파일은 이 목록에 넣지 않는다.
@@ -55,7 +57,7 @@ CHAT_WEB_MEDIA_TYPES = {
 # 사진 주소들은 실제로 422를 내므로 여기에 넣지 않는다.
 PATHS_WITHOUT_422 = ("/api/v1/chat", "/api/v1/chat/stream", "/api/v1/demo-login")
 # 주소에 내용 지문을 붙이는 그림. 배포 준비 때 생기므로 없을 수 있다.
-FINGERPRINTED_IMAGES = ("main-lettering.png",)
+FINGERPRINTED_IMAGES = ("main-lettering.png", "kumoh-signature-light.png")
 # 테크모 그림 묶음의 칸 배치를 화면에 넘기는 자리. `index.html`에 정확히 한 번 있어야 한다.
 # 배치 파일은 서버가 읽어 화면에 넣을 뿐, `/chat-assets/` 주소로 내주지 않는다.
 TECHMO_LAYOUT_SLOT = "__TECHMO_LAYOUT__"

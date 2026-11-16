@@ -16,6 +16,16 @@
 
 출처는 [학교 UI 게시판 글 536069](https://www.kumoh.ac.kr/ko/sub01_01_08.do)임.
 
+### 밝은 로고
+
+남색 상단 띠와 로그인 카드에는 흰 판 없이 바로 올리는 `kumoh-signature-light.png`를 쓴다. 같은 스크립트가 위 공식 로고로 만든다.
+
+- **받기** — 원본과 주소가 같아 한 번 받은 바이트를 다시 쓴다. 원본 지문을 통과한 PNG만 바꾼다. 원본을 받지 못하거나 지문이 다르면 밝은 로고도 같은 사유로 실패하고 기존 파일이 남는다.
+- **바꾸는 규칙** — 픽셀마다 HSV(색상·채도·명도)로 본다. 채도가 0.35보다 크고 파랑이 빨강보다 20 넘게 크면(파란 공) 그대로 둔다. 나머지는 흰색(255, 255, 255)으로 바꾸고 알파를 `round(원래 알파 × min(1, (1 − 명도) × 1.15))`로 정한다. 흰 바탕은 투명이 되고, 검정 kit는 흰색, 회색 학교 이름은 밝은 회색처럼 보인다.
+- **지문** — 원본과 달리 결과 바이트의 지문은 고정하지 않는다. PNG 압축 결과가 Pillow 판마다 달라질 수 있어서다. 테스트는 원본 지문과 픽셀 규칙을 본다. 서버는 시작할 때 파일 내용으로 주소에 지문을 붙인다.
+- **그림이 없을 때** — 서버가 404로 답하고 화면은 「금오공대 학사 안내」 글자를 보여 준다.
+- **원래 로고** — `kumoh-signature.png`도 계속 만들고 내준다. 화면은 더 요청하지 않는다.
+
 ## 테크모 동작 시트
 
 출처: 공식 테크모를 바탕으로 새로 그린 동작 시트, 저장소에 보관. 바탕이 된 공식 테크모는 학교의 [캐릭터 소개](https://www.kumoh.ac.kr/ko/sub01_01_02_02.do)에 있다.
@@ -62,9 +72,10 @@
 | 준비 경로 (`api/app/chat_web/assets/` 아래) | 요청 주소 | 응답 형식 |
 | --- | --- | --- |
 | `kumoh-signature.png` | `/chat-assets/kumoh-signature.png` | `image/png` |
+| `kumoh-signature-light.png` | `/chat-assets/kumoh-signature-light.png` | `image/png` |
 | `techmo-sprite.png` | `/chat-assets/techmo-sprite.png` | `image/png` |
 
-화면의 `chat.css`·`chat.js` 주소에 파일 내용을 요약한 SHA-256 지문을 `?v=`로 붙임. 서버는 시작할 때 화면과 두 파일을 읽고, 주소가 각각 정확히 한 번 있는지 확인함. 그림 가운데는 메인 화면 제목 `main-lettering.png`에만 같은 지문을 붙임. 그림은 배포 준비 때 생기므로 서버가 시작할 때 파일이 있으면 붙이고, 없거나 읽지 못하면 주소를 그대로 둔 채 시작함. 화면과 `/chat-assets/` 응답에는 쓸 때마다 다시 확인하라는 `Cache-Control: no-cache` 지시를 보냄. 기존 화면 보안 정책은 유지함.
+화면의 `chat.css`·`chat.js` 주소에 파일 내용을 요약한 SHA-256 지문을 `?v=`로 붙임. 서버는 시작할 때 화면과 두 파일을 읽고, 주소가 각각 정확히 한 번 있는지 확인함. 그림 가운데는 메인 화면 제목 `main-lettering.png`와 밝은 로고 `kumoh-signature-light.png`에만 같은 지문을 붙임. 그림은 배포 준비 때 생기므로 서버가 시작할 때 파일이 있으면 붙이고, 없거나 읽지 못하면 주소를 그대로 둔 채 시작함. 화면과 `/chat-assets/` 응답에는 쓸 때마다 다시 확인하라는 `Cache-Control: no-cache` 지시를 보냄. 기존 화면 보안 정책은 유지함.
 
 검증한 결과를 임시 파일에 모두 쓴 뒤 최종 파일로 교체한다. 도장을 확인한 봉투만 우편함에 넣는 것과 같다. 한 그림이 실패해도 다른 그림을 계속 준비하며 종료 코드 0으로 끝낸다. 실패한 그림의 기존 파일은 보존하고, 파일이 없으면 서버가 404로 답한다. 로그에는 그림별 성공 여부와 실패 종류만 한 줄로 남긴다.
 
@@ -122,9 +133,9 @@
 
 ## 검증
 
-추가 의존성이나 외부 복사 코드 없이 기존 Pillow와 파이썬 표준 라이브러리를 사용한다. 제목 글자 그리기 검사는 Pillow에 들어 있는 기본 글꼴과 영문 글귀로 한다. 동작 시트의 형식·색 모드·크기 검사는 메모리에서 만든 가상 그림으로 하고, 저장소의 실제 시트는 테스트 하나가 읽기만 해서 지문과 크기를 확인한다. 그 밖에는 가상 이미지와 가짜 응답만 사용한다. 검증 명령은 다음과 같음.
+추가 의존성이나 외부 복사 코드 없이 기존 Pillow와 파이썬 표준 라이브러리(`colorsys` 포함)를 사용한다. 밝은 로고 검사는 몇 픽셀짜리 가짜 로고로 파란 픽셀 유지, 흰 바탕 투명, 검정 글자 흰색을 본다. 제목 글자 그리기 검사는 Pillow에 들어 있는 기본 글꼴과 영문 글귀로 한다. 동작 시트의 형식·색 모드·크기 검사는 메모리에서 만든 가상 그림으로 하고, 저장소의 실제 시트는 테스트 하나가 읽기만 해서 지문과 크기를 확인한다. 그 밖에는 가상 이미지와 가짜 응답만 사용한다. 검증 명령은 다음과 같음.
 
-```text
-node --test api/tests/web/citation_link.test.mjs api/tests/web/graduation_demo.test.mjs api/tests/web/landing_design.test.mjs api/tests/web/photo_input.test.mjs api/tests/web/poster_lookup.test.mjs api/tests/web/techmo_assistant.test.mjs
-python -B -m unittest api.tests.test_brand_assets api.tests.test_web api.tests.test_health api.tests.test_chat_stub -v
+```powershell
+node --test (Get-ChildItem api/tests/web -Filter *.test.mjs).FullName
+python -B -m unittest discover -s api/tests
 ```
