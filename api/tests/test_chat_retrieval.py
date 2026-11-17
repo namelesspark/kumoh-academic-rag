@@ -13,7 +13,7 @@ API_DIR = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(API_DIR), str(API_DIR.parent / "core" / "src")]
 
 from app.main import create_app
-from app.services.chat_retrieval import ChatRetrieval
+from app.services.chat_retrieval import AI_CANDIDATE_LIMIT, ChatRetrieval
 from app.services.chat_stub import (
     ANSWERED_TEXT,
     FICTIONAL_CITATION,
@@ -152,3 +152,30 @@ class RelaxedRetrievalTests(unittest.TestCase):
                 self.assertEqual(citation["document"], f"가상 문서 {index}")
                 self.assertEqual(citation["effective_date"], date(2099, 1, index + 1))
                 self.assertEqual(citation["source_url"], f"https://example.invalid/{index}")
+
+    def test_fifth_candidate_is_sent_and_sixth_is_not(self):
+        # 가짜 검색 함수가 순위를 정한다. 제목 가산과 무관하게 넘긴 순서 그대로다.
+        self.assertEqual(AI_CANDIDATE_LIMIT, 5)
+        texts = [f"가상 후보 {rank}위" for rank in range(1, 7)]
+        retrieval = self.retrieval(texts)
+
+        relaxed = retrieval.build_result("가상", None, relaxed=True)
+        strict = retrieval.build_result("가상", None)
+
+        self.assertEqual([c["snippet"] for c in relaxed["citations"]], texts[:5])
+        self.assertEqual([c["article_path"] for c in relaxed["citations"]][-1], "제5조")
+        self.assertEqual([c["snippet"] for c in strict["citations"]], texts[:1])
+
+    def test_budget_drops_the_lowest_ranks_among_five(self):
+        cases = (
+            ((700, 700, 700, 700, 700, 10), 4),
+            ((600, 600, 600, 600, 600, 10), 5),
+            ((2000, 900, 200, 10, 10, 10), 2),
+            ((3500, 10, 10, 10, 10, 10), 1),
+        )
+        for lengths, count in cases:
+            with self.subTest(lengths=lengths):
+                texts = ["가상" + "나" * (length - 2) for length in lengths]
+                body = self.retrieval(texts).build_result("가상", None, relaxed=True)
+                self.assertEqual([c["snippet"] for c in body["citations"]], texts[:count])
+                self.assertEqual(body["answer"], texts[0])

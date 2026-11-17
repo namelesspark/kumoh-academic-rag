@@ -20,6 +20,7 @@ from api.scripts.eval_retrieval import (
     QUESTIONS_FAILED_TEXT,
     QUESTIONS_PATH,
     SEARCH_FAILED_TEXT,
+    TOP_K,
     Expected,
     Question,
     article_number,
@@ -31,6 +32,7 @@ from api.scripts.eval_retrieval import (
     same_document,
 )
 from api.local_serve import MANIFEST_ENV
+from app.services.chat_retrieval import AI_CANDIDATE_LIMIT
 
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
@@ -153,6 +155,23 @@ class MatchingTests(unittest.TestCase):
         self.assertFalse(same_document(" ", "가상 학칙"))
         self.assertFalse(is_hit([Expected("가상 운영 규정", "제3조")], [("가상 학칙", "제3조")]))
 
+    def test_leading_school_name_is_ignored_once(self):
+        names = ("국립금오공과대학교 학칙", "금오공과대학교 학칙", "학칙", "국립 금오공과대학교 학칙 제9차")
+        for expected in names:
+            for title in names:
+                with self.subTest(expected=expected, title=title):
+                    self.assertTrue(same_document(expected, title))
+        for title in ("학칙 시행세칙", "대학원 학칙", "금오공과대학교 대학원 학칙", "국립학칙"):
+            with self.subTest(title=title):
+                self.assertFalse(same_document("학칙", title))
+                self.assertFalse(same_document("국립금오공과대학교 학칙", title))
+        # 학교 이름은 한 번만 뗀다.
+        self.assertFalse(same_document("학칙", "금오공과대학교 금오공과대학교 학칙"))
+        for empty in ("", " ", "국립금오공과대학교", "금오공과대학교 제9차"):
+            with self.subTest(empty=empty):
+                self.assertFalse(same_document(empty, empty))
+                self.assertFalse(same_document(empty, "학칙"))
+
     def test_a_title_containing_the_expected_name_is_another_document(self):
         # 검토 지적: 부분 일치로 보면 '학칙'이 '학칙 시행세칙'과도 맞았다.
         for title in ("가상 학칙 시행세칙", "가상 대학원 학칙", "가상 학칙 시행세칙 제9차"):
@@ -171,6 +190,10 @@ class MatchingTests(unittest.TestCase):
 class EvaluateTests(unittest.TestCase):
     def setUp(self):
         self.retrieval = build_regulations_retrieval([RULES, GUIDE]).chat_retrieval
+
+    def test_top_k_is_the_ai_candidate_limit(self):
+        self.assertEqual(TOP_K, AI_CANDIDATE_LIMIT)
+        self.assertEqual(TOP_K, 5)
 
     def test_lines_show_expected_top_three_and_hit_rate(self):
         questions = (
@@ -194,7 +217,7 @@ class EvaluateTests(unittest.TestCase):
         self.assertTrue(lines[1].startswith("[적중] 안개정원은 언제 여나요"))
         self.assertTrue(lines[2].startswith("[놓침] 구름 재등록 | 기대: 가상 별빛 학칙 제33조"))
         self.assertEqual(
-            lines[3], "[놓침] 얼룩말 풍금 | 기대: 가상 별빛 학칙 제3조 | 상위 3개: 없음"
+            lines[3], "[놓침] 얼룩말 풍금 | 기대: 가상 별빛 학칙 제3조 | 상위 5개: 없음"
         )
         self.assertEqual(eval_retrieval.summary(hits, len(questions)), "적중률: 2/4 (50.0%)")
         for text in (RULE_RETRY, RULE_FOG, GUIDE_RETRY, "구름학생", "별지기"):
@@ -215,7 +238,7 @@ class EvaluateTests(unittest.TestCase):
         self.assertEqual(calls, [True])
         citations = inner.build_result("구름 재등록", None, relaxed=True)["citations"]
         self.assertEqual(
-            top, [(c["document"], article_number(c["article_path"])) for c in citations[:3]]
+            top, [(c["document"], article_number(c["article_path"])) for c in citations[:TOP_K]]
         )
         self.assertEqual(
             sorted(number for _, number in top), ["제3조", "제5조"]
@@ -243,7 +266,7 @@ class MainTests(unittest.TestCase):
                 self.assertRegex(line, r"^\[(적중|놓침)\] ")
                 self.assertIn(item.question, line)
                 self.assertIn(" | 기대: ", line)
-                self.assertIn(" | 상위 3개: ", line)
+                self.assertIn(" | 상위 5개: ", line)
         self.assertRegex(lines[-1], r"^적중률: [0-9]+/11 \([0-9.]+%\)$")
         self.assertNotIn(str(FIXTURES), out)
         self.assertNotIn("fictional_manifest", out)
@@ -306,7 +329,7 @@ class MainTests(unittest.TestCase):
         lines = out.splitlines()
         self.assertEqual(len(lines), 2)
         self.assertTrue(lines[0].startswith("[적중] 대패는 누가 내어 주나요"))
-        self.assertIn("상위 3개: 가상 은여울 목공방 규정 제1조", lines[0])
+        self.assertIn("상위 5개: 가상 은여울 목공방 규정 제1조", lines[0])
         self.assertEqual(lines[1], "적중률: 1/1 (100.0%)")
 
 

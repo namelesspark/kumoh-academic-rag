@@ -29,8 +29,10 @@ from core.tests.retrieval_cases import (
 )
 
 from app.services.chat_relevance import (
+    SYNONYMS,
     cleaned_search,
     core_words,
+    is_ai_candidate,
     is_supported,
     keep_supported,
     search_query,
@@ -223,6 +225,53 @@ class SearchQueryTests(unittest.TestCase):
         self.assertEqual(retriever_queries, ["달빛열람증"])
         self.assertEqual(hits[0].chunk.article_path, "제3조(달빛 열람)")
         self.assertEqual(search("달빛열람증 휴학"), [])
+
+
+class SynonymTests(unittest.TestCase):
+    # 본문에는 동의어 '계절수업'만 있고 원래 낱말 '계절학기'는 없는 가상 조문.
+    SEASON_CLASS = chunk("제7조(가상 계절수업) 가상의 별빛 계절수업은 여름밤에 연다.", "제7조(가상 계절수업)")
+
+    def test_table_starts_with_one_directed_entry(self):
+        self.assertEqual(SYNONYMS, {"계절학기": ("계절수업",)})
+
+    def test_synonyms_follow_the_original_words_once(self):
+        cases = (
+            ("계절학기 학점", "계절학기 학점 계절수업"),
+            ("계절학기 계절수업", "계절학기 계절수업"),
+            ("계절학기는 계절학기", "계절학기 계절수업"),
+            ("제3조 계절학기", "제3조 계절학기 계절수업"),
+            ("계절학기\n계절학기 학점", "계절학기 계절수업\n계절학기 학점 계절수업"),
+            # 방향이 있어 '계절수업'은 '계절학기'로 넓히지 않는다.
+            ("계절수업 학점", "계절수업 학점"),
+        )
+        for question, expected in cases:
+            with self.subTest(question=question):
+                self.assertEqual(search_query(question), expected)
+
+    def test_synonyms_of_synonyms_are_not_added(self):
+        table = {"별빛학기": ("달빛수업",), "달빛수업": ("햇빛강좌",)}
+        with mock.patch.dict(SYNONYMS, table, clear=True):
+            self.assertEqual(search_query("별빛학기"), "별빛학기 달빛수업")
+            self.assertEqual(search_query("달빛수업"), "달빛수업 햇빛강좌")
+            self.assertFalse(is_ai_candidate("별빛학기", chunk("가상의 햇빛강좌", "제1조")))
+            self.assertTrue(is_ai_candidate("별빛학기", chunk("가상의 달빛수업", "제1조")))
+
+    def test_ai_candidate_accepts_a_synonym_but_strict_check_does_not(self):
+        self.assertTrue(is_ai_candidate("계절학기", self.SEASON_CLASS))
+        self.assertTrue(is_ai_candidate("계절학기에 몇 학점까지 들을 수 있나요", self.SEASON_CLASS))
+        self.assertFalse(is_supported("계절학기", self.SEASON_CLASS))
+        self.assertFalse(keep_supported(lambda query: [SimpleNamespace(chunk=self.SEASON_CLASS)])("계절학기"))
+        with mock.patch.dict(SYNONYMS, {}, clear=True):
+            self.assertFalse(is_ai_candidate("계절학기", self.SEASON_CLASS))
+
+    def test_missed_question_form_query(self):
+        # 코어 쪽 테스트가 이 리터럴을 쓴다.
+        self.assertEqual(
+            search_query("계절학기에 몇 학점까지 들을 수 있나요"), "계절학기 학점 들을 계절수업"
+        )
+        self.assertEqual(
+            search_query("계절학기는 몇 학점까지 들을 수 있나요"), "계절학기 학점 들을 계절수업"
+        )
 
 
 class SupportTests(unittest.TestCase):

@@ -64,6 +64,11 @@ _PREDICATE_ENDINGS = tuple(sorted(
     key=len,
     reverse=True,
 ))
+# 질문 낱말 -> 규정이 같은 뜻으로 쓰는 낱말. 방향이 있고, 동의어의 동의어로 이어 넓히지 않는다.
+# 검색 질의와 AI 후보 판정에만 쓰고, 엄격한 근거 판정(`is_supported`)에는 쓰지 않는다.
+SYNONYMS: dict[str, tuple[str, ...]] = {
+    "계절학기": ("계절수업",),
+}
 
 
 def _plain(text: str) -> str:
@@ -115,8 +120,15 @@ def core_words(line: str) -> tuple[str, ...]:
     return tuple(dict.fromkeys(words))
 
 
+def _with_synonyms(words: tuple[str, ...]) -> tuple[str, ...]:
+    """원래 낱말 뒤에 `SYNONYMS`의 동의어를 한 번씩 덧붙인다. 덧붙인 낱말은 다시 넓히지 않는다."""
+
+    synonyms = (synonym for word in words for synonym in SYNONYMS.get(word, ()))
+    return tuple(dict.fromkeys((*words, *synonyms)))
+
+
 def search_query(query: str) -> str:
-    """검색기에 넘길 질의를 만든다. 줄마다 조 번호와 핵심 낱말만 남긴다.
+    """검색기에 넘길 질의를 만든다. 줄마다 조 번호와 핵심 낱말, 그 동의어만 남긴다.
 
     검색기는 질의를 두 글자씩 잘라 점수를 매긴다. '하려면', '나요' 같은 서술 어미가 남으면
     그 두 글자가 엉뚱한 조문의 점수를 올리므로 미리 덜어 낸다. 조 번호는 '조 번호 일치
@@ -125,7 +137,7 @@ def search_query(query: str) -> str:
 
     lines = []
     for line in query.splitlines():
-        terms = (*_ARTICLE_NUMBER.findall(_plain(line)), *core_words(line))
+        terms = (*_ARTICLE_NUMBER.findall(_plain(line)), *_with_synonyms(core_words(line)))
         if terms:
             lines.append(" ".join(dict.fromkeys(terms)))
     return "\n".join(lines)
@@ -177,11 +189,11 @@ def keep_supported(
 
 
 def is_ai_candidate(query: str, chunk: JudgedChunk) -> bool:
-    """AI에 보낼 후보는 핵심 낱말 하나 이상으로 판정한다."""
+    """AI에 보낼 후보는 핵심 낱말이나 그 동의어 하나 이상으로 판정한다."""
     text = "".join(_plain(chunk.text).split())
     number = _ARTICLE_NUMBER.match(_plain(chunk.article_path))
     for line in query.splitlines():
-        words = core_words(line)
+        words = _with_synonyms(core_words(line))
         if words:
             if any(word in text or (len(word) > 2 and word[:-1] in text) for word in words):
                 return True

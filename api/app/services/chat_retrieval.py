@@ -9,6 +9,9 @@ from typing import Protocol, TypedDict
 from app.services.chat_relevance import is_ai_candidate
 from app.services.chat_stub import UNANSWERABLE_TEXT, ZERO_LATENCY, refusal_text
 
+# AI에 보낼 후보 수의 상한. 본문 합계 제한(3000자)에 걸리면 낮은 순위부터 더 뺀다.
+AI_CANDIDATE_LIMIT = 5
+
 
 class RegulationDocument(TypedDict):
     source: str
@@ -56,7 +59,7 @@ class ChatRetrieval:
 
         if relaxed:
             search = self.raw_search or self.search
-            hits = [hit for hit in search(message) if is_ai_candidate(message, hit.chunk)][:3]
+            hits = [hit for hit in search(message) if is_ai_candidate(message, hit.chunk)][:AI_CANDIDATE_LIMIT]
         else:
             hits = self.search(message)[:1]
         answer = refusal_text(lang)

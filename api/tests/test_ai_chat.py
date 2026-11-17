@@ -330,9 +330,12 @@ class RequestTests(unittest.TestCase):
         self.assertEqual(
             [rule.split(".", 1)[0] for rule in rules], ["1", "2", "3", "4", "5", "6", "7", "8", "9"]
         )
-        for phrase in ("한두 문장", "마침표", "되풀이하지 않고", "한 문장", "대학원 기준을 덧붙일 때만"):
+        for phrase in ("3문장 이내", "마침표", "되풀이하지 않고", "한 문장"):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, rules[-1])
+        # 이슈 #119: 대학원 기준을 덧붙이라는 지시를 뺐다.
+        self.assertNotIn("대학원 기준을 덧붙", system)
+        self.assertNotIn("한 문장으로만 덧붙", system)
 
     def test_numbers_and_undergraduate_rules_reach_the_request(self):
         # 이슈 #113: 숫자 기준과 학사·대학원 조문이 함께 온 가상 후보를 보낸다.
@@ -353,7 +356,7 @@ class RequestTests(unittest.TestCase):
         for phrase in ("학점·학기·평점·기간", "숫자", "그대로"):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, rules["7"])
-        for phrase in ("학사과정 기준으로 답하고", "대학원 기준은 한 문장"):
+        for phrase in ("학사과정 기준으로만 답합니다", "질문에 없는 과정의 기준이나 근거 부족은 쓰지 않습니다"):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, rules["8"])
         self.assertIn("답 끝에 이 문장을 붙이지 않습니다", rules["4"])
@@ -688,14 +691,18 @@ def without_sockets(test):
 class GuidanceTests(unittest.TestCase):
     @without_sockets
     async def test_refusal_prefix_and_middle(self):
+        # 이슈 #119: 가운데 보류 문구는 지우고, 조 번호를 밝힌 근거 문장이 없으면 보류한다.
         for text, held in (("  규정 문서에서 근거를 찾지 못했어요. 확인하세요.  ", True),
-                           ("설명 중 규정 문서에서 근거를 찾지 못했어요", False)):
+                           ("설명 중 규정 문서에서 근거를 찾지 못했어요", True),
+                           ("제3조에 따르면 별지기가 내줍니다. 규정 문서에서 근거를 찾지 못했어요", False)):
             transport = FakeTransport([sse(delta(content=text[:10]), delta(content=text[10:]))])
             ai = AiChat(SETTINGS, transport=transport)
             events = [event async for event in ai.events(RESULT, QUESTION, "fast")]
             self.assertEqual(events[-1][1].get("answered") is False, held)
             if held:
                 self.assertEqual(events[-2], ("answer", {"text": ai_chat.UNANSWERABLE_TEXT, "replace": True}))
+            else:
+                self.assertEqual(answer_text(events), "제3조에 따르면 별지기가 내줍니다.")
             body = await ai.complete(RESULT, QUESTION, "fast")
             self.assertEqual(body["answered"], not held)
             self.assertEqual(body["citations"], [] if held else RESULT["citations"])
@@ -939,6 +946,229 @@ class LanguageTests(unittest.TestCase):
         self.assertEqual(ai.available_slots, 4)
         self.assertEqual(transport.active, 0)
         self.assertEqual(transport.closed, 1)
+
+
+class CallsTransport:
+    """호출마다 다른 조각 전송을 돌려주는 가짜 위쪽 서버."""
+
+    def __init__(self, *streams):
+        self.streams = list(streams)
+        self.calls = []
+
+    async def __call__(self, url, headers, body, connect_timeout):
+        self.calls.append(json.loads(body))
+        stream = self.streams[len(self.calls) - 1]
+
+        async def chunks():
+            yield stream
+
+        async def close():
+            pass
+
+        return UpstreamResponse(200, chunks(), close)
+
+
+def final_answer(chat, text_parts, *, result=RESULT, question=QUESTION, lang="ko"):
+    """같은 가짜 답으로 (스트림 이벤트, JSON 본문)을 얻는다."""
+
+    stream = sse(*(delta(content=part) for part in text_parts))
+
+    async def run():
+        source = AiChat(SETTINGS, transport=FakeTransport([stream]))
+        events = [event async for event in source.events(result, question, "fast", lang=lang)]
+        body = await AiChat(SETTINGS, transport=FakeTransport([stream])).complete(result, question, "fast", lang=lang)
+        return events, body
+
+    return run_without_sockets(run())
+
+
+class ForeignQualityTests(unittest.TestCase):
+    """이슈 #119 항목 7. 모든 질문·조문·답은 가상이다."""
+
+    def test_official_school_names_reach_en_and_zh_prompts_only(self):
+        held = {**RESULT, "answered": False, "citations": []}
+        for result in (RESULT, held):
+            ko = ai_chat.build_messages(result, QUESTION)[0]["content"]
+            for name in ("Kumoh National Institute of Technology", "Kumoh Tech", "国立金乌工科大学"):
+                self.assertNotIn(name, ko)
+            for lang, names, example in (
+                ("en", ("Kumoh National Institute of Technology", "Kumoh Tech"), "Academic Regulations (국립금오공과대학교 학칙)"),
+                ("zh", ("国立金乌工科大学",), "学则 (국립금오공과대학교 학칙)"),
+            ):
+                with self.subTest(lang=lang, answered=result["answered"]):
+                    prompt = ai_chat.build_messages(result, QUESTION, lang=lang)[0]["content"]
+                    for name in names:
+                        self.assertIn(name, prompt)
+                    self.assertIn(example, prompt)
+                    self.assertIn("다른 대학 이름은 쓰지 않는다", prompt)
+        self.assertEqual(ai_chat.build_messages(RESULT, QUESTION)[0]["content"], ai_chat.SYSTEM_PROMPT)
+
+    def test_answer_format_line_follows_language_and_ko_keeps_literal(self):
+        ko_line = (
+            "답 형식: 「제N조에 따르면 …입니다.」처럼 마침표로 끝나는 완결된 문장 한두 개. "
+            "대학원 기준을 덧붙일 때만 한 문장 더."
+        )
+        self.assertEqual(ai_chat.ANSWER_FORMAT, ko_line)
+        for lang in ("ko", "en", "zh"):
+            with self.subTest(lang=lang):
+                transport = FakeTransport([ANSWER_STREAM])
+                chat = AiChat(SETTINGS, transport=transport)
+
+                async def run():
+                    return [e async for e in chat.events(RESULT, QUESTION, "fast", lang=lang)]
+
+                run_without_sockets(run())
+                last = transport.calls[0]["body"]["messages"][1]["content"].splitlines()[-1]
+                if lang == "ko":
+                    self.assertEqual(last, ko_line)
+                else:
+                    self.assertEqual(last, ai_chat.FOREIGN_ANSWER_FORMATS[lang])
+                    self.assertNotIn("답 형식", last)
+        self.assertTrue(ai_chat.FOREIGN_ANSWER_FORMATS["zh"].startswith("回答格式："))
+        self.assertIn("中文", ai_chat.FOREIGN_ANSWER_FORMATS["zh"])
+        self.assertIn("in English", ai_chat.FOREIGN_ANSWER_FORMATS["en"])
+
+    def test_refusal_phrase_at_end_or_middle_is_removed_in_stream_and_json(self):
+        prefix = ai_chat.REFUSAL_PREFIX
+        cases = (
+            ("ko", ("제3조에 따르면 별지기가 내줍니다. 규정 문서에서", " 근거를 찾지 못했어요."),
+             "제3조에 따르면 별지기가 내줍니다."),
+            ("en", ("According to Article 3 (제3조), the keeper issues it. ", prefix + ". Ask the office."),
+             "According to Article 3 (제3조), the keeper issues it. Ask the office."),
+            ("zh", ("根据第3条（제3조），由守星人发放。", prefix),
+             "根据第3条（제3조），由守星人发放。"),
+        )
+        for lang, parts, expected in cases:
+            with self.subTest(lang=lang):
+                events, body = final_answer(None, parts, lang=lang)
+                self.assertEqual(answer_text(events), expected)
+                self.assertNotIn("answered", events[-1][1])
+                self.assertEqual(body["answer"], expected)
+                self.assertIs(body["answered"], True)
+                self.assertEqual(body["citations"], RESULT["citations"])
+
+    def test_refusal_phrase_without_evidence_becomes_fixed_refusal_of_language(self):
+        prefix = ai_chat.REFUSAL_PREFIX
+        cases = (
+            ("en", ("The provided documents do not contain information relevant to the greeting. ", prefix)),
+            ("zh", ("所提供的文件中没有相关内容。", prefix + "。")),
+            ("ko", ("가상 문서에는 그런 내용이 없습니다. ", prefix + ".")),
+        )
+        for lang, parts in cases:
+            with self.subTest(lang=lang):
+                events, body = final_answer(None, parts, lang=lang)
+                self.assertEqual(events[-2], ("answer", {"text": ai_chat.refusal_text(lang), "replace": True}))
+                self.assertIs(events[-1][1]["answered"], False)
+                self.assertEqual(body["answer"], ai_chat.refusal_text(lang))
+                self.assertIs(body["answered"], False)
+                self.assertEqual(body["citations"], [])
+                self.assertNotIn("notice", body)
+
+    @without_sockets
+    async def test_none_translation_skips_search_and_goes_to_guidance(self):
+        for marker in ("NONE", " none. "):
+            with self.subTest(marker=marker):
+                transport = CallsTransport(sse(delta(content=marker)), sse(delta(content="Hello! Ask me about graduation.")))
+                queried = []
+
+                def search(query):
+                    queried.append(query)
+                    return dict(RESULT)
+
+                ai = AiChat(SETTINGS, transport=transport)
+                events = [e async for e in ai.localized_events("hi", "fast", search, lang="en")]
+                self.assertEqual(queried, [])
+                self.assertIn("NONE만 답하라", transport.calls[0]["messages"][0]["content"])
+                self.assertEqual(events[0][0], "meta")
+                self.assertIs(events[0][1]["answered"], False)
+                self.assertEqual(events[0][1]["citations"], [])
+                self.assertIs(events[-1][1]["guided"], True)
+                self.assertIs(events[-1][1]["answered"], False)
+                self.assertEqual(answer_text(events), "Hello! Ask me about graduation.")
+                system = transport.calls[1]["messages"][0]["content"]
+                self.assertIn("테크모", system)
+                self.assertIn("Kumoh National Institute of Technology", system)
+                self.assertEqual(transport.calls[1]["messages"][1]["content"], "<질문>\nhi\n</질문>")
+                self.assertEqual(ai.available_slots, 4)
+
+    @without_sockets
+    async def test_none_guidance_failure_returns_language_refusal(self):
+        transport = CallsTransport(sse(delta(content="NONE")), sse(delta(content=" ")))
+        ai = AiChat(SETTINGS, transport=transport)
+        events = [e async for e in ai.localized_events("hi", "fast", lambda query: self.fail("검색함"), lang="zh")]
+        self.assertEqual(answer_text(events), ai_chat.refusal_text("zh"))
+        self.assertIs(events[-1][1]["answered"], False)
+        self.assertNotIn("notice", [name for name, _ in events])
+
+    def test_guidance_refusal_phrase_in_middle_is_removed(self):
+        held = {**RESULT, "answer": ai_chat.UNANSWERABLE_TEXT, "answered": False, "citations": []}
+        events, body = final_answer(None, ("Hello! ", ai_chat.REFUSAL_PREFIX + ". Ask about graduation."), result=held, lang="en")
+        self.assertEqual(answer_text(events), "Hello! Ask about graduation.")
+        self.assertIs(events[-1][1]["guided"], True)
+        self.assertEqual(body["answer"], "Hello! Ask about graduation.")
+        self.assertIs(body["guided"], True)
+
+
+class FinishAnswerTests(unittest.TestCase):
+    """이슈 #119 항목 6. 합친 답에 한 번 적용하는 마무리."""
+
+    def test_period_is_added_across_chunk_boundary_in_stream_and_json(self):
+        cases = (
+            (("제12조에 따르면 가상 졸업에는 130학점이 필요합니", "다", " 제38조에 따르면 가상 휴학은 2학기까지입니다."),
+             "제12조에 따르면 가상 졸업에는 130학점이 필요합니다. 제38조에 따르면 가상 휴학은 2학기까지입니다."),
+            (("가상 신청은 학기 초에 합니다", "제38조에 따르면 변경도 됩니다."),
+             "가상 신청은 학기 초에 합니다. 제38조에 따르면 변경도 됩니다."),
+        )
+        for parts, expected in cases:
+            with self.subTest(parts=parts):
+                events, body = final_answer(None, parts)
+                replacements = [data for name, data in events if name == "answer" and data["replace"]]
+                self.assertEqual(replacements, [{"text": expected, "replace": True}])
+                self.assertEqual(answer_text(events), expected)
+                self.assertEqual(body["answer"], expected)
+
+    def test_decimal_and_branch_article_numbers_are_not_boundaries(self):
+        original = "제7조에 따르면 가상 평점 1.75 이상이어야 합니다. 제38조의2에 따르면 가상 휴학은 2학기까지입니다."
+        events, body = final_answer(None, (original[:20], original[20:]))
+        self.assertFalse(any(data["replace"] for name, data in events if name == "answer"))
+        self.assertEqual(body["answer"], original)
+        self.assertEqual(ai_chat.finish_answer("가상 평점은 1.75다 제38조의2에 따른다.", "가상"), "가상 평점은 1.75다. 제38조의2에 따른다.")
+
+    def test_unasked_graduate_lacking_sentence_is_removed_only_when_not_asked(self):
+        answer = (
+            "제53조에 따르면 가상 학생은 한 학기에 18학점까지 신청합니다. "
+            "대학원 과정의 기준은 가상 조문에서 확인할 수 없습니다."
+        )
+        first = "제53조에 따르면 가상 학생은 한 학기에 18학점까지 신청합니다."
+        events, body = final_answer(None, (answer,), question="가상 학기당 최대 학점은?")
+        self.assertEqual(answer_text(events), first)
+        self.assertEqual(body["answer"], first)
+        events, body = final_answer(None, (answer,), question="가상 대학원생은 몇 학점까지 신청하나요?")
+        self.assertEqual(answer_text(events), answer)
+        self.assertEqual(body["answer"], answer)
+        refusal = first + " 대학원 과정은 " + ai_chat.REFUSAL_PREFIX + "."
+        events, body = final_answer(None, (refusal,), question="가상 학기당 최대 학점은?")
+        self.assertEqual(body["answer"], first)
+        self.assertIs(body["answered"], True)
+
+    def test_only_first_three_sentences_remain(self):
+        answer = "제1조에 따르면 가상 하나입니다. 가상 둘입니다. 가상 셋입니다. 가상 넷입니다.\n"
+        events, body = final_answer(None, (answer,))
+        expected = "제1조에 따르면 가상 하나입니다. 가상 둘입니다. 가상 셋입니다."
+        self.assertEqual(answer_text(events), expected)
+        self.assertEqual(body["answer"], expected)
+
+    def test_guidance_static_and_fallback_answers_are_not_finished(self):
+        held = {**RESULT, "answer": ai_chat.UNANSWERABLE_TEXT, "answered": False, "citations": []}
+        guidance = "가상 하나입니다 제1조 둘. 가상 셋입니다. 가상 넷입니다. 가상 다섯입니다."
+        events, body = final_answer(None, (guidance,), result=held)
+        self.assertEqual(body["answer"], guidance)
+        self.assertIs(body["guided"], True)
+        long_article = "가상 하나입니다 제1조 둘. 가상 셋. 가상 넷. 가상 다섯."
+        result = {**RESULT, "answer": long_article}
+        body = run_without_sockets(AiChat(SETTINGS, transport=FakeTransport(error=OSError())).complete(result, QUESTION, "fast"))
+        self.assertEqual(body["answer"], long_article)
+        self.assertEqual(body["notice"], NOTICE_TEXT)
 
 
 if __name__ == "__main__":
