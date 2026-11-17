@@ -87,6 +87,11 @@ class FakeElement {
     return descendants(this).filter(node => node.className.split(" ").includes(name));
   }
 
+  // 다른 화면 테스트의 가짜 요소와 같이, 실제 DOM처럼 처음 찾은 요소나 null을 돌려준다.
+  querySelector(selector) {
+    return this.querySelectorAll(selector)[0] ?? null;
+  }
+
   scrollIntoView() {}
 
   focus() {}
