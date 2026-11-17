@@ -431,8 +431,14 @@ test("깊이 모드: 고정 테두리는 상태만으로 그리고, 효과는 �
   for (const selector of [".mode-spark", ".mode-pill.is-flowing::before", ".composer-row.is-deep-enter::after"]) {
     assert.equal(declared(selector, ["display"], undefined, calm), "none", selector);
   }
-  // 고정 표시는 움직임 줄이기에서도 남는다.
+  // 고정 표시는 움직임 줄이기에서도 남는다. 버튼 고리는 100% 크기로 깔아 파랑·보라·노랑이 모두 보이고,
+  // 3배로 늘려 옮기는 것은 흐름 효과(.is-flowing)에서만 한다.
   assert.match(declared(".composer-row.is-deep::before", ["background"], undefined, calm), gradient);
+  const deepRing = declared('.mode-pill[data-mode="deep"]', ["background"], undefined, calm);
+  assert.match(deepRing, /linear-gradient\(90deg, var\(--sky\), var\(--deep-violet\), var\(--deep-gold\)\) 0 0 \/ 100% 100% border-box$/);
+  assert.doesNotMatch(deepRing, /300%/);
+  assert.match(declared(".mode-pill.is-flowing", ["background"]), /\/ 300% 100% border-box$/);
+  assert.equal(find('.mode-pill[data-mode="deep"]', ["background-size", "background-position"], calm), undefined);
   // 생각 중 글자 빛은 글자를 배경으로 칠할 수 있는 브라우저에서만 켠다.
   assert.equal(declared(".thinking.is-waiting > summary", ["background-clip"]), "text");
   assert.equal(declared(".thinking.is-waiting > summary", ["-webkit-background-clip"]), "text");
@@ -456,7 +462,7 @@ test("전체 CSS에서 남은 밝은 바탕은 입력 줄과 상태 표시이며
   assert.deepEqual(lightSurfaces, [
     ".attach-button:hover", ".composer textarea", ".composer-row",
     ".composer-row.is-deep-enter::after", ".composer-row.is-deep::before", ".conversation-unread", ".intro-badge::before",
-    ".login-safety::before", ".mode-pill:hover", '.mode-pill[data-mode="deep"]', ".mode-spark", ".pet-dots span", '[data-campus-step][data-current="true"]',
+    ".login-safety::before", ".mode-pill.is-flowing", ".mode-pill:hover", '.mode-pill[data-mode="deep"]', ".mode-spark", ".pet-dots span", '[data-campus-step][data-current="true"]',
   ]);
   checkText([
     [".composer-row", ".composer-row"], [".composer textarea", ".composer textarea"],

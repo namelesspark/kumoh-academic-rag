@@ -907,6 +907,8 @@ node --test api/tests/web/campus_backdrop.test.mjs api/tests/web/citation_link.t
 - 메뉴는 서랍(z-index 11)과 테크모(20) 위, 삭제 확인 창(40) 아래인 30에 뜬다. 너비는 `min(320px, calc(100vw - 32px))`다.
 - 480px 이하에서는 버튼 글자(`.mode-pill-label`)를 숨기고 아이콘과 꺾쇠만 남긴다. 현재 값은 `aria-label`이 읽는다.
 - 깊이 색은 학교 파랑 `#00A3D9`(`--sky`) → 보라 `#6A4BD8`(`--deep-violet`) → 노랑 `#F7C500`(`--deep-gold`)다.
+  고정 표시는 버튼 폭에 맞춘 100% 크기로 세 색을 모두 보인다. 흐름 효과(`.is-flowing`)만 고리를 3배로 늘려 옮긴다.
+  그래서 움직임 줄이기 설정에서도 노랑이 잘리지 않는다.
 
 ### 반투명 기준
 
