@@ -5,6 +5,7 @@
 """
 
 import asyncio
+import dataclasses
 import json
 import time
 import unittest
@@ -16,6 +17,7 @@ from api.tests.test_ai_chat import (
     ANSWER_STREAM,
     API_KEY,
     SETTINGS,
+    CallsTransport,
     FakeTransport,
     assert_no_secret_in_logs,
     captured_logs,
@@ -90,6 +92,48 @@ class StreamRouteTests(unittest.TestCase):
                 self.assertEqual(transport.calls[0]["body"]["reasoning_effort"], "none")
                 self.assertIn(request["message"], transport.calls[1]["body"]["messages"][1]["content"])
                 self.assertEqual(application.state.ai_chat.available_slots, 4)
+
+    def test_none_conversion_keeps_session_and_skips_retriever_on_json_and_stream(self):
+        # 이슈 #119 검토 지적: 외국어 인사(NONE)에서 요청의 대화 번호가 새로 바뀌었다.
+        session = "00000000-0000-4000-8000-000000000119"
+        for lang, given in (("en", session), ("zh", session), ("en", None)):
+            for path in (CHAT, STREAM):
+                with self.subTest(lang=lang, path=path, given=given):
+                    transport = CallsTransport(sse(delta(content="NONE")), sse(delta(content="Hello!")))
+                    application = regulation_app(transport)
+                    calls = []
+                    original = application.state.chat_retrieval
+
+                    def counting(query, inner=original.raw_search):
+                        calls.append(query)
+                        return inner(query)
+
+                    application.state.chat_retrieval = dataclasses.replace(original, search=counting, raw_search=counting)
+                    request = {"message": "hi", "lang": lang}
+                    if given:
+                        request["session_id"] = given
+                    if path == CHAT:
+                        response = stream_app(application, CHAT, json_body=request)
+                        self.assertEqual(response.status, 200)
+                        body = json.loads(response.text())
+                        session_id, guided, answered = body["session_id"], body.get("guided"), body["answered"]
+                        self.assertEqual(body["answer"], "Hello!")
+                        self.assertEqual(body["citations"], [])
+                    else:
+                        response, events = stream(application, request)
+                        self.assertEqual(response.status, 200)
+                        session_id = events[0][1]["session_id"]
+                        guided, answered = events[-1][1].get("guided"), events[-1][1].get("answered")
+                        self.assertEqual(joined_answer(events), "Hello!")
+                    self.assertEqual(calls, [])
+                    self.assertEqual(len(transport.calls), 2)
+                    self.assertIs(guided, True)
+                    self.assertIs(answered, False)
+                    if given:
+                        self.assertEqual(session_id, given)
+                    else:
+                        self.assertTrue(session_id)
+                    self.assertEqual(application.state.ai_chat.available_slots, 4)
 
     def test_korean_requests_keep_exact_baseline_answers_and_citations(self):
         session = "00000000-0000-4000-8000-000000000001"
