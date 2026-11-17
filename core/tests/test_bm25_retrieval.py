@@ -14,11 +14,6 @@ class BM25RetrievalTests(unittest.TestCase):
             "졸업학점", "이수학점 등", "휴학", "복학",
             "수강신청 변경절차", "계절수업", "수강학점",
         )
-        source = "\n".join(
-            f"제{number}조({title}) 가상 종이학교의 별빛 활동을 정한다."
-            for number, title in enumerate(titles, start=1)
-        )
-        retriever = BM25Retriever(chunk_articles(source))
         # API에서 동의어를 덧붙인 검색어도 코어에는 리터럴로 전달한다.
         for query, expected in (
             ("졸업 학점 몇 점 필요한가요", "제1조(졸업학점)"),
@@ -27,6 +22,21 @@ class BM25RetrievalTests(unittest.TestCase):
             ("계절학기 신청 계절수업", "제6조(계절수업)"),
         ):
             with self.subTest(query=query):
+                source = "\n".join([
+                    *(f"제{number}조({title}) " + "가상 종이학교의 별빛 활동을 정한다. " * 50
+                      for number, title in enumerate(titles, start=1)),
+                    *(f"제{number}조(가상 기록) {query} 안내를 정한다."
+                      for number in range(8, 16)),
+                ])
+                chunks = chunk_articles(source)
+                baseline = BM25Retriever(chunks)
+                baseline._exact_titles = [""] * len(chunks)
+                original = baseline.retrieve(query, top_k=len(chunks))
+                original_rank = next(
+                    result.rank for result in original if result.chunk.article_path == expected
+                )
+                self.assertGreater(original_rank, 5)
+                retriever = BM25Retriever(chunks)
                 paths = [result.chunk.article_path for result in retriever.retrieve(query)]
                 self.assertIn(expected, paths)
                 self.assertLessEqual(len(paths), 5)
