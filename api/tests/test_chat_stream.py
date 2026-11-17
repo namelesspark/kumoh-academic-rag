@@ -71,6 +71,59 @@ def joined_answer(events) -> str:
 
 
 class StreamRouteTests(unittest.TestCase):
+    def test_foreign_question_conversion_on_json_and_stream(self):
+        for lang in ("en", "zh"):
+            for path in (CHAT, STREAM):
+                transport = FakeTransport([sse(delta(content=QUESTION))])
+                application = regulation_app(transport)
+                request = {"message": "fictional comet telescope", "lang": lang}
+                if path == CHAT:
+                    response = stream_app(application, CHAT, json_body=request)
+                    self.assertEqual(response.status, 200)
+                    citations = json.loads(response.text())["citations"]
+                else:
+                    response, events = stream(application, request)
+                    self.assertEqual(response.status, 200)
+                    citations = events[0][1]["citations"]
+                self.assertEqual(citations, [CITATION])
+                self.assertEqual(len(transport.calls), 2)
+                self.assertEqual(transport.calls[0]["body"]["reasoning_effort"], "none")
+                self.assertIn(request["message"], transport.calls[1]["body"]["messages"][1]["content"])
+                self.assertEqual(application.state.ai_chat.available_slots, 4)
+
+    def test_korean_requests_keep_exact_baseline_answers_and_citations(self):
+        session = "00000000-0000-4000-8000-000000000001"
+        for language in ({}, {"lang": "ko"}, {"lang": "invalid"}, {"lang": None}):
+            for question, expected_answer, expected_citations in (
+                (QUESTION, FIRST_ARTICLE, [CITATION]),
+                ("fictional comet telescope", UNANSWERABLE_TEXT, []),
+            ):
+                request = {"message": question, "session_id": session, **language}
+                application = regulation_app()
+                body = json.loads(stream_app(application, CHAT, json_body=request).text())
+                self.assertEqual(body, {
+                    "session_id": session, "answer": expected_answer,
+                    "citations": expected_citations, "answered": bool(expected_citations),
+                    "personalized": False, "latency_ms": {"retrieval": 0, "generation": 0, "total": 0},
+                })
+                transport = FakeTransport([sse(delta(content=UNANSWERABLE_TEXT))])
+                application = regulation_app(transport)
+                body = json.loads(stream_app(application, CHAT, json_body=request).text())
+                self.assertEqual(body["answer"], UNANSWERABLE_TEXT)
+                self.assertNotIn("notice", body)
+                self.assertEqual(len(transport.calls), 1)
+
+    def test_ai_off_foreign_hint_is_only_for_foreign_language_requests(self):
+        for lang in ("en", "zh"):
+            application = regulation_app()
+            request = {"message": "fictional comet telescope", "lang": lang}
+            body = json.loads(stream_app(application, CHAT, json_body=request).text())
+            self.assertFalse(body["answered"])
+            self.assertEqual(body["citations"], [])
+            self.assertNotIn(UNANSWERABLE_TEXT, body["answer"])
+            _, events = stream(application, request)
+            self.assertEqual(joined_answer(events), body["answer"])
+
     def test_headers_and_event_order(self):
         response, events = stream(regulation_app(FakeTransport([ANSWER_STREAM])), {"message": QUESTION, "mode": "deep"})
         self.assertEqual(response.status, 200)
