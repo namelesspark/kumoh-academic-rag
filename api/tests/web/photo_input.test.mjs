@@ -102,6 +102,7 @@ function loadChat(fetch) {
     document: {
       addEventListener() {},
       querySelector(selector) {
+        if (selector === "#ai-mode-button") return null;
         if (!elements.has(selector)) elements.set(selector, new FakeElement(selector));
         return elements.get(selector);
       },
@@ -290,10 +291,10 @@ test("입력창 안에 사진 첨부 칸이 있고, 별도의 현수막 칸과 �
   assert.match(composer, /<input type="file" id="photo-file" accept="image\/jpeg,image\/png"/);
   assert.match(composer, /<button type="button"[^>]*id="photo-clear" hidden>/);
   assert.match(composer, /<p[^>]*id="photo-note" role="status">/);
-  // 사진 첨부는 입력창 왼쪽의 클립 버튼이다. 입력 줄 안에서 클립 버튼, 입력창, 보내기 순서로 놓인다.
+  // 입력 줄에는 클립 버튼, 입력창, 답변 모드, 보내기 순서로 놓인다.
   assert.match(
     composer,
-    /<div class="composer-row">\s*<button type="button" class="attach-button" id="photo-attach" aria-label="사진 첨부" aria-describedby="photo-hint"><svg\b[\s\S]*?<\/svg><\/button>\s*<textarea id="question"[^>]*><\/textarea>\s*<button type="submit" class="primary" id="send" disabled>보내기<\/button>\s*<\/div>/,
+    /<div class="composer-row">\s*<button type="button" class="attach-button" id="photo-attach" aria-label="사진 첨부" aria-describedby="photo-hint"><svg\b[\s\S]*?<\/svg><\/button>\s*<textarea id="question"[^>]*><\/textarea>\s*<button type="button" id="ai-mode-button"[^>]*>[\s\S]*?<\/button>\s*<button type="submit" class="primary" id="send" disabled>보내기<\/button>\s*<\/div>/,
   );
   // 파일 입력은 입력 줄 밖에 숨겨 두고, 예전 첨부 줄과 글자 라벨은 없다.
   assert.match(composer, /<\/div>\s*<input type="file" id="photo-file" accept="image\/jpeg,image\/png" aria-describedby="photo-hint" hidden>/);

@@ -215,8 +215,8 @@ class TestChatWeb(unittest.TestCase):
 
         by_id = {attributes["id"]: (owner, tag, attributes) for owner, tag, attributes in composer.found if "id" in attributes}
 
-        # 밝은 상자 한 줄: 클립 버튼, 입력창, 보내기.
-        self.assertEqual(ids("composer-row"), ["photo-attach", "question", "send"])
+        # 밝은 상자 한 줄: 클립 버튼, 입력창, 답변 모드, 보내기.
+        self.assertEqual(ids("composer-row"), ["photo-attach", "question", "ai-mode-button", "send"])
         # 상자 아래 묶음: 첨부 제거, 알림, 안내문 한 문단.
         self.assertEqual(ids("composer-meta"), ["photo-clear", "photo-note", "photo-hint"])
         # 폼 바로 아래에는 읽기용 라벨, 입력 줄, 숨긴 파일 입력, 아래 묶음만 있다.
@@ -233,6 +233,22 @@ class TestChatWeb(unittest.TestCase):
         # 아이콘은 버튼 안에 직접 그린 선 그림 하나다. 그림 파일은 쓰지 않는다.
         self.assertEqual([tag for owner, tag, _ in composer.found if owner == "attach-button"], ["svg"])
         self.assertNotIn("img", [tag for _, tag, _ in composer.found])
+
+        _, tag, mode = by_id["ai-mode-button"]
+        self.assertEqual((tag, mode.get("type")), ("button", "button"))
+        self.assertIn("mode-pill", mode.get("class", "").split())
+        self.assertEqual(mode.get("data-mode"), "fast")
+        self.assertEqual(mode.get("aria-haspopup"), "menu")
+        self.assertEqual(mode.get("aria-expanded"), "false")
+        self.assertEqual(mode.get("aria-label"), "답변 모드: 빠르게")
+        mode_node = next(node for node in parse_page(read_index()).elements if node["attrs"].get("id") == "ai-mode-button")
+        icons = [node for node in mode_node["children"] if node["tag"] == "svg"]
+        self.assertEqual(len(icons), 3)
+        self.assertEqual(
+            {node["attrs"].get("data-icon") for node in icons if node["attrs"].get("data-icon")},
+            {"fast", "deep"},
+        )
+        self.assertTrue(all(node["attrs"].get("aria-hidden") == "true" for node in icons))
 
         _, tag, file_input = by_id["photo-file"]
         self.assertEqual((tag, file_input.get("type"), file_input.get("accept")), ("input", "file", "image/jpeg,image/png"))

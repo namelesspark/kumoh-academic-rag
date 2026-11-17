@@ -85,6 +85,7 @@ function loadPage({ transition, reduced = false, legacy = false, now = "2027-02-
     body: new Element(),
     addEventListener() {},
     querySelector(selector) {
+      if (selector === "#ai-mode-button") return null;
       if (selector === "#feature-cards" && legacy) return null;
       if (!elements.has(selector)) {
         elements.set(selector, new Element());

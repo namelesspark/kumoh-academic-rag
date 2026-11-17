@@ -711,6 +711,7 @@ clearButton?.addEventListener("click", () => openConfirm({
 // Esc는 확인 창 → 메뉴 → 서랍 순으로 맨 위의 하나만 닫는다.
 document.addEventListener?.("keydown", event => {
   if (event.key !== "Escape") return;
+  if (activeChoiceMenu) { event.preventDefault?.(); event.stopPropagation?.(); activeChoiceMenu.close(true); return; }
   if (confirmRequest) { event.preventDefault?.(); closeConfirm(false); }
   else if (menuRecord) { event.preventDefault?.(); closeMenu(); }
   else if (drawerOpen) closeDrawer();
@@ -1829,36 +1830,98 @@ async function readPhoto(photo, type, question, reply, record = null) {
 const aiModeKey = "kumoh-chat-ai-mode:v1";
 let aiMode = "fast";
 let chatRequestNumber = 0;
+let activeChoiceMenu = null;
+function openChoiceMenu(button, title, choices, onSelect) {
+  activeChoiceMenu?.close();
+  const menu = element("div", "choice-menu");
+  menu.setAttribute("role", "menu"); menu.setAttribute("aria-label", title);
+  menu.append(element("div", "choice-menu-title", title));
+  const items = choices.map(choice => {
+    const item = element("button", "choice-menu-item");
+    item.type = "button"; item.tabIndex = -1; item.dataset.choiceValue = choice.value;
+    item.setAttribute("role", "menuitemradio"); item.setAttribute("aria-checked", String(Boolean(choice.checked)));
+    const icon = element("span", "choice-menu-icon");
+    if (choice.icon) { const copy = choice.icon.cloneNode(true); copy.removeAttribute("hidden"); icon.append(copy); }
+    item.append(icon, element("span", "choice-menu-name", choice.name), element("span", "choice-menu-desc", choice.description), element("span", "choice-menu-check", choice.checked ? "✓" : ""));
+    item.addEventListener("click", () => { onSelect(choice.value); close(true); });
+    menu.append(item); return item;
+  });
+  function close(restore = false) {
+    menu.remove(); button.setAttribute("aria-expanded", "false");
+    if (activeChoiceMenu?.menu === menu) activeChoiceMenu = null;
+    if (restore) button.focus();
+  }
+  menu.addEventListener("keydown", event => {
+    const index = Math.max(0, items.indexOf(document.activeElement));
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault(); items[(index + (event.key === "ArrowDown" ? 1 : items.length - 1)) % items.length].focus();
+    } else if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault(); items[index].click();
+    } else if (event.key === "Escape") {
+      event.preventDefault(); event.stopPropagation?.(); close(true);
+    } else if (event.key === "Tab") setTimeout(() => close(), 0);
+  });
+  document.body.append(menu); button.setAttribute("aria-expanded", "true");
+  const anchor = button.getBoundingClientRect(), box = menu.getBoundingClientRect();
+  const width = window.innerWidth || 360, height = window.innerHeight || 640;
+  menu.style.setProperty("--choice-menu-x", `${Math.max(16, Math.min(anchor.right - box.width, width - box.width - 16))}px`);
+  menu.style.setProperty("--choice-menu-y", `${Math.max(16, Math.min(anchor.top - box.height - 8, height - box.height - 16))}px`);
+  activeChoiceMenu = { menu, button, close };
+  items[Math.max(0, choices.findIndex(choice => choice.checked))]?.focus();
+  return activeChoiceMenu;
+}
+document.addEventListener?.("pointerdown", event => {
+  if (activeChoiceMenu && !within(activeChoiceMenu.menu, event.target) && !within(activeChoiceMenu.button, event.target)) activeChoiceMenu.close();
+}, true);
 function setupAiMode() {
   try { aiMode = historyStorage()?.getItem(aiModeKey) === "deep" ? "deep" : "fast"; } catch { aiMode = "fast"; }
-  const group = element("fieldset");
-  group.id = "ai-mode";
-  group.append(element("legend", null, "답변 방식"));
-  const radios = [];
-  for (const [value, title] of [["fast", "빠르게"], ["deep", "깊이 생각하기"]]) {
-    const radio = element("input");
-    radio.id = "ai-mode-" + value;
-    radio.type = "radio"; radio.name = "ai-mode"; radio.value = value;
-    radio.checked = aiMode === value;
-    radios.push(radio);
-    radio.addEventListener("change", () => {
-      if (!radio.checked) return;
-      aiMode = value;
-      try {
-        const storage = historyStorage();
-        if (!storage) throw new Error("Storage unavailable");
-        storage.setItem(aiModeKey, value);
-      } catch {
-        aiMode = "fast";
-        for (const item of radios) item.checked = item.value === "fast";
-      }
+  const button = document.querySelector("#ai-mode-button");
+  if (!button || typeof button.querySelector !== "function") return;
+  const row = document.querySelector(".composer-row"), label = button.querySelector(".mode-pill-label");
+  const icons = ["fast", "deep"].map(value => button.querySelector(`.mode-icon[data-icon=${value}]`));
+  if (!row || !label || icons.some(icon => !icon)) return;
+  let effectVersion = 0;
+  function render(animate = false) {
+    const version = ++effectVersion, deep = aiMode === "deep";
+    button.dataset.mode = aiMode;
+    button.setAttribute("aria-label", `답변 모드: ${deep ? "깊이 생각" : "빠르게"}`);
+    if (label) label.textContent = deep ? "깊이 생각" : "빠르게";
+    icons.forEach((icon, index) => {
+      if (!icon) return;
+      if (deep !== Boolean(index)) icon.setAttribute("hidden", "");
+      else icon.removeAttribute("hidden");
     });
-    const label = element("label");
-    label.htmlFor = radio.id;
-    label.append(radio, element("span", null, title));
-    group.append(label);
+    row?.classList.toggle("is-deep", deep);
+    button.classList.remove("is-bursting", "is-flowing"); row?.classList.remove("is-deep-enter");
+    button.querySelectorAll(".mode-spark").forEach(spark => spark.remove());
+    if (!deep || reducedMotion()) return;
+    button.classList.add("is-flowing");
+    if (!animate) return;
+    button.classList.add("is-bursting"); row?.classList.add("is-deep-enter");
+    const sparks = Array.from({ length: 7 }, () => element("span", "mode-spark", "✦"));
+    sparks.forEach(spark => { spark.setAttribute("aria-hidden", "true"); button.append(spark); });
+    setTimeout(() => { sparks.forEach(spark => spark.remove()); if (version === effectVersion) button.classList.remove("is-bursting"); }, 700);
+    setTimeout(() => { if (version === effectVersion) row?.classList.remove("is-deep-enter"); }, 900);
   }
-  composer.append(group);
+  render();
+  function open() {
+    if (activeChoiceMenu?.button === button) { activeChoiceMenu.close(); return; }
+    openChoiceMenu(button, "답변 모드", [
+      { value: "fast", name: "빠르게", description: "바로 답해요 · 보통 1~3초", icon: icons[0], checked: aiMode === "fast" },
+      { value: "deep", name: "깊이 생각하기", description: "생각 과정을 보여 주며 꼼꼼히 답해요 · 10~30초", icon: icons[1], checked: aiMode === "deep" },
+    ], value => {
+      const previous = aiMode;
+      try {
+        const storage = historyStorage(); if (!storage) throw new Error("Storage unavailable");
+        storage.setItem(aiModeKey, value); aiMode = value;
+      } catch { aiMode = "fast"; }
+      render(previous !== aiMode && aiMode === "deep");
+    });
+  }
+  button.addEventListener("click", open);
+  button.addEventListener("keydown", event => {
+    if (["ArrowDown", "ArrowUp", "Enter", " "].includes(event.key)) { event.preventDefault(); open(); }
+  });
 }
 setupAiMode();
 
@@ -1937,27 +2000,41 @@ async function ask(question, reply, record = activeConversation) {
   const requestNumber = ++chatRequestNumber;
   const valid = () => !record || (account === historyAccount && conversations.includes(record));
   const visible = () => valid() && (!record || (requestedChatView && activeConversation === record));
-  let answerNode = null, thinking = null, thinkingContent = null;
+  let answerNode = null, thinking = null, thinkingContent = null, thinkingLabel = null;
+  const thinkingStarted = Date.now();
+  let thinkingFinished = false;
+  function startThinking() {
+    if (mode !== "deep" || thinking) return;
+    thinkingFinished = false;
+    thinking = element("details", "thinking"); thinking.id = `thinking-${requestNumber}`;
+    thinking.classList.add("is-waiting");
+    const summary = element("summary"); summary.id = `${thinking.id}-summary`;
+    thinkingLabel = element("span", null, "생각하는 중");
+    summary.append(thinkingLabel, element("small", null, "모델이 쓴 원문, 영어일 수 있음"));
+    thinkingContent = element("p"); thinkingContent.id = `${thinking.id}-content`;
+    thinking.append(summary, thinkingContent); reply.append(thinking);
+  }
+  function finishThinking() {
+    if (!thinking || thinkingFinished) return;
+    thinkingFinished = true;
+    thinking.classList.remove("is-waiting"); thinking.open = false;
+    thinkingLabel.textContent = `${Math.max(0, Math.round((Date.now() - thinkingStarted) / 1000))}초 동안 생각함`;
+  }
+  startThinking();
   try {
     const result = await requestChatAnswer({ message: question,
       session_id: record ? record.sessionId || null : sessionId, use_academic_data: false, mode }, (name, data) => {
       if (!valid()) return;
       if (name === "reset") {
-        reply.replaceChildren(); answerNode = null; thinking = null; thinkingContent = null;
+        finishThinking(); reply.replaceChildren(); answerNode = null; thinking = null; thinkingContent = null; thinkingLabel = null;
       }
       if (name === "thinking" && mode === "deep" && data.text) {
-        if (!thinking) {
-          thinking = element("details", "thinking"); thinking.id = `thinking-${requestNumber}`;
-          const summary = element("summary", null, "생각 과정"); summary.id = `${thinking.id}-summary`;
-          summary.append(element("small", null, "모델이 쓴 원문, 영어일 수 있음"));
-          thinkingContent = element("p"); thinkingContent.id = `${thinking.id}-content`;
-          thinking.append(summary, thinkingContent); reply.append(thinking);
-        }
+        startThinking();
         thinking.open = !answerNode;
         thinkingContent.textContent += data.text;
       }
       if (name === "answer" && typeof data.text === "string") {
-        if (thinking) thinking.open = false;
+        finishThinking();
         if (!answerNode) { answerNode = element("p"); reply.append(answerNode); }
         answerNode.textContent = data.replace ? data.text : answerNode.textContent + data.text;
         if (visible()) showAssistant("answer");
@@ -2011,6 +2088,8 @@ async function ask(question, reply, record = activeConversation) {
     }
     else showAssistant("error");
   } finally {
+    finishThinking();
+    if (!valid()) thinking?.remove();
     if (record) record.pending = false;
     else setBusy(false);
     renderConversations(); updateSend(); scrollToLatest();
