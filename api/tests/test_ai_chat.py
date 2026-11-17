@@ -1146,6 +1146,20 @@ class FinishAnswerTests(unittest.TestCase):
         events, body = final_answer(None, (answer,), question="가상 대학원생은 몇 학점까지 신청하나요?")
         self.assertEqual(answer_text(events), answer)
         self.assertEqual(body["answer"], answer)
+        # 검토 지적: 지울 문장뿐인 답은 원문으로 돌아가지 않고 고른 언어의 보류 문구가 된다.
+        only_graduate = "대학원 과정의 가상 기준은 확인할 수 없습니다."
+        for lang in ("ko", "en"):
+            with self.subTest(lang=lang):
+                events, body = final_answer(None, (only_graduate,), question="가상 학기당 최대 학점은?", lang=lang)
+                self.assertEqual(events[-2], ("answer", {"text": ai_chat.refusal_text(lang), "replace": True}))
+                self.assertIs(events[-1][1]["answered"], False)
+                self.assertEqual(body["answer"], ai_chat.refusal_text(lang))
+                self.assertIs(body["answered"], False)
+                self.assertEqual(body["citations"], [])
+                self.assertNotIn("notice", body)
+        events, body = final_answer(None, (only_graduate,), question="가상 대학원 기준은?")
+        self.assertEqual(body["answer"], only_graduate)
+        self.assertIs(body["answered"], True)
         refusal = first + " 대학원 과정은 " + ai_chat.REFUSAL_PREFIX + "."
         events, body = final_answer(None, (refusal,), question="가상 학기당 최대 학점은?")
         self.assertEqual(body["answer"], first)

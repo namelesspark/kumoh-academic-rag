@@ -481,7 +481,7 @@ def finish_answer(answer: str, question: str) -> str:
     if len(kept) > MAX_SENTENCES:
         kept, tail = kept[:MAX_SENTENCES], ""
     if not kept:
-        return "" if REFUSAL_PREFIX in answer else answer  # 지울 문장뿐이면 보류 판정에 맡기거나 원문을 둔다.
+        return ""  # 지울 문장뿐이면 빈 글을 돌려줘 보류로 바꾸게 한다.
     if kept[0] is not pieces[0]:
         kept[0] = kept[0].lstrip()  # 앞 문장을 지웠으면 남은 첫 문장의 앞 공백도 뗀다.
     return "".join(kept) + tail
@@ -720,7 +720,9 @@ class AiChat:
                 held = refused and (judgment.startswith(REFUSAL_PREFIX) or not final)
             else:
                 final = finish_answer(_cut_markers(answer), message)
-                held = refused and (judgment.startswith(REFUSAL_PREFIX) or not _EVIDENCE.search(final))
+                held = not final.strip() or (
+                    refused and (judgment.startswith(REFUSAL_PREFIX) or not _EVIDENCE.search(final))
+                )
             if held:
                 yield "answer", {"text": refusal_text(lang), "replace": True}
                 done["answered"] = False
