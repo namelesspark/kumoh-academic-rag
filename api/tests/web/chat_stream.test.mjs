@@ -82,59 +82,169 @@ test("응답 본문이나 글자 해독기가 없으면 실패한다", async () 
   await assert.rejects(read(responseFor([bytes(event("done", {}))]), () => {}));
 });
 
-function modePage(storage) {
-  const composer = { children: [], append(node) { this.children.push(node); } };
+function modePage(storage, reduced = false) {
+  let focus = null;
+  const timers = new Map(), events = new Map(), nodes = new Map();
+  let nextTimer = 0;
+  class Node {
+    children = []; attributes = new Map(); listeners = new Map(); dataset = {}; className = ""; hidden = false;
+    style = { setProperty: (key, value) => this.attributes.set(key, value) };
+    classList = {
+      contains: name => this.className.split(/\s+/).includes(name),
+      add: (...names) => { this.className = [...new Set([...this.className.split(/\s+/).filter(Boolean), ...names])].join(" "); },
+      remove: (...names) => { this.className = this.className.split(/\s+/).filter(name => !names.includes(name)).join(" "); },
+      toggle: (name, force) => { const on = force ?? !this.classList.contains(name); this.classList[on ? "add" : "remove"](name); return on; },
+    };
+    append(...nodes) { for (const node of nodes) node.parentNode = this; this.children.push(...nodes); }
+    remove() { if (this.parentNode) this.parentNode.children = this.parentNode.children.filter(node => node !== this); }
+    replaceChildren(...nodes) { this.children = []; this.append(...nodes); }
+    setAttribute(key, value) { this.attributes.set(key, String(value)); if (key.startsWith("data-")) this.dataset[key.slice(5).replace(/-([a-z])/g, (_, c) => c.toUpperCase())] = String(value); }
+    getAttribute(key) { return this.attributes.get(key) ?? null; }
+    removeAttribute(key) { this.attributes.delete(key); }
+    addEventListener(name, callback) { this.listeners.set(name, callback); }
+    focus() { focus = this; }
+    contains(node) { return node === this || this.children.some(child => child.contains(node)); }
+    fire(name, values = {}) { const event = { target: this, preventDefault() {}, stopPropagation() {}, stopImmediatePropagation() {}, ...values }; this.listeners.get(name)?.(event); return event; }
+    click() { this.fire("click"); }
+    querySelector(selector) { return this.children.find(node => node.dataset.icon && selector.includes(node.dataset.icon)) || this.children.find(node => node.className.split(" ").includes(selector.slice(1))) || null; }
+    querySelectorAll(selector) { return this.children.filter(node => node.classList.contains(selector.slice(1))); }
+    cloneNode() { const node = new Node(); node.className = this.className; node.dataset = { ...this.dataset }; return node; }
+    getBoundingClientRect() { return { left: 280, right: 400, top: 500, bottom: 540, width: 120, height: 180 }; }
+  }
+  const get = selector => { if (!nodes.has(selector)) nodes.set(selector, new Node()); return nodes.get(selector); };
+  const button = get("#ai-mode-button"); button.className = "mode-pill"; button.setAttribute("aria-haspopup", "menu"); button.setAttribute("aria-expanded", "false");
+  for (const value of ["fast", "deep"]) { const icon = new Node(); icon.className = "mode-icon"; icon.dataset.icon = value; button.append(icon); }
+  const label = new Node(); label.className = "mode-pill-label"; button.append(label);
+  const row = get(".composer-row"); row.append(button);
+  const body = new Node();
+  const document = { body, querySelector: get, get activeElement() { return focus; }, addEventListener: (name, callback) => events.set(name, callback) };
   const context = {
-    composer,
-    historyStorage: () => storage,
-    element(tag, className, text) {
-      return { tag, className, textContent: text, children: [], listeners: {},
-        append(...nodes) { this.children.push(...nodes); },
-        addEventListener(name, callback) { this.listeners[name] = callback; } };
-    },
+    document, window: { innerWidth: 800, innerHeight: 700, addEventListener() {} }, composer: get("#composer"),
+    historyStorage: () => storage, reducedMotion: () => reduced, within: (node, target) => node.contains(target),
+    element(tag, className, text) { const node = new Node(); node.tag = tag; node.className = className || ""; node.textContent = text || ""; return node; },
+    setTimeout(callback, delay) { timers.set(++nextTimer, { callback, delay }); return nextTimer; }, clearTimeout: key => timers.delete(key),
   };
   const start = script.indexOf('const aiModeKey =');
   const end = script.indexOf('async function readChatStream(', start);
   runInNewContext(script.slice(start, end), context);
-  return { group: composer.children[0], mode: () => runInNewContext('aiMode', context) };
+  return {
+    button, row, body, label, events, timers, document, window: context.window,
+    mode: () => runInNewContext('aiMode', context), focus: () => focus,
+    menu: () => body.children.find(node => node.classList.contains("choice-menu")),
+    select(value) { button.click(); this.menu().children.find(node => node.dataset.choiceValue === value).click(); },
+    tick(ms) { for (const [key, timer] of timers) if (timer.delay <= ms) { timers.delete(key); timer.callback(); } },
+  };
 }
 
-test("답변 방식 라디오는 저장된 deep을 복구하고 선택을 같은 키에 저장한다", () => {
+function choiceItems(page) { return page.menu().children.filter(node => node.attributes.get("role") === "menuitemradio"); }
+
+test("저장한 깊이 모드를 복원하고 빠르게 선택을 같은 키에 저장한다", () => {
   const writes = [];
-  const page = modePage({ getItem: (key) => {
-    assert.equal(key, "kumoh-chat-ai-mode:v1");
-    return "deep";
-  }, setItem: (...args) => writes.push(args) });
-  const [legend, fastLabel, deepLabel] = page.group.children;
-  const fast = fastLabel.children[0], deep = deepLabel.children[0];
-  assert.equal(page.group.id, "ai-mode");
-  assert.equal(legend.textContent, "답변 방식");
-  assert.equal(fast.id, "ai-mode-fast");
-  assert.equal(deep.id, "ai-mode-deep");
-  assert.equal(fast.type, "radio");
-  assert.equal(fast.name, deep.name);
-  assert.equal(deep.checked, true);
-  fast.checked = true;
-  fast.listeners.change();
-  assert.equal(page.mode(), "fast");
+  const p = modePage({ getItem: key => { assert.equal(key, "kumoh-chat-ai-mode:v1"); return "deep"; }, setItem: (...args) => writes.push(args) });
+  assert.equal(p.mode(), "deep");
+  assert.equal(p.button.attributes.get("aria-label"), "답변 모드: 깊이 생각");
+  assert.equal(p.row.classList.contains("is-deep"), true);
+  assert.equal(p.button.classList.contains("is-bursting"), false);
+  assert.equal(p.row.classList.contains("is-deep-enter"), false);
+  p.select("fast");
+  assert.equal(p.mode(), "fast");
   assert.deepEqual(writes, [["kumoh-chat-ai-mode:v1", "fast"]]);
+  assert.equal(p.row.classList.contains("is-deep"), false);
 });
 
-test("잘못된 저장값과 저장소 실패는 fast로 복구한다", () => {
-  for (const storage of [
-    { getItem: () => "invalid", setItem() {} },
-    { getItem() { throw Error("가상 읽기 실패"); }, setItem() { throw Error("가상 저장 실패"); } },
-  ]) {
-    const page = modePage(storage);
-    assert.equal(page.mode(), "fast");
+test("메뉴는 ARIA 현재 선택과 이름·설명을 보여 주고 버튼으로 닫힌다", () => {
+  const p = modePage({ getItem: () => null, setItem() {} });
+  assert.equal(p.button.attributes.get("aria-haspopup"), "menu");
+  assert.equal(p.button.attributes.get("aria-expanded"), "false");
+  p.button.click();
+  assert.equal(p.menu().attributes.get("role"), "menu");
+  assert.equal(p.button.attributes.get("aria-expanded"), "true");
+  assert.equal(p.menu().children[0].textContent, "답변 모드");
+  assert.deepEqual(choiceItems(p).map(node => node.attributes.get("aria-checked")), ["true", "false"]);
+  assert.ok(choiceItems(p)[0].children.some(node => node.textContent === "바로 답해요 · 보통 1~3초"));
+  p.button.click();
+  assert.equal(p.menu(), undefined);
+  assert.equal(p.button.attributes.get("aria-expanded"), "false");
+});
+
+test("화살표는 끝에서 돌고 Enter·Space는 선택하며 Esc는 버튼으로 돌아간다", () => {
+  for (const key of ["Enter", " "]) {
+    const p = modePage({ getItem: () => null, setItem() {} });
+    p.button.click();
+    const items = choiceItems(p);
+    assert.equal(p.focus(), items[0]);
+    p.menu().fire("keydown", { key: "ArrowUp" });
+    assert.equal(p.focus(), items[1]);
+    p.menu().fire("keydown", { key: "ArrowDown" });
+    assert.equal(p.focus(), items[0]);
+    p.menu().fire("keydown", { key: "ArrowDown" });
+    p.menu().fire("keydown", { key });
+    assert.equal(p.mode(), "deep");
+    p.button.click();
+    let stopped = false;
+    p.menu().fire("keydown", { key: "Escape", stopPropagation() { stopped = true; } });
+    assert.equal(stopped, true);
+    assert.equal(p.menu(), undefined);
+    assert.equal(p.focus(), p.button);
   }
-  const page = modePage({ getItem: () => "deep", setItem() { throw Error("가상 저장 실패"); } });
-  const deep = page.group.children[2].children[0];
-  deep.checked = true;
-  deep.listeners.change();
-  assert.equal(page.mode(), "fast");
-  assert.equal(page.group.children[1].children[0].checked, true);
-  assert.equal(deep.checked, false);
+});
+
+test("바깥 누르기와 Tab은 초점을 빼앗지 않고 메뉴를 닫는다", () => {
+  const p = modePage({ getItem: () => null, setItem() {} });
+  p.button.click();
+  const focused = p.focus();
+  p.events.get("pointerdown")({ target: p.body });
+  assert.equal(p.menu(), undefined);
+  assert.equal(p.focus(), focused);
+  p.button.click();
+  const nextFocus = p.focus();
+  p.menu().fire("keydown", { key: "Tab" });
+  p.tick(0);
+  assert.equal(p.menu(), undefined);
+  assert.equal(p.focus(), nextFocus);
+});
+
+test("잘못된 저장값·읽기 실패·쓰기 실패는 모든 표시를 빠르게로 되돌린다", () => {
+  for (const storage of [{ getItem: () => "invalid", setItem() {} }, { getItem() { throw Error("가상 읽기 실패"); }, setItem() {} }]) assert.equal(modePage(storage).mode(), "fast");
+  const p = modePage({ getItem: () => "deep", setItem() { throw Error("가상 저장 실패"); } });
+  p.select("deep");
+  assert.equal(p.mode(), "fast");
+  assert.equal(p.label.textContent, "빠르게");
+  assert.equal(p.button.attributes.get("aria-label"), "답변 모드: 빠르게");
+  assert.equal(p.button.dataset.mode, "fast");
+  assert.equal(p.row.classList.contains("is-deep"), false);
+  p.button.click();
+  assert.deepEqual(choiceItems(p).map(node => node.attributes.get("aria-checked")), ["true", "false"]);
+});
+
+test("깊이 선택 효과는 정해진 시간 뒤 끝나고 움직임 줄이기는 고정 표시만 남긴다", () => {
+  const storage = { getItem: () => null, setItem() {} };
+  const p = modePage(storage);
+  p.select("deep");
+  assert.equal(p.button.classList.contains("is-bursting"), true);
+  assert.equal(p.button.classList.contains("is-flowing"), true);
+  assert.equal(p.row.classList.contains("is-deep-enter"), true);
+  assert.ok(p.button.children.filter(node => node.classList.contains("mode-spark")).length >= 6);
+  p.tick(700);
+  assert.equal(p.button.classList.contains("is-bursting"), false);
+  p.tick(900);
+  assert.equal(p.row.classList.contains("is-deep-enter"), false);
+  const still = modePage(storage, true);
+  still.select("deep");
+  assert.equal(still.row.classList.contains("is-deep"), true);
+  for (const name of ["is-bursting", "is-flowing"]) assert.equal(still.button.classList.contains(name), false);
+  assert.equal(still.row.classList.contains("is-deep-enter"), false);
+  assert.equal(still.button.children.filter(node => node.classList.contains("mode-spark")).length, 0);
+});
+
+test("메뉴 좌표는 버튼 위와 화면 가장자리 16px 안으로 보정한다", () => {
+  const p = modePage({ getItem: () => null, setItem() {} });
+  p.window.innerWidth = 300;
+  p.window.innerHeight = 200;
+  p.button.getBoundingClientRect = () => ({ left: 280, right: 300, top: 20, bottom: 50 });
+  p.button.click();
+  assert.equal(p.menu().attributes.get("--choice-menu-x"), "164px");
+  assert.equal(p.menu().attributes.get("--choice-menu-y"), "16px");
 });
 
 function requester(fetch, timeouts = []) {

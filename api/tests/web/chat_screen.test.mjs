@@ -12,6 +12,7 @@ function page({
   reduced = false,
   transition,
   storedConversations = [],
+  storage = { getItem: () => null, setItem() {} },
 } = {}) {
   const nodes = new Map(),
     events = new Map(),
@@ -19,7 +20,7 @@ function page({
     timers = new Map(),
     requests = [];
   const photoRequests = [], states = [], saved = [];
-  let focus = null, id = 0;
+  let focus = null, id = 0, now = 1_000;
   // 같은 종류의 처리기를 여러 개 붙여도 덮어쓰지 않는다. get(type)은 붙인 순서대로 모두 부르는 함수를 돌려준다.
   const listen = (map, type, callback) => {
     const callbacks = [...(map.get(type)?.callbacks ?? []), callback];
@@ -38,7 +39,19 @@ function page({
     value = "";
     files = [];
     clicks = 0;
-    remove() {}
+    dataset = {};
+    classList = {
+      contains: name => (this.className || "").split(/\s+/).includes(name),
+      add: (...names) => { this.className = [...new Set([...(this.className || "").split(/\s+/).filter(Boolean), ...names])].join(" "); },
+      remove: (...names) => { this.className = (this.className || "").split(/\s+/).filter(name => !names.includes(name)).join(" "); },
+      toggle: (name, force) => { const on = force ?? !this.classList.contains(name); this.classList[on ? "add" : "remove"](name); return on; },
+    };
+    remove() { if (this.parentNode) this.parentNode.children = this.parentNode.children.filter(child => child !== this); }
+    getAttribute(key) { return this.attributes.get(key) ?? null; }
+    querySelector(selector) { return this.children.find(node => node.dataset?.icon && selector.includes(node.dataset.icon)) || this.children.find(node => (node.className || "").split(" ").includes(selector.slice(1))) || null; }
+    querySelectorAll(selector) { return this.children.filter(node => node.classList?.contains(selector.slice(1))); }
+    cloneNode() { const copy = new Node(); copy.className = this.className; copy.dataset = { ...this.dataset }; return copy; }
+    getBoundingClientRect() { return { left: 240, right: 360, top: 500, bottom: 540, width: 120, height: 180 }; }
     append(...children) {
       for (const child of children) if (child instanceof Node) child.parentNode = this;
       this.children.push(...children);
@@ -52,6 +65,7 @@ function page({
     }
     setAttribute(key, value) {
       this.attributes.set(key, String(value));
+      if (key.startsWith("data-")) this.dataset[key.slice(5).replace(/-([a-z])/g, (_, letter) => letter.toUpperCase())] = String(value);
     }
     removeAttribute(key) {
       this.attributes.delete(key);
@@ -60,7 +74,7 @@ function page({
       listen(this.listeners, type, callback);
     }
     fire(type, values = {}) {
-      const event = { target: this, prevented: false, preventDefault() { event.prevented = true; }, ...values };
+      const event = { target: this, stopPropagation() {}, stopImmediatePropagation() {}, prevented: false, preventDefault() { event.prevented = true; }, ...values };
       this.listeners.get(type)?.(event);
       return event;
     }
@@ -114,13 +128,14 @@ function page({
     addEventListener: (name, callback) => listen(windowEvents, name, callback),
     // 삭제 확인은 화면 안 확인 창이 맡는다. 브라우저 기본 확인 창을 부르면 테스트가 실패한다.
     confirm: () => { throw Error("window.confirm을 부르면 안 된다"); },
-    innerWidth: 0,
-    innerHeight: 0,
+    localStorage: storage,
+    innerWidth: 800,
+    innerHeight: 700,
   };
   const context = {
     document,
     window,
-    Date,
+    Date: class extends Date { static now() { return now; } },
     Array,
     Promise,
     TextDecoder,
@@ -226,6 +241,14 @@ function page({
     clearConversations() {
     },
   };
+  const modeButton = get("#ai-mode-button");
+  modeButton.className = "mode-pill";
+  for (const value of ["fast", "deep"]) {
+    const icon = new Node(); icon.className = "mode-icon"; icon.dataset.icon = value; modeButton.append(icon);
+  }
+  const label = new Node(); label.className = "mode-pill-label"; modeButton.append(label);
+  get(".composer-row").append(get("#question"), modeButton, get("#send"));
+  get("#composer").append(get(".composer-row"));
   get("#transcript").append(get("#empty"));
   const controller = script.slice(
     script.indexOf("const sidebar ="),
@@ -261,6 +284,7 @@ function page({
     states,
     saved,
     focus: () => focus,
+    advanceTime: ms => { now += ms; },
     run: (code) => runInNewContext(code, context),
     tick(ms) {
       for (const [key, timer] of timers) {
@@ -387,6 +411,12 @@ test("도착 알림을 누르면 대화를 열고 읽지 않음을 지운다", (
   assert.equal(p.run("record.unread"), false);
 });
 
+function choiceMenu(p) { return p.document.body.children.find(node => node.classList.contains("choice-menu")); }
+function selectMode(p, value) {
+  p.get("#ai-mode-button").click();
+  choiceMenu(p).children.find(node => node.dataset.choiceValue === value).click();
+}
+
 function begin(p) {
   return p.run(
     'var record={id:"fictional-1",time:1,messages:[{role:"question",text:"가상 질문"}],turns:[]};conversations=[record];activeConversation=record;setChatView(true);var reply=document.querySelector(".test-reply");ask("가상 질문",reply,record);',
@@ -427,10 +457,15 @@ function openStream(p) {
 
 test("깊이 생각을 펼치고 답을 이어 그린 뒤 근거와 답만 기록한다", async () => {
   const p = page();
-  p.run('aiMode="deep"');
+  selectMode(p, "deep");
   const done = begin(p);
   assert.equal(JSON.parse(p.requests[0].options.body).mode, "deep");
-  p.run('aiMode="fast"');
+  const waiting = p.get(".test-reply").children[0];
+  assert.equal(waiting.classList.contains("is-waiting"), true);
+  assert.equal(waiting.children[0].children[0].textContent, "생각하는 중");
+  assert.equal(waiting.children[0].children[1].textContent, "모델이 쓴 원문, 영어일 수 있음");
+  selectMode(p, "fast");
+  assert.equal(p.get(".composer-row").classList.contains("is-deep"), false);
   const emit = openStream(p);
   emit("meta", { answered: true, citations: [{ document: "가상 규정", article_path: "제1조", source_url: "https://example.com/fictional" }], session_id: "fictional-session" });
   emit("thinking", { text: "Fictional thought <script>" });
@@ -441,9 +476,12 @@ test("깊이 생각을 펼치고 답을 이어 그린 뒤 근거와 답만 기�
   assert.equal(thinking.children[0].id, "thinking-1-summary");
   assert.equal(thinking.open, true);
   assert.equal(thinking.children[1].textContent, "Fictional thought <script>");
+  p.advanceTime(3_000);
   emit("answer", { text: "가상 <b>", replace: false });
   await setImmediate();
   assert.equal(thinking.open, false);
+  assert.equal(thinking.classList.contains("is-waiting"), false);
+  assert.equal(thinking.children[0].children[0].textContent, "3초 동안 생각함");
   assert.equal(reply.children[1].textContent, "가상 <b>");
   assert.equal(reply.children.length, 2);
   assert.equal(p.run("record.messages.length"), 1);
@@ -461,6 +499,10 @@ test("깊이 생각을 펼치고 답을 이어 그린 뒤 근거와 답만 기�
   assert.equal(p.run("record.messages.at(-1).sources[0].title"), "가상 규정 · 제1조");
   assert.equal(p.run('JSON.stringify(record.committedMessages).includes("Fictional thought")'), false);
   assert.equal(p.requests.length, 1);
+  const next = p.run('ask("가상 다음 질문", document.querySelector(".next-reply"), record)');
+  assert.equal(JSON.parse(p.requests[1].options.body).mode, "fast");
+  p.requests[1].resolve(answer);
+  await next;
 });
 
 test("빠른 답은 생각을 버리고 다른 대화 조각은 현재 테크모를 바꾸지 않는다", async () => {
@@ -485,8 +527,9 @@ test("빠른 답은 생각을 버리고 다른 대화 조각은 현재 테크모
 test("삭제와 계정 변경 뒤의 생각과 답 조각을 폐기한다", async () => {
   for (const action of ["conversations=[]", 'switchHistoryAccount("demo-d02")']) {
     const p = page();
-    p.run('aiMode="deep"');
+    selectMode(p, "deep");
     const done = begin(p);
+    const waiting = p.get(".test-reply").children[0];
     const emit = openStream(p);
     emit("meta", { answered: true, citations: [], session_id: "fictional-session" });
     await setImmediate();
@@ -495,6 +538,7 @@ test("삭제와 계정 변경 뒤의 생각과 답 조각을 폐기한다", asyn
     emit("answer", { text: "가상 폐기 답", replace: false });
     emit("done", {});
     await done;
+    assert.equal(waiting.classList.contains("is-waiting"), false);
     assert.equal(p.get(".test-reply").children.length, 0);
     assert.equal(p.run("record.messages.length"), 1);
   }
@@ -502,8 +546,9 @@ test("삭제와 계정 변경 뒤의 생각과 답 조각을 폐기한다", asyn
 
 test("중간 스트림 실패는 생각과 부분 답을 지우고 같은 방식으로 한 번 다시 묻는다", async () => {
   const p = page();
-  p.run('aiMode="deep"');
+  selectMode(p, "deep");
   const done = begin(p);
+  const waiting = p.get(".test-reply").children[0];
   const emit = openStream(p);
   emit("meta", { answered: true, citations: [], session_id: "fictional-session" });
   emit("thinking", { text: "Fictional discarded thought" });
@@ -513,6 +558,7 @@ test("중간 스트림 실패는 생각과 부분 답을 지우고 같은 방식
   emit("error", { code: "stream_failed", message: "답변을 받지 못했어요" });
   await setImmediate();
   assert.equal(p.get(".test-reply").children.length, 0);
+  assert.equal(waiting.classList.contains("is-waiting"), false);
   assert.equal(p.requests.length, 2);
   assert.equal(p.requests[1].path, "/api/v1/chat");
   assert.equal(p.requests[1].options.body, p.requests[0].options.body);
@@ -520,6 +566,23 @@ test("중간 스트림 실패는 생각과 부분 답을 지우고 같은 방식
   await done;
   assert.equal(p.run("record.messages.at(-1).text"), "가상 답변");
   assert.equal(p.get(".test-reply").children.length, 1);
+});
+
+test("깊이 요청이 스트림과 JSON 모두 실패하면 대기 표시를 지우고 다시 시도를 보인다", async () => {
+  const p = page();
+  selectMode(p, "deep");
+  const done = begin(p);
+  const waiting = p.get(".test-reply").children[0];
+  p.requests[0].reject(Error("가상 스트림 실패"));
+  await setImmediate();
+  assert.equal(waiting.classList.contains("is-waiting"), false);
+  assert.equal(p.get(".test-reply").children.length, 0);
+  p.requests[1].reject(Error("가상 JSON 실패"));
+  await done;
+  const reply = p.get(".test-reply");
+  assert.equal(reply.children[0].className, "error");
+  assert.equal(reply.children[0].children[1].textContent, "다시 시도");
+  assert.equal(reply.children.some(node => node.classList.contains("is-waiting")), false);
 });
 
 test("meta가 답함이어도 done.answered가 false면 근거·안내 없이 보류로 끝나고 다시 묻지 않는다", async () => {

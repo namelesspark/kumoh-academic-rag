@@ -102,6 +102,7 @@ function loadChat(fetch) {
     document: {
       addEventListener() {},
       querySelector(selector) {
+        if (selector === "#ai-mode-button") return null;
         if (!elements.has(selector)) elements.set(selector, new FakeElement(selector));
         return elements.get(selector);
       },

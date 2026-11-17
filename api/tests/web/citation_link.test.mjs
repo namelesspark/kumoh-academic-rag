@@ -54,6 +54,7 @@ async function submitQuestion(citations) {
     document: {
       addEventListener() {},
       querySelector(selector) {
+        if (selector === "#ai-mode-button") return null;
         const node = new FakeElement(selector);
         elements.set(selector, node);
         return node;
