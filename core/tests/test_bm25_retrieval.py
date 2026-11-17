@@ -9,6 +9,83 @@ from kumoh_rag_core.retrieval import BM25Retriever
 
 
 class BM25RetrievalTests(unittest.TestCase):
+    def test_four_topic_queries_find_expected_articles_in_top_five(self):
+        titles = (
+            "졸업학점", "이수학점 등", "휴학", "복학",
+            "수강신청 변경절차", "계절수업", "수강학점",
+        )
+        # API에서 동의어를 덧붙인 검색어도 코어에는 리터럴로 전달한다.
+        for query, expected in (
+            ("졸업 학점 몇 점 필요한가요", "제1조(졸업학점)"),
+            ("한 학기 수강학점 최대 몇 점", "제7조(수강학점)"),
+            ("수강신청 변경절차 알려 주세요", "제5조(수강신청 변경절차)"),
+            ("계절학기 신청 계절수업", "제6조(계절수업)"),
+        ):
+            with self.subTest(query=query):
+                source = "\n".join([
+                    *(f"제{number}조({title}) " + "가상 종이학교의 별빛 활동을 정한다. " * 50
+                      for number, title in enumerate(titles, start=1)),
+                    *(f"제{number}조(가상 기록) {query} 안내를 정한다."
+                      for number in range(8, 16)),
+                ])
+                chunks = chunk_articles(source)
+                baseline = BM25Retriever(chunks)
+                baseline._exact_titles = [""] * len(chunks)
+                original = baseline.retrieve(query, top_k=len(chunks))
+                original_rank = next(
+                    result.rank for result in original if result.chunk.article_path == expected
+                )
+                self.assertGreater(original_rank, 5)
+                retriever = BM25Retriever(chunks)
+                paths = [result.chunk.article_path for result in retriever.retrieve(query)]
+                self.assertIn(expected, paths)
+                self.assertLessEqual(len(paths), 5)
+
+    def test_exact_title_bonus_removes_spaces_and_three_suffixes(self):
+        for title in ("이 수 학 점", "이수학점 등", "이수학점 및 신청", "이수학점에 관한 절차"):
+            with self.subTest(title=title):
+                source = f"제1조({title}) 가상 별빛 학점을 정한다.\n제2조(구름 놀이) 종을 접는다."
+                retriever = BM25Retriever(chunk_articles(source))
+                for query in ("이수학점", "이수 학점"):
+                    with self.subTest(query=query):
+                        boosted = retriever.retrieve(query)
+                        baseline = BM25Retriever(chunk_articles(source))
+                        baseline._exact_titles = [""] * len(baseline._chunks)
+                        original = baseline.retrieve(query)
+                        self.assertEqual(boosted[0].chunk, original[0].chunk)
+                        # 후보가 하나라 가산 전 최고점은 기존 제목 가산을 빼서 구한다.
+                        raw = BM25Retriever(chunk_articles(source))
+                        raw._exact_titles = [""] * len(raw._chunks)
+                        raw._title_units = [set()] * len(raw._chunks)
+                        raw_score = raw.retrieve(query)[0].score
+                        self.assertAlmostEqual(boosted[0].score - original[0].score, 2 * raw_score)
+
+    def test_separated_words_and_partial_titles_receive_no_exact_bonus(self):
+        source = "제1조(졸업학점) 가상 졸업 학점을 정한다.\n제2조(구름 놀이) 종을 접는다."
+        retriever = BM25Retriever(chunk_articles(source))
+        baseline = BM25Retriever(chunk_articles(source))
+        baseline._exact_titles = [""] * len(baseline._chunks)
+        for query in ("졸업 필요 학점", "졸업학점표", "졸업 학점표"):
+            with self.subTest(query=query):
+                self.assertEqual(retriever.retrieve(query), baseline.retrieve(query))
+
+    def test_exact_title_bonus_promotes_candidate_beyond_first_forty(self):
+        source = "\n".join([
+            *(f"제{number}조(가상 기록) 졸업 학점 안내를 정한다." for number in range(1, 46)),
+            "제46조(졸업학점) " + "별빛 종이 구름 모형을 접는다. " * 50,
+            "제47조(구름 놀이) 모형 종을 울린다.",
+        ])
+        chunks = chunk_articles(source)
+        baseline = BM25Retriever(chunks)
+        baseline._exact_titles = [""] * len(chunks)
+        original = baseline.retrieve("졸업 학점 안내", top_k=len(chunks))
+        target = "제46조(졸업학점)"
+        original_rank = next(result.rank for result in original if result.chunk.article_path == target)
+        self.assertGreater(len(original), 40)
+        self.assertGreater(original_rank, 40)
+        results = BM25Retriever(chunks).retrieve("졸업 학점 안내")
+        self.assertIn(target, [result.chunk.article_path for result in results])
+
     def test_title_coverage_beats_long_articles_with_frequent_topic_words(self):
         source = "\n".join((
             "제1조(가상 절차) " + "졸업 학점 이수 신청 확인 " * 30,

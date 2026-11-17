@@ -43,6 +43,7 @@ class BM25Retriever:
         self._chunks = tuple(chunks)
         self._article_numbers = []
         self._title_units = []
+        self._exact_titles = []
         self._graduate = []
         self._lengths = []
         self._postings = defaultdict(list)
@@ -52,6 +53,7 @@ class BM25Retriever:
             title_match = re.search(r"[（(]([^）)]+)[）)]", _search_text(chunk.article_path))
             title = title_match.group(1) if title_match else ""
             compact_title = "".join(title.split())
+            self._exact_titles.append(re.sub(r"(?:등|및.*|에관한.*)$", "", compact_title))
             self._title_units.append({
                 compact_title[start:start + 2]
                 for start in range(len(compact_title) - 1)
@@ -103,6 +105,9 @@ class BM25Retriever:
                 scores[index] += self._weights[term] * count * (k1 + 1) / denominator
 
         query_units = {unit for (length, unit) in terms if length == 2}
+        words = text.split()
+        exact_queries = set(words)
+        exact_queries.update(left + right for left, right in zip(words, words[1:]))
         graduate_query = any(word in text for word in ("대학원", "석사", "박사"))
         # 이미 찾은 후보 안에서만 제목의 주제 일치도를 반영한다.
         score_scale = max(scores.values(), default=0.0)
@@ -113,6 +118,8 @@ class BM25Retriever:
                 scores[index] += score_scale * coverage
                 if query_units <= self._title_units[index]:
                     scores[index] += score_scale
+            if self._exact_titles[index] and self._exact_titles[index] in exact_queries:
+                scores[index] += score_scale * 2
             if self._graduate[index] and not graduate_query:
                 scores[index] *= 0.5
 
