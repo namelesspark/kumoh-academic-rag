@@ -624,6 +624,34 @@ class TestChatWeb(unittest.TestCase):
                               "kumoh-signature-light.png": b"fictional kumoh-signature-light.png"})
         self.assertEqual(asked, [CHAT_WEB_DIR / "assets" / name for name in web_main.FINGERPRINTED_IMAGES])
 
+    def test_language_pills_sit_in_the_masthead_and_on_the_login_screen(self):
+        # 이슈 #116: 기본 드롭다운(select) 없이 지구본·현재 언어·꺾쇠 알약 두 개가 같은 메뉴를 연다.
+        page = parse_page(read_index())
+        self.assertFalse([node for node in page.elements if node["tag"] == "select"])
+        login = by_id(page, "login-lang-button")
+        header = by_id(page, "lang-button")
+        self.assertIs(by_id(page, "login-screen")["children"][0], login)
+        self.assertIs(by_class(page, "masthead-actions")["children"][0], header)
+        for button in (login, header):
+            with self.subTest(button=button["attrs"]["id"]):
+                attrs = button["attrs"]
+                self.assertEqual((button["tag"], attrs.get("type")), ("button", "button"))
+                self.assertIn("lang-pill", attrs.get("class", "").split())
+                self.assertEqual(attrs.get("aria-haspopup"), "menu")
+                self.assertEqual(attrs.get("aria-expanded"), "false")
+                self.assertEqual(attrs.get("aria-label"), "언어 / Language: 한국어")
+                self.assertNotIn("aria-controls", attrs)
+                self.assertNotIn("data-action", attrs)
+                globe, label, chevron = button["children"]
+                self.assertEqual((globe["tag"], globe["attrs"].get("class"), globe["attrs"].get("aria-hidden")),
+                                 ("svg", "lang-pill-globe", "true"))
+                self.assertEqual((label["tag"], label["attrs"].get("class"), label["text"]),
+                                 ("span", "lang-pill-label", "한국어"))
+                self.assertEqual((chevron["tag"], chevron["attrs"].get("class"), chevron["attrs"].get("aria-hidden")),
+                                 ("svg", "lang-pill-chevron", "true"))
+        # 첫 화면은 한국어 문서다. 다른 언어는 chat.js가 html lang과 함께 바꾼다.
+        self.assertIn('<html lang="ko">', read_index())
+
     def test_page_has_no_folding_box_hint_line_or_style_attribute(self):
         html = call_app(app, "GET", "/", allow_wait=True).text()
         page = parse_page(html)

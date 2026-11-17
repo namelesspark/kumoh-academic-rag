@@ -96,8 +96,8 @@
   --deep-gold: #F7C500;
   --deep-shine: rgba(106,75,216,.22);
   color-scheme: dark;
-  /* 첫 화면 보안 정책이 외부 글꼴을 막으므로 기기에 깔린 글꼴만 쓴다. */
-  font-family: Pretendard, "Apple SD Gothic Neo", "Malgun Gothic", "맑은 고딕", "Noto Sans KR", system-ui, sans-serif;
+  /* 첫 화면 보안 정책이 외부 글꼴을 막으므로 기기에 깔린 글꼴만 쓴다. 중국어(간체) 글꼴은 한국어 글꼴에 없는 글자를 채운다. */
+  font-family: Pretendard, "Apple SD Gothic Neo", "Malgun Gothic", "맑은 고딕", "Noto Sans KR", "Microsoft YaHei", "PingFang SC", "Noto Sans SC", system-ui, sans-serif;
   color: var(--ink);
   background: var(--navy);
 }
@@ -1409,4 +1409,42 @@ body[data-techmo-dragging="true"] { user-select: none; }
   .reply, .question, .card, .feature-panel, .composer-meta { background: var(--glass-dense); }
   button.card:hover:not([data-restored]) { background: var(--feature-hover); }
   .site-footer { background: var(--panel-surface); }
+}
+
+/* 언어 선택(#116). 머리글과 로그인 화면 오른쪽 위의 알약 버튼이다. 메뉴는 답변 모드와 같은 .choice-menu를 쓴다.
+   중국어 화면에서는 같은 한자도 간체 글꼴로 그리도록 중국어 글꼴을 앞에 둔다. 외부 글꼴은 쓰지 않는다. */
+html:lang(zh) { font-family: "PingFang SC", "Microsoft YaHei", "Noto Sans SC", Pretendard, "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", system-ui, sans-serif; }
+.lang-pill {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--edge);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ink);
+  font-size: .86rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.lang-pill:hover { background: var(--tint); }
+.lang-pill-globe { flex: none; width: 18px; height: 18px; }
+.lang-pill-chevron { flex: none; width: 12px; height: 12px; }
+.lang-pill[aria-expanded="true"] .lang-pill-chevron { transform: rotate(180deg); }
+.login-screen { position: relative; }
+.login-lang { position: absolute; top: 16px; right: 0; z-index: 2; border-color: var(--glass-edge); background: var(--glass-pill); color: var(--white); }
+.login-lang:hover { background: var(--glass-dense); }
+/* 인용 카드의 조문 원문은 번역하지 않는다. 한국어가 아닌 화면에서만 원문 위에 이 표시가 붙는다. */
+.evidence .original-lang { margin: 0 0 6px; color: var(--muted); font-size: .76rem; font-weight: 700; }
+@media (max-width: 680px) {
+  .login-lang { top: 6px; }
+  .login-intro { padding-top: 34px; }
+}
+/* 좁은 머리글에서는 지구본과 꺾쇠만 남긴다. 현재 언어는 aria-label이 읽어 준다. */
+@media (max-width: 480px) {
+  .masthead-actions > .lang-pill { gap: 4px; padding: 0 9px; }
+  .masthead-actions > .lang-pill .lang-pill-label { display: none; }
 }

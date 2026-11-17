@@ -270,7 +270,9 @@ function page({
     script.indexOf("function conversationTitle("),
     script.indexOf("function conversationKey("),
   );
-  runInNewContext(titleCode + updateSendCode + controller + asking + submitting, context);
+  // 화면 언어 사전 묶음(파일 맨 앞)은 화면 요소를 건드리지 않으므로 그대로 앞에 붙인다.
+  const langCode = script.slice(0, script.indexOf("function trimConversations("));
+  runInNewContext(langCode + titleCode + updateSendCode + controller + asking + submitting, context);
   return {
     get,
     document,
@@ -585,7 +587,7 @@ test("깊이 요청이 스트림과 JSON 모두 실패하면 대기 표시를 �
   assert.equal(reply.children.some(node => node.classList.contains("is-waiting")), false);
 });
 
-test("meta가 답함이어도 done.answered가 false면 근거·안내 없이 보류로 끝나고 다시 묻지 않는다", async () => {
+test("meta가 답함이어도 done.answered가 false면 근거·안내 없이 서버 보류 문구로 끝나고 다시 묻지 않는다", async () => {
   const p = page();
   const finished = begin(p);
   const emit = openStream(p);
@@ -597,7 +599,8 @@ test("meta가 답함이어도 done.answered가 false면 근거·안내 없이 �
   const reply = p.get(".test-reply");
   assert.equal(reply.children.length, 1);
   assert.equal(reply.children[0].className, "fallback");
-  assert.equal(reply.children[0].textContent, heldText);
+  // 서버가 고른 언어로 쓴 보류 문구를 화면의 한국어 고정문으로 덮어쓰지 않는다(#116).
+  assert.equal(reply.children[0].textContent, "가상 교체 보류");
   assert.equal(p.requests.length, 1);
   assert.equal(p.states.at(-1), "hold");
   const message = p.run("record.messages.at(-1)");
@@ -607,7 +610,55 @@ test("meta가 답함이어도 done.answered가 false면 근거·안내 없이 �
   const [question, restored] = reopen(p.saved.at(-1));
   assert.equal(question.className, "question");
   assert.equal(restored.className, "reply fallback");
+  assert.equal(restored.textContent, "가상 교체 보류");
+});
+
+test("보류 응답에 서버 글이 없거나 비었으면 고른 화면 언어의 고정 보류 문구를 쓴다", async () => {
+  for (const [lang, answer, text] of [["ko", undefined, heldText], ["ko", "  ", heldText],
+    ["en", null, "No basis for this question was found in the fictional regulations."],
+    ["zh", "", "在虚拟规定中未找到此问题的依据。"]]) {
+    const p = page();
+    p.run(`uiLang = "${lang}"`);
+    const finished = begin(p);
+    p.requests[0].reject(Error("가상 스트림 실패"));
+    await setImmediate();
+    p.requests[1].resolve({ ok: true, json: async () => ({ session_id: "fictional-session", answered: false, answer, citations: [] }) });
+    await finished;
+    const reply = p.get(".test-reply");
+    assert.equal(reply.children[0].className, "fallback", lang);
+    assert.equal(reply.children[0].textContent, text, lang);
+  }
+});
+
+test("요청 본문의 lang은 보낼 때의 화면 언어이고 JSON 재질문도 같은 값을 쓴다", async () => {
+  const p = page();
+  begin(p);
+  assert.equal(JSON.parse(p.requests[0].options.body).lang, "ko");
+  const q = page();
+  q.run('uiLang = "en"');
+  const finished = begin(q);
+  // 답을 기다리는 동안 언어를 바꿔도 이번 질문의 값은 그대로다.
+  q.run('uiLang = "zh"');
+  q.requests[0].reject(Error("가상 스트림 실패"));
+  await setImmediate();
+  assert.deepEqual(q.requests.map(request => request.path), ["/api/v1/chat/stream", "/api/v1/chat"]);
+  assert.equal(JSON.parse(q.requests[0].options.body).lang, "en");
+  assert.equal(q.requests[1].options.body, q.requests[0].options.body);
+  q.requests[1].resolve(answer);
+  await finished;
+  assert.equal(q.get(".test-reply").children[0].textContent, "가상 답변");
+});
+
+test("저장한 예전 답과 질문은 화면 언어가 바뀌어도 다시 번역하지 않는다", () => {
+  const p = page({ storedConversations: trimConversations([{ id: "fictional-old", time: 1, messages: [
+    { role: "question", text: "가상 예전 질문", sources: [] },
+    { role: "answer", text: heldText, answered: false, sources: [] },
+  ] }]) });
+  p.run('uiLang = "en"; switchHistoryAccount("browse"); openConversation(conversations[0])');
+  const [question, restored] = p.get("#transcript").children[0].children;
+  assert.equal(question.textContent, "가상 예전 질문");
   assert.equal(restored.textContent, heldText);
+  assert.equal(restored.className, "reply fallback");
 });
 
 test("안내 답은 받은 글 그대로 일반 말풍선에 그리고 저장·재개 뒤에도 보류와 구별한다", async () => {

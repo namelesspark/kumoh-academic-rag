@@ -47,9 +47,12 @@ const citation = {
   snippet: "가상 별빛열람증은 도서관장이 발급한다.",
 };
 
-async function submitQuestion(citations) {
+async function submitQuestion(citations, { lang = null, bodies = [] } = {}) {
   const elements = new Map();
   const requests = [];
+  // lang을 주면 그 언어를 저장해 둔 브라우저처럼 시작한다. 주지 않으면 저장소가 없는 지금까지의 가짜 화면이다.
+  const window = { matchMedia: () => ({ matches: false }) };
+  if (lang) window.localStorage = { getItem: key => key === "kumoh-chat-lang:v1" ? lang : null, setItem() {}, removeItem() {} };
   runInNewContext(script, {
     document: {
       addEventListener() {},
@@ -62,11 +65,12 @@ async function submitQuestion(citations) {
       createElement: tag => new FakeElement(tag),
       createTextNode: text => text,
     },
-    window: { matchMedia: () => ({ matches: false }) },
+    window,
     URL,
     AbortSignal: { timeout: () => undefined },
     async fetch(path, options) {
       requests.push([path, JSON.parse(options.body).message]);
+      bodies.push(JSON.parse(options.body));
       return {
         ok: true,
         json: async () => ({
@@ -163,6 +167,37 @@ const unlinkedCases = [
     ["object", { href: "https://example.invalid" }],
   ].map(([label, source_url]) => [label, { source_url }]),
 ];
+
+test("한국어 화면은 요청에 lang ko를 싣고 인용 카드에 원문 표시를 더하지 않는다", async () => {
+  const bodies = [];
+  const [card] = await submitQuestion([{ ...citation, source_url: null }], { bodies });
+  assert.deepEqual(bodies.map(body => body.lang), ["ko", "ko"]);
+  assert.equal(card.children.some(node => node.className === "original-lang"), false);
+});
+
+for (const [lang, labels] of [
+  ["en", { heading: "Answer basis (fictional)", date: "Effective ", original: "Original (Korean)", link: "View the official original", tab: "opens in a new tab" }],
+  ["zh", { heading: "回答依据（虚拟）", date: "施行日期 ", original: "原文（韩语）", link: "查看官方原文", tab: "在新标签页打开" }],
+]) {
+  test(`${lang} 화면의 인용 카드는 문서명·조문 원문을 그대로 두고 원문이 한국어라는 표시만 번역한다`, async () => {
+    const bodies = [];
+    const sourceUrl = "https://example.invalid/fictional";
+    const [card] = await submitQuestion([{ ...citation, source_url: sourceUrl }], { lang, bodies });
+    assert.deepEqual(bodies.map(body => body.lang), [lang, lang]);
+    const [heading, reference, dateLine, original, snippet, link] = card.children;
+    assert.equal(heading.textContent, labels.heading);
+    assert.equal(reference.textContent, `${citation.document} · ${citation.article_path}`);
+    assert.equal(dateLine.textContent, labels.date);
+    assert.equal(original.className, "original-lang");
+    assert.equal(original.textContent, labels.original);
+    assert.equal(snippet.tagName, "blockquote");
+    assert.equal(snippet.textContent, citation.snippet);
+    assert.equal(snippet.attributes.get("lang"), "ko");
+    assert.equal(link.textContent, labels.link);
+    assert.ok(link.children[0].textContent.includes(`${citation.document} · ${citation.article_path}`));
+    assert.ok(link.children[0].textContent.includes(labels.tab));
+  });
+}
 
 for (const [label, fields] of unlinkedCases) {
   test(`keeps the citation intact without a source link for ${label}`, async () => {
