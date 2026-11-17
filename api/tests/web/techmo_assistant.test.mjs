@@ -234,7 +234,7 @@ test("큰 판은 56px 경계만 부드럽게 잇고 바닥과 같은 면을 쓴�
   const layout = declarationsAtWidth(".layout", 1280);
   assert.equal(layout.border, "0");
   assert.equal(layout["border-radius"], "0");
-  assert.equal(layout.background, "linear-gradient(180deg, transparent, var(--panel-surface) 56px)");
+  assert.equal(layout.background, "linear-gradient(180deg, transparent, var(--main-surface) 56px)");
   assert.equal(declarationsAtWidth('body[data-view="chat"] .layout', 1280).border, "0");
 });
 
@@ -309,7 +309,8 @@ test("펫의 움직임 네 가지는 서로 다른 요소·속성에 걸고, 움
   // 그 내용은 motion_layout.test.mjs가 따로 확인한다.
   const allOff = ".pet-float, .pet-hop, .pet-frame, .pet-dots span, .hero-art::before, .login-card, .login-techmo, button.card:hover";
   const transitionOff = "::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*)";
-  assert.deepEqual(animated.filter(([selector]) => !/chat-surface|chat-composer|conversation-pending|data-sprite-layout|data-facing/.test(selector)), [
+  // 답변 모드 효과(mode-·is-deep-enter·is-waiting)는 landing_design.test.mjs와 motion_layout.test.mjs가 따로 본다.
+  assert.deepEqual(animated.filter(([selector]) => !/chat-surface|chat-composer|conversation-pending|data-sprite-layout|data-facing|mode-|is-deep-enter|is-waiting/.test(selector)), [
     [".pet-dots span", "dot-hop 1s ease-in-out infinite"],
     [".pet-float", "pet-float 1.8s ease-in-out infinite alternate"],
     ['.pet-dock[data-pose="quiet"] .pet-hop', "pet-hop-quiet .4s ease-out"],

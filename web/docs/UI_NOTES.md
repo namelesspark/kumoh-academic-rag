@@ -864,11 +864,92 @@ node --test api/tests/web/campus_backdrop.test.mjs api/tests/web/citation_link.t
 기존 `data-brand-slot` 처리로 그림을 숨기고 `금오공대 학사 안내` 글자를 보인다.
 메인 판은 테두리와 둥근 모서리를 없애고 위쪽 56px에서 투명부터 판 색까지 이어진다.
 `main.layout` 안의 `#main-site-footer`까지 판을 이어 화면 아래에 사진 틈이 남지 않게 한다.
-바닥은 판과 같은 불투명 남색을 써, 판 밖에 있는 기존 바닥 구조에서도 문구 대비를 확보한다.
+바닥은 판 위에 말풍선과 같은 반투명 면(`--main-bubble`)을 깔아 문구 대비를 확보한다(#110에서 불투명 남색을 바꿈).
 로그인 바닥은 `#login-site-footer`, 목록 아래 링크는 `#sidebar-campus-site-links`를 쓴다.
 학교 홈페이지·포털(Onekit)·BISKIT 링크는 `.campus-site-links`로 묶고 좁은 화면에서 줄을 바꾼다.
 680px 이하 상단은 로고·학생 이름·로그아웃·새 대화를 한 줄로 놓고 이름은 말줄임한다.
 보조 안내는 숨기고 버튼 높이는 40px 이상으로 둔다. 실제 360px 배치는 통합 뒤 사용자가 확인한다.
+
+## 입력 상자 안 답변 모드와 반투명 패널 (#110)
+
+### 답변 모드 선택기
+
+- 입력 상자 밖의 `fieldset#ai-mode` 라디오를 없앴다. `.composer-row` 안의 `#question`과 `#send` 사이에
+  알약 버튼 `#ai-mode-button.mode-pill`을 둔다. 빠르게는 번개 아이콘과 「빠르게」, 깊이는 네 갈래 별(✦)과
+  「깊이 생각」을 보이고 끝에 꺾쇠를 둔다. 아이콘 SVG는 `index.html`에 직접 둔다. 보안 정책
+  `default-src 'self'`가 CSS 안의 `data:` 그림을 막기 때문이다.
+- 누르면 버튼 위쪽에 「답변 모드」 메뉴가 뜬다. 항목은 아이콘·이름·한 줄 설명·체크 표시다.
+  - 빠르게 — 바로 답해요 · 보통 1~3초
+  - 깊이 생각하기 — 생각 과정을 보여 주며 꼼꼼히 답해요 · 10~30초
+- 키보드: 위아래 화살표로 이동하고 끝에서 처음으로 돈다. Enter·Space로 고른다. Esc는 메뉴만 닫고
+  버튼으로 초점을 돌린다. 대화 메뉴나 서랍까지 닫지 않는다. 바깥 클릭과 Tab은 닫되, 사용자가 옮긴 초점을 빼앗지 않는다.
+- 저장: 키 `kumoh-chat-ai-mode:v1`과 요청 본문의 `mode` 값은 그대로다. 저장에 실패하면 상태·버튼 글자·
+  `aria-label`·체크·깊이 표시를 모두 빠르게로 되돌린다.
+- 진행 중 변경: 답을 받는 중에 바꾸면 다음 질문부터 적용한다. 요청마다 보낼 때의 모드를 기억한다.
+- 메뉴는 버튼·머리글·항목 목록·선택 콜백을 받는 작은 함수(`openChoiceMenu` 꼴)다. 답변 모드 전용 값은 함수 밖에 둔다.
+  다음 이슈의 머리글 언어 선택이 같은 함수와 `.choice-menu` 스타일을 다시 쓴다.
+
+### 스크립트와 스타일이 함께 지키는 이름
+
+| 이름 | 붙이는 쪽 | 뜻 |
+| --- | --- | --- |
+| `#ai-mode-button.mode-pill[data-mode=fast\|deep]` | chat.js | 현재 모드. CSS는 `data-mode`로 아이콘 하나만 보인다 |
+| `.mode-icon[data-icon=fast\|deep]`, `.mode-pill-label`, `.mode-pill-chevron` | index.html | 버튼 안쪽 |
+| `body > .choice-menu` | chat.js | 메뉴. 안쪽은 `.choice-menu-title`, `.choice-menu-item[data-choice-value]`, `.choice-menu-icon`·`.choice-menu-name`·`.choice-menu-desc`·`.choice-menu-check` |
+| `--choice-menu-x`, `--choice-menu-y` | chat.js(`style.setProperty`) | 메뉴 좌표. 화면 안쪽 보정과 초점은 JS, 너비·최대 높이·겹침 순서는 CSS |
+| `.composer-row.is-deep`, `.mode-pill[data-mode=deep]` | chat.js | 고정 표시. 움직임 설정과 상관없이 1px 그라데이션 테두리를 그린다 |
+| `.mode-pill.is-bursting`, `.mode-spark`, `.composer-row.is-deep-enter` | chat.js | 고르는 순간의 효과. 0.7초·0.9초 뒤 뗀다 |
+| `.mode-pill.is-flowing` | chat.js | 깊이 모드인 동안 테두리가 흐르고 3초마다 빛줄기가 지난다 |
+| `.thinking.is-waiting` | chat.js | 첫 생각 조각 전부터 「생각하는 중」 글자 위로 빛이 흐른다 |
+
+- 효과 클래스는 움직임이 허용될 때만 붙는다. CSS도 `prefers-reduced-motion: reduce`에서 효과의 `animation`을 끄고
+  별·빛줄기·감싸는 빛을 그리지 않는다. 고정 그라데이션 테두리만 남는다.
+- 메뉴는 서랍(z-index 11)과 테크모(20) 위, 삭제 확인 창(40) 아래인 30에 뜬다. 너비는 `min(320px, calc(100vw - 32px))`다.
+- 480px 이하에서는 버튼 글자(`.mode-pill-label`)를 숨기고 아이콘과 꺾쇠만 남긴다. 현재 값은 `aria-label`이 읽는다.
+- 깊이 색은 학교 파랑 `#00A3D9`(`--sky`) → 보라 `#6A4BD8`(`--deep-violet`) → 노랑 `#F7C500`(`--deep-gold`)다.
+
+### 반투명 기준
+
+반투명 면은 간유리 창과 같다. 한 장이면 바깥이 흐리게 보이지만 두세 장 겹치면 벽이 된다.
+
+| 면 | 토큰 | 불투명도 | 흐림 |
+| --- | --- | --- | --- |
+| 큰 면: 첫 화면 `.layout`, 채팅 화면 `#conversation-sidebar`·대화 영역 | `--main-surface` | .50 | `blur(16px) saturate(1.3)` |
+| 말풍선·카드·패널·바닥·상태 줄 | `--main-bubble` (마우스 `--main-bubble-hover`, 현재 항목 `--main-bubble-active`) | .66 (.68) | 말풍선·카드는 `blur(10px)` |
+| 말풍선 안 근거·표·사진 읽기 상자 | `--main-inset` | .30 | 없음 |
+| 입력 안내 줄 `.composer-meta` | `--main-backing` | .80 | `blur(10px)` |
+
+- 큰 면끼리 겹치지 않는다. 첫 화면은 판 한 장이고 대화 영역은 투명하다. 채팅 화면은 판과 흐림 층을 비우고
+  목록과 대화 영역이 각자 큰 면이 된다. 960px 이하에서 서랍을 열 때만 목록이 가림막 위에 잠시 겹친다.
+- `.layout`에는 `backdrop-filter: none`을 유지한다. 판에 흐림을 주면 안쪽의 고정 서랍과 가림막의 위치 기준이
+  화면에서 판으로 바뀐다. 흐림은 판 뒤에 까는 `.layout::before`(z-index -1)가 맡고, 판과 같은 56px 경계에서 마스크로 시작한다.
+- 흐림을 지원하지 않는 브라우저는 `@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)))`
+  안에서 이전 값을 쓴다. 판 `--panel-surface`, 목록·말풍선·카드·안내 줄 `--glass-dense`다. Safari를 위해
+  `-webkit-backdrop-filter`를 함께 적는다.
+- 로그인 화면의 `--glass-*` 값과 `.login-card`·`.masthead`의 `blur(1.5px) saturate(1.2)`는 바꾸지 않았다.
+- 메인 화면의 초점 테두리는 흰색(`#main-screen :focus-visible`)이다. 기존 하늘색 `--focus-ink`는 흰 사진 가정에서
+  판(.50)과 약 2.1:1이라 3:1에 못 미친다. 밝은 입력 상자 안은 지금처럼 `--blue`를 쓴다.
+
+### 대비 계산 가정과 결과
+
+- 가정: 사진의 가장 밝은 부분은 흰색(#FFFFFF), 가장 어두운 부분은 `#041426`이다. 글자 뒤 면을 사진 위에서부터
+  차례로 합성해 계산한다(`landing_design.test.mjs`의 `fills`). 큰 판 위쪽 56px은 투명에서 시작하므로
+  그 띠에 걸치는 입력 안내 줄은 큰 판 없이 계산한다.
+- 남색 .50 면 위의 흰 글자는 흰 배경 가정에서 약 3.3:1이다. 그래서 큰 면 위에 글자를 바로 놓지 않는다.
+  상태 줄, 바닥, 대화 목록 항목·버튼·안내·링크 뒤에만 `--main-bubble`을 깐다.
+- .68 면은 약 5.9:1이다. 말풍선(.66)을 큰 면(.50) 위에 놓으면 합성 불투명도는 약 .83이다. 흐린 안내 글자(`--muted`)도
+  4.5:1을 넘는다. 입력 안내 줄(.80 단독)은 약 5.5:1이다.
+- 결과: `landing_design.test.mjs`가 첫 화면, 채팅 화면, 대화 목록, 답변 모드 메뉴, 대체 값 환경의 글자 4.5:1을 검사한다.
+  테두리·초점 3:1도 두 사진 가정에서 검사한다. 위 수치는 손으로 계산한 값이다. 검사 실행 결과는 PR에 따로 적는다.
+
+### 브라우저 확인
+
+- 이 작업에서는 브라우저를 띄우지 않았다. 아래 항목은 통합 뒤 실제 화면에서 확인해 PR에 적는다. 자동 검사와는 따로 적는다.
+  - 첫 화면과 채팅 화면 모두 페이지 전체 높이에서 사진이 흐리게 비치는지
+  - `.layout::before` 흐림이 판 뒤 사진을 실제로 흐리게 하는지(Chrome·Safari). `view-transition-name`이 붙은 판의
+    화면 전환 중에는 흐림이 잠깐 사라질 수 있다.
+  - 메뉴가 화면 가장자리에서 잘리지 않는지, 360·390·480px에서 버튼이 아이콘과 꺾쇠만 보이는지
+  - 깊이 모드의 별 퍼짐(0.7초), 상자를 감싸는 빛(0.9초), 3초 빛줄기, 「생각하는 중」 글자 빛과 움직임 줄이기 설정
 
 ### 화면 테스트 명령
 
