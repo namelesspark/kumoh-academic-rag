@@ -1103,8 +1103,8 @@ body[data-view="chat"] .composer textarea { height: 44px; min-height: 44px; max-
   .conversation-pending { animation: none; }
   ::view-transition-group(chat-composer), ::view-transition-old(chat-surface), ::view-transition-new(chat-surface) { animation: none !important; }
   /* 답변 모드 효과. chat.js도 이 설정에서는 효과 클래스를 붙이지 않는다. 고정 그라데이션 테두리만 남는다. */
-  .mode-pill.is-flowing, .mode-pill.is-bursting .mode-icon[data-icon="deep"], .thinking.is-waiting > summary { animation: none !important; }
-  .mode-spark, .mode-pill.is-flowing::before, .composer-row.is-deep-enter::after { animation: none !important; display: none; }
+  .mode-pill.is-bursting .mode-icon[data-icon="deep"], .thinking.is-waiting > summary { animation: none !important; }
+  .mode-spark, .mode-pill.is-flowing::after, .mode-pill.is-flowing::before, .composer-row.is-deep-enter::after { animation: none !important; display: none; }
 }
 
 /* 이동은 바깥 상자, 바라보는 방향은 안쪽 상자, 프레임은 배경이 맡는다. */
@@ -1303,9 +1303,23 @@ body[data-techmo-dragging="true"] { user-select: none; }
   0% { opacity: 1; transform: translate(-50%, -50%) rotate(var(--spark-angle)) translateY(0) scale(.4); }
   100% { opacity: 0; transform: translate(-50%, -50%) rotate(var(--spark-angle)) translateY(-28px) scale(1); }
 }
-/* 흐르는 동안에만 고리를 3배로 늘려 옮긴다. 고정 표시는 위의 100% 크기로 세 색을 모두 보인다. */
-.mode-pill.is-flowing { background: linear-gradient(var(--white), var(--white)) padding-box, linear-gradient(90deg, var(--sky), var(--deep-violet), var(--deep-gold), var(--sky)) 0 0 / 300% 100% border-box; animation: mode-border-flow 6s linear infinite alternate; }
-@keyframes mode-border-flow { from { background-position: 0 0, 0 0; } to { background-position: 0 0, 100% 0; } }
+/* 흐르는 고리는 버튼 위에 겹친 별도 층(::after)이다. 버튼 자신의 배경은 효과와 상관없이 고정 표시 그대로 둔다.
+   그래서 효과 클래스가 남은 채 움직임 줄이기를 켜도 층만 사라지고 세 색 고정 테두리가 보인다. */
+.mode-pill.is-flowing::after {
+  content: "";
+  position: absolute;
+  inset: -1.5px;
+  border-radius: inherit;
+  padding: 1.5px;
+  pointer-events: none;
+  background: linear-gradient(90deg, var(--sky), var(--deep-violet), var(--deep-gold), var(--sky)) 0 0 / 300% 100%;
+  -webkit-mask: linear-gradient(var(--white) 0 0) content-box, linear-gradient(var(--white) 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(var(--white) 0 0) content-box, linear-gradient(var(--white) 0 0);
+  mask-composite: exclude;
+  animation: mode-border-flow 6s linear infinite alternate;
+}
+@keyframes mode-border-flow { from { background-position: 0 0; } to { background-position: 100% 0; } }
 .mode-pill.is-flowing::before {
   content: "";
   position: absolute;

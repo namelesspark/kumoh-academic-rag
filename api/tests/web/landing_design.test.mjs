@@ -416,7 +416,7 @@ test("깊이 모드: 고정 테두리는 상태만으로 그리고, 효과는 �
     .filter(selector => /mode-|composer-row|thinking|choice-menu/.test(selector));
   assert.deepEqual(effects, [
     ".composer-row.is-deep-enter::after", '.mode-pill.is-bursting .mode-icon[data-icon="deep"]', ".mode-spark",
-    ".mode-pill.is-flowing", ".mode-pill.is-flowing::before", ".thinking.is-waiting > summary",
+    ".mode-pill.is-flowing::after", ".mode-pill.is-flowing::before", ".thinking.is-waiting > summary",
   ]);
   const seconds = selector => Number.parseFloat(/(\d*\.?\d+)s/.exec(declared(selector, ["animation"]))[1]);
   assert.equal(seconds(".composer-row.is-deep-enter::after"), .9);
@@ -428,17 +428,40 @@ test("깊이 모드: 고정 테두리는 상태만으로 그리고, 효과는 �
   // 움직임 줄이기 설정에서는 효과의 움직임을 끄고 별·빛줄기·감싸는 빛은 그리지 않는다.
   const calm = { motion: true };
   for (const selector of effects) assert.equal(declared(selector, ["animation"], undefined, calm), "none !important", selector);
-  for (const selector of [".mode-spark", ".mode-pill.is-flowing::before", ".composer-row.is-deep-enter::after"]) {
+  for (const selector of [".mode-spark", ".mode-pill.is-flowing::after", ".mode-pill.is-flowing::before", ".composer-row.is-deep-enter::after"]) {
     assert.equal(declared(selector, ["display"], undefined, calm), "none", selector);
   }
-  // 고정 표시는 움직임 줄이기에서도 남는다. 버튼 고리는 100% 크기로 깔아 파랑·보라·노랑이 모두 보이고,
-  // 3배로 늘려 옮기는 것은 흐름 효과(.is-flowing)에서만 한다.
   assert.match(declared(".composer-row.is-deep::before", ["background"], undefined, calm), gradient);
-  const deepRing = declared('.mode-pill[data-mode="deep"]', ["background"], undefined, calm);
-  assert.match(deepRing, /linear-gradient\(90deg, var\(--sky\), var\(--deep-violet\), var\(--deep-gold\)\) 0 0 \/ 100% 100% border-box$/);
-  assert.doesNotMatch(deepRing, /300%/);
-  assert.match(declared(".mode-pill.is-flowing", ["background"]), /\/ 300% 100% border-box$/);
-  assert.equal(find('.mode-pill[data-mode="deep"]', ["background-size", "background-position"], calm), undefined);
+  // 버튼 자신의 배경은 효과 클래스와 움직임 설정에 상관없이 고정 표시 하나로 정해진다.
+  // 실제 버튼처럼 상태 클래스를 조합해 그 요소에 걸리는 규칙을 모두 모아 계산한다. 예전 결함 두 가지를 함께 본다.
+  //  · 흐름 효과 없이 깊이 모드만 켠 버튼에서 300% 배경 때문에 노랑이 잘림
+  //  · 흐름 효과가 붙은 채 움직임 줄이기를 켜면 애니메이션만 멈추고 300% 배경이 남아 노랑이 잘림
+  const pillParts = selector => {
+    const match = /^\.mode-pill((?:\.[\w-]+|\[[^\]]+\])*)$/.exec(selector);
+    return match ? [...match[1].matchAll(/\.[\w-]+|\[[^\]]+\]/g)].map(([part]) => part) : null;
+  };
+  const pillBackground = (state, env) => {
+    const result = {};
+    for (const rule of rules) {
+      if (!applies(rule.context, { ...desktop, ...env })) continue;
+      if (!rule.selectors.some(selector => pillParts(selector)?.every(part => state.includes(part)))) continue;
+      for (const [name, value] of rule.declarations) if (name.startsWith("background")) result[name] = value;
+    }
+    return result;
+  };
+  const fixedRing = /linear-gradient\(90deg, var\(--sky\), var\(--deep-violet\), var\(--deep-gold\)\) 0 0 \/ 100% 100% border-box$/;
+  for (const state of [['[data-mode="deep"]'], ['[data-mode="deep"]', ".is-flowing"], ['[data-mode="deep"]', ".is-flowing", ".is-bursting"]]) {
+    for (const env of [{ motion: false }, { motion: true }]) {
+      const paint = pillBackground(state, env);
+      assert.deepEqual(Object.keys(paint), ["background"], `${state.join("")} ${env.motion}`);
+      assert.match(paint.background, fixedRing, `${state.join("")} ${env.motion}`);
+      assert.doesNotMatch(paint.background, /300%/);
+    }
+  }
+  // 흐르는 고리는 별도 층에서만 3배로 늘려 옮기고, 테두리 자리만 칠한다.
+  assert.match(declared(".mode-pill.is-flowing::after", ["background"]), /\/ 300% 100%$/);
+  assert.equal(declared(".mode-pill.is-flowing::after", ["mask-composite"]), "exclude");
+  assert.equal(declared(".mode-pill.is-flowing::after", ["pointer-events"]), "none");
   // 생각 중 글자 빛은 글자를 배경으로 칠할 수 있는 브라우저에서만 켠다.
   assert.equal(declared(".thinking.is-waiting > summary", ["background-clip"]), "text");
   assert.equal(declared(".thinking.is-waiting > summary", ["-webkit-background-clip"]), "text");
@@ -462,7 +485,7 @@ test("전체 CSS에서 남은 밝은 바탕은 입력 줄과 상태 표시이며
   assert.deepEqual(lightSurfaces, [
     ".attach-button:hover", ".composer textarea", ".composer-row",
     ".composer-row.is-deep-enter::after", ".composer-row.is-deep::before", ".conversation-unread", ".intro-badge::before",
-    ".login-safety::before", ".mode-pill.is-flowing", ".mode-pill:hover", '.mode-pill[data-mode="deep"]', ".mode-spark", ".pet-dots span", '[data-campus-step][data-current="true"]',
+    ".login-safety::before", ".mode-pill.is-flowing::after", ".mode-pill:hover", '.mode-pill[data-mode="deep"]', ".mode-spark", ".pet-dots span", '[data-campus-step][data-current="true"]',
   ]);
   checkText([
     [".composer-row", ".composer-row"], [".composer textarea", ".composer textarea"],
