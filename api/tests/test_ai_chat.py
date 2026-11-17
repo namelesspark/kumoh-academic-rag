@@ -23,6 +23,7 @@ sys.path[:0] = [str(API_DIR)]
 from api.tests.asgi_harness import run_without_sockets
 
 from app.services import ai_chat
+from app.services.chat_retrieval import SKIP_SEARCH, ChatRetrieval
 from app.services.ai_chat import (
     NOTICE_TEXT,
     AiChat,
@@ -1064,20 +1065,37 @@ class ForeignQualityTests(unittest.TestCase):
                 self.assertEqual(body["citations"], [])
                 self.assertNotIn("notice", body)
 
+    @staticmethod
+    def skipping_search(session_id, lang, retriever_calls):
+        """요청 처리 함수와 같은 모양의 검색 콜백. 실제 ChatRetrieval을 거친다."""
+
+        def retrieve(query):
+            retriever_calls.append(query)
+            return []
+
+        retrieval = ChatRetrieval(
+            search=retrieve, raw_search=retrieve, source="가상 원문", document_title="가상 규정",
+            effective_date=date(2099, 1, 1), source_url=None,
+        )
+        return lambda query: retrieval.build_result(query, session_id, relaxed=True, lang=lang)
+
     @without_sockets
     async def test_none_translation_skips_search_and_goes_to_guidance(self):
         for marker in ("NONE", " none. "):
             with self.subTest(marker=marker):
                 transport = CallsTransport(sse(delta(content=marker)), sse(delta(content="Hello! Ask me about graduation.")))
                 queried = []
+                retriever_calls = []
+                inner = self.skipping_search(None, "en", retriever_calls)
 
                 def search(query):
                     queried.append(query)
-                    return dict(RESULT)
+                    return inner(query)
 
                 ai = AiChat(SETTINGS, transport=transport)
                 events = [e async for e in ai.localized_events("hi", "fast", search, lang="en")]
-                self.assertEqual(queried, [])
+                self.assertEqual(queried, [SKIP_SEARCH])
+                self.assertEqual(retriever_calls, [])
                 self.assertIn("NONE만 답하라", transport.calls[0]["messages"][0]["content"])
                 self.assertEqual(events[0][0], "meta")
                 self.assertIs(events[0][1]["answered"], False)
@@ -1091,27 +1109,30 @@ class ForeignQualityTests(unittest.TestCase):
                 self.assertEqual(transport.calls[1]["messages"][1]["content"], "<질문>\nhi\n</질문>")
                 self.assertEqual(ai.available_slots, 4)
 
-    @without_sockets
-    async def test_none_keeps_given_session_and_makes_one_only_when_missing(self):
+    def test_skip_marker_keeps_session_and_never_calls_the_retriever(self):
         session = "00000000-0000-4000-8000-000000000119"
-        seen = []
-        for given in (session, None):
-            transport = CallsTransport(sse(delta(content="NONE")), sse(delta(content="Hello!")))
-            ai = AiChat(SETTINGS, transport=transport)
-            events = [e async for e in ai.localized_events(
-                "hi", "fast", lambda query: self.fail("검색함"), lang="en", session_id=given,
-            )]
-            seen.append(events[0][1]["session_id"])
-            self.assertIs(events[-1][1]["guided"], True)
-        self.assertEqual(seen[0], session)
-        self.assertTrue(seen[1])
-        self.assertNotEqual(seen[1], session)
+        for given, lang in ((session, "en"), (None, "zh")):
+            with self.subTest(given=given):
+                calls = []
+                result = self.skipping_search(given, lang, calls)(SKIP_SEARCH)
+                self.assertEqual(calls, [])
+                self.assertEqual(result["citations"], [])
+                self.assertIs(result["answered"], False)
+                self.assertEqual(result["answer"], ai_chat.refusal_text(lang))
+                if given:
+                    self.assertEqual(result["session_id"], session)
+                else:
+                    self.assertTrue(result["session_id"])
+        self.assertNotEqual(SKIP_SEARCH, "SKIP_SEARCH")
+        self.assertNotIsInstance(SKIP_SEARCH, str)
 
     @without_sockets
     async def test_none_guidance_failure_returns_language_refusal(self):
         transport = CallsTransport(sse(delta(content="NONE")), sse(delta(content=" ")))
         ai = AiChat(SETTINGS, transport=transport)
-        events = [e async for e in ai.localized_events("hi", "fast", lambda query: self.fail("검색함"), lang="zh")]
+        calls = []
+        events = [e async for e in ai.localized_events("hi", "fast", self.skipping_search(None, "zh", calls), lang="zh")]
+        self.assertEqual(calls, [])
         self.assertEqual(answer_text(events), ai_chat.refusal_text("zh"))
         self.assertIs(events[-1][1]["answered"], False)
         self.assertNotIn("notice", [name for name, _ in events])

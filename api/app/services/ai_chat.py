@@ -21,14 +21,14 @@ import json
 import re
 import time
 import unicodedata
-import uuid
 from collections import deque
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from contextlib import aclosing
 from dataclasses import dataclass
 
 from app.schemas.chat import Citation
-from app.services.chat_stub import UNANSWERABLE_TEXT, ZERO_LATENCY, refusal_text
+from app.services.chat_retrieval import SKIP_SEARCH
+from app.services.chat_stub import UNANSWERABLE_TEXT, refusal_text
 
 
 BASE_URL_ENV = "AI_BASE_URL"
@@ -496,20 +496,6 @@ def _cut_markers(answer: str) -> str:
     return answer
 
 
-def no_basis_result(lang: str = "ko", session_id: str | None = None) -> dict:
-    """검색을 건너뛴 질문용. 검색 결과와 같은 모양의 근거 없는 결과.
-
-    대화 번호는 `ChatRetrieval.build_result`처럼 받은 값을 쓰고, 없을 때만 새로 만든다.
-    """
-
-    return {
-        "session_id": session_id or str(uuid.uuid4()),
-        "answer": refusal_text(lang),
-        "citations": [],
-        "answered": False,
-        "personalized": False,
-        "latency_ms": dict(ZERO_LATENCY),
-    }
 
 
 async def _quietly_close(response: UpstreamResponse) -> None:
@@ -644,7 +630,6 @@ class AiChat:
 
     async def localized_events(
         self, message: str, mode: str, search: Callable[[str], dict], *, lang: str = "ko",
-        session_id: str | None = None,
     ) -> AsyncIterator[Event]:
         started = self._clock()
         acquired = False
@@ -677,7 +662,8 @@ class AiChat:
                         query = candidate
                 except AiUnavailable:
                     pass
-            result = no_basis_result(lang, session_id) if query is None else search(query)
+            # 검색어가 없으면 검색 생략 표지를 넘긴다. 요청을 아는 쪽(build_result)이 대화 번호를 담는다.
+            result = search(SKIP_SEARCH if query is None else query)
             async with aclosing(self.events(result, message, mode, lang=lang, started=started, slot_held=True)) as events:
                 async for event in events:
                     yield event
