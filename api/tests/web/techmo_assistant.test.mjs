@@ -113,9 +113,9 @@ test("펫은 요청 중에 잠기지 않는 버튼이다", () => {
   // 떠 있기·튀기·그림 칸은 서로 다른 요소다.
   assert.ok(petMarkup.includes('<span class="pet-float"><span class="pet-hop"><span class="pet-frame"></span></span></span>'));
   // 화면 보안 정책이 막는 style 속성과 스크립트의 그림 주소 교체는 쓰지 않는다.
-  // 스크립트는 테크모와 대화 메뉴 좌표를 CSS 변수로만 넘긴다.
+  // 스크립트는 테크모·대화 메뉴·선택 메뉴(답변 모드) 좌표를 CSS 변수로만 넘긴다.
   assert.doesNotMatch(html, /\sstyle=/);
-  assert.doesNotMatch(script, /\.src\s*=|\.style\b(?!\??\.(?:setProperty|removeProperty)\(["`]--(?:techmo|conversation-menu)-)/);
+  assert.doesNotMatch(script, /\.src\s*=|\.style\b(?!\??\.(?:setProperty|removeProperty)\(["`]--(?:techmo|conversation-menu|choice-menu)-)/);
 });
 
 test("그림 칸은 스프라이트 한 장의 배경 위치로만 고른다: 0·25·50·75·100%", () => {
