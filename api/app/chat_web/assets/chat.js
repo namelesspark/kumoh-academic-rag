@@ -1876,7 +1876,7 @@ document.addEventListener?.("pointerdown", event => {
 function setupAiMode() {
   try { aiMode = historyStorage()?.getItem(aiModeKey) === "deep" ? "deep" : "fast"; } catch { aiMode = "fast"; }
   const button = document.querySelector("#ai-mode-button");
-  if (!button) return;
+  if (!button || typeof button.querySelector !== "function") return;
   const row = document.querySelector(".composer-row"), label = button.querySelector(".mode-pill-label");
   const icons = ["fast", "deep"].map(value => button.querySelector(`.mode-icon[data-icon=${value}]`));
   if (!row || !label || icons.some(icon => !icon)) return;

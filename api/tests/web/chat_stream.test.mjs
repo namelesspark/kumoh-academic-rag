@@ -141,8 +141,10 @@ function choiceItems(page) { return page.menu().children.filter(node => node.att
 test("모드 선택기 내부가 없는 화면은 초기화를 건너뛴다", () => {
   const start = script.indexOf("function setupAiMode()");
   const end = script.indexOf("setupAiMode();", start) + "setupAiMode();".length;
-  const placeholder = { querySelector: () => null };
-  for (const saved of [null, "deep"]) {
+  for (const [placeholder, saved] of [
+    [{}, null], [{}, "deep"],
+    [{ querySelector: () => null }, null], [{ querySelector: () => null }, "deep"],
+  ]) {
     const context = {
       aiMode: "fast", aiModeKey: "kumoh-chat-ai-mode:v1",
       historyStorage: () => ({ getItem: () => saved }),
