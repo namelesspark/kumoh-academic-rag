@@ -8,9 +8,14 @@
 import unittest
 from datetime import date
 from types import SimpleNamespace
+from unittest import mock
 
 from api.demo_regulation import DOCUMENT_TITLE, EFFECTIVE_DATE, SOURCE
-from api.regulation_app import create_regulation_app, create_regulations_app
+from api.regulation_app import (
+    build_regulations_retrieval,
+    create_regulation_app,
+    create_regulations_app,
+)
 from api.tests.asgi_harness import call_app
 from core.tests.retrieval_cases import (
     MAX_CHARS,
@@ -23,7 +28,13 @@ from core.tests.retrieval_cases import (
     SPLIT_TITLE,
 )
 
-from app.services.chat_relevance import core_words, is_supported, keep_supported
+from app.services.chat_relevance import (
+    cleaned_search,
+    core_words,
+    is_supported,
+    keep_supported,
+    search_query,
+)
 from app.services.chat_stub import UNANSWERABLE_TEXT
 from kumoh_rag_core.chunking import chunk_articles
 from kumoh_rag_core.retrieval import BM25Retriever
@@ -31,6 +42,7 @@ from kumoh_rag_core.retrieval import BM25Retriever
 
 CHAT = "/api/v1/chat"
 LEAVE_QUESTION = "휴학은 몇 학기까지 할 수 있나요?"
+GRADUATION_QUESTION = "졸업하려면 몇 학점을 이수해야 하나요?"
 # 가상 규정에 없는 주제이거나 핵심 낱말이 모자라 보류해야 하는 질문 (이슈 #76)
 HELD_QUESTIONS = (
     LEAVE_QUESTION,
@@ -125,12 +137,92 @@ class CoreWordTests(unittest.TestCase):
     def test_particle_is_kept_when_only_one_letter_would_remain(self):
         # '학과'의 '과', '지도'의 '도'를 조사로 떼면 낱말이 사라진다.
         self.assertEqual(core_words("학과 지도"), ("학과", "지도"))
+        # '예약하나요'는 어미 '하나요'를 떼고 '예약'을 남긴다 (이슈 #113).
         self.assertEqual(
-            core_words("망원경은 며칠 전에 예약하나요"), ("망원경", "전에")
+            core_words("망원경은 며칠 전에 예약하나요"), ("망원경", "전에", "예약")
         )
 
     def test_repeated_word_is_listed_once(self):
         self.assertEqual(core_words("휴학은 휴학이 휴학"), ("휴학",))
+
+    def test_predicate_endings_after_a_topic_are_removed(self):
+        cases = (
+            (GRADUATION_QUESTION, ("졸업", "학점", "이수")),
+            ("휴학 신청은 언제까지 해야 하나요", ("휴학", "신청")),
+            ("한 학기에 최대 몇 학점까지 수강신청할 수 있나요", ("학기", "최대", "학점", "수강신청")),
+            ("조기졸업할 수 있나요?", ("조기졸업",)),
+            ("복학은 언제 신청하나요", ("복학", "신청")),
+            ("휴학이 승인되려면", ("휴학", "승인")),
+            ("졸업하면 학위가 나오나요", ("졸업", "학위")),
+        )
+        for line, expected in cases:
+            with self.subTest(line=line):
+                self.assertEqual(core_words(line), expected)
+
+    def test_ending_only_words_and_one_letter_stems_follow_old_rules(self):
+        # 어미뿐인 낱말은 버린다.
+        for line in ("해야 하나요", "되나요 있나요 없나요", "하려면 되면"):
+            with self.subTest(line=line):
+                self.assertEqual(core_words(line), ())
+        # 한 글자만 남는 낱말은 그대로 두고 기존 규칙을 따른다.
+        self.assertEqual(core_words("역할 분할"), ("역할", "분할"))
+
+
+class SearchQueryTests(unittest.TestCase):
+    def test_endings_are_not_passed_to_the_retriever(self):
+        query = search_query(GRADUATION_QUESTION)
+
+        self.assertEqual(query, "졸업 학점 이수")
+        for noise in ("하려면", "해야", "하나요", "나요", "려면", "몇", "?"):
+            with self.subTest(noise=noise):
+                self.assertNotIn(noise, query)
+
+    def test_article_numbers_are_kept_for_number_priority(self):
+        cases = (
+            ("제12조", "제12조"),
+            ("제12조의2", "제12조의2"),
+            ("제12조는 무엇인가요", "제12조"),
+            ("제1조 대패", "제1조 대패"),
+            ("제３조 달빛열람증을 누가 내주나요", "제3조 달빛열람증"),
+        )
+        for question, expected in cases:
+            with self.subTest(question=question):
+                self.assertEqual(search_query(question), expected)
+
+    def test_each_line_is_cleaned_alone_and_empty_lines_drop(self):
+        self.assertEqual(
+            search_query("어떤 서류가 필요해요?\n\n달빛열람증"), "서류\n달빛열람증"
+        )
+        for question in ("누가 내주나요", "", "\n"):
+            with self.subTest(question=question):
+                self.assertEqual(search_query(question), "")
+
+    def test_cleaned_search_passes_the_cleaned_query_and_keeps_hits(self):
+        queries = []
+        hits = [object()]
+
+        def search(query):
+            queries.append(query)
+            return hits
+
+        self.assertIs(cleaned_search(search)(GRADUATION_QUESTION), hits)
+        self.assertEqual(queries, ["졸업 학점 이수"])
+
+    def test_app_judges_support_with_the_original_question(self):
+        # 검색기는 정리한 질의만 받고, 근거 판정은 원래 질문의 핵심 낱말로 한다.
+        retriever_queries = []
+        retriever = BM25Retriever(demo_chunks())
+
+        def recording(query, top_k=5):
+            retriever_queries.append(query)
+            return retriever.retrieve(query, top_k)
+
+        search = keep_supported(cleaned_search(recording))
+        hits = search("달빛열람증을 누가 내주나요")
+
+        self.assertEqual(retriever_queries, ["달빛열람증"])
+        self.assertEqual(hits[0].chunk.article_path, "제3조(달빛 열람)")
+        self.assertEqual(search("달빛열람증 휴학"), [])
 
 
 class SupportTests(unittest.TestCase):
@@ -279,6 +371,33 @@ class AppAnswerTests(unittest.TestCase):
         for question, document, article_path, snippet in cases:
             with self.subTest(question=question):
                 self.assert_cited(app, question, document, article_path, snippet)
+
+    def test_apps_send_only_the_cleaned_query_to_the_retriever(self):
+        original = BM25Retriever.retrieve
+        queries = []
+
+        def recording(retriever, query, top_k=5):
+            queries.append(query)
+            return original(retriever, query, top_k)
+
+        with mock.patch.object(BM25Retriever, "retrieve", recording):
+            demo = create_demo_app()
+            several = create_regulations_app([OBSERVATORY, WOODSHOP])
+            built = build_regulations_retrieval([OBSERVATORY, WOODSHOP])
+            for app in (demo, several):
+                with self.subTest(app=app):
+                    queries.clear()
+                    self.assert_held(app, GRADUATION_QUESTION)
+                    self.assertEqual(queries, ["졸업 학점 이수"])
+            queries.clear()
+            relaxed = built.chat_retrieval.build_result(
+                "망원경은 며칠 전에 예약해야 하나요", None, relaxed=True
+            )
+
+        self.assertEqual(queries, ["망원경 전에 예약"])
+        self.assertEqual(
+            [c["article_path"] for c in relaxed["citations"]][:1], ["제1조(망원경 예약)"]
+        )
 
     def test_single_chunk_app_answers_its_topic_and_holds_the_rest(self):
         document = {

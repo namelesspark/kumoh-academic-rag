@@ -1,0 +1,13 @@
+[
+  {"question": "졸업하려면 몇 학점을 이수해야 하나요?", "expected": [{"document": "학칙", "article": "제64조"}]},
+  {"question": "휴학은 몇 학기까지 할 수 있나요?", "expected": [{"document": "학칙", "article": "제38조"}]},
+  {"question": "휴학 신청은 언제까지 해야 하나요", "expected": [{"document": "학칙", "article": "제38조"}]},
+  {"question": "한 학기에 최대 몇 학점까지 수강신청할 수 있나요", "expected": [{"document": "학칙", "article": "제53조"}]},
+  {"question": "학사경고 기준은 무엇인가요?", "expected": [{"document": "학칙", "article": "제57조"}]},
+  {"question": "조기졸업할 수 있나요?", "expected": [{"document": "학칙", "article": "제68조"}]},
+  {"question": "장학금은 어떻게 구분하나요?", "expected": [{"document": "장학금 규정", "article": "제3조"}]},
+  {"question": "복학은 언제 신청하나요", "expected": [{"document": "학칙", "article": "제39조"}]},
+  {"question": "재입학할 수 있나요", "expected": [{"document": "학칙", "article": "제33조"}, {"document": "학사운영 규정", "article": "제5조"}]},
+  {"question": "전과는 언제 할 수 있나요", "expected": [{"document": "학칙", "article": "제49조"}, {"document": "학사운영 규정", "article": "제19조"}]},
+  {"question": "계절학기는 몇 학점까지 들을 수 있나요", "expected": [{"document": "학사운영 규정", "article": "제206조"}]}
+]

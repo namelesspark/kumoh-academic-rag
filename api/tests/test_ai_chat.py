@@ -296,7 +296,10 @@ class RequestTests(unittest.TestCase):
             self.assertIn(part, user["content"])
 
     def test_sent_user_message_ends_with_answer_format_only_for_normal_answers(self):
-        format_line = "답 형식: 「제N조에 따르면 …입니다.」처럼 마침표로 끝나는 완결된 문장 한두 개."
+        format_line = (
+            "답 형식: 「제N조에 따르면 …입니다.」처럼 마침표로 끝나는 완결된 문장 한두 개. "
+            "대학원 기준을 덧붙일 때만 한 문장 더."
+        )
         held = {**RESULT, "answered": False, "citations": []}
         for result in (RESULT, held):
             with self.subTest(answered=result["answered"]):
@@ -324,10 +327,40 @@ class RequestTests(unittest.TestCase):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, system)
         rules = [line for line in system.splitlines() if line[:1].isdigit()]
-        self.assertEqual([rule.split(".", 1)[0] for rule in rules], ["1", "2", "3", "4", "5", "6", "7"])
-        for phrase in ("한두 문장", "마침표", "되풀이하지 않고", "한 문장"):
+        self.assertEqual(
+            [rule.split(".", 1)[0] for rule in rules], ["1", "2", "3", "4", "5", "6", "7", "8", "9"]
+        )
+        for phrase in ("한두 문장", "마침표", "되풀이하지 않고", "한 문장", "대학원 기준을 덧붙일 때만"):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, rules[-1])
+
+    def test_numbers_and_undergraduate_rules_reach_the_request(self):
+        # 이슈 #113: 숫자 기준과 학사·대학원 조문이 함께 온 가상 후보를 보낸다.
+        undergraduate = "제53조(가상 학기당 이수학점) 학생은 한 학기에 18학점까지 이수한다."
+        graduate = "제77조(가상 학기당 이수학점) 대학원생은 한 학기에 12학점까지 이수한다."
+        result = {
+            **RESULT,
+            "answer": undergraduate,
+            "citations": [
+                {**RESULT["citations"][0], "article_path": "제53조(가상 학기당 이수학점)", "snippet": undergraduate},
+                {**RESULT["citations"][0], "article_path": "제77조(가상 학기당 이수학점)", "snippet": graduate},
+            ],
+        }
+        transport = FakeTransport([ANSWER_STREAM])
+        collect(AiChat(SETTINGS, transport=transport), result=result, mode="fast")
+        system, user = transport.calls[0]["body"]["messages"]
+        rules = {line.split(".", 1)[0]: line for line in system["content"].splitlines() if line[:1].isdigit()}
+        for phrase in ("학점·학기·평점·기간", "숫자", "그대로"):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, rules["7"])
+        for phrase in ("학사과정 기준으로 답하고", "대학원 기준은 한 문장"):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, rules["8"])
+        self.assertIn("답 끝에 이 문장을 붙이지 않습니다", rules["4"])
+        self.assertIn("어느 것으로도 답할 수 없을 때만", rules["4"])
+        for part in (undergraduate, graduate, "18학점", "12학점"):
+            with self.subTest(part=part):
+                self.assertIn(part, user["content"])
 
     def test_section_marks_inside_question_are_removed(self):
         transport = FakeTransport([ANSWER_STREAM])
