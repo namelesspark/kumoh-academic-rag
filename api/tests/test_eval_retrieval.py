@@ -144,12 +144,21 @@ class MatchingTests(unittest.TestCase):
         self.assertTrue(is_hit([Expected("가상 학칙", "제33조")], top))
         self.assertTrue(is_hit([Expected("가상 학칙", "제12조의2")], top))
 
-    def test_document_name_may_be_part_of_the_listed_title(self):
-        self.assertTrue(same_document("가상 학칙", "가상 학칙 제9차"))
+    def test_document_name_matches_except_spacing_and_revision_mark(self):
+        for title in ("가상 학칙", "가상 학칙 제9차", "가상 학칙(제9차)", "가상학칙", "가상 학칙 제９차"):
+            with self.subTest(title=title):
+                self.assertTrue(same_document("가상 학칙", title))
         self.assertTrue(same_document("가상학사 규정", "가상 학사규정"))
         self.assertFalse(same_document("가상 학칙", "가상 운영 규정"))
         self.assertFalse(same_document(" ", "가상 학칙"))
         self.assertFalse(is_hit([Expected("가상 운영 규정", "제3조")], [("가상 학칙", "제3조")]))
+
+    def test_a_title_containing_the_expected_name_is_another_document(self):
+        # 검토 지적: 부분 일치로 보면 '학칙'이 '학칙 시행세칙'과도 맞았다.
+        for title in ("가상 학칙 시행세칙", "가상 대학원 학칙", "가상 학칙 시행세칙 제9차"):
+            with self.subTest(title=title):
+                self.assertFalse(same_document("가상 학칙", title))
+                self.assertFalse(is_hit([Expected("가상 학칙", "제3조")], [(title, "제3조")]))
 
     def test_any_expected_article_in_the_top_three_counts(self):
         expected = [Expected("가상 학칙", "제9조"), Expected("가상 운영 규정", "제5조")]

@@ -48,6 +48,8 @@ SEARCH_FAILED_TEXT = "검색 중 오류가 나 평가를 멈춥니다."
 
 # 조문 경로 맨 앞의 조 번호. '제38조(휴학) ②'에서 '제38조'만 꺼낸다.
 _ARTICLE_NUMBER = re.compile(r"제[0-9]+조(?:의[0-9]+)?")
+# 공백을 지운 문서명 끝의 차수 표시. '학칙제117차', '학칙(제117차)'에서 차수를 뗀다.
+_REVISION_SUFFIX = re.compile(r"\(?제[0-9]+차\)?$")
 
 
 @dataclass(frozen=True)
@@ -77,15 +79,19 @@ def article_number(article_path: str) -> str | None:
     return match.group() if match else None
 
 
-def same_document(expected: str, title: str) -> bool:
-    """기대 문서명이 목록의 문서명과 같거나 그 안에 들어 있으면 같은 문서로 본다.
+def _without_revision(compact_title: str) -> str:
+    return _REVISION_SUFFIX.sub("", compact_title)
 
-    목록의 문서명에는 차수나 학교 이름이 붙을 수 있어('학칙 제117차') 포함 여부로 본다.
+
+def same_document(expected: str, title: str) -> bool:
+    """두 문서명이 끝의 차수 표시('제117차', '(제117차)')만 빼고 같으면 같은 문서로 본다.
+
+    부분 일치로 보면 '학칙'이 '학칙 시행세칙'과도 맞아 다른 문서를 적중으로 센다.
     공백과 전각 글자는 무시한다.
     """
 
-    wanted = _compact(expected)
-    return bool(wanted) and wanted in _compact(title)
+    wanted = _without_revision(_compact(expected))
+    return bool(wanted) and wanted == _without_revision(_compact(title))
 
 
 def is_hit(expected: Sequence[Expected], top: Sequence[tuple[str, str | None]]) -> bool:
