@@ -382,6 +382,12 @@ test("답변 모드 버튼과 메뉴: 480px 이하 아이콘만, 메뉴 너비·
     assert.equal(declared(".choice-menu", ["width"], undefined, { width }), "min(320px, calc(100vw - 32px))");
   }
   assert.equal(find(".mode-pill-label", ["display"], { width: 481 }), undefined);
+  // 언어 알약은 좁은 화면에서도 현재 언어 이름을 숨기지 않는다(#116).
+  for (const width of [480, 390, 360, 320]) {
+    for (const selector of [".lang-pill-label", ".masthead-actions > .lang-pill .lang-pill-label"]) {
+      assert.notEqual(find(selector, ["display"], { width }), "none", `${selector} ${width}px`);
+    }
+  }
   // 아이콘은 data-mode에 맞는 것 하나만 보인다.
   assert.equal(declared('.mode-pill:not([data-mode="deep"]) .mode-icon[data-icon="deep"]', ["display"]), "none");
   assert.equal(declared('.mode-pill[data-mode="deep"] .mode-icon[data-icon="fast"]', ["display"]), "none");
@@ -682,19 +688,23 @@ function serving(requests) {
   };
 }
 
-function loadLanding({ logo = waiting(), techmo = waiting(), fetch } = {}) {
+function loadLanding({ logo = waiting(), techmo = waiting(), fetch, lettering = null, lang = null } = {}) {
   const requests = [];
   const elements = new Map();
-  const slots = [logo, techmo].map(state => {
+  const slots = [logo, techmo, ...(lettering ? [lettering] : [])].map((state, index) => {
     const slot = new FakeElement("slot");
-    // index.html에서 그림 자리는 hidden으로 시작한다.
+    // index.html에서 그림 자리는 hidden으로 시작한다. 세 번째 자리는 한국어 글씨가 든 제목 그림이다.
     slot.hidden = true;
+    if (index === 2) slot.className = "title-lettering";
     if (state) {
       slot.image = Object.assign(new FakeElement("img"), state);
       slot.append(slot.image);
     }
     return slot;
   });
+  // lang을 주면 그 언어를 저장해 둔 브라우저처럼 시작한다.
+  const window = { matchMedia: () => ({ matches: false }) };
+  if (lang) window.localStorage = { getItem: key => key === "kumoh-chat-lang:v1" ? lang : null, setItem() {}, removeItem() {} };
   const controls = controlsInPage.map(([label, action]) => {
     const control = new FakeElement("button");
     control.textContent = label;
@@ -717,7 +727,7 @@ function loadLanding({ logo = waiting(), techmo = waiting(), fetch } = {}) {
       createElement: tag => new FakeElement(tag),
       createTextNode: value => value,
     },
-    window: { matchMedia: () => ({ matches: false }) },
+    window,
     URL,
     AbortSignal: { timeout: () => undefined },
     fetch: (path, options) => path === "/api/v1/demo-students"
@@ -729,6 +739,7 @@ function loadLanding({ logo = waiting(), techmo = waiting(), fetch } = {}) {
   }, { filename: "chat.js" });
 
   const shown = {
+    lettering: slots[2],
     async selectStudent() {
       elements.get("#demo-login").fire("click");
       await setImmediate();
@@ -792,6 +803,21 @@ test("스크립트가 늦게 실행돼 신호를 놓쳐도, 이미 끝난 성공
   const reversed = loadLanding({ logo: broken(), techmo: drawn(468) });
   assert.equal(reversed.logo.hidden, true);
   assert.equal(reversed.techmo.hidden, false);
+});
+
+test("영어·중국어 화면은 한국어 글씨가 든 제목 그림이 늦게 받아져도 숨긴 채 두고 다른 그림은 보인다", () => {
+  for (const lang of ["en", "zh"]) {
+    const shown = loadLanding({ lettering: waiting(), lang });
+    finish(shown.lettering, drawn(1014), "load");
+    finish(shown.logo, drawn(782), "load");
+    assert.equal(shown.lettering.hidden, true, lang);
+    assert.equal(shown.logo.hidden, false, lang);
+    const ready = loadLanding({ lettering: drawn(1014), lang });
+    assert.equal(ready.lettering.hidden, true, lang);
+  }
+  const korean = loadLanding({ lettering: waiting() });
+  finish(korean.lettering, drawn(1014), "load");
+  assert.equal(korean.lettering.hidden, false);
 });
 
 test("한 그림이 없어도 다른 그림과 화면 초기화는 그대로 진행된다", () => {

@@ -1,3 +1,391 @@
+// 화면 언어(#116). 한국어 원문을 열쇠로 쓰는 사전이다. 한국어는 원문을 그대로 쓰고, 영어·중국어 표에 없는 문구도
+// 한국어로 남는다. 그래서 한국어 화면의 글자는 사전이 생기기 전과 같다. 이 묶음은 화면 요소를 건드리지 않는다.
+// 서버가 만든 답(answer·notice)과 인용 원문, 저장한 예전 답은 여기를 거치지 않는다.
+const langKey = "kumoh-chat-lang:v1";
+const langTags = { ko: "ko", en: "en", zh: "zh-Hans" };
+// 메뉴 항목은 각 언어 자기 이름으로 쓰고, 아래 작은 글씨에 다른 글자로 된 이름을 붙인다.
+const langChoices = [
+  { value: "ko", name: "한국어", label: "한국어", description: "Korean" },
+  { value: "en", name: "English", label: "English", description: "영어" },
+  { value: "zh", name: "中文(简体)", label: "中文", description: "Chinese (Simplified)" },
+];
+const uiText = {
+  en: {
+    "금오공대 학사 안내 · 시연": "Kumoh Tech Academic Guide · Demo",
+    "국립금오공과대학교 학사 안내": "Kumoh National Institute of Technology · Academic Guide",
+    "근거 조문과 함께 답하는 금오공대 학사 안내": "Academic answers from Kumoh Tech, backed by the regulation articles",
+    "졸업까지, 테크모와 함께": "To graduation, with Techmo",
+    "물어봐요, 테크모": "Ask Techmo",
+    "학번으로 들어와 보세요!": "Sign in with your student number!",
+    "국립금오공과대학교": "Kumoh National Institute of Technology",
+    "금오공대 학사 안내": "Kumoh Tech Academic Guide",
+    "로그인": "Log in",
+    "시연 계정으로 이수 내역을 확인해 보세요.": "Check course records with a demo account.",
+    "학번": "Student number",
+    "예: 20990002": "e.g. 20990002",
+    "비밀번호": "Password",
+    "시연 전용 계정입니다. 실제 학번이나 비밀번호를 입력하지 마세요.": "Demo accounts only. Do not enter a real student number or password.",
+    "시연 계정": "Demo accounts",
+    "시연 계정 · 누르면 채워집니다": "Demo accounts · tap to fill in",
+    "졸업 요건에 가까움": "Close to graduating",
+    "학점이 많이 남음": "Many credits left",
+    "비교과 점수 부족": "Short on extracurricular points",
+    "로그인 없이 둘러보기": "Browse without logging in",
+    "교내 주요 사이트": "Campus websites",
+    "학교 홈페이지": "University website",
+    "포털(Onekit)": "Portal (Onekit)",
+    "(새 창)": "(new window)",
+    "교내 대회 출품작 · 가상 학생 데이터로 동작하는 시연입니다": "Campus contest entry · a demo running on fictional student data",
+    "대화 목록": "Conversations",
+    "홈": "Home",
+    "가상 학생 데이터입니다": "Fictional student data",
+    "로그아웃": "Log out",
+    "새 대화": "New chat",
+    "지난 대화": "Past conversations",
+    "닫기": "Close",
+    "기록 모두 지우기": "Clear all history",
+    "대화 기록은 이 브라우저에만 저장돼요": "History is saved only in this browser",
+    "학사 규정에 질문하기": "Ask about academic regulations",
+    "질문": "Question",
+    "사진 첨부": "Attach photo",
+    "질문 입력 · 사진만 보내도 돼요": "Type a question · or just send a photo",
+    "보내기": "Send",
+    "첨부 제거": "Remove attachment",
+    "글자가 보이는 사진 한 장(JPEG·PNG, 5MB 이하). 서버는 사진을 저장하지 않아요. 얼굴이나 개인정보가 찍힌 사진은 올리지 마세요. 학번, 이름 같은 개인정보는 입력하지 마세요.":
+      "One photo with readable text (JPEG or PNG, up to 5 MB). The server does not store photos. Do not upload photos showing faces or personal information. Do not type personal details such as your student number or name.",
+    "대화 내용": "Conversation",
+    "졸업까지 남은 조건, 테크모가 같이 확인해요": "Techmo checks what is left until graduation with you",
+    "규정 질문에는 근거 조문을 붙여 답해요.": "Regulation questions are answered with the supporting articles.",
+    "기능 바로가기": "Shortcuts",
+    "졸업 체크": "Graduation check",
+    "비교과 추천": "Extracurricular picks",
+    "사진으로 묻기": "Ask with a photo",
+    "규정 질문": "Regulation questions",
+    "학사 일정": "Academic calendar",
+    "캠퍼스 안내": "Campus guide",
+    "가상 학생의 이수 내역으로 남은 졸업 조건을 계산해요.": "Calculates the remaining graduation requirements from a fictional student's records.",
+    "졸업 체크 결과 아래에 부족한 점수를 채울 프로그램이 함께 나와요.": "Programs that can fill missing points appear below the graduation check.",
+    "포스터나 안내문 사진을 고르면 글자를 읽어 답을 찾아요.": "Pick a photo of a poster or notice and Techmo reads the text to find answers.",
+    "궁금한 점을 적으면 근거 조문과 함께 답해요.": "Write your question and get an answer with the supporting articles.",
+    "확인한 수강신청 일정을 날짜순으로 보여 줘요.": "Shows confirmed course registration dates in order.",
+    "장소를 고르면 용도와 위치를 볼 수 있어요.": "Pick a place to see what it is for and where it is.",
+    "가상 학생의 이수 내역으로 남은 졸업 조건을 계산해요. 항목마다 충족·부족·확인 필요를 표로 보여 주고, 적용한 근거를 함께 적어요.":
+      "Calculates the remaining graduation requirements from a fictional student's records. Each item is shown as met, short, or needs checking, with the basis applied.",
+    "졸업 체크 결과 아래에 부족한 점수를 채울 프로그램이 함께 나와요. 접수 상태와 정원은 공식 페이지에서 다시 확인해 주세요.":
+      "Programs that can fill missing points appear below the graduation check. Please recheck application status and capacity on the official page.",
+    "글자가 보이는 사진 한 장을 고르면 글자를 읽어 답을 찾아요. JPEG·PNG, 5MB 이하만 받아요. 얼굴이나 개인정보가 찍힌 사진은 올리지 마세요. 사진을 고른 뒤 「보내기」를 눌러 주세요.":
+      "Pick one photo with readable text and Techmo reads it to find answers. Only JPEG or PNG up to 5 MB. Do not upload photos showing faces or personal information. After choosing a photo, press “Send”.",
+    "궁금한 점을 적으면 근거 조문과 함께 답해요. 근거를 찾지 못하면 지어내지 않고, 찾지 못했다고 알려요.":
+      "Write your question and get an answer with the supporting articles. If no basis is found, Techmo says so instead of making things up.",
+    "종료일이 지나지 않은 수강신청 일정을 날짜순으로 보여 줘요.": "Shows upcoming course registration dates in order.",
+    "졸업 체크 시작": "Start graduation check",
+    "졸업 체크와 추천 보기": "See graduation check and picks",
+    "사진 선택": "Choose photo",
+    "질문 입력하기": "Type a question",
+    "테크모 · 새 대화 시작": "Techmo · start a new chat",
+    "알림 닫기": "Close notification",
+    "언어 / Language: {name}": "Language: {name}",
+    "궁금한 점을 물어보세요": "Ask me anything",
+    "쉿, 찾아보는 중이에요…": "Shh, looking it up…",
+    "찾았어요! 함께 확인해 봐요": "Found it! Let's check together",
+    "근거와 함께 안내해 드릴게요": "Here is the answer with its basis",
+    "확인할 근거가 더 필요해요": "I need more evidence to confirm",
+    "잠시 문제가 생겼어요. 다시 시도해 주세요": "Something went wrong. Please try again",
+    "보관함 ({count})": "Archive ({count})",
+    "읽지 않은 답변 있음": "Unread replies",
+    "답변 기다리는 중": "Waiting for a reply",
+    "읽지 않은 답변": "Unread reply",
+    "대화 메뉴": "Conversation menu",
+    "보관하기": "Archive",
+    "보관 해제": "Unarchive",
+    "삭제": "Delete",
+    "취소": "Cancel",
+    "정말로 삭제하시겠습니까?": "Delete this conversation?",
+    "‘{title}’ 대화를 지우면 되돌릴 수 없어요.": "Deleting ‘{title}’ cannot be undone.",
+    "대화 기록을 모두 삭제하시겠습니까?": "Delete all conversation history?",
+    "보관함을 포함한 대화 {count}개가 지워지고 되돌릴 수 없어요.": "{count} conversations, including archived ones, will be deleted. This cannot be undone.",
+    "답변이 도착했어요": "A reply has arrived",
+    "‘{title}’ 대화에 답변이 왔어요": "New reply in ‘{title}’",
+    "{label} 이수 내역으로 들어왔어요": "Signed in with the records of {label}",
+    "안녕하세요, {label} 님": "Hello, {label}",
+    "좋아요, 로그인을 눌러 보세요": "Great, now press Log in",
+    "학번 또는 비밀번호가 맞지 않아요": "Student number or password is incorrect",
+    "쉿, 시연 계정으로만 들어올 수 있어요": "Shh, only demo accounts can sign in",
+    "학번을 확인하고 있어요": "Checking your student number",
+    "로그인하지 못했어요. 다시 시도해 주세요.": "Could not log in. Please try again.",
+    "서버에 연결하지 못했어요. 다시 시도해 주세요.": "Could not reach the server. Please try again.",
+    "가상 학생을 복원하지 못했어요. 다시 로그인해 주세요.": "Could not restore the fictional student. Please log in again.",
+    "이 기능은 시연 계정으로 로그인한 뒤 쓸 수 있어요": "Log in with a demo account to use this feature",
+    "먼저 가상 학생을 골라 주세요": "Please choose a fictional student first",
+    "서버에 질문을 보내는 중…": "Sending your question…",
+    "시행일 ": "Effective ",
+    "가상 답변 근거": "Answer basis (fictional)",
+    "공식 원문 보기": "View the official original",
+    " ({context}, 새 탭에서 열림)": " ({context}, opens in a new tab)",
+    "원문(한국어)": "Original (Korean)",
+    "생각하는 중": "Thinking",
+    "모델이 쓴 원문, 영어일 수 있음": "The model's own words, may be in English",
+    "{seconds}초 동안 생각함": "Thought for {seconds}s",
+    "이 질문은 가상 규정에서 근거를 찾지 못했어요.": "No basis for this question was found in the fictional regulations.",
+    "다시 시도": "Try again",
+    "서버 응답을 받지 못했어요.": "No response from the server.",
+    "내 질문: ": "My question: ",
+    "사진 1장": "1 photo",
+    "내 요청: ": "My request: ",
+    "가상 학생 졸업 체크": "Graduation check for a fictional student",
+    "졸업 체크 결과를 불러오는 중…": "Loading the graduation check…",
+    "졸업 체크 결과를 받지 못했어요.": "Could not get the graduation check.",
+    "답변 모드": "Answer mode",
+    "빠르게": "Fast",
+    "깊이 생각": "Deep",
+    "깊이 생각하기": "Think deeply",
+    "바로 답해요 · 보통 1~3초": "Answers right away · usually 1–3 s",
+    "생각 과정을 보여 주며 꼼꼼히 답해요 · 10~30초": "Shows its reasoning and answers carefully · 10–30 s",
+    "답변 모드: {name}": "Answer mode: {name}",
+    "사진에서 글자를 읽는 중…": "Reading the text in the photo…",
+    "읽은 글자로 답을 찾는 중…": "Finding answers from the text…",
+    "서버에 연결하지 못했어요. 네트워크를 확인한 뒤 다시 시도해 주세요.": "Could not reach the server. Check your network and try again.",
+    "서버가 사진을 처리하지 못했어요.": "The server could not process the photo.",
+    "서버가 읽은 글자로 답을 만들지 못했어요.": "The server could not answer from the text.",
+    "서버가 이 글자를 받지 않았어요. 질문과 읽은 글자를 고친 뒤 다시 물어 주세요.": "The server rejected this text. Edit the question and the text, then ask again.",
+    "읽은 글자가 2,000자를 넘어요. 필요한 부분만 남기고 줄인 뒤 다시 물어 주세요.": "The text is over 2,000 characters. Keep only what you need and ask again.",
+    "질문이나 읽은 글자를 적은 뒤 다시 물어 주세요.": "Enter a question or the text, then ask again.",
+    "사진에서 읽은 글자가 없어요. 글자를 직접 적거나 질문을 함께 보내 주세요.": "No text was read from the photo. Type the text yourself or add a question.",
+    "근거가 충분하지 않아 답변을 보류했어요. 읽은 글자를 고치거나 질문을 더 구체적으로 적어 다시 물어 주세요.":
+      "The answer was held for lack of evidence. Fix the text or make the question more specific, then ask again.",
+    "확인하지 못한 내용에는 링크를 붙이지 않아요. 학교 공지에서 직접 찾아 주세요.": "Unconfirmed items get no links. Please check the university notices directly.",
+    "사진이 5MB를 넘어요. 더 작은 사진으로 다시 올려 주세요.": "The photo is over 5 MB. Please upload a smaller one.",
+    "JPEG나 PNG 사진만 읽을 수 있어요.": "Only JPEG or PNG photos can be read.",
+    "사진을 열 수 없거나 화소 수가 1,200만을 넘어요. 다른 사진으로 다시 올려 주세요.": "The photo cannot be opened or is over 12 megapixels. Please upload another photo.",
+    "사진에서 읽을 수 있는 글자나 QR을 찾지 못했어요. 글자가 또렷하게 보이게 다시 찍어 주세요.": "No readable text or QR code was found. Please retake the photo so the text is clear.",
+    "사진만으로는 어느 행사인지 하나로 정하지 못했어요. 제목과 날짜가 함께 보이거나 QR이 보이는 사진으로 다시 시도해 주세요.":
+      "The photo alone did not identify one event. Try a photo showing the title and date, or a QR code.",
+    "지금은 서버가 사진 속 글자를 읽을 수 없어요. QR이 보이는 사진으로 다시 시도하거나 글자를 직접 적어 주세요.":
+      "The server cannot read text in photos right now. Try a photo with a QR code or type the text.",
+    "답변을 보류했어요. 링크는 보여 주지 않아요.": "The answer was held. No links are shown.",
+    "사진에서 확인한 내용이 없어요. 링크는 보여 주지 않아요.": "Nothing was confirmed from the photo. No links are shown.",
+    "행사를 찾았어요. {title}": "Found the event: {title}",
+    "{kind}에서 답을 찾았어요.": "Found an answer in {kind}.",
+    "규정 검색": "Regulation search",
+    "다른 요청을 마친 뒤 다시 시도해 주세요.": "Finish the other request, then try again.",
+    "안내를 찾는 중이에요…": "Looking up the guide…",
+    "안내를 찾는 중…": "Looking it up…",
+    "서버가 안내를 불러오지 못했어요.": "The server could not load the guide.",
+    "서버 안내의 형식이 맞지 않아요.": "The server's guide data is malformed.",
+  },
+  zh: {
+    "금오공대 학사 안내 · 시연": "金乌工大学业指南 · 演示",
+    "국립금오공과대학교 학사 안내": "国立金乌工科大学 · 学业指南",
+    "근거 조문과 함께 답하는 금오공대 학사 안내": "附上依据条款作答的金乌工大学业指南",
+    "졸업까지, 테크모와 함께": "直到毕业，与 Techmo 同行",
+    "물어봐요, 테크모": "问问 Techmo",
+    "학번으로 들어와 보세요!": "用学号登录试试吧！",
+    "국립금오공과대학교": "国立金乌工科大学",
+    "금오공대 학사 안내": "金乌工大学业指南",
+    "로그인": "登录",
+    "시연 계정으로 이수 내역을 확인해 보세요.": "用演示账号查看修读记录。",
+    "학번": "学号",
+    "예: 20990002": "例：20990002",
+    "비밀번호": "密码",
+    "시연 전용 계정입니다. 실제 학번이나 비밀번호를 입력하지 마세요.": "仅限演示账号。请勿输入真实学号或密码。",
+    "시연 계정": "演示账号",
+    "시연 계정 · 누르면 채워집니다": "演示账号 · 点击即可填入",
+    "졸업 요건에 가까움": "接近毕业要求",
+    "학점이 많이 남음": "剩余学分较多",
+    "비교과 점수 부족": "非学科积分不足",
+    "로그인 없이 둘러보기": "不登录先看看",
+    "교내 주요 사이트": "校内主要网站",
+    "학교 홈페이지": "学校主页",
+    "포털(Onekit)": "门户（Onekit）",
+    "(새 창)": "（新窗口）",
+    "교내 대회 출품작 · 가상 학생 데이터로 동작하는 시연입니다": "校内竞赛参赛作品 · 使用虚拟学生数据运行的演示",
+    "대화 목록": "对话列表",
+    "홈": "首页",
+    "가상 학생 데이터입니다": "虚拟学生数据",
+    "로그아웃": "退出登录",
+    "새 대화": "新对话",
+    "지난 대화": "以往对话",
+    "닫기": "关闭",
+    "기록 모두 지우기": "清除全部记录",
+    "대화 기록은 이 브라우저에만 저장돼요": "对话记录只保存在此浏览器中",
+    "학사 규정에 질문하기": "咨询学业规定",
+    "질문": "问题",
+    "사진 첨부": "附加照片",
+    "질문 입력 · 사진만 보내도 돼요": "输入问题 · 只发照片也可以",
+    "보내기": "发送",
+    "첨부 제거": "移除附件",
+    "글자가 보이는 사진 한 장(JPEG·PNG, 5MB 이하). 서버는 사진을 저장하지 않아요. 얼굴이나 개인정보가 찍힌 사진은 올리지 마세요. 학번, 이름 같은 개인정보는 입력하지 마세요.":
+      "一张文字清晰的照片（JPEG·PNG，5MB 以内）。服务器不会保存照片。请勿上传含有人脸或个人信息的照片。请勿输入学号、姓名等个人信息。",
+    "대화 내용": "对话内容",
+    "졸업까지 남은 조건, 테크모가 같이 확인해요": "距离毕业还差什么，Techmo 陪你一起确认",
+    "규정 질문에는 근거 조문을 붙여 답해요.": "规定问题会附上依据条款作答。",
+    "기능 바로가기": "功能快捷入口",
+    "졸업 체크": "毕业检查",
+    "비교과 추천": "非学科活动推荐",
+    "사진으로 묻기": "用照片提问",
+    "규정 질문": "规定咨询",
+    "학사 일정": "学年日程",
+    "캠퍼스 안내": "校园指南",
+    "가상 학생의 이수 내역으로 남은 졸업 조건을 계산해요.": "根据虚拟学生的修读记录计算剩余毕业条件。",
+    "졸업 체크 결과 아래에 부족한 점수를 채울 프로그램이 함께 나와요.": "毕业检查结果下方会列出可补足积分的项目。",
+    "포스터나 안내문 사진을 고르면 글자를 읽어 답을 찾아요.": "选择海报或通知的照片，即可读取文字并查找答案。",
+    "궁금한 점을 적으면 근거 조문과 함께 답해요.": "写下疑问，即可获得附上依据条款的回答。",
+    "확인한 수강신청 일정을 날짜순으로 보여 줘요.": "按日期顺序显示已确认的选课日程。",
+    "장소를 고르면 용도와 위치를 볼 수 있어요.": "选择地点即可查看用途和位置。",
+    "가상 학생의 이수 내역으로 남은 졸업 조건을 계산해요. 항목마다 충족·부족·확인 필요를 표로 보여 주고, 적용한 근거를 함께 적어요.":
+      "根据虚拟学生的修读记录计算剩余毕业条件。每一项以表格显示满足·不足·需确认，并注明所依据的标准。",
+    "졸업 체크 결과 아래에 부족한 점수를 채울 프로그램이 함께 나와요. 접수 상태와 정원은 공식 페이지에서 다시 확인해 주세요.":
+      "毕业检查结果下方会列出可补足积分的项目。报名状态和名额请在官方页面再次确认。",
+    "글자가 보이는 사진 한 장을 고르면 글자를 읽어 답을 찾아요. JPEG·PNG, 5MB 이하만 받아요. 얼굴이나 개인정보가 찍힌 사진은 올리지 마세요. 사진을 고른 뒤 「보내기」를 눌러 주세요.":
+      "选择一张文字清晰的照片，即可读取文字并查找答案。仅接受 5MB 以内的 JPEG·PNG。请勿上传含有人脸或个人信息的照片。选好照片后请点击「发送」。",
+    "궁금한 점을 적으면 근거 조문과 함께 답해요. 근거를 찾지 못하면 지어내지 않고, 찾지 못했다고 알려요.":
+      "写下疑问，即可获得附上依据条款的回答。找不到依据时不会编造，而是如实告知。",
+    "종료일이 지나지 않은 수강신청 일정을 날짜순으로 보여 줘요.": "按日期顺序显示尚未结束的选课日程。",
+    "졸업 체크 시작": "开始毕业检查",
+    "졸업 체크와 추천 보기": "查看毕业检查和推荐",
+    "사진 선택": "选择照片",
+    "질문 입력하기": "输入问题",
+    "테크모 · 새 대화 시작": "Techmo · 开始新对话",
+    "알림 닫기": "关闭通知",
+    "언어 / Language: {name}": "语言 / Language：{name}",
+    "궁금한 점을 물어보세요": "有什么问题尽管问吧",
+    "쉿, 찾아보는 중이에요…": "嘘，正在查找…",
+    "찾았어요! 함께 확인해 봐요": "找到了！一起看看吧",
+    "근거와 함께 안내해 드릴게요": "为你附上依据进行说明",
+    "확인할 근거가 더 필요해요": "还需要更多依据来确认",
+    "잠시 문제가 생겼어요. 다시 시도해 주세요": "出了点问题，请重试",
+    "보관함 ({count})": "归档（{count}）",
+    "읽지 않은 답변 있음": "有未读回答",
+    "답변 기다리는 중": "等待回答中",
+    "읽지 않은 답변": "未读回答",
+    "대화 메뉴": "对话菜单",
+    "보관하기": "归档",
+    "보관 해제": "取消归档",
+    "삭제": "删除",
+    "취소": "取消",
+    "정말로 삭제하시겠습니까?": "确定要删除吗？",
+    "‘{title}’ 대화를 지우면 되돌릴 수 없어요.": "删除“{title}”后无法恢复。",
+    "대화 기록을 모두 삭제하시겠습니까?": "确定要删除全部对话记录吗？",
+    "보관함을 포함한 대화 {count}개가 지워지고 되돌릴 수 없어요.": "包括归档在内的 {count} 个对话将被删除，且无法恢复。",
+    "답변이 도착했어요": "回答已送达",
+    "‘{title}’ 대화에 답변이 왔어요": "“{title}”有新的回答",
+    "{label} 이수 내역으로 들어왔어요": "已用 {label} 的修读记录登录",
+    "안녕하세요, {label} 님": "你好，{label}",
+    "좋아요, 로그인을 눌러 보세요": "好的，请点击登录",
+    "학번 또는 비밀번호가 맞지 않아요": "学号或密码不正确",
+    "쉿, 시연 계정으로만 들어올 수 있어요": "嘘，只能用演示账号登录",
+    "학번을 확인하고 있어요": "正在确认学号",
+    "로그인하지 못했어요. 다시 시도해 주세요.": "登录失败，请重试。",
+    "서버에 연결하지 못했어요. 다시 시도해 주세요.": "无法连接服务器，请重试。",
+    "가상 학생을 복원하지 못했어요. 다시 로그인해 주세요.": "无法恢复虚拟学生，请重新登录。",
+    "이 기능은 시연 계정으로 로그인한 뒤 쓸 수 있어요": "使用演示账号登录后才能使用此功能",
+    "먼저 가상 학생을 골라 주세요": "请先选择虚拟学生",
+    "서버에 질문을 보내는 중…": "正在发送问题…",
+    "시행일 ": "施行日期 ",
+    "가상 답변 근거": "回答依据（虚拟）",
+    "공식 원문 보기": "查看官方原文",
+    " ({context}, 새 탭에서 열림)": "（{context}，在新标签页打开）",
+    "원문(한국어)": "原文（韩语）",
+    "생각하는 중": "思考中",
+    "모델이 쓴 원문, 영어일 수 있음": "模型原文，可能是英文",
+    "{seconds}초 동안 생각함": "思考了 {seconds} 秒",
+    "이 질문은 가상 규정에서 근거를 찾지 못했어요.": "在虚拟规定中未找到此问题的依据。",
+    "다시 시도": "重试",
+    "서버 응답을 받지 못했어요.": "未收到服务器响应。",
+    "내 질문: ": "我的问题：",
+    "사진 1장": "照片 1 张",
+    "내 요청: ": "我的请求：",
+    "가상 학생 졸업 체크": "虚拟学生毕业检查",
+    "졸업 체크 결과를 불러오는 중…": "正在加载毕业检查结果…",
+    "졸업 체크 결과를 받지 못했어요.": "未能获取毕业检查结果。",
+    "답변 모드": "回答模式",
+    "빠르게": "快速",
+    "깊이 생각": "深度",
+    "깊이 생각하기": "深度思考",
+    "바로 답해요 · 보통 1~3초": "立即回答 · 通常 1~3 秒",
+    "생각 과정을 보여 주며 꼼꼼히 답해요 · 10~30초": "展示思考过程并仔细回答 · 10~30 秒",
+    "답변 모드: {name}": "回答模式：{name}",
+    "사진에서 글자를 읽는 중…": "正在读取照片中的文字…",
+    "읽은 글자로 답을 찾는 중…": "正在根据读取的文字查找答案…",
+    "서버에 연결하지 못했어요. 네트워크를 확인한 뒤 다시 시도해 주세요.": "无法连接服务器。请检查网络后重试。",
+    "서버가 사진을 처리하지 못했어요.": "服务器无法处理该照片。",
+    "서버가 읽은 글자로 답을 만들지 못했어요.": "服务器无法根据读取的文字生成回答。",
+    "서버가 이 글자를 받지 않았어요. 질문과 읽은 글자를 고친 뒤 다시 물어 주세요.": "服务器未接受这段文字。请修改问题和读取的文字后再问。",
+    "읽은 글자가 2,000자를 넘어요. 필요한 부분만 남기고 줄인 뒤 다시 물어 주세요.": "读取的文字超过 2,000 字。请只保留需要的部分后再问。",
+    "질문이나 읽은 글자를 적은 뒤 다시 물어 주세요.": "请输入问题或读取的文字后再问。",
+    "사진에서 읽은 글자가 없어요. 글자를 직접 적거나 질문을 함께 보내 주세요.": "照片中没有读取到文字。请直接输入文字或一并发送问题。",
+    "근거가 충분하지 않아 답변을 보류했어요. 읽은 글자를 고치거나 질문을 더 구체적으로 적어 다시 물어 주세요.":
+      "依据不足，回答已暂缓。请修改读取的文字或更具体地描述问题后再问。",
+    "확인하지 못한 내용에는 링크를 붙이지 않아요. 학교 공지에서 직접 찾아 주세요.": "未确认的内容不附链接。请直接在学校公告中查找。",
+    "사진이 5MB를 넘어요. 더 작은 사진으로 다시 올려 주세요.": "照片超过 5MB。请上传更小的照片。",
+    "JPEG나 PNG 사진만 읽을 수 있어요.": "只能读取 JPEG 或 PNG 照片。",
+    "사진을 열 수 없거나 화소 수가 1,200만을 넘어요. 다른 사진으로 다시 올려 주세요.": "照片无法打开或像素超过 1,200 万。请换一张照片上传。",
+    "사진에서 읽을 수 있는 글자나 QR을 찾지 못했어요. 글자가 또렷하게 보이게 다시 찍어 주세요.": "未找到可读取的文字或二维码。请重新拍摄，让文字清晰可见。",
+    "사진만으로는 어느 행사인지 하나로 정하지 못했어요. 제목과 날짜가 함께 보이거나 QR이 보이는 사진으로 다시 시도해 주세요.":
+      "仅凭照片无法确定是哪个活动。请换一张同时显示标题和日期或带二维码的照片再试。",
+    "지금은 서버가 사진 속 글자를 읽을 수 없어요. QR이 보이는 사진으로 다시 시도하거나 글자를 직접 적어 주세요.":
+      "服务器目前无法读取照片中的文字。请换一张带二维码的照片，或直接输入文字。",
+    "답변을 보류했어요. 링크는 보여 주지 않아요.": "回答已暂缓，不显示链接。",
+    "사진에서 확인한 내용이 없어요. 링크는 보여 주지 않아요.": "未从照片中确认任何内容，不显示链接。",
+    "행사를 찾았어요. {title}": "找到了活动：{title}",
+    "{kind}에서 답을 찾았어요.": "已在{kind}中找到答案。",
+    "규정 검색": "规定检索",
+    "다른 요청을 마친 뒤 다시 시도해 주세요.": "请在其他请求完成后重试。",
+    "안내를 찾는 중이에요…": "正在查找指南…",
+    "안내를 찾는 중…": "正在查找…",
+    "서버가 안내를 불러오지 못했어요.": "服务器无法加载指南。",
+    "서버 안내의 형식이 맞지 않아요.": "服务器指南数据格式不正确。",
+  },
+};
+let uiLang = "ko";
+const langListeners = [];
+// 문구 하나를 지금 언어로 바꾼다. {이름} 자리는 values로 채우며, 채운 값은 다시 해석하지 않는다.
+function t(source, values) {
+  const table = uiText[uiLang];
+  const text = table && Object.hasOwn(table, source) ? table[source] : source;
+  if (!values) return text;
+  return text.replace(/\{(\w+)\}/g, (match, name) => Object.hasOwn(values, name) ? String(values[name]) : match);
+}
+// 알림 줄처럼 나중에 다시 그릴 문구는 [원문, 값] 짝으로 넘길 수 있다. 채울 값까지 번역해야 하면 함수로 넘긴다.
+function tr(message) {
+  if (typeof message === "function") return message();
+  return Array.isArray(message) ? t(message[0], message[1]) : t(message);
+}
+function onLangChange(listener) {
+  langListeners.push(listener);
+}
+// 언어를 바꾸면 다시 그릴 줄. 줄마다 마지막으로 넣은 원문과 그린 글을 기억한다.
+// 다른 코드가 그 사이 글을 바꿨으면(그린 글과 다르면) 건드리지 않는다.
+const spokenLines = new Map();
+function say(node, message) {
+  if (!node) return;
+  const text = tr(message);
+  node.textContent = text;
+  spokenLines.set(node, { message, text });
+}
+function resay() {
+  for (const [node, entry] of spokenLines) {
+    if (node.textContent !== entry.text) { spokenLines.delete(node); continue; }
+    entry.text = tr(entry.message);
+    node.textContent = entry.text;
+  }
+}
+function knownLang(value) {
+  return typeof value === "string" && Object.hasOwn(langTags, value) ? value : null;
+}
+// 저장한 값이 있으면 그 값을, 처음 방문이면 브라우저 언어(en·zh로 시작)를 따른다.
+// 저장소가 없거나 읽기에 실패하면, 그리고 알 수 없는 값이 저장돼 있으면 한국어다.
+function detectLang(storage, language) {
+  let saved;
+  try {
+    if (!storage) return "ko";
+    saved = storage.getItem(langKey);
+  } catch { return "ko"; }
+  if (saved !== null && saved !== undefined) return knownLang(saved) ?? "ko";
+  const tag = typeof language === "string" ? language.toLowerCase() : "";
+  return tag.startsWith("en") ? "en" : tag.startsWith("zh") ? "zh" : "ko";
+}
+
 // 저장 객체는 허용한 텍스트 필드만 복사한다. DOM과 서버 세션은 저장하지 않는다.
 function trimConversations(records) {
   if (!Array.isArray(records)) return [];
@@ -129,6 +517,8 @@ let sessionId = null;
 let busy = false;
 let graduationTurn = null;
 let assistantState = "idle";
+// 말풍선에 마지막으로 넣은 원문. 아직 아무 상태도 그리지 않았으면 null이고 문서의 글을 그대로 본다.
+let assistantSource = null;
 let assistantTimer = null;
 let techmoDropTimer = null;
 let techmoDropCelebrating = false;
@@ -358,7 +748,7 @@ function renderConversations() {
   for (const record of sorted) if (!isArchived(record)) conversationList.append(conversationItem(record, true));
   if (!archived.length) return;
   const group = element("li", "conversation-archive");
-  const toggle = element("button", "conversation-archive-toggle", `보관함 (${archived.length})`);
+  const toggle = element("button", "conversation-archive-toggle", t("보관함 ({count})", { count: archived.length }));
   const list = element("ul", "conversation-archive-list");
   toggle.type = "button";
   list.id = "conversation-archive-list";
@@ -367,7 +757,7 @@ function renderConversations() {
   toggle.setAttribute("aria-controls", list.id);
   if (!archiveOpen && archived.some(record => record.unread)) {
     const dot = element("span", "conversation-unread");
-    dot.append(element("span", "sr-only", "읽지 않은 답변 있음"));
+    dot.append(element("span", "sr-only", t("읽지 않은 답변 있음")));
     toggle.append(dot);
   }
   toggle.addEventListener("click", () => {
@@ -386,12 +776,13 @@ function conversationItem(record, visible) {
   if (record === activeConversation) item.setAttribute("aria-current", "true");
   const open = element("button", "conversation-open");
   open.type = "button";
-  const title = conversationTitle(record) || "새 대화";
+  const title = conversationTitle(record) || t("새 대화");
   const chars = Array.from(title);
   const date = new Date(record.time);
   const today = date.toDateString() === new Date().toDateString();
+  const locale = { ko: "ko-KR", en: "en-US", zh: "zh-CN" }[uiLang];
   open.append(element("span", "conversation-title", chars.slice(0, 28).join("") + (chars.length > 28 ? "…" : "")),
-    element("span", "conversation-time", today ? date.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", hour12: false }) : `${date.getMonth() + 1}/${date.getDate()}`));
+    element("span", "conversation-time", today ? date.toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit", hour12: false }) : `${date.getMonth() + 1}/${date.getDate()}`));
   // 길게 눌러 메뉴를 연 뒤 손을 떼면 클릭이 한 번 따라온다. 그 클릭은 대화를 열지 않는다.
   open.addEventListener("click", () => {
     if (suppressOpenClick) { suppressOpenClick = false; return; }
@@ -403,12 +794,12 @@ function conversationItem(record, visible) {
   if (record.pending) {
     item.setAttribute("data-conversation-state", "pending");
     const pending = element("span", "conversation-pending");
-    pending.append(element("span", "sr-only", "답변 기다리는 중"));
+    pending.append(element("span", "sr-only", t("답변 기다리는 중")));
     open.append(pending);
   }
   if (record.unread) {
     const dot = element("span", "conversation-unread");
-    dot.append(element("span", "sr-only", "읽지 않은 답변"));
+    dot.append(element("span", "sr-only", t("읽지 않은 답변")));
     open.append(dot);
   }
   const more = element("button", "conversation-more");
@@ -416,7 +807,7 @@ function conversationItem(record, visible) {
   icon.setAttribute("aria-hidden", "true");
   more.append(icon);
   more.type = "button";
-  more.setAttribute("aria-label", "대화 메뉴");
+  more.setAttribute("aria-label", t("대화 메뉴"));
   more.setAttribute("aria-haspopup", "menu");
   more.setAttribute("aria-controls", "conversation-menu");
   more.setAttribute("aria-expanded", String(menuRecord === record));
@@ -485,9 +876,9 @@ function conversationMenu() {
   menu.id = "conversation-menu";
   menu.hidden = true;
   menu.setAttribute("role", "menu");
-  menu.setAttribute("aria-label", "대화 메뉴");
+  menu.setAttribute("aria-label", t("대화 메뉴"));
   menuItems = [["archive", "보관하기"], ["delete", "삭제"]].map(([action, label]) => {
-    const item = element("button", `conversation-menu-item${action === "delete" ? " danger" : ""}`, label);
+    const item = element("button", `conversation-menu-item${action === "delete" ? " danger" : ""}`, t(label));
     item.type = "button";
     item.tabIndex = -1;
     item.setAttribute("role", "menuitem");
@@ -517,6 +908,13 @@ function conversationMenu() {
   document.body?.append(menu);
   return menu;
 }
+// 메뉴가 열린 채 언어를 바꿔도 같은 자리에서 이름만 고친다.
+function labelConversationMenu() {
+  if (!menu) return;
+  menu.setAttribute("aria-label", t("대화 메뉴"));
+  menuItems[0].textContent = t(isArchived(menuRecord) ? "보관 해제" : "보관하기");
+  menuItems[1].textContent = t("삭제");
+}
 function focusMenuItem(index) {
   const count = menuItems.length;
   menuItems[((index % count) + count) % count]?.focus();
@@ -527,7 +925,7 @@ function openMenu(record, part, point) {
   const node = conversationMenu();
   menuRecord = record;
   menuOrigin = { id: record.id, part };
-  menuItems[0].textContent = isArchived(record) ? "보관 해제" : "보관하기";
+  labelConversationMenu();
   node.hidden = false;
   placeMenu(point);
   conversationNodes.get(record.id)?.more?.setAttribute("aria-expanded", "true");
@@ -584,11 +982,12 @@ function runMenu(action) {
   focusConversation(origin, next);
 }
 function askDelete(record, origin) {
-  const title = Array.from(conversationTitle(record)).slice(0, 20).join("") || "새 대화";
+  const title = Array.from(conversationTitle(record)).slice(0, 20).join("");
   const next = nextConversationId(record.id);
+  // 제목과 설명은 함수로 넘겨 창이 열린 채 언어가 바뀌어도 다시 그린다.
   openConfirm({
-    title: "정말로 삭제하시겠습니까?",
-    text: `‘${title}’ 대화를 지우면 되돌릴 수 없어요.`,
+    title: () => t("정말로 삭제하시겠습니까?"),
+    text: () => t("‘{title}’ 대화를 지우면 되돌릴 수 없어요.", { title: title || t("새 대화") }),
     run: () => removeConversation(record),
     restore: () => focusConversation(origin, next),
   });
@@ -614,8 +1013,8 @@ function confirmDialog() {
   confirmBox.setAttribute("aria-labelledby", confirmTitle.id);
   confirmBox.setAttribute("aria-describedby", confirmText.id);
   const actions = element("div", "confirm-actions");
-  confirmDelete = element("button", "confirm-delete", "삭제");
-  confirmCancel = element("button", "confirm-cancel", "취소");
+  confirmDelete = element("button", "confirm-delete", t("삭제"));
+  confirmCancel = element("button", "confirm-cancel", t("취소"));
   for (const button of [confirmDelete, confirmCancel]) button.type = "button";
   confirmDelete.addEventListener("click", () => closeConfirm(true));
   confirmCancel.addEventListener("click", () => closeConfirm(false));
@@ -640,13 +1039,20 @@ function openConfirm(request) {
   closeMenu(false);
   confirmDialog();
   confirmRequest = request;
-  confirmTitle.textContent = request.title;
-  confirmText.textContent = request.text;
+  labelConfirm();
   confirmInert = [...(document.body?.children || [])].filter(node => node !== confirmScrim)
     .map(node => [node, node.inert]);
   for (const [node] of confirmInert) node.inert = true;
   confirmScrim.hidden = false;
   confirmCancel.focus();
+}
+function labelConfirm() {
+  if (!confirmRequest) return;
+  const text = value => typeof value === "function" ? value() : value;
+  confirmTitle.textContent = text(confirmRequest.title);
+  confirmText.textContent = text(confirmRequest.text);
+  confirmDelete.textContent = t("삭제");
+  confirmCancel.textContent = t("취소");
 }
 function closeConfirm(accepted, restore = true) {
   const request = confirmRequest;
@@ -663,7 +1069,7 @@ function notifyConversation(record) {
   showAssistant("answer", "답변이 도착했어요");
   const toast = document.querySelector("#conversation-toast");
   const open = document.querySelector("#conversation-toast-open");
-  const line = `‘${Array.from(conversationTitle(record)).slice(0, 20).join("")}’ 대화에 답변이 왔어요`;
+  const line = toastLine(record);
   const announce = document.querySelector("#conversation-announce");
   if (announce) announce.textContent = line;
   if (toast && open) {
@@ -674,7 +1080,15 @@ function notifyConversation(record) {
     if (toastTimer !== null) clearTimeout(toastTimer);
     if (typeof setTimeout === "function") toastTimer = setTimeout(() => { toast.hidden = true; toastTimer = null; }, 6000);
   }
-  if (document.hidden) { hiddenAnswers++; document.title = `(${hiddenAnswers}) ${originalTitle}`; }
+  if (document.hidden) { hiddenAnswers++; showTitle(); }
+}
+function toastLine(record) {
+  return t("‘{title}’ 대화에 답변이 왔어요", { title: Array.from(conversationTitle(record)).slice(0, 20).join("") });
+}
+// 탭 제목. 한국어는 문서에 적힌 제목을 그대로 쓴다. 숨은 탭에 온 답 수는 앞에 붙인다.
+function showTitle() {
+  const base = uiLang === "ko" ? originalTitle : t(originalTitle);
+  document.title = hiddenAnswers ? `(${hiddenAnswers}) ${base}` : base;
 }
 function dismissConversationToast() {
   const toast = document.querySelector("#conversation-toast");
@@ -699,8 +1113,8 @@ function startNewConversation() {
 document.querySelector("#new-conversation")?.addEventListener("click", startNewConversation);
 const clearButton = document.querySelector("#clear-conversations");
 clearButton?.addEventListener("click", () => openConfirm({
-  title: "대화 기록을 모두 삭제하시겠습니까?",
-  text: `보관함을 포함한 대화 ${conversations.length}개가 지워지고 되돌릴 수 없어요.`,
+  title: () => t("대화 기록을 모두 삭제하시겠습니까?"),
+  text: () => t("보관함을 포함한 대화 {count}개가 지워지고 되돌릴 수 없어요.", { count: conversations.length }),
   run: () => {
     clearConversations(historyStorage(), historyAccount);
     dismissConversationToast();
@@ -728,7 +1142,7 @@ document.addEventListener?.("scroll", () => {
   if (menuRecord) closeMenu(true, { preventScroll: true });
 }, true);
 document.addEventListener?.("visibilitychange", () => {
-  if (!document.hidden) { hiddenAnswers = 0; document.title = originalTitle; }
+  if (!document.hidden) { hiddenAnswers = 0; showTitle(); }
 });
 window.addEventListener?.("popstate", () => setChatView(window.location.hash === "#chat", false));
 window.addEventListener?.("resize", updateSidebarAvailability);
@@ -760,7 +1174,7 @@ const demoAccounts = {
   "20990004": "demo-d04-pass",
 };
 function loginMessage(line, pose = "guide") {
-  if (loginPetLine) loginPetLine.textContent = line;
+  say(loginPetLine, line);
   loginPet?.setAttribute("data-pose", pose);
   applyTechmoMotion(loginPet, pose);
   setTechmoBubbleVisibility(loginPet, true);
@@ -788,12 +1202,13 @@ function selectStudent(student, { restored = false } = {}) {
   demoLabel.textContent = student.label;
   demoLogin.hidden = true;
   demoIdentity.hidden = false;
-  if (mainGreeting) mainGreeting.textContent = `안녕하세요, ${student.label} 님`;
+  say(mainGreeting, ["안녕하세요, {label} 님", { label: student.label }]);
   if (restored) showScreen(true);
   else {
     const generation = studentGeneration;
-    loginMessage(`${student.label} 이수 내역으로 들어왔어요`, "celebrate");
-    celebrate("idle", `${student.label} 이수 내역으로 들어왔어요`, () => {
+    const entered = ["{label} 이수 내역으로 들어왔어요", { label: student.label }];
+    loginMessage(entered, "celebrate");
+    celebrate("idle", entered, () => {
       if (generation !== studentGeneration || selectedStudent !== student) return;
       let applied = false;
       const apply = () => {
@@ -851,7 +1266,7 @@ function openStudents(message = "") {
   studentGeneration++;
   showAssistant("idle");
   showScreen(false);
-  if (loginError) loginError.textContent = message;
+  say(loginError, message);
   loginMessage("학번으로 들어와 보세요!");
   studentNumber?.focus();
 }
@@ -876,7 +1291,7 @@ loginForm?.addEventListener("submit", async event => {
   showAssistant("idle");
   if (loginError) loginError.textContent = "";
   if (!Object.hasOwn(demoAccounts, studentNumber.value)) {
-    if (loginError) loginError.textContent = "학번 또는 비밀번호가 맞지 않아요";
+    say(loginError, "학번 또는 비밀번호가 맞지 않아요");
     loginMessage("쉿, 시연 계정으로만 들어올 수 있어요", "quiet");
     return;
   }
@@ -890,14 +1305,14 @@ loginForm?.addEventListener("submit", async event => {
     const result = await response.json();
     if (generation !== studentGeneration) return;
     if (response.status !== 200 || !validStudent(result?.student)) {
-      if (loginError) loginError.textContent = response.status === 401 ? "학번 또는 비밀번호가 맞지 않아요" : "로그인하지 못했어요. 다시 시도해 주세요.";
+      say(loginError, response.status === 401 ? "학번 또는 비밀번호가 맞지 않아요" : "로그인하지 못했어요. 다시 시도해 주세요.");
       loginMessage("쉿, 시연 계정으로만 들어올 수 있어요", "quiet");
       return;
     }
     selectStudent(result.student);
   } catch {
     if (generation !== studentGeneration) return;
-    if (loginError) loginError.textContent = "서버에 연결하지 못했어요. 다시 시도해 주세요.";
+    say(loginError, "서버에 연결하지 못했어요. 다시 시도해 주세요.");
     loginMessage("쉿, 시연 계정으로만 들어올 수 있어요", "quiet");
   }
 });
@@ -906,6 +1321,8 @@ document.querySelector("#browse-main")?.addEventListener("click", () => {
   showScreen(true);
   if (mainGreeting) mainGreeting.textContent = "";
 });
+// 화면 언어는 첫 문구를 그리기 전에 정한다. 한국어면 화면을 건드리지 않는다.
+uiLang = detectLang(historyStorage(), window.navigator?.language);
 showScreen(false);
 async function restoreStudent() {
   const id = storedStudentId();
@@ -919,8 +1336,8 @@ async function restoreStudent() {
     else rememberStudent(null);
   } catch {
     if (generation === studentGeneration) {
-      demoNotice.textContent = "가상 학생을 복원하지 못했어요. 다시 로그인해 주세요.";
-      if (loginError) loginError.textContent = demoNotice.textContent;
+      say(demoNotice, "가상 학생을 복원하지 못했어요. 다시 로그인해 주세요.");
+      say(loginError, "가상 학생을 복원하지 못했어요. 다시 로그인해 주세요.");
     }
   }
 }
@@ -1068,8 +1485,10 @@ function showAssistant(state, message) {
   assistant.setAttribute("data-pose", pose);
   // 상태 이름은 쉬는 자세를 평소와 답변 표시에서만 돌리려고 chat.css가 읽는다. 타이머는 쓰지 않는다.
   assistant.setAttribute("data-state", state);
-  assistantLine.textContent = message ?? line;
-  setTechmoBubbleVisibility(assistant, assistantLine.textContent !== assistantStates.idle[1]);
+  // 말풍선 줄은 원문으로 기억해 두어 언어를 바꾸면 같은 말을 새 언어로 다시 쓴다.
+  assistantSource = message ?? line;
+  say(assistantLine, assistantSource);
+  setTechmoBubbleVisibility(assistant, assistantSource !== assistantStates.idle[1]);
   assistantDots.hidden = state !== "searching";
   updateTechmoMotion();
   if (assistant.dataset?.dragging !== "true") techmoBubble();
@@ -1111,7 +1530,7 @@ function updateSend() {
 
 function setBusy(pending, message = "서버에 질문을 보내는 중…") {
   busy = pending;
-  statusLine.textContent = pending ? message : "";
+  say(statusLine, pending ? message : "");
   reset.disabled = pending;
   for (const control of landingControls) control.disabled = pending;
   photoFile.disabled = pending;
@@ -1141,7 +1560,7 @@ async function runPhotoRequest(record, message, work) {
   if (record.pending) return;
   record.pending = true;
   const account = historyAccount;
-  if (record === activeConversation) statusLine.textContent = message;
+  if (record === activeConversation) say(statusLine, message);
   showAssistant("searching");
   updateSend(); renderConversations();
   for (const turn of record.turns || []) {
@@ -1193,15 +1612,17 @@ function citationCard(citation) {
   const reference = citation.document + " · " + citation.article_path;
   const date = element("time", null, citation.effective_date);
   date.dateTime = citation.effective_date;
-  const dateLine = element("p", "date", "시행일 ");
+  const dateLine = element("p", "date", t("시행일 "));
   dateLine.append(date);
-  card.append(
-    element("h3", null, "가상 답변 근거"),
-    element("p", null, reference),
-    dateLine,
-    element("blockquote", null, citation.snippet),
-  );
-  const link = sourceLink(citation.source_url, "공식 원문 보기", reference);
+  // 문서명·조문 위치·조문 원문은 번역하지 않는다. 한국어가 아닌 화면에서만 원문이 한국어라는 표시를 붙인다.
+  const snippet = element("blockquote", null, citation.snippet);
+  card.append(element("h3", null, t("가상 답변 근거")), element("p", null, reference), dateLine);
+  if (uiLang !== "ko") {
+    snippet.setAttribute("lang", "ko");
+    card.append(element("p", "original-lang", t("원문(한국어)")));
+  }
+  card.append(snippet);
+  const link = sourceLink(citation.source_url, t("공식 원문 보기"), reference);
   if (link) card.append(link);
   return card;
 }
@@ -1213,7 +1634,7 @@ function sourceLink(url, label, context) {
   link.setAttribute("href", url);
   link.target = "_blank";
   link.rel = "noopener noreferrer";
-  link.append(element("span", "sr-only", ` (${context}, 새 탭에서 열림)`));
+  link.append(element("span", "sr-only", t(" ({context}, 새 탭에서 열림)", { context })));
   return link;
 }
 
@@ -1427,7 +1848,7 @@ async function checkGraduation() {
   graduationTurn?.remove();
   const turn = element("div", "turn");
   const prompt = element("p", "question");
-  prompt.append(element("span", "sr-only", "내 요청: "), document.createTextNode("가상 학생 졸업 체크"));
+  prompt.append(element("span", "sr-only", t("내 요청: ")), document.createTextNode(t("가상 학생 졸업 체크")));
   const reply = element("div", "reply graduation");
   turn.append(prompt, reply);
   transcript.append(turn);
@@ -1455,11 +1876,11 @@ async function checkGraduation() {
     celebrate();
   } catch {
     if (!current()) return;
-    const retry = element("button", "retry", "다시 시도");
+    const retry = element("button", "retry", t("다시 시도"));
     retry.type = "button";
     retry.addEventListener("click", () => { if (current()) void checkGraduation(); });
     const error = element("div", "error");
-    error.append(element("p", null, "졸업 체크 결과를 받지 못했어요."), retry);
+    error.append(element("p", null, t("졸업 체크 결과를 받지 못했어요.")), retry);
     reply.replaceChildren(error);
     showAssistant("error");
   } finally {
@@ -1564,17 +1985,17 @@ function needsCheckCard(messages) {
   const heading = element("h3");
   heading.append(element("span", "badge needs-check", "확인 필요"));
   card.append(heading);
-  for (const message of messages) card.append(element("p", null, message));
-  card.append(element("p", "source", photoMessages.noLink));
+  for (const message of messages) card.append(element("p", null, t(message)));
+  card.append(element("p", "source", t(photoMessages.noLink)));
   return card;
 }
 
-// 요청 실패 문구. 다시 시도할 일이 있을 때만 버튼을 붙인다.
+// 요청 실패 문구. 다시 시도할 일이 있을 때만 버튼을 붙인다. 문구는 화면이 만든 고정 문구라 여기서 번역한다.
 function failureBox(message, retry) {
   const error = element("div", "error");
-  error.append(element("p", null, message));
+  error.append(element("p", null, t(message)));
   if (retry) {
-    const button = element("button", "retry", "다시 시도");
+    const button = element("button", "retry", t("다시 시도"));
     button.type = "button";
     button.addEventListener("click", () => {
       if (!busy) retry();
@@ -1633,7 +2054,7 @@ function textAnswer(result) {
   const kind = typeof result.kind === "string" ? result.kind : "";
   if (kind === "event") {
     const card = posterEventCard(result.event, result.reasons, result.identified_by);
-    return [card, `행사를 찾았어요. ${result.event.title}`];
+    return [card, ["행사를 찾았어요. {title}", { title: result.event.title }]];
   }
   if (kind === "hold") {
     // 서버가 아는 사유 이름을 보냈으면 그 문구를, 아니면 일반 보류 문구를 쓴다. 보류에는 출처를 그리지 않는다.
@@ -1646,16 +2067,16 @@ function textAnswer(result) {
   if (!answer) throw new TypeError("Malformed photo answer");
 
   const section = element("section", "text-answer");
-  section.append(element("h3", null, textAnswerKinds[kind]), element("p", null, answer));
+  section.append(element("h3", null, t(textAnswerKinds[kind])), element("p", null, answer));
   const sources = sourceList(result.sources);
   if (sources) section.append(sources);
-  return [section, `${textAnswerKinds[kind]}에서 답을 찾았어요.`];
+  return [section, () => t("{kind}에서 답을 찾았어요.", { kind: t(textAnswerKinds[kind]) })];
 }
 
 // 사진 없이 글자만 보낸다. 실패하면 같은 글자로만 다시 시도한다.
 async function answerFromText(question, recognized, answer, record = null) {
   const account = historyAccount;
-  statusLine.textContent = photoMessages.asking;
+  say(statusLine, photoMessages.asking);
   photoNote.textContent = "";
   answer.replaceChildren();
 
@@ -1672,7 +2093,7 @@ async function answerFromText(question, recognized, answer, record = null) {
     try {
       const [node, summary] = textAnswer(result);
       answer.append(node);
-      photoNote.textContent = summary;
+      say(photoNote, summary);
       if (result.kind === "hold") showAssistant("hold");
       else celebrate();
       return true;
@@ -1687,7 +2108,7 @@ async function answerFromText(question, recognized, answer, record = null) {
     message,
     rejected ? null : () => void runPhotoRequest(record, photoMessages.asking, () => answerFromText(question, recognized, answer, record)),
   ));
-  photoNote.textContent = message;
+  say(photoNote, message);
   showAssistant("error");
 }
 
@@ -1721,7 +2142,7 @@ function readingPanel(recognized, question, answer, notes, record = null) {
     const nextQuestion = questionBox.value.trim();
     const nextRecognized = textBox.value.trim();
     const problem = textProblem(nextQuestion, nextRecognized);
-    problemLine.textContent = problem ?? "";
+    problemLine.textContent = problem ? t(problem) : "";
     if (problem) return;
     void runPhotoRequest(record, photoMessages.asking, () => answerFromText(nextQuestion, nextRecognized, answer, record));
   });
@@ -1752,7 +2173,7 @@ function photoReading(result, question, record = null) {
     return {
       answer,
       panel: readingPanel(recognized, question, answer, [], record),
-      summary: `행사를 찾았어요. ${result.event.title}`,
+      summary: ["행사를 찾았어요. {title}", { title: result.event.title }],
       pending: null,
     };
   }
@@ -1786,7 +2207,7 @@ function photoReading(result, question, record = null) {
 // 사진은 여기서 한 번만 보낸다. 행사가 확인되지 않으면 읽은 글자만 글자 주소로 넘긴다.
 async function readPhoto(photo, type, question, reply, record = null) {
   const account = historyAccount;
-  statusLine.textContent = photoMessages.reading;
+  say(statusLine, photoMessages.reading);
   photoNote.textContent = "";
   reply.replaceChildren();
 
@@ -1808,7 +2229,8 @@ async function readPhoto(photo, type, question, reply, record = null) {
     }
     if (shown) {
       reply.append(shown.answer, shown.panel);
-      photoNote.textContent = shown.summary;
+      // 안내 줄은 원문과 채울 값을 기억해 두어 언어를 바꾸면 같은 안내를 새 언어로 다시 쓴다.
+      say(photoNote, shown.summary);
       // 글자 주소로 이어서 물으면 그 결과가 비서 상태를 정한다. 여기서 끝나면 확정은 찾음, 나머지는 보류다.
       if (shown.pending) return await answerFromText(shown.pending.question, shown.pending.recognized, shown.answer, record);
       else if (result.event_match === "confirmed") celebrate();
@@ -1823,7 +2245,7 @@ async function readPhoto(photo, type, question, reply, record = null) {
     message,
     rejected ? null : () => void runPhotoRequest(record, photoMessages.reading, () => readPhoto(photo, type, question, reply, record)),
   ));
-  photoNote.textContent = message;
+  say(photoNote, message);
   showAssistant("error");
 }
 
@@ -1842,7 +2264,10 @@ function openChoiceMenu(button, title, choices, onSelect) {
     item.setAttribute("role", "menuitemradio"); item.setAttribute("aria-checked", String(Boolean(choice.checked)));
     const icon = element("span", "choice-menu-icon");
     if (choice.icon) { const copy = choice.icon.cloneNode(true); copy.removeAttribute("hidden"); icon.append(copy); }
-    item.append(icon, element("span", "choice-menu-name", choice.name), element("span", "choice-menu-desc", choice.description), element("span", "choice-menu-check", choice.checked ? "✓" : ""));
+    const name = element("span", "choice-menu-name", choice.name);
+    // 언어 메뉴처럼 항목마다 언어가 다르면 읽기 도구가 그 언어로 읽게 표시한다.
+    if (choice.lang) name.setAttribute("lang", choice.lang);
+    item.append(icon, name, element("span", "choice-menu-desc", choice.description), element("span", "choice-menu-check", choice.checked ? "✓" : ""));
     item.addEventListener("click", () => { onSelect(choice.value); close(true); });
     menu.append(item); return item;
   });
@@ -1864,8 +2289,13 @@ function openChoiceMenu(button, title, choices, onSelect) {
   document.body.append(menu); button.setAttribute("aria-expanded", "true");
   const anchor = button.getBoundingClientRect(), box = menu.getBoundingClientRect();
   const width = window.innerWidth || 360, height = window.innerHeight || 640;
+  // 버튼 위에 메뉴가 들어갈 자리가 있으면 위로 연다. 없으면 아래를 보고, 둘 다 모자라면 더 넓은 쪽으로 연다.
+  // 그래서 입력 상자처럼 아래쪽 버튼은 위로, 머리글처럼 위쪽 버튼은 아래로 열린다.
+  const above = anchor.top - 8 - 16, below = height - anchor.bottom - 8 - 16;
+  const up = box.height <= above || (box.height > below && above >= below);
+  const top = up ? anchor.top - box.height - 8 : anchor.bottom + 8;
   menu.style.setProperty("--choice-menu-x", `${Math.max(16, Math.min(anchor.right - box.width, width - box.width - 16))}px`);
-  menu.style.setProperty("--choice-menu-y", `${Math.max(16, Math.min(anchor.top - box.height - 8, height - box.height - 16))}px`);
+  menu.style.setProperty("--choice-menu-y", `${Math.max(16, Math.min(top, height - box.height - 16))}px`);
   activeChoiceMenu = { menu, button, close };
   items[Math.max(0, choices.findIndex(choice => choice.checked))]?.focus();
   return activeChoiceMenu;
@@ -1884,8 +2314,8 @@ function setupAiMode() {
   function render(animate = false) {
     const version = ++effectVersion, deep = aiMode === "deep";
     button.dataset.mode = aiMode;
-    button.setAttribute("aria-label", `답변 모드: ${deep ? "깊이 생각" : "빠르게"}`);
-    if (label) label.textContent = deep ? "깊이 생각" : "빠르게";
+    button.setAttribute("aria-label", t("답변 모드: {name}", { name: t(deep ? "깊이 생각" : "빠르게") }));
+    if (label) label.textContent = t(deep ? "깊이 생각" : "빠르게");
     icons.forEach((icon, index) => {
       if (!icon) return;
       if (deep !== Boolean(index)) icon.setAttribute("hidden", "");
@@ -1904,11 +2334,13 @@ function setupAiMode() {
     setTimeout(() => { if (version === effectVersion) row?.classList.remove("is-deep-enter"); }, 900);
   }
   render();
+  // 언어를 바꾸면 효과 없이 이름만 다시 그린다.
+  onLangChange(() => render());
   function open() {
     if (activeChoiceMenu?.button === button) { activeChoiceMenu.close(); return; }
-    openChoiceMenu(button, "답변 모드", [
-      { value: "fast", name: "빠르게", description: "바로 답해요 · 보통 1~3초", icon: icons[0], checked: aiMode === "fast" },
-      { value: "deep", name: "깊이 생각하기", description: "생각 과정을 보여 주며 꼼꼼히 답해요 · 10~30초", icon: icons[1], checked: aiMode === "deep" },
+    openChoiceMenu(button, t("답변 모드"), [
+      { value: "fast", name: t("빠르게"), description: t("바로 답해요 · 보통 1~3초"), icon: icons[0], checked: aiMode === "fast" },
+      { value: "deep", name: t("깊이 생각하기"), description: t("생각 과정을 보여 주며 꼼꼼히 답해요 · 10~30초"), icon: icons[1], checked: aiMode === "deep" },
     ], value => {
       const previous = aiMode;
       try {
@@ -1924,6 +2356,118 @@ function setupAiMode() {
   });
 }
 setupAiMode();
+
+// 언어 선택기(#116). 머리글과 로그인 화면의 두 알약 버튼이 같은 언어 상태를 쓰고, 메뉴는 답변 모드와 같은 openChoiceMenu다.
+// 기본 드롭다운(select)은 쓰지 않는다. 고르면 새로고침 없이 지금 보이는 글을 바꾼다.
+const langButtons = [];
+let staticTouched = false, titlesTouched = false;
+const staticSources = new WeakMap();
+// 문서에 적힌 고정 문구만 바꾼다. 아래 자리는 스크립트가 직접 그리거나(메뉴·확인 창·제목), 서버 글과 사용자 글이 들어간다.
+const staticSkip = [".turn", "#conversation-list", "[data-panel-content]", ".title-fallback", ".main-title-fallback",
+  "#ai-mode-button", ".lang-pill", ".choice-menu", ".conversation-menu", ".confirm-scrim", "#campus-caption",
+  "#demo-label", "#conversation-toast-open", "#conversation-announce"].join(", ");
+function langChoice(value) {
+  return langChoices.find(choice => choice.value === value) ?? langChoices[0];
+}
+function renderLangButtons() {
+  const name = langChoice(uiLang).label;
+  for (const { button, label } of langButtons) {
+    label.textContent = name;
+    button.setAttribute("aria-label", t("언어 / Language: {name}", { name }));
+  }
+}
+function openLangMenu(button) {
+  if (activeChoiceMenu?.button === button) { activeChoiceMenu.close(); return; }
+  openChoiceMenu(button, "언어 / Language", langChoices.map(choice => ({
+    value: choice.value, name: choice.name, description: choice.description, lang: langTags[choice.value],
+    checked: choice.value === uiLang,
+  })), chooseLang);
+}
+// 저장에 실패하면 한국어로 돌아간다. 답변 모드 선택기가 저장 실패 때 빠르게로 돌아가는 것과 같다.
+function chooseLang(value) {
+  let lang = knownLang(value) ?? "ko";
+  try {
+    const storage = historyStorage();
+    if (!storage) throw new Error("Storage unavailable");
+    storage.setItem(langKey, lang);
+  } catch { lang = "ko"; }
+  applyLang(lang);
+}
+function applyLang(lang) {
+  uiLang = knownLang(lang) ?? "ko";
+  document.documentElement?.setAttribute?.("lang", langTags[uiLang]);
+  showTitle();
+  resay();
+  translateStatic();
+  renderTitles();
+  renderLangButtons();
+  labelConversationMenu();
+  labelConfirm();
+  const toastOpen = document.querySelector("#conversation-toast-open");
+  if (toastRecord && toastOpen) toastOpen.textContent = toastLine(toastRecord);
+  renderConversations();
+  for (const listener of langListeners) listener();
+}
+// 문서의 글 조각과 aria-label·placeholder·alt를 사전으로 바꾼다. 처음 바꿀 때 한국어 원문을 기억해 두었다가
+// 한국어로 돌아오면 그대로 되돌린다. 한국어로 시작한 화면은 한 번도 건드리지 않는다.
+function translateStatic() {
+  if (uiLang === "ko" && !staticTouched) return;
+  if (typeof document.createTreeWalker !== "function") return;
+  staticTouched = true;
+  const known = key => Object.hasOwn(uiText.en, key);
+  for (const root of new Set([document.body, empty])) {
+    if (!root) continue;
+    const walker = document.createTreeWalker(root, 4);
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      if (node.parentElement?.closest(staticSkip)) continue;
+      const source = staticSources.get(node) ?? node.nodeValue;
+      const key = source.trim();
+      if (!key || !known(key)) continue;
+      staticSources.set(node, source);
+      node.nodeValue = source.replace(key, () => t(key));
+    }
+    for (const node of root.querySelectorAll("[aria-label], [placeholder], [alt]")) {
+      if (node.closest(staticSkip)) continue;
+      const saved = staticSources.get(node) ?? {};
+      for (const name of ["aria-label", "placeholder", "alt"]) {
+        const source = saved[name] ?? node.getAttribute(name);
+        if (source === null || !known(source)) continue;
+        saved[name] = source;
+        node.setAttribute(name, t(source));
+      }
+      if (Object.keys(saved).length) staticSources.set(node, saved);
+    }
+  }
+}
+// 제목 그림에는 한국어 글씨가 들어 있다. 영어·중국어에서는 그림 자리를 숨기고 이 글자 제목을 보인다.
+function renderTitles() {
+  if (uiLang === "ko" && !titlesTouched) return;
+  titlesTouched = true;
+  const em = text => element("em", null, text);
+  const span = (...parts) => { const node = element("span"); node.append(...parts); return node; };
+  const [login, main] = {
+    ko: [["졸업까지,", span(em("테크모"), "와 함께")], ["물어봐요, ", em("테크모")]],
+    en: [["To graduation,", span("with ", em("Techmo"))], ["Ask ", em("Techmo")]],
+    zh: [["直到毕业，", span("与 ", em("Techmo"), " 同行")], ["问问 ", em("Techmo")]],
+  }[uiLang];
+  document.querySelector(".title-fallback")?.replaceChildren?.(...login);
+  document.querySelector(".main-title-fallback")?.replaceChildren?.(...main);
+}
+function setupLang() {
+  for (const selector of ["#login-lang-button", "#lang-button"]) {
+    const button = document.querySelector(selector);
+    if (!button || typeof button.querySelector !== "function" || typeof button.addEventListener !== "function") continue;
+    const label = button.querySelector(".lang-pill-label");
+    if (!label) continue;
+    langButtons.push({ button, label });
+    button.addEventListener("click", () => openLangMenu(button));
+    button.addEventListener("keydown", event => {
+      if (["ArrowDown", "ArrowUp", "Enter", " "].includes(event.key)) { event.preventDefault(); openLangMenu(button); }
+    });
+  }
+  renderLangButtons();
+  if (uiLang !== "ko") applyLang(uiLang);
+}
 
 async function readChatStream(response, onEvent) {
   if (!response.ok || !response.body || typeof TextDecoder === "undefined") throw new Error("Stream unavailable");
@@ -1971,7 +2515,8 @@ async function requestChatAnswer(body, onEvent) {
     await readChatStream(response, (name, data) => {
       if (!meta && name !== "meta") throw new Error("Missing metadata");
       if (name === "meta") meta = data;
-      if (name === "answer") answer = data.replace ? data.text : answer + data.text;
+      // 글이 아닌 조각은 쌓지 않는다. 보류 답은 서버 글을 그대로 그리므로 "null" 같은 글자가 섞이면 안 된다.
+      if (name === "answer" && typeof data.text === "string") answer = data.replace ? data.text : answer + data.text;
       if (name === "notice") notice = data.text;
       if (name === "done") done = data;
       onEvent(name, data);
@@ -1997,6 +2542,8 @@ async function ask(question, reply, record = activeConversation) {
   updateSend(); renderConversations();
   reply.replaceChildren();
   const mode = aiMode;
+  // 답변 언어는 보낼 때 정한다. 답을 기다리는 동안 언어를 바꾸면 다음 질문부터 적용되고, JSON으로 다시 물을 때도 같은 값을 쓴다.
+  const lang = uiLang;
   const requestNumber = ++chatRequestNumber;
   const valid = () => !record || (account === historyAccount && conversations.includes(record));
   const visible = () => valid() && (!record || (requestedChatView && activeConversation === record));
@@ -2009,8 +2556,8 @@ async function ask(question, reply, record = activeConversation) {
     thinking = element("details", "thinking"); thinking.id = `thinking-${requestNumber}`;
     thinking.classList.add("is-waiting");
     const summary = element("summary"); summary.id = `${thinking.id}-summary`;
-    thinkingLabel = element("span", null, "생각하는 중");
-    summary.append(thinkingLabel, element("small", null, "모델이 쓴 원문, 영어일 수 있음"));
+    thinkingLabel = element("span", null, t("생각하는 중"));
+    summary.append(thinkingLabel, element("small", null, t("모델이 쓴 원문, 영어일 수 있음")));
     thinkingContent = element("p"); thinkingContent.id = `${thinking.id}-content`;
     thinking.append(summary, thinkingContent); reply.append(thinking);
   }
@@ -2018,12 +2565,12 @@ async function ask(question, reply, record = activeConversation) {
     if (!thinking || thinkingFinished) return;
     thinkingFinished = true;
     thinking.classList.remove("is-waiting"); thinking.open = false;
-    thinkingLabel.textContent = `${Math.max(0, Math.round((Date.now() - thinkingStarted) / 1000))}초 동안 생각함`;
+    thinkingLabel.textContent = t("{seconds}초 동안 생각함", { seconds: Math.max(0, Math.round((Date.now() - thinkingStarted) / 1000)) });
   }
   startThinking();
   try {
     const result = await requestChatAnswer({ message: question,
-      session_id: record ? record.sessionId || null : sessionId, use_academic_data: false, mode }, (name, data) => {
+      session_id: record ? record.sessionId || null : sessionId, use_academic_data: false, mode, lang }, (name, data) => {
       if (!valid()) return;
       if (name === "reset") {
         finishThinking(); reply.replaceChildren(); answerNode = null; thinking = null; thinkingContent = null; thinkingLabel = null;
@@ -2044,10 +2591,11 @@ async function ask(question, reply, record = activeConversation) {
     if (record && (account !== historyAccount || !conversations.includes(record))) return;
     if (record) record.sessionId = result.session_id;
     else sessionId = result.session_id;
-    // 안내 답은 근거 없이 받은 글 그대로 일반 말풍선에 그린다. 빈 안내 답과 보류는 고정 보류 문구로 그린다.
-    const guided = result.answered !== true && result.guided === true &&
-      typeof result.answer === "string" && result.answer.trim() !== "";
-    const text = result.answered || guided ? result.answer : "이 질문은 가상 규정에서 근거를 찾지 못했어요.";
+    // 안내 답은 근거 없이 받은 글 그대로 일반 말풍선에 그린다. 보류는 서버가 고른 언어로 쓴 보류 문구를 그대로 그리고,
+    // 서버 글이 없거나 비었을 때만 화면의 고정 보류 문구를 쓴다.
+    const spoken = typeof result.answer === "string" && result.answer.trim() !== "";
+    const guided = result.answered !== true && result.guided === true && spoken;
+    const text = result.answered || guided || spoken ? result.answer : t("이 질문은 가상 규정에서 근거를 찾지 못했어요.");
     if (!answerNode) { answerNode = element("p"); reply.append(answerNode); }
     answerNode.className = result.answered || guided ? "" : "fallback";
     answerNode.textContent = text;
@@ -2073,14 +2621,14 @@ async function ask(question, reply, record = activeConversation) {
     else showAssistant("hold");
   } catch {
     if (record && (account !== historyAccount || !conversations.includes(record))) return;
-    const retry = element("button", "retry", "다시 시도");
+    const retry = element("button", "retry", t("다시 시도"));
     retry.type = "button";
     retry.addEventListener("click", () => {
       if (busy || record?.pending) return;
       input.focus(); void ask(question, reply, record);
     });
     const error = element("div", "error");
-    error.append(element("p", null, "서버 응답을 받지 못했어요."), retry);
+    error.append(element("p", null, t("서버 응답을 받지 못했어요.")), retry);
     reply.replaceChildren(error);
     if (record && (!requestedChatView || activeConversation !== record)) {
       record.unread = true;
@@ -2113,7 +2661,7 @@ composer.addEventListener("submit", event => {
       ? photoRejections[415]
       : file.size > photoMaxBytes ? photoRejections[413] : null;
     if (rejected) {
-      photoNote.textContent = rejected;
+      say(photoNote, rejected);
       return;
     }
   }
@@ -2133,10 +2681,10 @@ composer.addEventListener("submit", event => {
   if (!chatView || !requestedChatView) setChatView(true);
   const turn = element("div", "turn");
   const prompt = element("p", "question");
-  prompt.append(element("span", "sr-only", "내 질문: "));
+  prompt.append(element("span", "sr-only", t("내 질문: ")));
   if (question) prompt.append(document.createTextNode(question));
   // 파일명은 화면에 적지 않는다. 사진을 붙였다는 사실만 보여 준다.
-  if (file) prompt.append(element("span", "attachment", "사진 1장"));
+  if (file) prompt.append(element("span", "attachment", t("사진 1장")));
   const reply = element("div", file ? "reply photo" : "reply");
   turn.append(prompt, reply);
   record.turns.push(turn);
@@ -2250,7 +2798,9 @@ function refreshTechmoBubbleVisibility() {
   const narrow = window.innerWidth <= 680;
   if (techmoNarrow === narrow) return;
   techmoNarrow = narrow;
-  setTechmoBubbleVisibility(assistant, assistantLine.textContent !== assistantStates.idle[1]);
+  // 아직 상태를 그리지 않았으면 문서의 글을 본다. 그 글은 번역됐을 수 있어 번역한 대기 문구와도 견준다.
+  const idle = assistantStates.idle[1], current = assistantSource ?? assistantLine.textContent;
+  setTechmoBubbleVisibility(assistant, current !== idle && current !== t(idle));
   setTechmoBubbleVisibility(loginPet, true);
 }
 const techmoSize = () => {
@@ -2424,11 +2974,14 @@ try {
 // 펫은 스프라이트 시트를 배경으로 그리는데 배경 그림은 로드 신호를 주지 않아, 같은 주소의 그림을 버튼 안에 두고 그 신호를 본다.
 // complete와 naturalWidth를 함께 보므로 이 스크립트가 로드·실패 신호보다 늦게 실행돼도 결과가 같다.
 // 파일이 없거나(404) 깨졌으면 자리를 숨긴 채 두고, 다른 그림으로 바꾸지 않는다.
+// 두 제목 그림에는 한국어 글씨가 들어 있다. 한국어가 아닌 화면에서는 그림이 늦게 받아져도 자리를 숨긴 채 두어
+// 바로 뒤의 번역한 글자 제목이 보이게 한다. 언어를 바꾸면 같은 판정을 다시 한다.
 for (const slot of document.querySelectorAll?.("[data-brand-slot]") ?? []) {
   const image = slot.querySelector("img");
   if (!image) continue;
+  const lettering = /(^|\s)(title|main)-lettering(\s|$)/.test(typeof slot.className === "string" ? slot.className : "");
   const settle = () => {
-    slot.hidden = !(image.complete && image.naturalWidth > 0);
+    slot.hidden = !(image.complete && image.naturalWidth > 0) || (lettering && uiLang !== "ko");
     configureTechmoSprite(slot, image);
     if (slot === pet && !slot.hidden) {
       restoreTechmoPosition();
@@ -2437,6 +2990,7 @@ for (const slot of document.querySelectorAll?.("[data-brand-slot]") ?? []) {
   };
   image.addEventListener("load", settle);
   image.addEventListener("error", settle);
+  if (lettering) onLangChange(settle);
   settle();
 }
 
@@ -2446,6 +3000,7 @@ if (window.location?.hash === "#chat") {
   window.history?.replaceState(null, "", window.location.pathname + window.location.search);
 }
 switchHistoryAccount("browse");
+setupLang();
 void restoreStudent();
 
 const calendarScope = { year: 2027, semester: 1 };
@@ -2529,7 +3084,7 @@ async function loadFeaturePanel(panel, change) {
     content.replaceChildren(failureBox("다른 요청을 마친 뒤 다시 시도해 주세요.", retry));
     return;
   }
-  content.replaceChildren(element("p", "hint", "안내를 찾는 중이에요…"));
+  content.replaceChildren(element("p", "hint", t("안내를 찾는 중이에요…")));
   await whileBusy("안내를 찾는 중…", async () => {
     const calendar = panel.dataset.panel === "calendar";
     const path = calendar ? `/api/v1/academic-calendar/${calendarScope.year}/${calendarScope.semester}` : "/api/v1/campus-guide";
