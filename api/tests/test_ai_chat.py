@@ -1092,6 +1092,22 @@ class ForeignQualityTests(unittest.TestCase):
                 self.assertEqual(ai.available_slots, 4)
 
     @without_sockets
+    async def test_none_keeps_given_session_and_makes_one_only_when_missing(self):
+        session = "00000000-0000-4000-8000-000000000119"
+        seen = []
+        for given in (session, None):
+            transport = CallsTransport(sse(delta(content="NONE")), sse(delta(content="Hello!")))
+            ai = AiChat(SETTINGS, transport=transport)
+            events = [e async for e in ai.localized_events(
+                "hi", "fast", lambda query: self.fail("검색함"), lang="en", session_id=given,
+            )]
+            seen.append(events[0][1]["session_id"])
+            self.assertIs(events[-1][1]["guided"], True)
+        self.assertEqual(seen[0], session)
+        self.assertTrue(seen[1])
+        self.assertNotEqual(seen[1], session)
+
+    @without_sockets
     async def test_none_guidance_failure_returns_language_refusal(self):
         transport = CallsTransport(sse(delta(content="NONE")), sse(delta(content=" ")))
         ai = AiChat(SETTINGS, transport=transport)
