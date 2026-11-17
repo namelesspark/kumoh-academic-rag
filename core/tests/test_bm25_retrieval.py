@@ -9,6 +9,61 @@ from kumoh_rag_core.retrieval import BM25Retriever
 
 
 class BM25RetrievalTests(unittest.TestCase):
+    def test_title_coverage_beats_long_articles_with_frequent_topic_words(self):
+        source = "\n".join((
+            "제1조(가상 절차) " + "졸업 학점 이수 신청 확인 " * 30,
+            "제2조(졸업학점) 가상 종이학교는 별빛 활동을 마친다.",
+            "제3조(가상 기록) " + "졸업 학점 기록 보관 " * 25,
+        ))
+        results = BM25Retriever(chunk_articles(source)).retrieve("졸업 학점")
+        self.assertEqual(results[0].chunk.article_path, "제2조(졸업학점)")
+        self.assertEqual(len(results), 3)
+
+    def test_graduate_penalty_is_disabled_by_explicit_course_query(self):
+        source = "\n".join((
+            "제1조(이수학점) 대학원 종이학교는 별빛 학점을 정한다.",
+            "제2조(이수학점) 학사과정 종이학교는 별빛 학점을 정한다.",
+            "제3조(구름 놀이) 구름 모형을 접는다.",
+        ))
+        retriever = BM25Retriever(chunk_articles(source))
+        ordinary = retriever.retrieve("학점")
+        self.assertEqual(ordinary[0].chunk.article_path, "제2조(이수학점)")
+        unpenalized = BM25Retriever(chunk_articles(source))
+        unpenalized._graduate = [False] * len(unpenalized._chunks)
+        for qualifier in ("대학원", "대학원생", "석사", "박사"):
+            with self.subTest(qualifier=qualifier):
+                explicit = retriever.retrieve("학점 " + qualifier)
+                baseline = unpenalized.retrieve("학점 " + qualifier)
+                self.assertEqual(explicit, baseline)
+        self.assertEqual(retriever.retrieve("제1조 학점")[0].chunk.start, 0)
+
+    def test_split_graduate_body_ignores_prepended_heading(self):
+        source = "\n".join((
+            "제1조(이수학점)",
+            "① 대학원 종이학교는 별빛 학점을 정한다.",
+            "② 학사과정 종이학교는 별빛 학점을 정한다.",
+            "제2조(구름 놀이) 구름 모형을 접는다.",
+        ))
+        chunks = chunk_articles(source, max_chars=40)
+        retriever = BM25Retriever(chunks)
+        results = retriever.retrieve("학점")
+        self.assertTrue(results[0].chunk.article_path.endswith("②"))
+        graduate = next(result for result in results if result.chunk.article_path.endswith("①"))
+        self.assertGreater(results[0].score, graduate.score)
+
+    def test_later_graduate_mention_does_not_change_first_sentence_scope(self):
+        source = "\n".join((
+            "제1조(별빛 활동) 학사과정 종이학교의 학점이다. 대학원은 따로 정한다.",
+            "제2조(구름 놀이) 구름 모형을 접는다.",
+        ))
+        retriever = BM25Retriever(chunk_articles(source))
+        self.assertFalse(retriever._graduate[0])
+
+    def test_graduate_title_is_detected_without_graduate_word_in_body(self):
+        source = "제1조(대학원 이수학점) 종이학교는 별빛 학점을 정한다."
+        retriever = BM25Retriever(chunk_articles(source))
+        self.assertTrue(retriever._graduate[0])
+
     def assert_first_result(self, source, results, path, citation):
         self.assertTrue(results)
         first = results[0]
