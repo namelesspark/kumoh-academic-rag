@@ -53,6 +53,17 @@ _ASKING_ENDINGS = (
     "어요", "아요", "해요", "돼요", "예요", "에요", "세요", "지요", "죠", "줘요", "줘",
 )
 _MIN_WORD_LENGTH = 2
+# 주제 낱말 뒤에 붙어 조건·의무·물음을 맺는 어미. '졸업하려면'의 '하려면'처럼 떼고 남은
+# 앞부분을 주제로 쓴다. 긴 어미가 짧은 어미보다 먼저 맞도록 길이순으로 둔다.
+_PREDICATE_ENDINGS = tuple(sorted(
+    (
+        "하려면", "되려면", "받으려면", "하려고",
+        "해야", "돼야", "되어야", "하면", "되면",
+        "하나요", "되나요", "있나요", "없나요", "할",
+    ),
+    key=len,
+    reverse=True,
+))
 
 
 def _plain(text: str) -> str:
@@ -68,19 +79,67 @@ def _without_particle(word: str) -> str:
     return word
 
 
+def _predicate_stem(word: str) -> str | None:
+    """어미를 떼고 두 글자 이상 남으면 앞부분을, 어미뿐인 낱말이면 빈 문자열을 돌려준다.
+
+    한 글자만 남는 낱말('역할'의 '역')과 어미가 없는 낱말은 None을 돌려줘 기존 규칙에 맡긴다.
+    """
+
+    for ending in _PREDICATE_ENDINGS:
+        if word.endswith(ending):
+            stem = word[: -len(ending)]
+            if len(stem) >= _MIN_WORD_LENGTH:
+                return stem
+            if not stem:
+                return ""
+            return None
+    return None
+
+
 def core_words(line: str) -> tuple[str, ...]:
-    """질문 한 줄에서 조 번호, 묻는 말, 조사를 덜어 낸 두 글자 이상 낱말을 고른다."""
+    """질문 한 줄에서 조 번호, 묻는 말, 서술 어미, 조사를 덜어 낸 두 글자 이상 낱말을 고른다."""
 
     words = []
     for word in _WORD.findall(_ARTICLE_NUMBER.sub(" ", _plain(line))):
-        if (
-            len(word) < _MIN_WORD_LENGTH
-            or word.startswith(_ASKING_PREFIXES)
-            or word.endswith(_ASKING_ENDINGS)
-        ):
+        if len(word) < _MIN_WORD_LENGTH or word.startswith(_ASKING_PREFIXES):
+            continue
+        stem = _predicate_stem(word)
+        if stem == "":
+            continue
+        if stem is not None:
+            words.append(stem)
+            continue
+        if word.endswith(_ASKING_ENDINGS):
             continue
         words.append(_without_particle(word))
     return tuple(dict.fromkeys(words))
+
+
+def search_query(query: str) -> str:
+    """검색기에 넘길 질의를 만든다. 줄마다 조 번호와 핵심 낱말만 남긴다.
+
+    검색기는 질의를 두 글자씩 잘라 점수를 매긴다. '하려면', '나요' 같은 서술 어미가 남으면
+    그 두 글자가 엉뚱한 조문의 점수를 올리므로 미리 덜어 낸다. 조 번호는 '조 번호 일치
+    우선' 규칙에 쓰이므로 남긴다. 근거 판정에는 이 질의가 아니라 원래 질문을 쓴다.
+    """
+
+    lines = []
+    for line in query.splitlines():
+        terms = (*_ARTICLE_NUMBER.findall(_plain(line)), *core_words(line))
+        if terms:
+            lines.append(" ".join(dict.fromkeys(terms)))
+    return "\n".join(lines)
+
+
+def cleaned_search(
+    search: Callable[[str], Sequence[Hit]],
+) -> Callable[[str], Sequence[Hit]]:
+    """검색 함수를 감싸, 원래 질문 대신 `search_query`로 정리한 질의를 넘기게 한다."""
+
+    def search_cleaned(query: str) -> Sequence[Hit]:
+        return search(search_query(query))
+
+    return search_cleaned
 
 
 def _line_is_supported(line: str, chunk_text: str, chunk_number: str | None) -> bool:
