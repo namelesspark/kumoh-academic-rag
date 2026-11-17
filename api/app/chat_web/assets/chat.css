@@ -1443,8 +1443,8 @@ html:lang(zh) { font-family: "PingFang SC", "Microsoft YaHei", "Noto Sans SC", P
   .login-lang { top: 6px; }
   .login-intro { padding-top: 34px; }
 }
-/* 좁은 머리글에서는 지구본과 꺾쇠만 남긴다. 현재 언어는 aria-label이 읽어 준다. */
+/* 좁은 머리글에서도 현재 언어 이름은 보인다. 간격과 글자만 줄이고 지구본을 작게 그린다. */
 @media (max-width: 480px) {
-  .masthead-actions > .lang-pill { gap: 4px; padding: 0 9px; }
-  .masthead-actions > .lang-pill .lang-pill-label { display: none; }
+  .masthead-actions > .lang-pill { gap: 3px; padding: 0 8px; font-size: .74rem; }
+  .masthead-actions > .lang-pill .lang-pill-globe { width: 15px; height: 15px; }
 }

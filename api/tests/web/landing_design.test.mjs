@@ -382,6 +382,12 @@ test("답변 모드 버튼과 메뉴: 480px 이하 아이콘만, 메뉴 너비·
     assert.equal(declared(".choice-menu", ["width"], undefined, { width }), "min(320px, calc(100vw - 32px))");
   }
   assert.equal(find(".mode-pill-label", ["display"], { width: 481 }), undefined);
+  // 언어 알약은 좁은 화면에서도 현재 언어 이름을 숨기지 않는다(#116).
+  for (const width of [480, 390, 360, 320]) {
+    for (const selector of [".lang-pill-label", ".masthead-actions > .lang-pill .lang-pill-label"]) {
+      assert.notEqual(find(selector, ["display"], { width }), "none", `${selector} ${width}px`);
+    }
+  }
   // 아이콘은 data-mode에 맞는 것 하나만 보인다.
   assert.equal(declared('.mode-pill:not([data-mode="deep"]) .mode-icon[data-icon="deep"]', ["display"]), "none");
   assert.equal(declared('.mode-pill[data-mode="deep"] .mode-icon[data-icon="fast"]', ["display"]), "none");

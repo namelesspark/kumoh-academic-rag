@@ -441,6 +441,7 @@ function langPage({ storage = memoryStorage(), language } = {}) {
     make("ul", { id: "conversation-list" }, make("li", {}, "새 대화")),
     make("div", { class: "turn" }, make("p", {}, "보내기")),
     make("p", { id: "pet-line" }),
+    make("p", { id: "photo-note" }),
   );
   const root = make("html", { lang: "ko" });
   const document = {
@@ -638,6 +639,29 @@ test("고르면 새로고침 없이 html lang·탭 제목·두 버튼·고정 �
   assert.equal(text(".title-fallback"), "졸업까지,테크모와 함께");
   assert.equal(p.headerButton.getAttribute("aria-label"), "언어 / Language: 한국어");
   assert.equal(p.get("#pet-line").textContent, "궁금한 점을 물어보세요");
+});
+
+test("사진 결과 안내는 원문과 채울 값을 기억해 언어를 바꾸면 새 언어로 다시 쓴다", () => {
+  const p = langPage({ language: "en-US" });
+  p.run('say(document.querySelector("#photo-note"), ["행사를 찾았어요. {title}", { title: "가상 설명회" }])');
+  assert.equal(p.get("#photo-note").textContent, "Found the event: 가상 설명회");
+  p.choose(p.headerButton, "zh");
+  assert.equal(p.get("#photo-note").textContent, "找到了活动：가상 설명회");
+  // 채울 값까지 번역해야 하는 안내는 함수로 넘겨 두 문구를 함께 바꾼다.
+  p.run('say(document.querySelector("#photo-note"), () => t("{kind}에서 답을 찾았어요.", { kind: t("캠퍼스 안내") }))');
+  assert.equal(p.get("#photo-note").textContent, "已在校园指南中找到答案。");
+  p.choose(p.headerButton, "en");
+  assert.equal(p.get("#photo-note").textContent, "Found an answer in Campus guide.");
+  p.choose(p.headerButton, "ko");
+  assert.equal(p.get("#photo-note").textContent, "캠퍼스 안내에서 답을 찾았어요.");
+});
+
+test("사진 결과 함수는 번역한 글 대신 원문을 돌려줘 안내 줄이 기억하게 한다", () => {
+  for (const marker of ['return [card, ["행사를 찾았어요. {title}"', 'summary: ["행사를 찾았어요. {title}"',
+    'return [section, () => t("{kind}에서 답을 찾았어요."', "say(photoNote, summary)", "say(photoNote, shown.summary)"]) {
+    assert.ok(script.includes(marker), marker);
+  }
+  assert.doesNotMatch(script, /photoNote\.textContent = (?!"")/);
 });
 
 test("다른 코드가 바꾼 알림 줄은 언어를 바꿔도 덮어쓰지 않는다", () => {

@@ -346,8 +346,9 @@ function t(source, values) {
   if (!values) return text;
   return text.replace(/\{(\w+)\}/g, (match, name) => Object.hasOwn(values, name) ? String(values[name]) : match);
 }
-// 알림 줄처럼 나중에 다시 그릴 문구는 [원문, 값] 짝으로 넘길 수 있다.
+// 알림 줄처럼 나중에 다시 그릴 문구는 [원문, 값] 짝으로 넘길 수 있다. 채울 값까지 번역해야 하면 함수로 넘긴다.
 function tr(message) {
+  if (typeof message === "function") return message();
   return Array.isArray(message) ? t(message[0], message[1]) : t(message);
 }
 function onLangChange(listener) {
@@ -2053,13 +2054,13 @@ function textAnswer(result) {
   const kind = typeof result.kind === "string" ? result.kind : "";
   if (kind === "event") {
     const card = posterEventCard(result.event, result.reasons, result.identified_by);
-    return [card, t("행사를 찾았어요. {title}", { title: result.event.title })];
+    return [card, ["행사를 찾았어요. {title}", { title: result.event.title }]];
   }
   if (kind === "hold") {
     // 서버가 아는 사유 이름을 보냈으면 그 문구를, 아니면 일반 보류 문구를 쓴다. 보류에는 출처를 그리지 않는다.
     const reason = result.hold_reason;
     const known = typeof reason === "string" && Object.hasOwn(photoNeedsCheck, reason);
-    return [needsCheckCard([known ? photoNeedsCheck[reason] : photoMessages.held]), t("답변을 보류했어요. 링크는 보여 주지 않아요.")];
+    return [needsCheckCard([known ? photoNeedsCheck[reason] : photoMessages.held]), "답변을 보류했어요. 링크는 보여 주지 않아요."];
   }
   if (!Object.hasOwn(textAnswerKinds, kind)) throw new TypeError("Malformed photo answer");
   const answer = typeof result.answer === "string" ? shownText(result.answer) : null;
@@ -2069,7 +2070,7 @@ function textAnswer(result) {
   section.append(element("h3", null, t(textAnswerKinds[kind])), element("p", null, answer));
   const sources = sourceList(result.sources);
   if (sources) section.append(sources);
-  return [section, t("{kind}에서 답을 찾았어요.", { kind: t(textAnswerKinds[kind]) })];
+  return [section, () => t("{kind}에서 답을 찾았어요.", { kind: t(textAnswerKinds[kind]) })];
 }
 
 // 사진 없이 글자만 보낸다. 실패하면 같은 글자로만 다시 시도한다.
@@ -2092,7 +2093,7 @@ async function answerFromText(question, recognized, answer, record = null) {
     try {
       const [node, summary] = textAnswer(result);
       answer.append(node);
-      photoNote.textContent = summary;
+      say(photoNote, summary);
       if (result.kind === "hold") showAssistant("hold");
       else celebrate();
       return true;
@@ -2172,7 +2173,7 @@ function photoReading(result, question, record = null) {
     return {
       answer,
       panel: readingPanel(recognized, question, answer, [], record),
-      summary: t("행사를 찾았어요. {title}", { title: result.event.title }),
+      summary: ["행사를 찾았어요. {title}", { title: result.event.title }],
       pending: null,
     };
   }
@@ -2197,7 +2198,7 @@ function photoReading(result, question, record = null) {
   return {
     answer,
     panel: readingPanel(recognized, question, answer, [], record),
-    summary: t(problem === photoMessages.tooLong ? photoMessages.tooLong : "사진에서 확인한 내용이 없어요. 링크는 보여 주지 않아요."),
+    summary: problem === photoMessages.tooLong ? photoMessages.tooLong : "사진에서 확인한 내용이 없어요. 링크는 보여 주지 않아요.",
     pending: null,
   };
 }
@@ -2228,7 +2229,8 @@ async function readPhoto(photo, type, question, reply, record = null) {
     }
     if (shown) {
       reply.append(shown.answer, shown.panel);
-      photoNote.textContent = shown.summary;
+      // 안내 줄은 원문과 채울 값을 기억해 두어 언어를 바꾸면 같은 안내를 새 언어로 다시 쓴다.
+      say(photoNote, shown.summary);
       // 글자 주소로 이어서 물으면 그 결과가 비서 상태를 정한다. 여기서 끝나면 확정은 찾음, 나머지는 보류다.
       if (shown.pending) return await answerFromText(shown.pending.question, shown.pending.recognized, shown.answer, record);
       else if (result.event_match === "confirmed") celebrate();
