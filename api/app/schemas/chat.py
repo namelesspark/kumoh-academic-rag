@@ -25,6 +25,13 @@ from pydantic import BaseModel, Field, field_validator
 class ChatRequest(BaseModel):
     """요청을 보내는 쪽(클라이언트)이 담아 보내는 본문."""
 
+    lang: str = "ko"
+
+    @field_validator("lang", mode="before")
+    @classmethod
+    def _language(cls, value: object) -> str:
+        return value if isinstance(value, str) and value in ("ko", "en", "zh") else "ko"
+
     message: str = Field(
         ...,
         description="사용자 질문. 공백만으로는 받지 않는다.",

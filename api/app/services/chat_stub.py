@@ -54,6 +54,13 @@ UNANSWERABLE_TEXT = (
 ZERO_LATENCY = {"retrieval": 0, "generation": 0, "total": 0}
 
 
+def refusal_text(lang: str = "ko") -> str:
+    return {
+        "en": "This information could not be found in the available regulations. Please contact the responsible office.",
+        "zh": "现有规章文件中未找到相关内容。请咨询负责部门。",
+    }.get(lang, UNANSWERABLE_TEXT)
+
+
 # ---------------------------------------------------------------------------
 # 진입점
 # ---------------------------------------------------------------------------
@@ -64,6 +71,7 @@ def build_stub_chat_result(
     message: str,
     session_id: str | None,
     use_academic_data: bool,
+    lang: str = "ko",
 ) -> dict:
     """질문 하나에 대한 고정 응답 dict를 만든다."""
 
@@ -79,7 +87,10 @@ def build_stub_chat_result(
     if message.strip() == FICTIONAL_QUESTION:
         return {
             "session_id": resolved_session,
-            "answer": ANSWERED_TEXT,
+            "answer": {
+                "en": "Under Article 1 of the fictional space station regulations (가상 우주정거장 운영규정 제1조), the fictional caretaker cleans the lunar base at fictional intervals.",
+                "zh": "根据虚构空间站运营规定第1条（가상 우주정거장 운영규정 제1조），虚构负责人按虚构周期清理月球基地。",
+            }.get(lang, ANSWERED_TEXT),
             "citations": [FICTIONAL_CITATION],
             "answered": True,
             "personalized": False,
@@ -89,7 +100,7 @@ def build_stub_chat_result(
     # 답변 불가. 인용이 없으면 answered도 False여야 한다(명세 규칙).
     return {
         "session_id": resolved_session,
-        "answer": UNANSWERABLE_TEXT,
+        "answer": refusal_text(lang),
         "citations": [],
         "answered": False,
         "personalized": False,

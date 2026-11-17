@@ -7,7 +7,7 @@ from datetime import date
 from typing import Protocol, TypedDict
 
 from app.services.chat_relevance import is_ai_candidate
-from app.services.chat_stub import UNANSWERABLE_TEXT, ZERO_LATENCY
+from app.services.chat_stub import UNANSWERABLE_TEXT, ZERO_LATENCY, refusal_text
 
 
 class RegulationDocument(TypedDict):
@@ -51,7 +51,7 @@ class ChatRetrieval:
 
     raw_search: Callable[[str], Sequence[SearchHit]] | None = field(default=None, kw_only=True)
 
-    def build_result(self, message: str, session_id: str | None, *, relaxed: bool = False) -> dict:
+    def build_result(self, message: str, session_id: str | None, *, relaxed: bool = False, lang: str = "ko") -> dict:
         """엄격한 검사는 첫 조각을 인용하고 AI 후보는 순위와 본문 길이로 제한한다."""
 
         if relaxed:
@@ -59,7 +59,7 @@ class ChatRetrieval:
             hits = [hit for hit in search(message) if is_ai_candidate(message, hit.chunk)][:3]
         else:
             hits = self.search(message)[:1]
-        answer = UNANSWERABLE_TEXT
+        answer = refusal_text(lang)
         citations = []
         for hit in hits:
             chunk = hit.chunk

@@ -14,7 +14,7 @@ from starlette.responses import StreamingResponse
 
 from app.schemas.chat import ChatRequest, ChatResponse
 from app.schemas.error import ErrorResponse
-from app.services.ai_chat import ERROR_EVENT, NOTICE_TEXT, Event, chat_events, format_event
+from app.services.ai_chat import ERROR_EVENT, NOTICE_TEXT, Event, chat_events, format_event, is_foreign_question
 from app.services.chat_stub import build_stub_chat_result
 
 
@@ -85,28 +85,74 @@ class EventStreamResponse(StreamingResponse):
             await self.background()
 
 
-async def encode_events(events: AsyncIterator[Event]) -> AsyncIterator[bytes]:
+async def encode_events(events: AsyncIterator[Event], *, lang: str = "ko") -> AsyncIterator[bytes]:
     async with aclosing(events):
         try:
             async for name, data in events:
                 yield format_event(name, data)
         except Exception:
-            yield format_event("error", ERROR_EVENT)
+            error = {"en": "Could not receive the answer.", "zh": "未能收到回答。"}.get(lang)
+            yield format_event("error", {**ERROR_EVENT, "message": error} if error else ERROR_EVENT)
 
 
-def _search(request: ChatRequest, state) -> tuple[dict, bool]:
+def _search(request: ChatRequest, state, *, query: str | None = None) -> tuple[dict, bool]:
     """(지금의 응답, 검색을 거쳤는지). 검색이 없으면 임시 응답(스텁)이다."""
 
     chat_retrieval = state.chat_retrieval
     if chat_retrieval is not None:
-        return chat_retrieval.build_result(
-            request.message, request.session_id, relaxed=getattr(state, "ai_chat", None) is not None
-        ), True
-    return build_stub_chat_result(
-        message=request.message,
-        session_id=request.session_id,
-        use_academic_data=request.use_academic_data,
-    ), False
+        options = {"lang": request.lang} if request.lang != "ko" else {}
+        result = chat_retrieval.build_result(
+            request.message if query is None else query, request.session_id,
+            relaxed=getattr(state, "ai_chat", None) is not None, **options
+        )
+    else:
+        result = build_stub_chat_result(
+            message=request.message,
+            session_id=request.session_id,
+            use_academic_data=request.use_academic_data,
+            lang=request.lang,
+        )
+    if request.lang != "ko" and getattr(state, "ai_chat", None) is None and is_foreign_question(request.message):
+        result["answer"] += {
+            "en": " Asking in Korean helps find regulations more accurately.",
+            "zh": " 使用韩语提问能更准确地查找规章。",
+        }[request.lang]
+    return result, chat_retrieval is not None
+
+
+def _localized_events(request: ChatRequest, state) -> AsyncIterator[Event]:
+    return state.ai_chat.localized_events(
+        request.message, request.mode,
+        lambda query: _search(request, state, query=query)[0], lang=request.lang,
+    )
+
+
+async def _localized_complete(request: ChatRequest, state) -> dict:
+    body = {"answer": "", "answered": False, "personalized": False}
+    async with aclosing(_localized_events(request, state)) as events:
+        async for name, data in events:
+            if name == "meta":
+                body.update(data)
+            elif name == "answer":
+                body["answer"] = data["text"] if data["replace"] else body["answer"] + data["text"]
+            elif name == "notice":
+                body["notice"] = data["text"]
+            elif name == "done":
+                body.update(data)
+    if not body["answered"]:
+        body["citations"] = []
+    return body
+
+
+def _json_response(body: dict):
+    notice = body.pop("notice", None)
+    guided = body.pop("guided", None)
+    content = ChatResponse.model_validate(body).model_dump(mode="json")
+    if notice is not None:
+        content["notice"] = notice
+    if guided is True:
+        content["guided"] = True
+    return JSONResponse(content)
 
 
 @router.post("/chat", response_model=ChatResponse, responses=BAD_REQUEST)
@@ -119,6 +165,11 @@ async def post_chat(request: ChatRequest, http_request: Request):
     """
 
     state = http_request.app.state
+    if request.lang != "ko" and getattr(state, "ai_chat", None) is not None and state.chat_retrieval is not None:
+        finished, body = await run_until_disconnect(http_request.receive, _localized_complete(request, state))
+        if not finished:
+            body = _search(request, state)[0]
+        return _json_response(body)
     result, searched = _search(request, state)
     ai = getattr(state, "ai_chat", None)
     if ai is None or not searched:
@@ -163,8 +214,10 @@ async def post_chat_stream(request: ChatRequest, http_request: Request):
     """질문을 받아 답을 조각 전송(SSE, Server-Sent Events)으로 흘려보낸다."""
 
     state = http_request.app.state
+    if request.lang != "ko" and getattr(state, "ai_chat", None) is not None and state.chat_retrieval is not None:
+        return EventStreamResponse(encode_events(_localized_events(request, state), lang=request.lang))
     result, searched = _search(request, state)
     events = chat_events(
-        result, request.message, request.mode, getattr(state, "ai_chat", None), searched=searched
+        result, request.message, request.mode, getattr(state, "ai_chat", None), searched=searched, lang=request.lang
     )
-    return EventStreamResponse(encode_events(events))
+    return EventStreamResponse(encode_events(events, lang=request.lang))

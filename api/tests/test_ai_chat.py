@@ -773,5 +773,173 @@ class GuidanceTests(unittest.TestCase):
             self.assertTrue(events[-1][1]["guided"])
 
 
+class LanguageTests(unittest.TestCase):
+    @without_sockets
+    async def test_first_token_deadline_restarts_for_answer_call(self):
+        clock = FakeClock()
+        transport = FakeTransport(
+            [sse(delta(content="가상 검색어"))],
+            on_open=lambda: setattr(clock, "now", clock.now + 0.02),
+        )
+        ai = AiChat(SETTINGS, transport=transport, clock=clock, limits=AiLimits(first_token=0.03, total=1))
+        events = [event async for event in ai.localized_events("fictional question", "fast", lambda query: dict(RESULT), lang="en")]
+        self.assertEqual(len(transport.calls), 2)
+        self.assertFalse(any(name == "notice" for name, _ in events))
+        self.assertEqual(ai.available_slots, 4)
+
+    @without_sockets
+    async def test_two_calls_share_total_deadline(self):
+        clock = FakeClock()
+        transport = FakeTransport([sse(delta(content="가상 검색어"))], on_open=lambda: setattr(clock, "now", clock.now + 0.06))
+        ai = AiChat(SETTINGS, transport=transport, clock=clock, limits=AiLimits(first_token=1, total=0.1))
+        events = [event async for event in ai.localized_events("fictional question", "fast", lambda query: dict(RESULT), lang="en")]
+        self.assertEqual(len(transport.calls), 2)
+        self.assertIn(("notice", {"text": ai_chat.notice_text("en")}), events)
+        self.assertEqual(transport.closed, 2)
+        self.assertEqual(ai.available_slots, 4)
+
+    @without_sockets
+    async def test_five_successful_requests_share_four_slots_without_deadlock(self):
+        transport = FakeTransport([sse(delta(content="가상 검색어"))], delay=0.005)
+        ai = AiChat(SETTINGS, transport=transport, limits=AiLimits(slot_wait=1, total=2))
+        async def consume():
+            return [event async for event in ai.localized_events("fictional question", "fast", lambda query: dict(RESULT), lang="en")]
+        async with asyncio.timeout(2):
+            batches = await asyncio.gather(*(consume() for _ in range(5)))
+        self.assertEqual(len(batches), 5)
+        self.assertEqual(len(transport.calls), 10)
+        self.assertEqual(transport.peak, 4)
+        self.assertEqual(transport.closed, 10)
+        self.assertEqual(ai.available_slots, 4)
+
+    def test_language_validation_and_ratio_boundaries(self):
+        from app.schemas.chat import ChatRequest
+
+        for value in (None, "", "de", [], {}, 1, True):
+            self.assertEqual(ChatRequest(message="fictional", lang=value).lang, "ko")
+        for lang in ("ko", "en", "zh"):
+            self.assertEqual(ChatRequest(message="fictional", lang=lang).lang, lang)
+        for text, expected in (("가abcd", False), ("가abcde", True), ("123!?", False),
+                               ("가abcd", False), ("ㄱabcd", False), ("fictional", True),
+                               ("가상 규정 fictional", False), ("虚构规定", True)):
+            with self.subTest(text=text):
+                self.assertEqual(ai_chat.is_foreign_question(text), expected)
+
+    def test_korean_prompts_and_fixed_messages_are_unchanged(self):
+        for result in (RESULT, {**RESULT, "answered": False}):
+            self.assertEqual(ai_chat.build_messages(result, QUESTION), ai_chat.build_messages(result, QUESTION, lang="ko"))
+            for lang, name in (("en", "영어"), ("zh", "중국어")):
+                prompt = ai_chat.build_messages(result, QUESTION, lang=lang)[0]["content"]
+                self.assertIn(f"답은 {name}로 쓴다", prompt)
+                self.assertIn(ai_chat.REFUSAL_PREFIX, prompt)
+                self.assertIn("숫자 기준은 그대로", prompt)
+        self.assertEqual(ai_chat.notice_text(), "AI 답변을 만들지 못해 근거 조문만 보여 드려요")
+        self.assertEqual(ai_chat.refusal_text(), "해당 내용은 보유한 규정 문서에서 확인할 수 없습니다. 담당 부서에 문의해 주세요.")
+
+    @without_sockets
+    async def test_translation_uses_fast_transport_and_original_answer_question(self):
+        calls = []
+        queried = []
+        closed = []
+
+        async def transport(url, headers, body, timeout):
+            calls.append(json.loads(body))
+            async def chunks():
+                if len(calls) == 1:
+                    yield sse(delta(content="가상 달빛열람증", reasoning="hidden translation thinking"))
+                else:
+                    yield sse(delta(content="A fictional answer."))
+            async def close():
+                closed.append(True)
+            return UpstreamResponse(200, chunks(), close)
+
+        def search(query):
+            queried.append(query)
+            return dict(RESULT)
+
+        ai = AiChat(SETTINGS, transport=transport)
+        with captured_logs() as records:
+            events = [event async for event in ai.localized_events("fictional moon permit", "deep", search, lang="en")]
+        self.assertEqual(queried, ["가상 달빛열람증"])
+        self.assertEqual(calls[0]["reasoning_effort"], "none")
+        self.assertIn("fictional moon permit", calls[1]["messages"][1]["content"])
+        self.assertNotIn("가상 달빛열람증", repr(events))
+        self.assertNotIn("hidden translation thinking", repr(events))
+        self.assertEqual(events[0][0], "meta")
+        self.assertEqual(len(closed), 2)
+        self.assertEqual(ai.available_slots, 4)
+        assert_no_secret_in_logs(self, records, "가상 달빛열람증")
+
+    @without_sockets
+    async def test_invalid_translation_and_failure_search_original(self):
+        for text in ("fictional only", "가" * 81, "가상\n검색", "", "가상\r검색"):
+            transport = FakeTransport([sse(delta(content=text))])
+            ai = AiChat(SETTINGS, transport=transport)
+            queried = []
+            def search(query):
+                queried.append(query)
+                return dict(RESULT)
+            events = [event async for event in ai.localized_events("fictional question", "fast", search, lang="zh")]
+            self.assertEqual(queried, ["fictional question"])
+            self.assertEqual(ai.available_slots, 4)
+        transport = FakeTransport(error=RuntimeError("fictional failure"))
+        ai = AiChat(SETTINGS, transport=transport)
+        queried = []
+        def search(query):
+            queried.append(query)
+            return dict(RESULT)
+        events = [event async for event in ai.localized_events("fictional question", "fast", search, lang="en")]
+        self.assertEqual(queried, ["fictional question"])
+        self.assertIn(("notice", {"text": ai_chat.notice_text("en")}), events)
+        self.assertEqual(ai.available_slots, 4)
+
+    @without_sockets
+    async def test_refusal_and_failure_are_localized(self):
+        for lang in ("ko", "en", "zh"):
+            transport = FakeTransport([sse(delta(content=ai_chat.REFUSAL_PREFIX))])
+            body = await AiChat(SETTINGS, transport=transport).complete(RESULT, QUESTION, "fast", lang=lang)
+            self.assertEqual(body["answer"], ai_chat.refusal_text(lang))
+            self.assertEqual(body["citations"], [])
+            self.assertNotIn("notice", body)
+            transport = FakeTransport(error=RuntimeError())
+            body = await AiChat(SETTINGS, transport=transport).complete(RESULT, QUESTION, "fast", lang=lang)
+            self.assertEqual(body["notice"], ai_chat.notice_text(lang))
+
+    @without_sockets
+    async def test_translation_timeout_and_five_requests_return_slots(self):
+        transport = FakeTransport(hang=True)
+        ai = AiChat(SETTINGS, transport=transport, limits=AiLimits(first_token=0.03, total=0.05, slot_wait=0.01))
+        queried = []
+        def search(query):
+            queried.append(query)
+            return dict(RESULT)
+        async def consume():
+            return [event async for event in ai.localized_events("fictional question", "fast", search, lang="en")]
+        batches = await asyncio.gather(*(consume() for _ in range(5)))
+        self.assertEqual(len(batches), 5)
+        self.assertLessEqual(transport.peak, 4)
+        self.assertEqual(ai.available_slots, 4)
+        self.assertEqual(transport.active, 0)
+        self.assertEqual(len(queried), 5)
+        self.assertTrue(all(query == "fictional question" for query in queried))
+
+    @without_sockets
+    async def test_cancel_translation_closes_response_and_returns_slot(self):
+        opened = asyncio.Event()
+        transport = FakeTransport(hang=True, on_open=opened.set)
+        ai = AiChat(SETTINGS, transport=transport)
+        async def consume():
+            return [event async for event in ai.localized_events("fictional question", "deep", lambda query: dict(RESULT), lang="zh")]
+        task = asyncio.create_task(consume())
+        await opened.wait()
+        self.assertEqual(ai.available_slots, 3)
+        task.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await task
+        self.assertEqual(ai.available_slots, 4)
+        self.assertEqual(transport.active, 0)
+        self.assertEqual(transport.closed, 1)
+
+
 if __name__ == "__main__":
     unittest.main()
