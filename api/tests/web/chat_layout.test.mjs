@@ -58,7 +58,7 @@ test("채팅은 목록 260px과 가운데 대화 열, 고정 높이 입력 줄�
   );
   assert.match(
     body("#conversation-sidebar"),
-    /background: var\(--glass-dense\); color: var\(--ink\)/,
+    /background: var\(--main-surface\); color: var\(--ink\); -webkit-backdrop-filter: blur\(16px\) saturate\(1\.3\); backdrop-filter: blur\(16px\) saturate\(1\.3\)/,
   );
   assert.match(body(".conversation-unread"), /width: 8px; height: 8px/);
 });

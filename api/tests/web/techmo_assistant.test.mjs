@@ -113,9 +113,9 @@ test("펫은 요청 중에 잠기지 않는 버튼이다", () => {
   // 떠 있기·튀기·그림 칸은 서로 다른 요소다.
   assert.ok(petMarkup.includes('<span class="pet-float"><span class="pet-hop"><span class="pet-frame"></span></span></span>'));
   // 화면 보안 정책이 막는 style 속성과 스크립트의 그림 주소 교체는 쓰지 않는다.
-  // 스크립트는 테크모와 대화 메뉴 좌표를 CSS 변수로만 넘긴다.
+  // 스크립트는 테크모·대화 메뉴·선택 메뉴(답변 모드) 좌표를 CSS 변수로만 넘긴다.
   assert.doesNotMatch(html, /\sstyle=/);
-  assert.doesNotMatch(script, /\.src\s*=|\.style\b(?!\??\.(?:setProperty|removeProperty)\(["`]--(?:techmo|conversation-menu)-)/);
+  assert.doesNotMatch(script, /\.src\s*=|\.style\b(?!\??\.(?:setProperty|removeProperty)\(["`]--(?:techmo|conversation-menu|choice-menu)-)/);
 });
 
 test("그림 칸은 스프라이트 한 장의 배경 위치로만 고른다: 0·25·50·75·100%", () => {
@@ -234,7 +234,7 @@ test("큰 판은 56px 경계만 부드럽게 잇고 바닥과 같은 면을 쓴�
   const layout = declarationsAtWidth(".layout", 1280);
   assert.equal(layout.border, "0");
   assert.equal(layout["border-radius"], "0");
-  assert.equal(layout.background, "linear-gradient(180deg, transparent, var(--panel-surface) 56px)");
+  assert.equal(layout.background, "linear-gradient(180deg, transparent, var(--main-surface) 56px)");
   assert.equal(declarationsAtWidth('body[data-view="chat"] .layout', 1280).border, "0");
 });
 
@@ -309,7 +309,8 @@ test("펫의 움직임 네 가지는 서로 다른 요소·속성에 걸고, 움
   // 그 내용은 motion_layout.test.mjs가 따로 확인한다.
   const allOff = ".pet-float, .pet-hop, .pet-frame, .pet-dots span, .hero-art::before, .login-card, .login-techmo, button.card:hover";
   const transitionOff = "::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*)";
-  assert.deepEqual(animated.filter(([selector]) => !/chat-surface|chat-composer|conversation-pending|data-sprite-layout|data-facing/.test(selector)), [
+  // 답변 모드 효과(mode-·is-deep-enter·is-waiting)는 landing_design.test.mjs와 motion_layout.test.mjs가 따로 본다.
+  assert.deepEqual(animated.filter(([selector]) => !/chat-surface|chat-composer|conversation-pending|data-sprite-layout|data-facing|mode-|is-deep-enter|is-waiting/.test(selector)), [
     [".pet-dots span", "dot-hop 1s ease-in-out infinite"],
     [".pet-float", "pet-float 1.8s ease-in-out infinite alternate"],
     ['.pet-dock[data-pose="quiet"] .pet-hop', "pet-hop-quiet .4s ease-out"],
