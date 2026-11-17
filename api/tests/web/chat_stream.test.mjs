@@ -138,6 +138,22 @@ function modePage(storage, reduced = false) {
 
 function choiceItems(page) { return page.menu().children.filter(node => node.attributes.get("role") === "menuitemradio"); }
 
+test("모드 선택기 내부가 없는 화면은 초기화를 건너뛴다", () => {
+  const start = script.indexOf("function setupAiMode()");
+  const end = script.indexOf("setupAiMode();", start) + "setupAiMode();".length;
+  const placeholder = { querySelector: () => null };
+  for (const saved of [null, "deep"]) {
+    const context = {
+      aiMode: "fast", aiModeKey: "kumoh-chat-ai-mode:v1",
+      historyStorage: () => ({ getItem: () => saved }),
+      document: { querySelector: () => placeholder },
+    };
+    assert.doesNotThrow(() => runInNewContext(script.slice(start, end), context));
+    assert.equal(context.aiMode, saved === "deep" ? "deep" : "fast");
+    assert.equal(placeholder.dataset, undefined);
+  }
+});
+
 test("저장한 깊이 모드를 복원하고 빠르게 선택을 같은 키에 저장한다", () => {
   const writes = [];
   const p = modePage({ getItem: key => { assert.equal(key, "kumoh-chat-ai-mode:v1"); return "deep"; }, setItem: (...args) => writes.push(args) });

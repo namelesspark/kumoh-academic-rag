@@ -1879,6 +1879,7 @@ function setupAiMode() {
   if (!button) return;
   const row = document.querySelector(".composer-row"), label = button.querySelector(".mode-pill-label");
   const icons = ["fast", "deep"].map(value => button.querySelector(`.mode-icon[data-icon=${value}]`));
+  if (!row || !label || icons.some(icon => !icon)) return;
   let effectVersion = 0;
   function render(animate = false) {
     const version = ++effectVersion, deep = aiMode === "deep";
