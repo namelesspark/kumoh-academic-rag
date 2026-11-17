@@ -42,11 +42,27 @@ class BM25Retriever:
     def __init__(self, chunks: Iterable[ArticleChunk]) -> None:
         self._chunks = tuple(chunks)
         self._article_numbers = []
+        self._title_units = []
+        self._graduate = []
         self._lengths = []
         self._postings = defaultdict(list)
         for index, chunk in enumerate(self._chunks):
             article = _ARTICLE_NUMBER.match(_search_text(chunk.article_path))
             self._article_numbers.append(article.group() if article else None)
+            title_match = re.search(r"[（(]([^）)]+)[）)]", _search_text(chunk.article_path))
+            title = title_match.group(1) if title_match else ""
+            compact_title = "".join(title.split())
+            self._title_units.append({
+                compact_title[start:start + 2]
+                for start in range(len(compact_title) - 1)
+            })
+            body = _search_text(chunk.text).lstrip()
+            # 항 조각에도 붙는 조 제목을 걷어낸 뒤 첫 문장만 확인한다.
+            heading = re.match(r"제[0-9]+조(?:의[0-9]+)?\s*[（(][^）)]+[）)]", body)
+            if heading:
+                body = body[heading.end():].lstrip()
+            first_sentence = re.split(r"[.!?。\n]", body, maxsplit=1)[0]
+            self._graduate.append("대학원" in title or "대학원" in first_sentence)
             counts = _term_counts(_search_text(chunk.text))
             self._lengths.append(sum(counts.values()))
             for term, count in counts.items():
@@ -85,6 +101,20 @@ class BM25Retriever:
                 length_ratio = self._lengths[index] / self._average_length
                 denominator = count + k1 * (1 - b + b * length_ratio)
                 scores[index] += self._weights[term] * count * (k1 + 1) / denominator
+
+        query_units = {unit for (length, unit) in terms if length == 2}
+        graduate_query = any(word in text for word in ("대학원", "석사", "박사"))
+        # 이미 찾은 후보 안에서만 제목의 주제 일치도를 반영한다.
+        score_scale = max(scores.values(), default=0.0)
+        for index in scores:
+            overlap = query_units & self._title_units[index]
+            if overlap:
+                coverage = len(overlap) / len(query_units)
+                scores[index] += score_scale * coverage
+                if query_units <= self._title_units[index]:
+                    scores[index] += score_scale
+            if self._graduate[index] and not graduate_query:
+                scores[index] *= 0.5
 
         ranked = sorted(
             scores,
