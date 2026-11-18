@@ -3440,8 +3440,12 @@ function setupHandwriting() {
     if (index >= 0) strokes.splice(index, 1);
   }
   canvas.addEventListener("pointerdown", event => {
-    if (!opened || reading || event.button > 0) return;
+    if (!opened || event.button > 0) return;
     const type = event.pointerType || "mouse";
+    // 읽는 동안에는 새 획을 받지 않지만, 그 사이 닿은 펜도 이번 패드에서 펜을 봤다는 기록으로 남긴다.
+    // 그래야 읽기가 실패한 뒤에도 손가락(손바닥) 입력을 계속 무시한다.
+    if (type === "pen" && reading) penSeen = true;
+    if (reading) return;
     if (type === "pen" && !penSeen) {
       penSeen = true;
       for (const [id, stroke] of active) {

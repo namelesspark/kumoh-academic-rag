@@ -399,6 +399,27 @@ test("펜을 한 번 보면 진행 중인 손가락 획을 지우고 그 뒤 손
   assert.equal(page.insert.disabled, true);
 });
 
+test("읽는 동안 닿은 펜도 기록해, 읽기가 실패한 뒤 손가락 획을 받지 않는다", async () => {
+  const page = loadPad();
+  page.button.click();
+  page.stroke([10, 10], [60, 60], { id: 1, kind: "touch" });
+  const held = page.hold();
+  page.insert.click();
+  await settle();
+  // 응답을 기다리는 동안 펜을 댄다. 획은 받지 않는다.
+  page.pointer("pointerdown", { id: 2, kind: "pen", x: 100, y: 100 });
+  assert.equal(page.canvas.captured.has(2), false);
+  held.resolve(refused(503));
+  await settle();
+  assert.equal(page.status.textContent, messages.unavailable);
+  // 실패 뒤 손가락은 무시한다. 손가락 획 하나만 남아 있다.
+  const ignored = page.pointer("pointerdown", { id: 3, kind: "touch", x: 120, y: 120 });
+  assert.equal(page.canvas.captured.has(3), false);
+  assert.equal(ignored.prevented, false);
+  page.undo.click();
+  assert.equal(page.undo.disabled, true, "only the first finger stroke existed");
+});
+
 test("펜 압력으로 굵기가 바뀌고, 있을 때는 묶인 포인터 신호(getCoalescedEvents)를 모두 그린다", () => {
   const page = loadPad();
   page.button.click();
