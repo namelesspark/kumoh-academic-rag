@@ -753,8 +753,14 @@ class TestChatWeb(unittest.TestCase):
         self.assertFalse([node for node in page.elements if node["tag"] == "select"])
         login = by_id(page, "login-lang-button")
         header = by_id(page, "lang-button")
-        self.assertIs(by_id(page, "login-screen")["children"][0], login)
+        settings = by_class(page, "login-lang")
+        self.assertIs(by_id(page, "login-screen")["children"][0], settings)
+        self.assertEqual(settings["attrs"].get("role"), "group")
+        self.assertEqual(settings["attrs"].get("aria-label"), "화면 설정")
+        self.assertEqual(child_ids(settings), ["login-lang-button", "login-theme-button"])
+        self.assertIs(settings["children"][0], login)
         self.assertIs(by_class(page, "masthead-actions")["children"][0], header)
+        self.assertIs(next_sibling(header), by_id(page, "theme-button"))
         for button in (login, header):
             with self.subTest(button=button["attrs"]["id"]):
                 attrs = button["attrs"]
