@@ -40,7 +40,7 @@ function fakeContext(log) {
   });
 }
 
-function loadPad({ language, pixelRatio = 2, blobSize = pngBytes.length } = {}) {
+function loadPad({ language, pixelRatio = 2, blobSize = pngBytes.length, innerWidth = 1280, innerHeight = 800 } = {}) {
   const elements = new Map();
   const timers = [];
   const requests = [];
@@ -222,8 +222,8 @@ function loadPad({ language, pixelRatio = 2, blobSize = pngBytes.length } = {}) 
       // 시스템 테마 변화 신호를 테스트에서 직접 보낼 수 있게 처리기를 모아 둔다.
       matchMedia: query => ({ matches: false, addEventListener: (type, listener) => mediaListeners.push({ query, type, listener }) }),
       devicePixelRatio: pixelRatio,
-      innerWidth: 1280,
-      innerHeight: 800,
+      innerWidth,
+      innerHeight,
       navigator: language ? { language } : undefined,
       // 저장소가 없으면 첫 방문 언어 감지가 한국어로 돌아간다. 언어를 줄 때만 빈 저장소를 둔다.
       localStorage: language ? { getItem: () => null, setItem() {}, removeItem() {} } : undefined,
@@ -288,6 +288,8 @@ function loadPad({ language, pixelRatio = 2, blobSize = pngBytes.length } = {}) 
   page.rowResized = () => {
     for (const observer of resizeObservers) if (observer.node === get(".composer-row")) observer.callback([]);
   };
+  // 브라우저는 지켜보기 시작할 때와 요소가 보일 때 크기가 그대로여도 모든 대상에 첫 알림을 한 번 보낸다.
+  page.observersNotified = () => { for (const observer of resizeObservers) observer.callback([]); };
   // 질문 칸에 글을 쓴 것처럼 값과 커서를 바꾸고 input 신호를 보낸다(키보드·Scribble 모두 이 신호를 낸다).
   // inputType은 브라우저가 붙이는 입력 종류다(실행 취소는 historyUndo, 다시 실행은 historyRedo).
   page.type = (value, caretAt = value.length, inputType = "insertText") => {
@@ -1062,6 +1064,41 @@ test("칸 밖까지 그은 뒤 떼지 않고 칸을 넓혀 안으로 돌아와�
   assert.ok(log.filter(call => call[0] === "lineTo").every(call => call[2] === 30), "no diagonal in the image");
   // 압력 0.5의 굵기 3.2: 가로 588.4~600 = 11.6 + 32 = 43.6 → 87, 세로 28.4~31.6 = 3.2 + 32 = 35.2 → 70(배율 2).
   assert.deepEqual([width, height], [87, 70]);
+});
+
+test("칸 밖까지 그은 뒤 칸을 줄였다가 같은 폭으로 되돌리고 안으로 돌아오면 복귀 선분을 그대로 그린다", async () => {
+  const page = loadPad();
+  page.button.click();
+  page.pointer("pointerdown", { id: 14, kind: "pen", x: 590, y: 30, pressure: 0.5 });
+  page.pointer("pointermove", { id: 14, kind: "pen", x: 700, y: 30, pressure: 0.5 });
+  // 펜을 댄 채 600 → 400 → 600. 크기를 담은 객체는 바뀌어도 칸 크기는 처음과 같다.
+  Object.assign(page.canvasRect, { width: 400, right: 500 });
+  page.resize();
+  Object.assign(page.canvasRect, { width: 600, right: 700 });
+  page.resize();
+  const before = page.canvas.log.length;
+  page.pointer("pointermove", { id: 14, kind: "pen", x: 500, y: 130, pressure: 0.5 });
+  page.pointer("pointerup", { id: 14, kind: "pen", x: 500, y: 130 });
+  const hasReturn = log => log.some(call => call[0] === "lineTo" && call[1] === 500 && call[2] === 130);
+  assert.ok(hasReturn(page.canvas.log.slice(before)), "the return segment is on screen");
+  page.respond(ok("가상"));
+  page.insert.click();
+  await settle();
+  assert.ok(hasReturn(page.exports[0].canvas.log), "the return segment is in the image");
+  // 가로 498.4~600 = 101.6 + 32 = 133.6 → 267, 세로 28.4~131.6 = 103.2 + 32 = 135.2 → 270(배율 2).
+  assert.deepEqual([page.exports[0].canvas.width, page.exports[0].canvas.height], [267, 270]);
+});
+
+test("패드를 열 때 들어오는 크기 감시 첫 알림만으로는 패드를 입력 줄 아래로 옮기지 않는다", () => {
+  const page = loadPad({ innerWidth: 850, innerHeight: 360 });
+  Object.assign(page.rowRect, { top: 100, bottom: 160 });
+  page.button.click();
+  // 위쪽이 84px로 좁아도 열 때는 입력 줄 위다: 아래 끝 = 360 − 100 + 8 = 268.
+  assert.equal(page.pad.style.properties.get("--handwriting-bottom"), "268px");
+  // 스크롤·크기 변화 없이 첫 알림만 온다.
+  page.observersNotified();
+  assert.equal(page.pad.style.properties.get("--handwriting-bottom"), "268px");
+  assert.equal(page.pad.style.properties.get("--handwriting-top"), "auto");
 });
 
 test("경계 바로 안에 펜을 대고 떼기 전에 칸을 넓혀 그은 선은 새 칸에서 굵기 전체가 보이고 그대로 보낸다", async () => {

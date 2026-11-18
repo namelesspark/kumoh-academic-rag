@@ -3277,6 +3277,19 @@ function setupHandwriting() {
   }
   // 넓은 화면에서 입력 줄 위쪽이 최소 높이보다 좁고 문서가 아래로 굴러가 있으면, 모자란 만큼 위로 굴려 입력 줄 위에 자리를 만든다.
   // 여는 순간에만 한 번 한다(스크롤할 때마다 하면 학생의 스크롤과 다툰다). 좁은 화면 시트는 화면 아래에 붙으므로 하지 않는다.
+  // 입력 줄의 자리·크기와 캔버스 크기를 한 줄로 적어 둔 값. 크기 감시 알림이 실제 변화인지 가를 때 쓴다.
+  let padLayout = "";
+  function layoutKey() {
+    const row = document.querySelector(".composer-row")?.getBoundingClientRect?.();
+    const own = canvas.getBoundingClientRect?.();
+    return [row?.left, row?.top, row?.width, row?.height, own?.width, own?.height].join();
+  }
+  function layoutChanged() {
+    const key = layoutKey();
+    if (key === padLayout) return false;
+    padLayout = key;
+    return true;
+  }
   function makeRoom() {
     if ((window.innerWidth || 0) <= 680) return;
     const row = document.querySelector(".composer-row")?.getBoundingClientRect?.();
@@ -3297,6 +3310,7 @@ function setupHandwriting() {
     button.setAttribute("aria-expanded", "true");
     show("");
     makeRoom(); place(); prepare(); controls();
+    padLayout = layoutKey();
     canvas.focus();
   }
   // 닫으면 읽던 요청을 끊고, 늦게 온 응답은 회차(session)가 달라 버린다.
@@ -3562,7 +3576,9 @@ function setupHandwriting() {
       // 앞 포인터 자리가 그때 보이던 칸 밖이었고 그 뒤 칸이 바뀌었으면, 그 자리에서 시작하는 선분은 버린다.
       // 칸을 넓혀 옛 칸 밖 자리(예: 600 칸의 x=700)가 새 칸 안에 들어와도, 화면에 그은 적 없는 선이 새로 생기지 않는다.
       // 다음 신호부터는 칸 밖에서 들어온 것처럼(gap) 다시 시작한다.
-      const stale = stroke.lastArea !== area && !stroke.lastInside;
+      // 칸이 바뀌었는지는 크기 값으로 비교한다. 600→400→600처럼 같은 크기로 돌아오면 바뀌지 않은 것으로 보고, 평소처럼 경계에서 잘라 잇는다.
+      const resized = (stroke.lastArea?.width ?? null) !== (area?.width ?? null) || (stroke.lastArea?.height ?? null) !== (area?.height ?? null);
+      const stale = resized && !stroke.lastInside;
       const piece = stale ? null : area ? clipHandwritingSegment(stroke.last, next, area, w / 2) : [stroke.last, next];
       stroke.last = next; stroke.lastArea = area; stroke.lastInside = handwritingInside(next, area);
       if (!piece) { stroke.broken = true; continue; }
@@ -3625,9 +3641,12 @@ function setupHandwriting() {
   // 입력 줄 크기는 그대로인 채 자리만 바뀌는 경우(질문 폼 안 다른 줄이 생기거나 사라질 때)도 있어 질문 폼 전체 크기도 지켜본다.
   const composerRow = document.querySelector(".composer-row");
   // 질문 폼은 맨 위에서 찾아 둔 composer를 그대로 쓴다. 다시 찾지 않는다.
+  // 크기 감시(ResizeObserver)는 지켜보기 시작할 때와 패드를 보일 때 크기가 그대로여도 첫 알림을 보낸다.
+  // 그 알림을 "연 뒤 자리가 바뀜"으로 처리하면 스크롤·크기 변화 없이 패드가 줄 아래로 옮겨 가므로,
+  // 입력 줄의 자리·크기나 캔버스 크기가 마지막으로 잰 값과 달라졌을 때만 다시 잰다.
   if (typeof ResizeObserver === "function") {
     for (const node of [composerRow, composer, canvas]) {
-      if (node) new ResizeObserver(() => { if (opened) { place(true); prepare(); } }).observe(node);
+      if (node) new ResizeObserver(() => { if (opened && layoutChanged()) { place(true); prepare(); } }).observe(node);
     }
   }
   refreshHandwritingPad.run = () => { if (opened) { place(true); prepare(); } };
