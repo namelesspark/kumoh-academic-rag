@@ -3032,6 +3032,13 @@ function drawHandwritingStroke(context, stroke, from = 0) {
   }
   for (let index = Math.max(1, from); index < points.length; index++) {
     const before = points[index - 1], point = points[index];
+    // 좌표는 그대로이고 압력만 바뀐 신호는 길이 0인 선이다. 캔버스는 길이 0인 선을 그리지 않으므로 점으로 찍는다.
+    if (before.x === point.x && before.y === point.y) {
+      context.beginPath();
+      context.arc(point.x, point.y, Math.max(handwritingWidth(stroke, before), handwritingWidth(stroke, point)) / 2, 0, Math.PI * 2);
+      context.fill();
+      continue;
+    }
     context.lineWidth = (handwritingWidth(stroke, before) + handwritingWidth(stroke, point)) / 2;
     context.beginPath();
     context.moveTo(before.x, before.y);
@@ -3124,6 +3131,8 @@ function setupHandwriting() {
   function show(message, error = false) {
     say(status, message || "");
     status.classList?.toggle("is-error", Boolean(message) && error);
+    // 상태 줄이 생기거나 사라지면 패드 높이가 바뀌므로 자리를 다시 잰다.
+    if (opened) place();
   }
   // 화면 잉크는 캔버스 글자색(--ink)이다. 테마가 바뀌어 색이 달라지면 이미 쓴 획도 새 색으로 다시 그린다.
   const inkColor = () => window.getComputedStyle?.(canvas)?.color || "#0A2540";
@@ -3166,10 +3175,17 @@ function setupHandwriting() {
     pad.style?.setProperty("--handwriting-x", `${Math.max(8, row.left)}px`);
     pad.style?.setProperty("--handwriting-width", `${row.width}px`);
     const own = pad.getBoundingClientRect?.().height || 0;
-    const wanted = row.top - 8 >= own + 8 ? height - row.top + 8 : height - row.bottom - 8 - own;
+    // 입력 줄 위에 놓을 때는 아래 끝(bottom)을 묶어 상태 줄이 생겨도 위로 자란다.
+    // 줄 아래로 열 때는 위 끝(top)을 묶어 아래로 자란다. 그래야 늘어난 패드가 입력 줄을 덮지 않는다.
     // 입력 줄이 스크롤로 화면 밖에 나가도 패드는 화면 안(위아래 8px)에 남긴다.
-    const bottom = Math.max(8, Math.min(wanted, height - own - 8));
-    pad.style?.setProperty("--handwriting-bottom", `${bottom}px`);
+    const clamp = value => `${Math.max(8, Math.min(value, height - own - 8))}px`;
+    if (row.top - 8 >= own + 8) {
+      pad.style?.setProperty("--handwriting-top", "auto");
+      pad.style?.setProperty("--handwriting-bottom", clamp(height - row.top + 8));
+    } else {
+      pad.style?.setProperty("--handwriting-bottom", "auto");
+      pad.style?.setProperty("--handwriting-top", clamp(row.bottom + 8));
+    }
   }
   function openPad() {
     if (opened) { canvas.focus(); return; }
@@ -3221,7 +3237,10 @@ function setupHandwriting() {
     for (let at = 0; at + picked.length <= after.length; at++) {
       if (picked && !after.startsWith(picked, at)) continue;
       const score = sameEnd(left, after.slice(Math.max(0, at - 32), at)) + sameStart(right, after.slice(at + picked.length, at + picked.length + 32));
-      if (score > bestScore || (score === bestScore && best >= 0 && Math.abs(at - start) < Math.abs(best - start))) { best = at; bestScore = score; }
+      // 앞뒤 글자로도 가를 수 없는 동점(같은 글이 통째로 반복될 때)은 늘어난 글이 범위 앞에 붙었다고 보고,
+      // 원래 자리에서 길이 차만큼 민 곳에 가까운 후보를 고른다.
+      const guess = start + after.length - before.length;
+      if (score > bestScore || (score === bestScore && best >= 0 && Math.abs(at - guess) < Math.abs(best - guess))) { best = at; bestScore = score; }
     }
     // 고른 글자는 찾았는데 앞뒤가 하나도 안 이어지면, 같은 글자 가운데 원래 자리에 가까운 곳을 쓴다.
     if (best < 0 && picked) {

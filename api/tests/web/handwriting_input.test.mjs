@@ -180,7 +180,8 @@ function loadPad({ language, pixelRatio = 2, blobSize = pngBytes.length } = {}) 
   get("#handwriting-canvas").getBoundingClientRect = () => canvasRect;
   const rowRect = { left: 100, top: 650, right: 700, bottom: 710, width: 600, height: 60 };
   get(".composer-row").getBoundingClientRect = () => ({ ...rowRect });
-  get("#handwriting-pad").getBoundingClientRect = () => ({ left: 100, top: 322, right: 700, bottom: 642, width: 600, height: 320 });
+  const padRect = { left: 100, top: 322, right: 700, bottom: 642, width: 600, height: 320 };
+  get("#handwriting-pad").getBoundingClientRect = () => ({ ...padRect });
   get("#handwriting-pad").hidden = true;
   const input = get("#question");
   input.selectionStart = 0;
@@ -269,6 +270,7 @@ function loadPad({ language, pixelRatio = 2, blobSize = pngBytes.length } = {}) 
   };
   page.get = get;
   page.rowRect = rowRect;
+  page.padRect = padRect;
   // 문서가 스크롤됐다는 신호를 보낸다.
   page.scroll = () => { for (const each of documentListeners) if (each.type === "scroll") each.listener({ type: "scroll" }); };
   page.systemThemeChanged = () => {
@@ -608,6 +610,19 @@ test("커서 앞 말과 같은 말을 맨 앞에 새로 붙여도 원래 커서 
   assert.equal(page.input.value, "A cat A catfake B");
 });
 
+test("앞뒤 글자로 가를 수 없게 같은 글을 통째로 맨 앞에 붙이면, 늘어난 만큼 밀린 원래 커서 자리에 넣는다", async () => {
+  const page = loadPad();
+  page.input.value = "A cat B";
+  page.input.selectionStart = page.input.selectionEnd = 5;
+  page.button.click();
+  page.input.value = "A cat B A cat B";
+  page.stroke([10, 10], [60, 60]);
+  page.respond(ok("fake"));
+  page.insert.click();
+  await settle();
+  assert.equal(page.input.value, "A cat B A catfake B");
+});
+
 test("넓은 화면에서 문서가 스크롤되면 패드를 입력 줄 바로 위로 다시 옮기고, 화면 밖으로 내보내지 않는다", () => {
   const page = loadPad();
   page.button.click();
@@ -616,10 +631,49 @@ test("넓은 화면에서 문서가 스크롤되면 패드를 입력 줄 바로 
   Object.assign(page.rowRect, { top: 570, bottom: 630 });
   page.scroll();
   assert.equal(page.pad.style.properties.get("--handwriting-bottom"), "238px");
-  // 입력 줄이 화면 위로 사라져도 패드 위쪽 끝은 화면 안(8px)에 남는다: 800 - 320 - 8 = 472.
+  assert.equal(page.pad.style.properties.get("--handwriting-top"), "auto");
+  // 입력 줄이 화면 위로 사라지면 줄 아래로 열되, 패드 위 끝은 화면 안(8px)에 남는다.
   Object.assign(page.rowRect, { top: -200, bottom: -140 });
   page.scroll();
-  assert.equal(page.pad.style.properties.get("--handwriting-bottom"), "472px");
+  assert.equal(page.pad.style.properties.get("--handwriting-top"), "8px");
+  assert.equal(page.pad.style.properties.get("--handwriting-bottom"), "auto");
+});
+
+test("입력 줄 위 자리가 모자라 줄 아래로 열린 패드는 위 끝을 묶어, 상태 줄이 생겨도 입력 줄을 덮지 않는다", async () => {
+  const page = loadPad();
+  // 화면 높이 800px, 입력 줄 190~250px. 위쪽 182px에는 320px 패드가 들어가지 않는다.
+  Object.assign(page.rowRect, { top: 190, bottom: 250 });
+  page.button.click();
+  assert.equal(page.pad.style.properties.get("--handwriting-top"), "258px");
+  assert.equal(page.pad.style.properties.get("--handwriting-bottom"), "auto");
+  page.stroke([10, 10], [60, 60]);
+  // 넣기를 누르면 상태 줄이 생겨 패드가 13px 커진다. 위 끝은 그대로라 아래로만 자란다.
+  page.padRect.height = 333;
+  page.respond(refused(503));
+  page.insert.click();
+  await settle();
+  assert.equal(page.status.textContent, messages.unavailable);
+  assert.equal(page.pad.style.properties.get("--handwriting-top"), "258px");
+  assert.equal(page.pad.style.properties.get("--handwriting-bottom"), "auto");
+});
+
+test("좌표는 그대로 두고 압력만 바꾼 펜 신호도 보내는 그림에 점으로 남는다", async () => {
+  const page = loadPad();
+  page.button.click();
+  page.pointer("pointerdown", { id: 4, kind: "pen", x: 100, y: 100, pressure: 0.3 });
+  page.pointer("pointermove", { id: 4, kind: "pen", x: 100, y: 100, pressure: 0.8 });
+  page.pointer("pointerup", { id: 4, kind: "pen", x: 100, y: 100 });
+  assert.ok(page.canvas.log.filter(call => call[0] === "arc").length >= 2, "the screen shows the dot");
+  page.respond(ok("가상"));
+  page.insert.click();
+  await settle();
+  const exported = page.exports[0].canvas.log;
+  assert.equal(exported.filter(call => call[0] === "lineTo").length, 0, "no zero-length line");
+  // 굵기는 더 센 압력(0.8) 기준 1.2 + 3.2 = 4.4px, 반지름 2.2px다.
+  const dot = exported.filter(call => call[0] === "arc").at(-1);
+  assert.deepEqual(dot.slice(1, 3), [100, 100]);
+  assert.ok(Math.abs(dot[3] - 2.2) < 1e-9, String(dot[3]));
+  assert.ok(exported.some(call => call[0] === "fill"));
 });
 
 test("패드를 연 채 사진을 붙여 보내 새 대화로 바뀌면 패드를 닫아, 이전 대화의 획이 새 질문 칸에 들어가지 않는다", async () => {
