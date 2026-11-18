@@ -47,6 +47,8 @@ function loadPad({ language, pixelRatio = 2, blobSize = pngBytes.length } = {}) 
   const exports = [];
   const state = { focused: null, blobSize, submits: 0, ink: "rgb(10, 37, 64)" };
   const mediaListeners = [];
+  const windowListeners = [];
+  const resizeObservers = [];
 
   class FakeElement {
     children = [];
@@ -177,7 +179,7 @@ function loadPad({ language, pixelRatio = 2, blobSize = pngBytes.length } = {}) 
   };
 
   const canvasRect = { left: 100, top: 400, right: 700, bottom: 600, width: 600, height: 200 };
-  get("#handwriting-canvas").getBoundingClientRect = () => canvasRect;
+  get("#handwriting-canvas").getBoundingClientRect = () => ({ ...canvasRect });
   const rowRect = { left: 100, top: 650, right: 700, bottom: 710, width: 600, height: 60 };
   get(".composer-row").getBoundingClientRect = () => ({ ...rowRect });
   const padRect = { left: 100, top: 322, right: 700, bottom: 642, width: 600, height: 320 };
@@ -226,10 +228,13 @@ function loadPad({ language, pixelRatio = 2, blobSize = pngBytes.length } = {}) 
       // 저장소가 없으면 첫 방문 언어 감지가 한국어로 돌아간다. 언어를 줄 때만 빈 저장소를 둔다.
       localStorage: language ? { getItem: () => null, setItem() {}, removeItem() {} } : undefined,
       getComputedStyle: () => ({ color: state.ink }),
+      addEventListener: (type, listener) => windowListeners.push({ type, listener }),
     },
     URL,
     AbortSignal: { timeout: () => undefined },
     AbortController,
+    // 입력 줄 크기 변화 신호를 테스트에서 직접 보낼 수 있게 지켜보는 대상과 처리기를 모아 둔다.
+    ResizeObserver: class { constructor(callback) { this.callback = callback; resizeObservers.push(this); } observe(node) { this.node = node; } },
     FormData,
     Blob,
     Event,
@@ -271,6 +276,11 @@ function loadPad({ language, pixelRatio = 2, blobSize = pngBytes.length } = {}) 
   page.get = get;
   page.rowRect = rowRect;
   page.padRect = padRect;
+  page.canvasRect = canvasRect;
+  page.resize = () => { for (const each of windowListeners) if (each.type === "resize") each.listener({}); };
+  page.rowResized = () => {
+    for (const observer of resizeObservers) if (observer.node === get(".composer-row")) observer.callback([]);
+  };
   // 질문 칸에 글을 쓴 것처럼 값과 커서를 바꾸고 input 신호를 보낸다(키보드·Scribble 모두 이 신호를 낸다).
   page.type = (value, caretAt = value.length) => {
     input.value = value;
@@ -655,6 +665,32 @@ test("패드를 연 사이 질문 칸에 쓴 위치를 따라가, 같은 글을 
   assert.equal(head.input.value, "A cat B A catfake B");
 });
 
+test("고른 범위 바로 앞이나 바로 뒤에 쓴 글은 범위 밖이라 지우지 않는다", async () => {
+  // 「Y」를 고르고 바로 앞에 Z를 쓴다.
+  const front = loadPad();
+  front.input.value = "XXY";
+  front.input.selectionStart = 2; front.input.selectionEnd = 3;
+  front.button.click();
+  front.type("XXZY", 3);
+  front.stroke([10, 10], [60, 60]);
+  front.respond(ok("fake"));
+  front.insert.click();
+  await settle();
+  assert.equal(front.input.value, "XXZfake");
+
+  // 「Y」를 고르고 바로 뒤에 Z를 쓴다.
+  const back = loadPad();
+  back.input.value = "XYW";
+  back.input.selectionStart = 1; back.input.selectionEnd = 2;
+  back.button.click();
+  back.type("XYZW", 3);
+  back.stroke([10, 10], [60, 60]);
+  back.respond(ok("fake"));
+  back.insert.click();
+  await settle();
+  assert.equal(back.input.value, "XfakeZW");
+});
+
 test("여러 번 나눠 고쳐도 고칠 때마다 고른 범위를 따라간다", async () => {
   const page = loadPad();
   page.input.value = "휴학 신청은 언제까지?";
@@ -726,23 +762,74 @@ test("입력 줄 위 자리가 모자라 줄 아래로 열린 패드는 위 끝�
   assert.equal(page.pad.style.properties.get("--handwriting-max-height"), "534px");
 });
 
-test("입력 줄 위아래 어느 쪽에도 패드가 다 들어가지 않으면 넓은 쪽에 두고, 커져도 그 쪽 남은 높이 안에서 스크롤한다", async () => {
+test("입력 줄 위아래 어느 쪽에도 패드가 다 들어가지 않으면 와이어프레임대로 위에 두고, 커져도 그 높이 안에서 스크롤한다", async () => {
   const page = loadPad();
   // 입력 줄 250~310px. 위쪽 234px, 아래쪽 474px이 남고 패드는 480px다.
   Object.assign(page.rowRect, { top: 250, bottom: 310 });
   page.padRect.height = 480;
   page.button.click();
-  assert.equal(page.pad.style.properties.get("--handwriting-top"), "318px");
-  assert.equal(page.pad.style.properties.get("--handwriting-max-height"), "474px");
+  // 아래 끝은 입력 줄 위 8px(800 - 250 + 8), 최대 높이는 위쪽 남은 234px다.
+  assert.equal(page.pad.style.properties.get("--handwriting-bottom"), "558px");
+  assert.equal(page.pad.style.properties.get("--handwriting-top"), "auto");
+  assert.equal(page.pad.style.properties.get("--handwriting-max-height"), "234px");
   page.stroke([10, 10], [60, 60]);
-  // 상태 줄이 생겨 내용이 20px 늘어도 위 끝은 입력 줄 아래 8px 그대로다.
   page.padRect.height = 500;
   page.respond(refused(503));
   page.insert.click();
   await settle();
+  assert.equal(page.pad.style.properties.get("--handwriting-bottom"), "558px");
+  assert.equal(page.pad.style.properties.get("--handwriting-max-height"), "234px");
+});
+
+test("질문 칸을 늘려 입력 줄 크기만 바뀌어도 패드를 다시 놓아 입력 줄을 덮지 않는다", () => {
+  const page = loadPad();
+  // 위쪽 234px에는 320px 패드가 들어가지 않고 아래쪽 474px에는 들어가므로 줄 아래로 연다.
+  Object.assign(page.rowRect, { top: 250, bottom: 310 });
+  page.button.click();
   assert.equal(page.pad.style.properties.get("--handwriting-top"), "318px");
-  assert.equal(page.pad.style.properties.get("--handwriting-max-height"), "474px");
-  assert.equal(page.pad.style.properties.get("--handwriting-bottom"), "auto");
+  // 질문 칸을 세로로 늘려 입력 줄 아래 끝이 366px가 됐다. scroll·resize 신호 없이 크기 변화 신호만 온다.
+  page.rowRect.bottom = 366;
+  page.rowResized();
+  assert.equal(page.pad.style.properties.get("--handwriting-top"), "374px");
+});
+
+test("다른 손가락으로 넣기를 누를 때 펜이 닿아 있어도 그 획을 끝내, 화면과 보내는 그림이 같다", async () => {
+  const page = loadPad();
+  page.button.click();
+  page.pointer("pointerdown", { id: 6, kind: "pen", x: 10, y: 10, pressure: 0.5 });
+  page.pointer("pointermove", { id: 6, kind: "pen", x: 60, y: 10, pressure: 0.5 });
+  const held = page.hold();
+  page.insert.click();
+  await settle();
+  assert.ok(page.canvas.released.includes(6), "the pen stroke loses its capture");
+  const drawn = page.canvas.log.filter(call => call[0] === "lineTo").length;
+  // 응답을 기다리는 동안 펜을 더 움직여도 획이 이어지지 않는다.
+  page.pointer("pointermove", { id: 6, kind: "pen", x: 200, y: 150, pressure: 0.5 });
+  assert.equal(page.canvas.log.filter(call => call[0] === "lineTo").length, drawn);
+  held.resolve(ok("가상"));
+  await settle();
+  assert.equal(page.exports[0].canvas.log.filter(call => call[0] === "lineTo").length, 1);
+});
+
+test("칸 크기가 600→400→600으로 오가도 획은 처음 크기로 돌아오고 왕복할수록 작아지지 않는다", async () => {
+  const page = loadPad();
+  page.button.click();
+  page.stroke([10, 10], [110, 10]);
+  for (let round = 0; round < 2; round++) {
+    Object.assign(page.canvasRect, { width: 400, right: 500 });
+    page.resize();
+    // 좁아진 칸에서는 2/3 배율로 그린다(기기 화소 비율 2 × 2/3).
+    const shrunk = page.canvas.log.filter(call => call[0] === "setTransform").at(-1);
+    assert.ok(Math.abs(shrunk[1] - 4 / 3) < 1e-9, String(shrunk));
+    Object.assign(page.canvasRect, { width: 600, right: 700 });
+    page.resize();
+    assert.deepEqual(page.canvas.log.filter(call => call[0] === "setTransform").at(-1).slice(1), [2, 0, 0, 2, 0, 0]);
+  }
+  page.respond(ok("가상"));
+  page.insert.click();
+  await settle();
+  // 처음 크기 그대로의 획이다: 가로 100 + 굵기 3 + 여백 32 = 135, 배율 2.
+  assert.deepEqual([page.exports[0].canvas.width, page.exports[0].canvas.height], [270, 70]);
 });
 
 test("좌표는 그대로 두고 압력만 바꾼 펜 신호도 보내는 그림에 점으로 남는다", async () => {

@@ -3125,6 +3125,7 @@ function setupHandwriting() {
   const undo = find("undo"), clear = find("clear"), cancel = find("cancel"), insert = find("insert");
   if (![button, pad, canvas, status, undo, clear, cancel, insert].every(node => typeof node?.addEventListener === "function")) return;
   let opened = false, strokes = [], penSeen = false, reading = null, session = 0, selection = null, context = null, box = null, origin = null, ink = null, owner = null;
+  let base = null, scale = 1;
   const active = new Map();
   function controls() {
     const blank = strokes.length === 0, waiting = Boolean(reading);
@@ -3147,29 +3148,31 @@ function setupHandwriting() {
     context.strokeStyle = ink; context.fillStyle = ink;
     context.lineCap = "round"; context.lineJoin = "round";
   }
+  // 보이는 칸을 기준 좌표로 옮긴 크기. 배율(scale)로 나눈 값이라 늘 기준 좌표 단위다.
+  const visibleArea = () => box?.width > 0 && box?.height > 0 ? { width: box.width / scale, height: box.height / scale } : null;
   function redraw() {
     if (!context) return;
-    context.clearRect(0, 0, box?.width || canvas.width, box?.height || canvas.height);
+    const area = visibleArea();
+    context.clearRect(0, 0, area?.width || canvas.width, area?.height || canvas.height);
     paint();
     for (const stroke of strokes) drawHandwritingStroke(context, stroke);
   }
-  // 캔버스 화소를 보이는 크기 × 기기 화소 비율로 맞추고, 획은 CSS 픽셀 좌표로 다시 그린다.
-  // 회전·창 크기 변화로 캔버스가 바뀌면 그리던 획을 끝내고, 모든 점을 같은 비율로 옮겨 보이는 칸 안에 남긴다.
+  // 획은 패드를 연 뒤 처음 잰 칸 크기(base)를 기준 좌표로 저장하고, 저장한 점은 바꾸지 않는다.
+  // 회전·창 크기 변화로 칸이 바뀌면 배율만 다시 정해(가로·세로 비율 중 작은 쪽) 화면에 그릴 때만 늘리거나 줄인다.
+  // 그래서 600→400→600처럼 오가도 획은 처음 크기로 돌아오고, 왕복할수록 작아지지 않는다. 그리던 획은 그때 끝낸다.
+  // 캔버스 화소는 보이는 크기 × 기기 화소 비율이다.
   function prepare() {
     const before = box;
     box = canvas.getBoundingClientRect?.() ?? null;
-    if (before?.width > 0 && before?.height > 0 && box?.width > 0 && box?.height > 0 &&
-      (before.width !== box.width || before.height !== box.height)) {
-      const scale = Math.min(box.width / before.width, box.height / before.height);
-      active.clear();
-      for (const stroke of strokes) for (const point of stroke.points) { point.x *= scale; point.y *= scale; }
-    }
+    if (!base && box?.width > 0 && box?.height > 0) base = { width: box.width, height: box.height };
+    if (before && box && (before.width !== box.width || before.height !== box.height)) active.clear();
+    scale = base && box?.width > 0 && box?.height > 0 ? Math.min(box.width / base.width, box.height / base.height) : 1;
     origin = box ? { left: box.left, top: box.top } : null;
     const ratio = window.devicePixelRatio || 1;
     canvas.width = Math.max(1, Math.round((box?.width || 0) * ratio));
     canvas.height = Math.max(1, Math.round((box?.height || 0) * ratio));
     context = canvas.getContext?.("2d") ?? null;
-    context?.setTransform(ratio, 0, 0, ratio, 0, 0);
+    context?.setTransform(ratio * scale, 0, 0, ratio * scale, 0, 0);
     redraw();
   }
   // 넓은 화면에서 입력 줄 바로 위에 놓는다. 위에 자리가 모자라면 입력 줄 아래로 연다. 좁은 화면은 CSS가 아래 시트로 덮어쓴다.
@@ -3181,11 +3184,12 @@ function setupHandwriting() {
     pad.style?.setProperty("--handwriting-width", `${row.width}px`);
     // 최대 높이로 잘려 있을 수 있으므로 내용 전체 높이(scrollHeight)와 견줘 큰 쪽을 패드 높이로 본다.
     const own = Math.max(pad.getBoundingClientRect?.().height || 0, Number(pad.scrollHeight) || 0);
-    // 입력 줄 위(8px 띄움)와 아래 중 패드가 들어가는 쪽에 놓는다. 둘 다 모자라면 더 넓은 쪽이다.
+    // 와이어프레임대로 입력 줄 위(8px 띄움)가 기본이다. 위에는 모자라고 아래에는 다 들어갈 때만 줄 아래로 연다.
+    // 둘 다 모자라면 위에 두고 패드 안에서 스크롤한다.
     // 위에 놓을 때는 아래 끝(bottom)을, 아래에 놓을 때는 위 끝(top)을 입력 줄에서 8px 띄워 묶고,
-    // 그 쪽 남은 높이를 최대 높이로 준다. 상태 줄이 생겨 커져도 입력 줄 쪽으로 밀려나지 않고 패드 안에서 스크롤된다.
+    // 그 쪽 남은 높이를 최대 높이로 준다. 상태 줄이 생겨 커져도 입력 줄 쪽으로 밀려나지 않는다.
     const room = { above: row.top - 16, below: height - row.bottom - 16 };
-    const up = room.above >= own || (room.below < own && room.above >= room.below);
+    const up = room.above >= own || room.below < own;
     if (up) {
       pad.style?.setProperty("--handwriting-top", "auto");
       pad.style?.setProperty("--handwriting-bottom", `${Math.max(8, height - row.top + 8)}px`);
@@ -3200,7 +3204,7 @@ function setupHandwriting() {
   function openPad() {
     if (opened) { canvas.focus(); return; }
     opened = true; session++;
-    strokes = []; active.clear(); penSeen = false; reading = null; box = null;
+    strokes = []; active.clear(); penSeen = false; reading = null; box = null; base = null; scale = 1;
     selection = caret();
     // 패드는 연 순간의 계정·대화에 묶인다. 그 뒤 대화가 바뀌면(사진을 붙여 새 대화로 보낸 경우 등) 넣기 전에 버린다.
     owner = { account: historyAccount, conversation: activeConversation };
@@ -3217,7 +3221,7 @@ function setupHandwriting() {
     reading?.abort(); reading = null;
     for (const id of active.keys()) if (canvas.hasPointerCapture?.(id)) canvas.releasePointerCapture?.(id);
     active.clear(); strokes = []; penSeen = false;
-    context?.clearRect(0, 0, box?.width || canvas.width, box?.height || canvas.height);
+    context?.clearRect(0, 0, visibleArea()?.width || canvas.width, visibleArea()?.height || canvas.height);
     pad.hidden = true;
     button.setAttribute("aria-expanded", "false");
     show(""); controls();
@@ -3282,10 +3286,20 @@ function setupHandwriting() {
       before[before.length - 1 - suffix] === after[after.length - 1 - suffix]) suffix++;
     let prefix = 0;
     while (prefix < before.length - suffix && prefix < after.length - suffix && before[prefix] === after[prefix]) prefix++;
-    const move = position => position <= prefix ? position
-      : position >= before.length - suffix ? position + after.length - before.length
-        : after.length - suffix;
-    selection = { start: move(selection.start), end: move(selection.end), value: after };
+    // 바뀐 구간: 옛 글 [prefix, editEnd) → 새 글 [prefix, prefix + added).
+    const editEnd = before.length - suffix, added = after.length - suffix - prefix;
+    const inserted = prefix === editEnd;
+    // 경계에 끼워 넣은 글은 고른 범위 밖이다. 범위 시작에서 넣으면 시작을 넣은 글 뒤로, 범위 끝에서 넣으면 끝을 넣은 글 앞에 둔다.
+    // 커서만 있었으면 넣은 글 뒤에 둔다(이어 쓴 글 다음에 손글씨가 온다).
+    const move = (position, edge) => {
+      if (position < prefix) return position;
+      if (position > editEnd) return position + after.length - before.length;
+      if (inserted) return edge === "end" ? prefix : prefix + added;
+      return position === prefix ? prefix : prefix + added;
+    };
+    const collapsed = selection.start === selection.end;
+    const start = move(selection.start, "start");
+    selection = { start, end: collapsed ? start : Math.max(start, move(selection.end, "end")), value: after };
   }
   function placeText(text) {
     const spot = savedRange();
@@ -3303,7 +3317,11 @@ function setupHandwriting() {
   }
   async function read() {
     if (!opened || reading || !strokes.length) return;
-    const area = box?.width > 0 && box?.height > 0 ? { width: box.width, height: box.height } : null;
+    // 넣기를 누른 순간까지의 획만 보낸다. 다른 손가락으로 넣기를 누른 채 펜이 아직 닿아 있어도
+    // 그리던 획을 여기서 끝내, 화면의 획과 보내는 그림이 어긋나지 않게 한다. 읽는 동안에는 새 획도 받지 않는다.
+    for (const id of active.keys()) if (canvas.hasPointerCapture?.(id)) canvas.releasePointerCapture?.(id);
+    active.clear();
+    const area = visibleArea();
     if (!handwritingBounds(strokes, area)) {
       // 모든 잉크가 보이는 칸 밖에 있으면 보낼 글씨가 없다.
       show(handwritingMessages.unreadable, true);
@@ -3368,7 +3386,8 @@ function setupHandwriting() {
   }
   function point(event) {
     const pressure = typeof event.pressure === "number" && event.pressure > 0 ? Math.min(1, event.pressure) : .5;
-    return { x: event.clientX - (origin?.left || 0), y: event.clientY - (origin?.top || 0), p: pressure };
+    // 화면 좌표를 기준 좌표로 바꿔 저장한다(배율로 나눈다).
+    return { x: (event.clientX - (origin?.left || 0)) / scale, y: (event.clientY - (origin?.top || 0)) / scale, p: pressure };
   }
   function dropStroke(stroke) {
     const index = strokes.indexOf(stroke);
@@ -3451,6 +3470,9 @@ function setupHandwriting() {
   // 넓은 화면의 패드는 화면에 고정돼 있어, 문서나 안쪽 칸이 스크롤되면 입력 줄 바로 위로 다시 옮긴다.
   // 캡처 단계로 들어 안쪽 칸의 스크롤도 받는다. 좁은 화면 시트는 CSS가 화면 아래에 두므로 좌표 변수가 쓰이지 않는다.
   document.addEventListener?.("scroll", () => { if (opened) place(); }, { capture: true, passive: true });
+  // 질문 칸을 세로로 늘리는 등 입력 줄 크기만 바뀌면 scroll·resize 신호가 없다. 입력 줄 크기를 지켜보다가 자리를 다시 잰다.
+  const composerRow = document.querySelector(".composer-row");
+  if (typeof ResizeObserver === "function" && composerRow) new ResizeObserver(() => { if (opened) place(); }).observe(composerRow);
   refreshHandwritingPad.run = () => { if (opened) { place(); prepare(); } };
   closeHandwritingPad.run = closePad;
   redrawHandwritingPad.run = () => { if (opened) redraw(); };
