@@ -1,108 +1,189 @@
-/* 색 값은 이 블록에만 적는다. 아래 규칙은 변수 이름으로만 색을 쓰고,
-   landing_design.test.mjs가 변수를 따라가 글자 4.5:1, 테두리·초점 표시 3:1을 계산한다. */
+/* 색 값은 이 블록과 바로 아래 다크 블록 두 개에만 적는다. 아래 규칙은 변수 이름으로만 색을 쓰고,
+   landing_design.test.mjs가 라이트·다크(속성)·다크(시스템) 변수를 각각 따라가 글자 4.5:1, 테두리·초점 3:1을 계산한다.
+   테마(#131): 라이트가 기본이다. 다크는 html[data-theme="dark"]이거나, 속성이 없으면서 시스템이 다크일 때다.
+   속성은 chat.js가 적는다. 스크립트가 늦거나 실패해도 시스템 다크 사용자는 처음부터 다크로 그려진다. */
 :root {
   --techmo-dock-height: 184px;
+  /* 테마와 상관없는 학교 색. 하늘색(--sky)은 흰색과 약 2.9:1이라 채움에만 쓴다.
+     노랑 채움에는 남색 글자를 얹고, 흰 바탕에는 노란 글자를 쓰지 않는다. */
   --white: #ffffff;
-  --paper: #F5F9FC;
-  --sky: #00A3D9;
-  --blue: #005B96;
   --navy: #0A2540;
+  --blue: #005B96;
+  --sky: #00A3D9;
   --yellow: #FFD100;
-  --edge: #8A8D8F;
-  --muted: rgba(214,232,245,.82);
-  --content-line: rgba(140,220,255,.28);
-  --line: rgba(140,220,255,.60);
-  --tint: #163b5b;
-  --good: #7be0a6;
-  --good-bg: #103c2c;
-  --bad: #ffb4a8;
-  --bad-bg: #492127;
-  --bad-line: #df9c9a;
-  --warn: #ffd97a;
-  --warn-bg: #473a15;
-  --warn-line: #e0c070;
-  --warn-panel: #332d20;
-  --button-end: #0077b8;
-  --glass-card: rgba(12,44,78,.90);
-  --glass-band: rgba(8,30,54,.72);
-  --glass-panel: rgba(10,36,64,.84);
-  --glass-feature: rgba(255,255,255,.10);
-  --glass-composer: rgba(255,255,255,.94);
-  --glass-account: rgba(255,255,255,.08);
-  --conversation-active: rgba(140,220,255,.12);
-  --conversation-scrim: rgba(4,20,38,.55);
-  --glass-dense: rgba(8,28,50,.82);
-  --glass-card-edge: rgba(140,220,255,.70);
-  --glass-band-edge: rgba(140,220,255,.75);
-  --glass-panel-edge: rgba(140,220,255,.70);
-  --glass-feature-edge: rgba(140,220,255,.70);
-  --intro-ink: rgba(255,255,255,.88);
-  --glass-pill: rgba(255,255,255,.14);
-  --glass-edge: rgba(255,255,255,.28);
-  --overlay-sky: rgba(0,163,217,.20);
-  --overlay-top: rgba(10,37,64,.55);
-  --overlay-mid: rgba(10,37,64,.30);
-  --overlay-bottom: rgba(10,37,64,.72);
-  --shadow-dark: #041426;
-  --shadow-text: rgba(4,20,38,.55);
-  --shadow-card: rgba(2,12,24,.6);
-  --shadow-panel: rgba(4,20,38,.35);
-  --shadow-input: rgba(4,20,38,.18);
-  --shadow-button: rgba(0,120,190,.45);
-  --focus-wash: rgba(0,163,217,.30);
-  --safety-bg: rgba(255,209,0,.12);
-  --safety-edge: rgba(255,209,0,.75);
-  --safety-ink: #ffe9a8;
-  --ink: #eaf4fb;
-  --label-ink: #cfe6f5;
-  --help-ink: rgba(214,232,245,.82);
-  --card-ink: #eef7fd;
-  --card-copy: rgba(214,232,245,.86);
-  --account-copy: rgba(214,232,245,.8);
-  --link-ink: #8fdcff;
-  --browse-ink: #9be0ff;
-  --focus-ink: #7fd6ff;
-  --input-wash: rgba(255,255,255,.10);
-  --input-focus: rgba(255,255,255,.16);
-  --input-edge: rgba(170,215,240,.95);
-  --input-placeholder: rgba(214,232,245,.90);
-  --composer-edge: rgba(140,220,255,.6);
-  --composer-ink: #0f2233;
-  --composer-muted: #39485a;
-  --card-end: rgba(6,24,44,.82);
-  --band-end: rgba(8,30,54,.70);
-  --panel-end: rgba(6,24,44,.80);
-  --panel-surface: #0a2440;
-  --control-start: #0a6fb0;
-  --control-end: #007bb5;
+  --edge-strong: #6E8098;
+  --button-end: #0071A4;
+  --control-start: #005B96;
+  --control-end: #0071A4;
   --control-edge: rgba(160,225,255,.95);
-  --account-hover: rgba(0,163,217,.22);
-  --feature-hover: rgba(0,163,217,.20);
+  --intro-ink: rgba(255,255,255,.88);
+  --glass-pill: rgba(10,37,64,.62);
+  --glass-edge: rgba(255,255,255,.28);
   --drawing-ink: rgba(140,220,255,.9);
   --drawing-line: rgba(140,220,255,.55);
   --icon-bright: #35c4f2;
   --icon-shadow: rgba(0,60,110,.45);
-  --safety-symbol: #1b1400;
-  /* 메인 화면 전용 반투명 면. 로그인 화면의 --glass-* 값은 건드리지 않는다.
-     큰 면은 한 지점에 한 장만 깔고, 글자는 말풍선·보강 면 위에만 놓는다. */
-  --main-surface: rgba(8,28,50,.50);
-  --main-bubble: rgba(8,28,50,.66);
-  --main-bubble-hover: rgba(6,52,92,.68);
-  --main-bubble-active: rgba(12,56,92,.68);
-  --main-backing: rgba(8,28,50,.80);
-  --main-inset: rgba(8,28,50,.30);
-  /* 깊이 생각 모드의 학교 파랑 → 보라 → 노랑 */
-  --deep-violet: #6A4BD8;
+  --safety-symbol: var(--navy);
+  /* 깊이 생각 모드의 학교 파랑 → 밝은 하늘 → 노랑. 반짝임도 하늘색 계열이다. */
+  --deep-sky: #38BDF8;
   --deep-gold: #F7C500;
-  --deep-shine: rgba(106,75,216,.22);
-  /* 테크모 말풍선(#128). 패널 색(--glass-dense)과 나눈 크림 바탕이다. 시스템 다크에서는 아래 미디어 규칙이 한 단계 어두운 크림으로 바꾼다. */
+  --deep-shine: rgba(0,163,217,.22);
+  /* 테크모 말풍선(#128). 패널 색(--glass-dense)과 나눈 크림 바탕이다. 다크에서는 아래 두 블록이 한 단계 어두운 크림으로 바꾼다. */
   --pet-bubble: #FFF6D6;
   --pet-bubble-dark: #F3E7BF;
-  color-scheme: dark;
+
+  /* 라이트 기본 이름표(2026-11-18 피드백 값). */
+  --bg: #F5F8FC;
+  --surface: #FFFFFF;
+  --raised: #FFFFFF;
+  --text: #0A2540;
+  --text-muted: #4A5D75;
+  --accent: #005B96;
+  --sky-text: #0071A4;
+  --coral: #FF7A59;
+  --success: #0F7A43;
+  --warning: #9A5B00;
+  --danger: #C62F2F;
+
+  /* 역할 변수. 이름표를 가리키므로 다크 블록이 이름표만 바꿔도 함께 바뀐다. */
+  --ink: var(--text);
+  --muted: var(--text-muted);
+  --help-ink: var(--text-muted);
+  --label-ink: var(--text);
+  --card-ink: var(--text);
+  --card-copy: var(--text-muted);
+  --account-copy: var(--text);
+  --link-ink: var(--sky-text);
+  --browse-ink: var(--sky-text);
+  --focus-ink: var(--accent);
+  --good: var(--success);
+  --bad: var(--danger);
+  --bad-line: var(--danger);
+  --warn: var(--warning);
+  --warn-line: var(--warning);
+  --input-placeholder: var(--text-muted);
+  --composer-ink: var(--text);
+  --composer-muted: var(--text-muted);
+  --glass-composer: var(--surface);
+  --well: var(--bg);
+  --popup: var(--surface);
+  --edge: var(--edge-strong);
+  --composer-edge: var(--control-line);
+  --input-edge: var(--control-line);
+  --glass-card-edge: var(--control-line);
+  --glass-band-edge: var(--control-line);
+  --glass-panel-edge: var(--control-line);
+  --glass-feature-edge: var(--control-line);
+
+  /* 라이트 값. 다크 블록이 같은 이름을 모두 다시 적는다. */
+  --line: #6E8098;
+  --content-line: rgba(10,37,64,.16);
+  --control-line: #6E8098;
+  --tint: #E6EFF7;
+  --paper: #EEF3F9;
+  --good-bg: #E3F3EA;
+  --bad-bg: #FBE9E9;
+  --warn-bg: #FFF1D6;
+  --warn-panel: #FFF6E3;
+  --glass-card: rgba(255,255,255,.95);
+  --card-end: rgba(255,255,255,.93);
+  --glass-band: rgba(255,255,255,.92);
+  --band-end: rgba(255,255,255,.90);
+  --glass-panel: rgba(255,255,255,.90);
+  --panel-end: rgba(255,255,255,.88);
+  --glass-feature: rgba(255,255,255,.80);
+  --glass-account: rgba(255,255,255,.70);
+  --glass-dense: rgba(255,255,255,.94);
+  --conversation-scrim: rgba(10,37,64,.35);
+  /* 메인 화면 반투명 면. 큰 면은 한 지점에 한 장만 깔고, 글자는 말풍선·보강 면 위에만 놓는다.
+     라이트는 흰 면이라 큰 면(.70) 사이로 사진이 밝게 비치고, 말풍선(.80)과 겹친 합성 불투명도는 .94다. */
+  --main-surface: rgba(255,255,255,.70);
+  --main-bubble: rgba(255,255,255,.80);
+  --main-bubble-hover: rgba(232,241,249,.86);
+  --main-bubble-active: rgba(230,240,250,.90);
+  --main-backing: rgba(255,255,255,.94);
+  /* 안쪽 상자는 흰 덧판이다. 남색을 덧칠하면 링크 글자(#0071A4)가 어두운 사진 가정에서 4.5:1 아래로 내려간다. */
+  --main-inset: rgba(255,255,255,.55);
+  /* 사진 위 막. 위쪽은 흰 제목 그림과 소개 글을 받치는 남색, 아래쪽은 밝은 판이 놓이는 옅은 바탕색이다. */
+  --overlay-sky: rgba(0,163,217,.14);
+  --overlay-top: rgba(10,37,64,.50);
+  --overlay-mid: rgba(10,37,64,.16);
+  --overlay-bottom: rgba(245,248,252,.42);
+  --shadow-text: rgba(4,20,38,.55);
+  --lettering-shadow: rgba(4,20,38,.45);
+  --shadow-card: rgba(10,37,64,.18);
+  --shadow-panel: rgba(10,37,64,.14);
+  --shadow-input: rgba(10,37,64,.10);
+  --shadow-button: rgba(0,91,150,.22);
+  --focus-ring: #0A2540;
+  --safety-bg: rgba(255,209,0,.22);
+  --safety-edge: #9A5B00;
+  --safety-ink: #0A2540;
+  --input-wash: rgba(255,255,255,.70);
+  --input-focus: #FFFFFF;
+  /* 시연 계정 버튼 hover는 바탕을 더 밝히고 테두리 색으로 알린다. 남색을 덧칠하면 학번 링크 글자가 4.5:1 아래로 내려간다. */
+  --account-hover: rgba(255,255,255,.92);
+  --feature-hover: rgba(0,91,150,.08);
+  --panel-surface: #F5F8FC;
+  /* 음각·양각은 불투명 단색 면(입력 줄) 위에서만 쓴다. */
+  --emboss: 6px 6px 14px rgba(10,37,64,.16), -6px -6px 14px rgba(255,255,255,.9);
+  --deboss: inset 3px 3px 7px rgba(10,37,64,.14), inset -3px -3px 7px rgba(255,255,255,.85);
+  /* 밝은 학교 로고는 흰 글자라 라이트의 흰 띠 위에서는 남색 받침에 올린다. 다크에서는 받침이 없다. */
+  --logo-plate: #0A2540;
+  --logo-pad: 5px 9px;
+  color-scheme: light;
   /* 첫 화면 보안 정책이 외부 글꼴을 막으므로 기기에 깔린 글꼴만 쓴다. 중국어(간체) 글꼴은 한국어 글꼴에 없는 글자를 채운다. */
   font-family: Pretendard, "Apple SD Gothic Neo", "Malgun Gothic", "맑은 고딕", "Noto Sans KR", "Microsoft YaHei", "PingFang SC", "Noto Sans SC", system-ui, sans-serif;
   color: var(--ink);
-  background: var(--navy);
+  background: var(--bg);
+}
+/* 다크 값. 두 블록은 같은 선언을 같은 순서로 적는다(landing_design.test.mjs가 비교한다).
+   앞 블록은 직접 고른 다크, 뒤 블록은 속성이 없을 때의 시스템 다크다. 직접 고른 라이트는 시스템이 다크여도 라이트다. */
+:root[data-theme="dark"] {
+  --bg: #0B1626; --surface: #13233A; --raised: #1A2B44; --text: #E8EEF6; --text-muted: #9DB0C7; --accent: #3DB8E8;
+  --sky-text: #3DB8E8; --coral: #FF8F73; --success: #4ADE80; --warning: #FBBF24; --danger: #F87171;
+  --line: rgba(140,220,255,.60); --content-line: rgba(140,220,255,.28); --control-line: rgba(140,220,255,.78);
+  --tint: #1A2B44; --paper: #1A2B44; --good-bg: #103c2c; --bad-bg: #492127; --warn-bg: #473a15; --warn-panel: #332d20;
+  --glass-card: rgba(19,35,58,.94); --card-end: rgba(11,22,38,.88); --glass-band: rgba(11,22,38,.76); --band-end: rgba(11,22,38,.74);
+  --glass-panel: rgba(19,35,58,.84); --panel-end: rgba(11,22,38,.80); --glass-feature: rgba(255,255,255,.10); --glass-account: rgba(255,255,255,.03);
+  --glass-dense: rgba(11,22,38,.84); --conversation-scrim: rgba(0,0,0,.55);
+  --main-surface: rgba(11,22,38,.50); --main-bubble: rgba(11,22,38,.76); --main-bubble-hover: rgba(14,30,52,.80); --main-bubble-active: rgba(17,36,60,.80);
+  --main-backing: rgba(11,22,38,.84); --main-inset: rgba(11,22,38,.30);
+  --overlay-sky: rgba(0,163,217,.12); --overlay-top: rgba(11,22,38,.62); --overlay-mid: rgba(11,22,38,.40); --overlay-bottom: rgba(11,22,38,.80);
+  --shadow-text: rgba(0,0,0,.65); --lettering-shadow: rgba(0,0,0,.60); --shadow-card: rgba(0,0,0,.50); --shadow-panel: rgba(0,0,0,.40);
+  --shadow-input: rgba(0,0,0,.25); --shadow-button: rgba(0,120,190,.40);
+  --focus-ring: #FFFFFF; --safety-bg: rgba(255,209,0,.12); --safety-edge: rgba(255,209,0,.75); --safety-ink: #ffe9a8;
+  --input-wash: rgba(255,255,255,.06); --input-focus: rgba(255,255,255,.08); --input-placeholder: #B8C7D8; --account-hover: rgba(0,91,150,.30); --feature-hover: rgba(0,91,150,.25);
+  --panel-surface: #0B1626;
+  --emboss: 6px 6px 14px rgba(0,0,0,.45), -6px -6px 14px rgba(255,255,255,.05);
+  --deboss: inset 3px 3px 8px rgba(0,0,0,.5), inset -3px -3px 8px rgba(120,160,210,.08);
+  --logo-plate: transparent; --logo-pad: 0;
+  --pet-bubble: var(--pet-bubble-dark);
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    --bg: #0B1626; --surface: #13233A; --raised: #1A2B44; --text: #E8EEF6; --text-muted: #9DB0C7; --accent: #3DB8E8;
+    --sky-text: #3DB8E8; --coral: #FF8F73; --success: #4ADE80; --warning: #FBBF24; --danger: #F87171;
+    --line: rgba(140,220,255,.60); --content-line: rgba(140,220,255,.28); --control-line: rgba(140,220,255,.78);
+    --tint: #1A2B44; --paper: #1A2B44; --good-bg: #103c2c; --bad-bg: #492127; --warn-bg: #473a15; --warn-panel: #332d20;
+    --glass-card: rgba(19,35,58,.94); --card-end: rgba(11,22,38,.88); --glass-band: rgba(11,22,38,.76); --band-end: rgba(11,22,38,.74);
+    --glass-panel: rgba(19,35,58,.84); --panel-end: rgba(11,22,38,.80); --glass-feature: rgba(255,255,255,.10); --glass-account: rgba(255,255,255,.03);
+    --glass-dense: rgba(11,22,38,.84); --conversation-scrim: rgba(0,0,0,.55);
+    --main-surface: rgba(11,22,38,.50); --main-bubble: rgba(11,22,38,.76); --main-bubble-hover: rgba(14,30,52,.80); --main-bubble-active: rgba(17,36,60,.80);
+    --main-backing: rgba(11,22,38,.84); --main-inset: rgba(11,22,38,.30);
+    --overlay-sky: rgba(0,163,217,.12); --overlay-top: rgba(11,22,38,.62); --overlay-mid: rgba(11,22,38,.40); --overlay-bottom: rgba(11,22,38,.80);
+    --shadow-text: rgba(0,0,0,.65); --lettering-shadow: rgba(0,0,0,.60); --shadow-card: rgba(0,0,0,.50); --shadow-panel: rgba(0,0,0,.40);
+    --shadow-input: rgba(0,0,0,.25); --shadow-button: rgba(0,120,190,.40);
+    --focus-ring: #FFFFFF; --safety-bg: rgba(255,209,0,.12); --safety-edge: rgba(255,209,0,.75); --safety-ink: #ffe9a8;
+    --input-wash: rgba(255,255,255,.06); --input-focus: rgba(255,255,255,.08); --input-placeholder: #B8C7D8; --account-hover: rgba(0,91,150,.30); --feature-hover: rgba(0,91,150,.25);
+    --panel-surface: #0B1626;
+    --emboss: 6px 6px 14px rgba(0,0,0,.45), -6px -6px 14px rgba(255,255,255,.05);
+    --deboss: inset 3px 3px 8px rgba(0,0,0,.5), inset -3px -3px 8px rgba(120,160,210,.08);
+    --logo-plate: transparent; --logo-pad: 0;
+    --pet-bubble: var(--pet-bubble-dark);
+    color-scheme: dark;
+  }
 }
 
 * { box-sizing: border-box; }
@@ -112,7 +193,8 @@ body { margin: 0; }
 button, textarea { font: inherit; }
 button { cursor: pointer; }
 button:disabled { cursor: default; opacity: .65; }
-:focus-visible { outline: 3px solid var(--blue); outline-offset: 2px; }
+/* 초점 표시는 어디서나 2px 실선 고리 하나다. 라이트는 남색, 다크는 흰색이라 반투명 판과 밝은·어두운 사진 위에서 3:1을 넘는다. */
+:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 h1, h2, h3, p { margin-top: 0; }
 
 .masthead {
@@ -258,9 +340,7 @@ h1, h2, h3, p { margin-top: 0; }
   line-height: 1.45;
   word-break: keep-all;
 }
-@media (prefers-color-scheme: dark) {
-  :root { --pet-bubble: var(--pet-bubble-dark); }
-}
+/* 다크 크림(--pet-bubble-dark)은 맨 위 두 다크 블록이 --pet-bubble에 넣는다. 조건은 다른 색과 같다. */
 /* 꼬리는 #pet-line 밖의 장식 그림 한 장이다. 채움이 말풍선 아래 선 1.5px를 덮고 양 빗변만 선을 그어 외곽선이 끊기지 않는다. */
 .pet-tail-fill { fill: var(--pet-bubble); }
 .pet-tail-line { fill: none; stroke: var(--navy); stroke-width: 1.5px; stroke-linejoin: round; }
@@ -815,8 +895,8 @@ body[data-conversation-drawer="open"] .campus-caption, body:has(#conversation-to
 .login-help { margin: 0 0 12px; color: var(--muted); font-size: .86rem; line-height: 1.5; }
 #login-form { display: grid; gap: 4px; }
 #login-form label { font-size: .85rem; font-weight: 700; }
-#login-form input { min-width: 0; width: 100%; height: 46px; padding: 0 12px; border: 1.5px solid var(--input-edge); border-radius: 10px; background: var(--input-wash); color: var(--white); font: inherit; }
-#login-form input:focus { border-color: var(--link-ink); outline: none; box-shadow: 0 0 0 4px var(--focus-wash); }
+#login-form input { min-width: 0; width: 100%; height: 46px; padding: 0 12px; border: 1.5px solid var(--input-edge); border-radius: 10px; background: var(--input-wash); color: var(--ink); font: inherit; }
+#login-form input:focus { border-color: var(--link-ink); }
 .login-safety { margin: 4px 0; padding: 8px 10px; border: 1px solid var(--safety-edge); border-radius: 10px; background: var(--safety-bg); color: var(--safety-ink); font-size: .76rem; line-height: 1.5; }
 .login-submit { width: 100%; min-height: 48px; border: 0; border-radius: 10px; background: linear-gradient(135deg,var(--control-start),var(--control-end)); color: var(--white); font-weight: 700; box-shadow: 0 10px 24px var(--shadow-button); }
 #login-error { min-height: 20px; margin: 0; color: var(--bad); font-size: .8rem; line-height: 1.5; }
@@ -881,7 +961,7 @@ button.card:hover:not([data-restored]) { border-color: var(--focus-ink); backgro
   .title-lettering { width: 78vw; }
 }
 
-/* 남색 유리의 글자와 밝은 질문창은 각각의 바탕에 맞춰 대비를 유지한다. */
+/* 유리 면의 글자와 불투명 입력 줄은 테마마다 각각의 바탕에 맞춰 대비를 유지한다. */
 .login-help { color: var(--help-ink); }
 #login-form label { color: var(--label-ink); }
 #login-form input::placeholder { color: var(--input-placeholder); opacity: 1; }
@@ -891,23 +971,18 @@ button.card:hover:not([data-restored]) { border-color: var(--focus-ink); backgro
 #demo-student-list strong { color: var(--link-ink); }
 #demo-student-list button:hover { background: var(--account-hover); border-color: var(--focus-ink); }
 .browse-main { color: var(--browse-ink); }
-.reset, .login, .check, .panel-close { background: var(--input-wash); border-color: var(--input-edge); color: var(--white); }
-.reset:not(:disabled):hover, .check:not(:disabled):hover, .panel-close:hover { background: var(--feature-hover); border-color: var(--focus-ink); color: var(--white); }
+.reset, .login, .check, .panel-close { background: var(--input-wash); border-color: var(--input-edge); color: var(--ink); }
+.reset:not(:disabled):hover, .check:not(:disabled):hover, .panel-close:hover { background: var(--feature-hover); border-color: var(--focus-ink); color: var(--ink); }
 .cta, .cta:hover { background: linear-gradient(135deg,var(--control-start),var(--control-end)); border-color: var(--control-edge); color: var(--white); }
 .card-title, .panel-title { color: var(--ink); }
 .card-text, .panel-text { color: var(--help-ink); }
 .feature-panel, .card { color: var(--ink); }
-:focus-visible { outline-color: var(--focus-ink); }
-.composer :focus-visible { outline-color: var(--focus-ink); }
-.composer-row :focus-visible { outline-color: var(--blue); }
-/* 메인 화면의 초점 테두리는 반투명 판 너머 밝은 사진 위에도 놓인다. 흰색은 흰 사진 가정에서도 판(.50)과 3:1을 넘는다. */
-#main-screen :focus-visible { outline-color: var(--white); }
-#main-screen .composer-row :focus-visible { outline-color: var(--blue); }
 .composer p { color: var(--muted); }
 .composer textarea::placeholder { color: var(--composer-muted); }
 .composer textarea { color: var(--composer-ink); }
 .composer .photo-note, .attach-row label, .attach-row input { color: var(--ink); }
-.composer textarea { background: var(--white); color-scheme: light; border-color: var(--blue); }
+/* 질문 칸은 불투명 입력 줄 안의 오목한 우물이다. 경계는 #6E8098, 오목함은 --deboss 그림자로 그린다. */
+.composer textarea { background: var(--well); border-color: var(--edge-strong); box-shadow: var(--deboss); }
 .attach-clear { color: var(--link-ink); }
 .reply, .question, .evidence, .biskit .program, .poster-result, .reading, .fallback { color: var(--ink); border-color: var(--line); }
 /* 말풍선은 큰 면 위의 반투명 판이고, 그 안의 상자는 옅은 덧판만 깐다. */
@@ -945,23 +1020,27 @@ button.card:hover:not([data-restored]) { border-color: var(--focus-ink); backgro
 .quicklink-track { display: flex; gap: 10px; margin: 0; padding: 6px; list-style: none; overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x mandatory; scroll-padding-inline: 6px; scrollbar-width: none; }
 .quicklink-track::-webkit-scrollbar { display: none; }
 .quicklink-item { flex: none; scroll-snap-align: start; }
-.quicklink-card { position: relative; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: start; gap: 10px; width: 200px; height: 100%; min-height: 78px; padding: 12px; border: 1px solid var(--glass-edge); border-radius: 14px; background: var(--glass-account); color: var(--ink); text-align: left; text-decoration: none; }
+.quicklink-card { position: relative; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: start; gap: 10px; width: 200px; height: 100%; min-height: 78px; padding: 12px; border: 1px solid var(--content-line); border-radius: 14px; background: var(--glass-account); color: var(--ink); text-align: left; text-decoration: none; }
 .quicklink-card:hover { border-color: var(--focus-ink); background: var(--feature-hover); }
 .quicklink-icon { width: 24px; height: 24px; color: var(--link-ink); stroke-width: 1.6; }
 .quicklink-text { display: grid; gap: 3px; min-width: 0; }
-.quicklink-name { color: var(--white); font-size: .86rem; font-weight: 700; line-height: 1.35; word-break: keep-all; }
+.quicklink-name { color: var(--ink); font-size: .86rem; font-weight: 700; line-height: 1.35; word-break: keep-all; }
 .quicklink-desc { color: var(--muted); font-size: .76rem; line-height: 1.4; word-break: keep-all; }
 .quicklink-badge { justify-self: start; margin-top: 3px; padding: 1px 7px; border: 1px solid var(--safety-edge); border-radius: 999px; color: var(--safety-ink); font-size: .68rem; font-weight: 700; }
 .quicklink-card .external-link-icon { margin-top: 3px; color: var(--muted); }
-.quicklink-nav { flex: none; display: inline-grid; place-items: center; width: 38px; height: 38px; padding: 0; border: 1px solid var(--glass-edge); border-radius: 50%; background: var(--input-wash); color: var(--white); }
+/* ‹ › 버튼은 좁은 화면에서도 누름 영역 44px를 지킨다. */
+.quicklink-nav { flex: none; display: inline-grid; place-items: center; width: 44px; height: 44px; padding: 0; border: 1px solid var(--control-line); border-radius: 50%; background: var(--input-wash); color: var(--ink); }
 .quicklink-nav:hover { border-color: var(--focus-ink); background: var(--feature-hover); }
-.quicklink-nav[aria-disabled="true"], .quicklink-nav[aria-disabled="true"]:hover { border-color: var(--glass-edge); background: var(--input-wash); opacity: .4; cursor: default; }
+.quicklink-nav[aria-disabled="true"], .quicklink-nav[aria-disabled="true"]:hover { border-color: var(--control-line); background: var(--input-wash); opacity: .4; cursor: default; }
 @media (max-width: 480px) {
   .quicklink-carousel { gap: 4px; }
-  .quicklink-nav { width: 32px; height: 32px; }
   .quicklink-card { width: 168px; }
 }
 .brand-logo, .login-brand { display: inline-block; width: fit-content; padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+/* 밝은 로고는 흰 글자라 라이트 테마에서는 그림 자신에 남색 받침을 깐다. 높이는 그림 내용 높이 그대로다(content-box). 다크는 받침 0이다. */
+.brand-logo > img, .login-brand > img { box-sizing: content-box; padding: var(--logo-pad); border-radius: 6px; background: var(--logo-plate); }
+/* 제목 그림은 흰 글자 조각이다. 사진 위 남색 막에 더해 그림 둘레에 테마별 그림자를 받침으로 깐다. */
+.title-lettering > img, .main-lettering > img { filter: drop-shadow(0 2px 12px var(--lettering-shadow)); }
 .login-brand:not([hidden]) + .login-brand-name { display: none; }
 .login-brand-name { color: var(--ink); font-size: .9rem; }
 .drawing-dimension { width: fit-content; max-width: 100%; margin-bottom: 12px; padding-bottom: 10px; border-bottom: 1px solid var(--drawing-line); color: var(--drawing-ink); font-family: ui-monospace, Consolas, monospace; font-size: 11px; letter-spacing: .22em; }
@@ -991,7 +1070,8 @@ button.card:hover:not([data-restored]) { border-color: var(--focus-ink); backgro
   backdrop-filter: blur(16px) saturate(1.3);
 }
 .primary, .primary:not(:disabled):hover { background: linear-gradient(135deg,var(--control-start),var(--control-end)); border-color: var(--control-edge); }
-#login-form input:focus { border-color: var(--focus-ink); background: var(--input-focus); outline: none; box-shadow: 0 0 0 4px var(--focus-wash); }
+/* 학번 칸의 초점도 공통 2px 실선 고리를 쓴다. 테두리와 바탕은 고리를 돕는 보조 표시다. */
+#login-form input:focus { border-color: var(--focus-ink); background: var(--input-focus); }
 @media (max-width: 680px) {
   .masthead-inner { gap: 4px; }
   .brand { flex: none; }
@@ -1003,7 +1083,7 @@ button.card:hover:not([data-restored]) { border-color: var(--focus-ink); backgro
   .demo-person { flex: 1 1 0; }
   #demo-identity .hint { display: none; }
   #demo-label { font-size: .75rem; }
-  #demo-logout, .masthead-actions > .reset { min-height: 40px; padding-inline: 4px; font-size: .72rem; }
+  #demo-logout, .masthead-actions > .reset { min-height: 44px; padding-inline: 4px; font-size: .72rem; }
   .campus-site-links { gap: 8px 14px; }
 }
 
@@ -1014,9 +1094,10 @@ button.card:hover:not([data-restored]) { border-color: var(--focus-ink); backgro
   border-radius: 18px;
   background: var(--glass-composer);
   color: var(--composer-ink);
-  box-shadow: inset 0 0 0 1px var(--blue), 0 16px 40px var(--shadow-input);
+  box-shadow: 0 8px 24px var(--shadow-input);
 }
-.composer textarea:hover { border-color: var(--blue); }
+/* 입력 줄은 불투명 단색 면(--surface)이다. 그 안의 질문 칸(오목)과 답변 모드 버튼(볼록)만 음각·양각을 쓴다. */
+.composer textarea:hover { border-color: var(--focus-ink); }
 .attach-button {
   display: inline-grid;
   place-items: center;
@@ -1024,7 +1105,7 @@ button.card:hover:not([data-restored]) { border-color: var(--focus-ink); backgro
   width: 44px;
   min-height: 44px;
   padding: 8px;
-  border: 1px solid var(--blue);
+  border: 1px solid var(--control-line);
   border-radius: 8px;
   background: transparent;
   color: var(--composer-ink);
@@ -1055,7 +1136,7 @@ button.card:hover:not([data-restored]) { border-color: var(--focus-ink); backgro
 .main-title-fallback { color: var(--white); }
 .main-title-fallback em { color: var(--yellow); font-style: normal; }
 .main-lettering:not([hidden]) + .main-title-fallback { display: none; }
-.main-welcome #main-greeting { margin: 0; color: var(--muted); font-size: 16px; line-height: 1.6; }
+.main-welcome #main-greeting { margin: 0; color: var(--intro-ink); font-size: 16px; line-height: 1.6; }
 .main-welcome #main-greeting:empty { display: none; }
 /* 입력창을 위로 당기는 96px + 62px를 상쇄하고 인사말 아래 12px를 확보한다. */
 .main-welcome:has(#main-greeting:not(:empty)) { padding-bottom: 170px; }
@@ -1107,7 +1188,7 @@ body[data-view="chat"] .composer textarea { height: 44px; min-height: 44px; max-
 .conversation-title { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .conversation-time { display: block; margin-top: 4px; color: var(--muted); font-size: .75rem; }
 /* 점 세 개 `대화 메뉴` 버튼. 휴지통 버튼이 있던 자리와 크기를 그대로 쓴다. */
-#conversation-sidebar .conversation-more { flex: none; width: 36px; min-height: 44px; padding: 8px; border: 0; }
+#conversation-sidebar .conversation-more { flex: none; width: 44px; min-height: 44px; padding: 8px; border: 0; }
 .conversation-more-icon { position: relative; display: block; width: 4px; height: 4px; margin: auto; border-radius: 50%; background: currentColor; }
 .conversation-more-icon::before, .conversation-more-icon::after { content: ""; position: absolute; left: 0; width: 4px; height: 4px; border-radius: 50%; background: currentColor; }
 .conversation-more-icon::before { top: -7px; }
@@ -1121,7 +1202,7 @@ body[data-view="chat"] .composer textarea { height: 44px; min-height: 44px; max-
 .conversation-archive-list { margin: 4px 0 0; padding: 0; list-style: none; }
 #conversation-toggle svg, #conversation-close svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 .conversation-note { margin: 0; color: var(--muted); font-size: .75rem; line-height: 1.5; }
-.conversation-unread { display: inline-block; flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--yellow); align-self: center; }
+.conversation-unread { display: inline-block; flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--coral); align-self: center; }
 .conversation-pending { display: inline-block; width: 10px; height: 10px; border: 2px solid var(--content-line); border-top-color: var(--yellow); border-radius: 50%; animation: conversation-wait .8s linear infinite; }
 @keyframes conversation-wait { to { transform: rotate(360deg); } }
 #conversation-close { display: none; }
@@ -1155,7 +1236,7 @@ body[data-view="chat"] .composer textarea { height: 44px; min-height: 44px; max-
   body[data-view="chat"] .brand { flex: none; }
   body[data-view="chat"] .brand-logo { padding: 0; }
   body[data-view="chat"] .brand-logo img { width: auto; height: 22px; min-height: 22px; }
-  body[data-view="chat"] #home-button, body[data-view="chat"] #conversation-toggle { flex: none; min-height: 40px; padding-inline: 4px; font-size: .72rem; }
+  body[data-view="chat"] #home-button, body[data-view="chat"] #conversation-toggle { flex: none; min-height: 44px; padding-inline: 4px; font-size: .72rem; }
   body[data-view="chat"] .composer { padding-inline: 0; }
   body[data-view="chat"] .transcript { padding-inline: 0; }
   body[data-view="chat"] .composer-row { gap: 5px; padding: 5px; }
@@ -1302,7 +1383,7 @@ body[data-techmo-dragging="true"] { user-select: none; }
   padding: 6px;
   border: 1px solid var(--line);
   border-radius: 10px;
-  background: var(--navy);
+  background: var(--popup);
   color: var(--ink);
   box-shadow: 0 10px 30px var(--shadow-panel);
 }
@@ -1310,7 +1391,7 @@ body[data-techmo-dragging="true"] { user-select: none; }
 .conversation-menu-item:hover, .conversation-menu-item:focus-visible { background: var(--feature-hover); }
 .conversation-menu-item.danger { color: var(--bad); }
 .confirm-scrim { position: fixed; inset: 0; z-index: 40; display: grid; place-items: center; padding: 16px; background: var(--conversation-scrim); }
-.confirm-box { width: min(400px, 100%); padding: 22px; border: 1px solid var(--line); border-radius: 16px; background: var(--navy); color: var(--ink); box-shadow: 0 30px 80px var(--shadow-card); }
+.confirm-box { width: min(400px, 100%); padding: 22px; border: 1px solid var(--line); border-radius: 16px; background: var(--popup); color: var(--ink); box-shadow: 0 30px 80px var(--shadow-card); }
 .confirm-title { margin: 0 0 8px; color: var(--ink); font-size: 1.1rem; line-height: 1.4; }
 .confirm-text { margin: 0; color: var(--ink); line-height: 1.6; overflow-wrap: anywhere; }
 .confirm-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }
@@ -1330,19 +1411,22 @@ body[data-techmo-dragging="true"] { user-select: none; }
   min-width: 44px;
   min-height: 44px;
   padding: 0 12px;
-  border: 1.5px solid var(--blue);
+  border: 1.5px solid var(--edge-strong);
   border-radius: 999px;
-  background: transparent;
+  background: var(--raised);
   color: var(--composer-ink);
   font-size: .86rem;
   font-weight: 700;
   white-space: nowrap;
+  box-shadow: var(--emboss);
 }
 .mode-pill:hover { background: var(--paper); }
+/* 메뉴가 열린 동안은 눌린 모양(오목)이다. 그림자만으로 알리지 않고 테두리 색과 aria-expanded도 함께 바뀐다. */
+.mode-pill[aria-expanded="true"] { border-color: var(--focus-ink); box-shadow: var(--deboss); }
 .mode-icon { display: inline-block; flex: none; width: 18px; height: 18px; }
 .mode-icon svg { display: block; width: 100%; height: 100%; }
 .mode-pill:not([data-mode="deep"]) .mode-icon[data-icon="deep"], .mode-pill[data-mode="deep"] .mode-icon[data-icon="fast"] { display: none; }
-.mode-pill[data-mode="deep"] .mode-icon { color: var(--deep-violet); }
+.mode-pill[data-mode="deep"] .mode-icon { color: var(--link-ink); }
 .mode-pill-chevron { display: inline-grid; flex: none; place-items: center; width: 12px; height: 12px; }
 .mode-pill-chevron svg { display: block; width: 100%; height: 100%; }
 .mode-pill-chevron:empty::before { content: ""; width: 6px; height: 6px; margin-top: -3px; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: rotate(45deg); }
@@ -1350,7 +1434,7 @@ body[data-techmo-dragging="true"] { user-select: none; }
 /* 깊이 모드의 고정 표시. 움직임과 상관없이 테두리 그라데이션만 그린다. */
 .mode-pill[data-mode="deep"] {
   border-color: transparent;
-  background: linear-gradient(var(--white), var(--white)) padding-box, linear-gradient(90deg, var(--sky), var(--deep-violet), var(--deep-gold)) 0 0 / 100% 100% border-box;
+  background: linear-gradient(var(--raised), var(--raised)) padding-box, linear-gradient(90deg, var(--sky), var(--deep-sky), var(--deep-gold)) 0 0 / 100% 100% border-box;
 }
 .composer-row { position: relative; }
 .composer-row.is-deep { border-color: transparent; }
@@ -1365,9 +1449,9 @@ body[data-techmo-dragging="true"] { user-select: none; }
   mask: linear-gradient(var(--white) 0 0) content-box, linear-gradient(var(--white) 0 0);
   mask-composite: exclude;
 }
-.composer-row.is-deep::before { padding: 1px; opacity: .85; background: linear-gradient(90deg, var(--sky), var(--deep-violet), var(--deep-gold)); }
+.composer-row.is-deep::before { padding: 1px; opacity: .85; background: linear-gradient(90deg, var(--sky), var(--deep-sky), var(--deep-gold)); }
 /* 효과는 클래스가 붙어 있을 때만 돈다. chat.js가 움직임이 허용될 때만 붙이고 0.7초·0.9초 뒤 뗀다. */
-.composer-row.is-deep-enter::after { inset: -5px; padding: 4px; background: linear-gradient(90deg, var(--sky), var(--deep-violet), var(--deep-gold), var(--sky)) 0 0 / 300% 100%; filter: blur(2px); opacity: 0; animation: composer-deep-enter .9s ease-out forwards; }
+.composer-row.is-deep-enter::after { inset: -5px; padding: 4px; background: linear-gradient(90deg, var(--sky), var(--deep-sky), var(--deep-gold), var(--sky)) 0 0 / 300% 100%; filter: blur(2px); opacity: 0; animation: composer-deep-enter .9s ease-out forwards; }
 @keyframes composer-deep-enter { 0% { opacity: 0; background-position: 0 0; } 30% { opacity: 1; } 100% { opacity: 0; background-position: 100% 0; } }
 .mode-pill.is-bursting .mode-icon[data-icon="deep"] { animation: mode-star-spin .7s ease-out; }
 @keyframes mode-star-spin { 0% { transform: rotate(0deg) scale(1); } 45% { transform: rotate(200deg) scale(1.35); filter: drop-shadow(0 0 4px var(--deep-gold)); } 100% { transform: rotate(360deg) scale(1); } }
@@ -1386,7 +1470,7 @@ body[data-techmo-dragging="true"] { user-select: none; }
   animation: mode-spark .65s ease-out forwards;
 }
 .mode-spark:nth-child(3n + 2 of .mode-spark) { background: var(--sky); }
-.mode-spark:nth-child(3n of .mode-spark) { background: var(--deep-violet); }
+.mode-spark:nth-child(3n of .mode-spark) { background: var(--deep-sky); }
 .mode-spark:nth-child(2 of .mode-spark) { --spark-angle: 45deg; }
 .mode-spark:nth-child(3 of .mode-spark) { --spark-angle: 90deg; }
 .mode-spark:nth-child(4 of .mode-spark) { --spark-angle: 135deg; }
@@ -1407,7 +1491,7 @@ body[data-techmo-dragging="true"] { user-select: none; }
   border-radius: inherit;
   padding: 1.5px;
   pointer-events: none;
-  background: linear-gradient(90deg, var(--sky), var(--deep-violet), var(--deep-gold), var(--sky)) 0 0 / 300% 100%;
+  background: linear-gradient(90deg, var(--sky), var(--deep-sky), var(--deep-gold), var(--sky)) 0 0 / 300% 100%;
   -webkit-mask: linear-gradient(var(--white) 0 0) content-box, linear-gradient(var(--white) 0 0);
   -webkit-mask-composite: xor;
   mask: linear-gradient(var(--white) 0 0) content-box, linear-gradient(var(--white) 0 0);
@@ -1442,7 +1526,7 @@ body[data-techmo-dragging="true"] { user-select: none; }
   padding: 6px;
   border: 1px solid var(--line);
   border-radius: 14px;
-  background: var(--navy);
+  background: var(--popup);
   color: var(--ink);
   box-shadow: 0 12px 32px var(--shadow-panel);
 }
@@ -1456,7 +1540,7 @@ body[data-techmo-dragging="true"] { user-select: none; }
   width: 100%;
   min-height: 52px;
   padding: 8px 10px;
-  border: 0;
+  border: 1px solid transparent;
   border-radius: 10px;
   background: transparent;
   color: var(--ink);
@@ -1464,11 +1548,12 @@ body[data-techmo-dragging="true"] { user-select: none; }
   text-align: left;
 }
 .choice-menu-item:hover { background: var(--feature-hover); }
-.choice-menu-item[aria-checked="true"] { background: var(--main-bubble-active); }
-.choice-menu-item:focus-visible { outline: 2px solid var(--focus-ink); outline-offset: -2px; }
+/* 고른 항목은 바탕색·테두리·체크 표시·aria-checked 네 가지로 알린다. */
+.choice-menu-item[aria-checked="true"] { background: var(--main-bubble-active); border-color: var(--control-line); }
+.choice-menu-item:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
 .choice-menu-icon { grid-area: icon; display: block; width: 20px; height: 20px; color: var(--link-ink); }
 .choice-menu-icon svg { display: block; width: 100%; height: 100%; }
-.choice-menu-item[data-choice-value="deep"] .choice-menu-icon { color: var(--deep-gold); }
+.choice-menu-item[data-choice-value="deep"] .choice-menu-icon { color: var(--warn); }
 .choice-menu-name { grid-area: name; color: var(--ink); font-size: .92rem; font-weight: 700; }
 .choice-menu-desc { grid-area: desc; color: var(--help-ink); font-size: .8rem; line-height: 1.4; }
 .choice-menu-check { grid-area: check; visibility: hidden; color: var(--link-ink); font-weight: 700; }
@@ -1495,7 +1580,8 @@ body[data-techmo-dragging="true"] { user-select: none; }
 }
 @keyframes thinking-shine { to { background-position: -150% 0; } }
 
-/* 흐림을 지원하지 않는 브라우저는 반투명 면 뒤 사진이 그대로 비쳐 글이 흔들려 보인다. 이전의 진한 면을 그대로 쓴다. */
+/* 흐림을 지원하지 않는 브라우저는 반투명 면 뒤 사진이 그대로 비쳐 글이 흔들려 보인다. 큰 판은 불투명 바탕(--panel-surface),
+   글이 놓이는 면은 진한 면(--glass-dense)으로 바꾼다. 두 테마 모두 같은 대비 검사를 받는다. */
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   .layout, body[data-view="chat"] .layout { background: linear-gradient(180deg, transparent, var(--panel-surface) 56px); }
   .layout::before { display: none; }
@@ -1531,7 +1617,7 @@ html:lang(zh) { font-family: "PingFang SC", "Microsoft YaHei", "Noto Sans SC", P
 .lang-pill[aria-expanded="true"] .lang-pill-chevron { transform: rotate(180deg); }
 .login-screen { position: relative; }
 .login-lang { position: absolute; top: 16px; right: 0; z-index: 2; border-color: var(--glass-edge); background: var(--glass-pill); color: var(--white); }
-.login-lang:hover { background: var(--glass-dense); }
+.login-lang:hover { background: var(--navy); }
 /* 인용 카드의 조문 원문은 번역하지 않는다. 한국어가 아닌 화면에서만 원문 위에 이 표시가 붙는다. */
 .evidence .original-lang { margin: 0 0 6px; color: var(--muted); font-size: .76rem; font-weight: 700; }
 @media (max-width: 680px) {

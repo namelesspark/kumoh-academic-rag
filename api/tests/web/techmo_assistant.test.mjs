@@ -225,15 +225,15 @@ function pixels(value, width) {
   return runInNewContext(expression, {}, { timeout: 100 });
 }
 
-test("360·680px 상단은 한 줄과 40px 버튼을 유지하고 보조 줄을 숨긴다", () => {
+test("360·680px 상단은 한 줄과 44px 버튼을 유지하고 보조 줄을 숨긴다", () => {
   for (const width of [360, 680]) {
     assert.equal(declarationsAtWidth("#demo-identity", width)["flex-wrap"], "nowrap");
     assert.equal(declarationsAtWidth("#demo-identity .hint", width).display, "none");
     assert.equal(declarationsAtWidth("#demo-label", width)["text-overflow"], "ellipsis");
     assert.equal(declarationsAtWidth(".brand-logo img", width).height, "22px");
     assert.equal(declarationsAtWidth(".login-brand img", width).height, "22px");
-    assert.ok(Number.parseInt(declarationsAtWidth("#demo-logout", width)["min-height"], 10) >= 40);
-    assert.ok(Number.parseInt(declarationsAtWidth(".masthead-actions > .reset", width)["min-height"], 10) >= 40);
+    assert.ok(Number.parseInt(declarationsAtWidth("#demo-logout", width)["min-height"], 10) >= 44);
+    assert.ok(Number.parseInt(declarationsAtWidth(".masthead-actions > .reset", width)["min-height"], 10) >= 44);
     assert.equal(declarationsAtWidth(".campus-site-links", width)["flex-wrap"], "wrap");
   }
 });
@@ -1358,7 +1358,10 @@ test("말풍선은 패널 색과 나뉜 크림 바탕에 남색 선과 흐림 �
   }
   assert.match(styles, /--pet-bubble: #FFF6D6;/);
   assert.match(styles, /--pet-bubble-dark: #F3E7BF;/);
-  assert.match(styles, /@media \(prefers-color-scheme: dark\) \{\s*:root \{ --pet-bubble: var\(--pet-bubble-dark\); \}\s*\}/);
+  // 다크 크림은 다른 색과 같은 다크 조건(#131)을 쓴다. 직접 고른 다크, 그리고 속성이 없을 때의 시스템 다크다.
+  assert.match(styles, /:root\[data-theme="dark"\] \{[^}]*--pet-bubble: var\(--pet-bubble-dark\);[^}]*\}/);
+  assert.match(styles, /@media \(prefers-color-scheme: dark\) \{\s*:root:not\(\[data-theme\]\) \{[^}]*--pet-bubble: var\(--pet-bubble-dark\);[^}]*\}\s*\}/);
+  assert.doesNotMatch(styles, /@media \(prefers-color-scheme: dark\) \{\s*:root \{/);
   // 패널 색과의 공유를 끊었다. 말풍선 규칙 어디에도 --glass-dense가 없다.
   for (const [selector, body] of rules) {
     if (/pet-says|pet-tail/.test(selector)) assert.doesNotMatch(body, /--glass-dense/, selector);
