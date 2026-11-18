@@ -382,9 +382,19 @@ test("조작 영역은 44px 이상이다", () => {
     assert.equal(declared(".brand", ["flex"], undefined, { width }), "0 1 auto");
     assert.equal(declared(".brand", ["min-width"], undefined, { width }), "0");
     assert.equal(declared(".masthead-actions", ["flex"], undefined, { width }), "0 1 auto");
-    assert.equal(declared(".brand-logo > img", ["max-width"], undefined, { width }), "100%");
+    // 그림은 content-box라 받침 좌우 여백만큼 더 빼야 로고 칸(100%) 안에 들어간다.
+    assert.equal(declared(".brand-logo > img", ["max-width"], undefined, { width }), "calc(100% - 2 * var(--logo-pad-x))");
+    assert.equal(declared(".brand-logo > img", ["box-sizing"], undefined, { width }), "content-box");
+    assert.equal(declared(".brand-logo", ["max-width"], undefined, { width }), "100%");
     assert.equal(declared(".brand-logo > img", ["object-fit"], undefined, { width }), "contain");
+    // 버튼 묶음과 로그인 상자는 버튼들의 최소 폭 아래로 줄지 않는다.
+    assert.equal(declared(".masthead-actions", ["min-width"], undefined, { width }), "min-content");
+    assert.equal(declared(".demo-account", ["min-width"], undefined, { width }), "min-content");
   }
+  // 받침 여백은 라이트 9px, 다크 0이고 받침 전체 값은 이 여백을 쓴다.
+  assert.equal(resolve("var(--logo-pad-x)", lightEnv), "9px");
+  assert.equal(resolve("var(--logo-pad)", lightEnv), "5px 9px");
+  assert.equal(resolve("var(--logo-pad-x)", darkEnv), "0px");
   assert.equal(find('[id$="theme-button"] .lang-pill-label', ["clip-path"], { width: 481 }), undefined);
   assert.equal(declared(".brand", ["flex"], undefined, { width: 481 }), "none");
   // 재시도 버튼은 두 글자(重试)여도 가로 44px다.
