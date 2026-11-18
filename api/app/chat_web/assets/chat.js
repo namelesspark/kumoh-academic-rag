@@ -2876,7 +2876,11 @@ async function ask(question, reply, record = activeConversation) {
     renderConversations(); updateSend(); scrollToLatest();
   }
 }
-input.addEventListener("input", updateSend);
+// 입력 처리기는 하나다. 필기 패드가 열려 있으면 고친 구간을 따라 열기 전 자리를 옮긴다(#134). 포인터 처리기는 두지 않는다.
+input.addEventListener("input", () => {
+  updateSend();
+  if (typeof noteHandwritingEdit === "function") noteHandwritingEdit();
+});
 input.addEventListener("keydown", event => {
   if (event.key !== "Enter" || event.shiftKey || event.isComposing || event.keyCode === 229) return;
   event.preventDefault();
@@ -2899,9 +2903,10 @@ composer.addEventListener("submit", event => {
     }
   }
 
+  // 질문을 보내면 쓰던 초안은 끝났다. 같은 대화든 새 대화든 열린 필기 패드와 읽던 요청을 버려,
+  // 늦은 인식 글자가 비운 질문 칸(다음 질문의 초안)에 들어가지 않게 한다(#134).
+  if (typeof closeHandwritingPad === "function") closeHandwritingPad(false);
   if (!activeConversation || Boolean(activeConversation.photo) !== Boolean(file) || !requestedChatView) {
-    // 보내면서 새 대화로 바뀌면 이전 대화에서 연 필기 패드는 닫는다(#134).
-    if (typeof closeHandwritingPad === "function") closeHandwritingPad(false);
     activeConversation = { id: `conversation-${Date.now()}-${++conversationSequence}`, time: Date.now(),
       title: Array.from(question).slice(0, 29).join(""), messages: [], turns: [], photo: Boolean(file), unread: false };
     conversations.unshift(activeConversation);
@@ -3174,17 +3179,22 @@ function setupHandwriting() {
     if (!row || !(row.width > 0) || !height) return;
     pad.style?.setProperty("--handwriting-x", `${Math.max(8, row.left)}px`);
     pad.style?.setProperty("--handwriting-width", `${row.width}px`);
-    const own = pad.getBoundingClientRect?.().height || 0;
-    // 입력 줄 위에 놓을 때는 아래 끝(bottom)을 묶어 상태 줄이 생겨도 위로 자란다.
-    // 줄 아래로 열 때는 위 끝(top)을 묶어 아래로 자란다. 그래야 늘어난 패드가 입력 줄을 덮지 않는다.
-    // 입력 줄이 스크롤로 화면 밖에 나가도 패드는 화면 안(위아래 8px)에 남긴다.
-    const clamp = value => `${Math.max(8, Math.min(value, height - own - 8))}px`;
-    if (row.top - 8 >= own + 8) {
+    // 최대 높이로 잘려 있을 수 있으므로 내용 전체 높이(scrollHeight)와 견줘 큰 쪽을 패드 높이로 본다.
+    const own = Math.max(pad.getBoundingClientRect?.().height || 0, Number(pad.scrollHeight) || 0);
+    // 입력 줄 위(8px 띄움)와 아래 중 패드가 들어가는 쪽에 놓는다. 둘 다 모자라면 더 넓은 쪽이다.
+    // 위에 놓을 때는 아래 끝(bottom)을, 아래에 놓을 때는 위 끝(top)을 입력 줄에서 8px 띄워 묶고,
+    // 그 쪽 남은 높이를 최대 높이로 준다. 상태 줄이 생겨 커져도 입력 줄 쪽으로 밀려나지 않고 패드 안에서 스크롤된다.
+    const room = { above: row.top - 16, below: height - row.bottom - 16 };
+    const up = room.above >= own || (room.below < own && room.above >= room.below);
+    if (up) {
       pad.style?.setProperty("--handwriting-top", "auto");
-      pad.style?.setProperty("--handwriting-bottom", clamp(height - row.top + 8));
+      pad.style?.setProperty("--handwriting-bottom", `${Math.max(8, height - row.top + 8)}px`);
+      pad.style?.setProperty("--handwriting-max-height", `${Math.max(0, room.above)}px`);
     } else {
+      const top = Math.max(8, row.bottom + 8);
       pad.style?.setProperty("--handwriting-bottom", "auto");
-      pad.style?.setProperty("--handwriting-top", clamp(row.bottom + 8));
+      pad.style?.setProperty("--handwriting-top", `${top}px`);
+      pad.style?.setProperty("--handwriting-max-height", `${Math.max(0, height - top - 8)}px`);
     }
   }
   function openPad() {
@@ -3258,6 +3268,24 @@ function setupHandwriting() {
       : position >= before.length - suffix ? position + after.length - before.length
         : after.length - suffix;
     return { start: move(start), end: move(end) };
+  }
+  // 패드가 열린 동안 질문 칸에서 글이 바뀔 때마다(키보드·Scribble 모두 input 이벤트) 적어 둔 자리를 옮긴다.
+  // 글자 비교만으로는 같은 글을 앞에 붙였는지 뒤에 붙였는지 가를 수 없어, 고친 직후의 커서를 기준으로 삼는다.
+  // 커서 뒤 글자는 이번 편집에서 그대로이므로 공통 끝 부분을 커서 뒤까지만 인정하고, 공통 앞 부분은 그 나머지 안에서만 센다.
+  function noteEdit() {
+    if (!opened || !selection) return;
+    const before = selection.value, after = input.value;
+    if (before === after) return;
+    const caretAt = Number.isInteger(input.selectionEnd) ? Math.min(input.selectionEnd, after.length) : after.length;
+    let suffix = 0;
+    while (suffix < before.length && suffix < after.length - caretAt &&
+      before[before.length - 1 - suffix] === after[after.length - 1 - suffix]) suffix++;
+    let prefix = 0;
+    while (prefix < before.length - suffix && prefix < after.length - suffix && before[prefix] === after[prefix]) prefix++;
+    const move = position => position <= prefix ? position
+      : position >= before.length - suffix ? position + after.length - before.length
+        : after.length - suffix;
+    selection = { start: move(selection.start), end: move(selection.end), value: after };
   }
   function placeText(text) {
     const spot = savedRange();
@@ -3426,6 +3454,11 @@ function setupHandwriting() {
   refreshHandwritingPad.run = () => { if (opened) { place(); prepare(); } };
   closeHandwritingPad.run = closePad;
   redrawHandwritingPad.run = () => { if (opened) redraw(); };
+  noteHandwritingEdit.run = noteEdit;
+}
+// 질문 칸의 input 처리기가 불러, 패드가 열린 동안 고친 구간을 따라 넣을 자리를 옮긴다.
+function noteHandwritingEdit() {
+  noteHandwritingEdit.run?.();
 }
 // 테마가 바뀌면 applyTheme이 불러 열린 패드의 잉크를 새 글자색으로 다시 그린다.
 function redrawHandwritingPad() {

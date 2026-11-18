@@ -271,6 +271,12 @@ function loadPad({ language, pixelRatio = 2, blobSize = pngBytes.length } = {}) 
   page.get = get;
   page.rowRect = rowRect;
   page.padRect = padRect;
+  // 질문 칸에 글을 쓴 것처럼 값과 커서를 바꾸고 input 신호를 보낸다(키보드·Scribble 모두 이 신호를 낸다).
+  page.type = (value, caretAt = value.length) => {
+    input.value = value;
+    input.selectionStart = input.selectionEnd = caretAt;
+    input.dispatchEvent({ type: "input" });
+  };
   // 문서가 스크롤됐다는 신호를 보낸다.
   page.scroll = () => { for (const each of documentListeners) if (each.type === "scroll") each.listener({ type: "scroll" }); };
   page.systemThemeChanged = () => {
@@ -623,6 +629,67 @@ test("앞뒤 글자로 가를 수 없게 같은 글을 통째로 맨 앞에 붙�
   assert.equal(page.input.value, "A cat B A catfake B");
 });
 
+test("패드를 연 사이 질문 칸에 쓴 위치를 따라가, 같은 글을 뒤에 붙이든 앞에 붙이든 원래 커서에 넣는다", async () => {
+  // 문장 끝에 같은 글을 붙인다(커서는 끝). 원래 커서는 그대로 5번째 자리다.
+  const tail = loadPad();
+  tail.input.value = "A cat B";
+  tail.input.selectionStart = tail.input.selectionEnd = 5;
+  tail.button.click();
+  tail.type("A cat B A cat B");
+  tail.stroke([10, 10], [60, 60]);
+  tail.respond(ok("fake"));
+  tail.insert.click();
+  await settle();
+  assert.equal(tail.input.value, "A catfake B A cat B");
+
+  // 맨 앞에 같은 글을 붙인다(커서는 붙인 글 뒤 8번째). 원래 커서는 8칸 밀린 13번째 자리다.
+  const head = loadPad();
+  head.input.value = "A cat B";
+  head.input.selectionStart = head.input.selectionEnd = 5;
+  head.button.click();
+  head.type("A cat B A cat B", 8);
+  head.stroke([10, 10], [60, 60]);
+  head.respond(ok("fake"));
+  head.insert.click();
+  await settle();
+  assert.equal(head.input.value, "A cat B A catfake B");
+});
+
+test("여러 번 나눠 고쳐도 고칠 때마다 고른 범위를 따라간다", async () => {
+  const page = loadPad();
+  page.input.value = "휴학 신청은 언제까지?";
+  // 「신청」을 고른다.
+  page.input.selectionStart = 3; page.input.selectionEnd = 5;
+  page.button.click();
+  page.type("가상 휴학 신청은 언제까지?", 3);
+  page.type("가상 휴학 신청은 언제까지? 알려 줘");
+  page.stroke([10, 10], [60, 60]);
+  page.respond(ok("복학"));
+  page.insert.click();
+  await settle();
+  assert.equal(page.input.value, "가상 휴학 복학은 언제까지? 알려 줘");
+});
+
+test("같은 대화에 질문을 보내면 패드를 닫아, 늦은 인식 글자가 비운 질문 칸에 들어가지 않는다", async () => {
+  const page = loadPad();
+  page.input.value = "가상 첫 질문";
+  page.get("#composer").fire("submit");
+  await settle();
+  page.button.click();
+  page.stroke([10, 10], [60, 60]);
+  const held = page.hold();
+  page.insert.click();
+  await settle();
+  page.input.value = "가상 두 번째 질문";
+  page.get("#composer").fire("submit");
+  assert.equal(page.pad.hidden, true);
+  assert.equal(held.request.options.signal.aborted, true);
+  assert.equal(page.input.value, "");
+  held.resolve(ok("fake"));
+  await settle();
+  assert.equal(page.input.value, "");
+});
+
 test("넓은 화면에서 문서가 스크롤되면 패드를 입력 줄 바로 위로 다시 옮기고, 화면 밖으로 내보내지 않는다", () => {
   const page = loadPad();
   page.button.click();
@@ -654,6 +721,27 @@ test("입력 줄 위 자리가 모자라 줄 아래로 열린 패드는 위 끝�
   await settle();
   assert.equal(page.status.textContent, messages.unavailable);
   assert.equal(page.pad.style.properties.get("--handwriting-top"), "258px");
+  assert.equal(page.pad.style.properties.get("--handwriting-bottom"), "auto");
+  // 아래쪽 남은 높이(800 - 258 - 8)가 최대 높이다.
+  assert.equal(page.pad.style.properties.get("--handwriting-max-height"), "534px");
+});
+
+test("입력 줄 위아래 어느 쪽에도 패드가 다 들어가지 않으면 넓은 쪽에 두고, 커져도 그 쪽 남은 높이 안에서 스크롤한다", async () => {
+  const page = loadPad();
+  // 입력 줄 250~310px. 위쪽 234px, 아래쪽 474px이 남고 패드는 480px다.
+  Object.assign(page.rowRect, { top: 250, bottom: 310 });
+  page.padRect.height = 480;
+  page.button.click();
+  assert.equal(page.pad.style.properties.get("--handwriting-top"), "318px");
+  assert.equal(page.pad.style.properties.get("--handwriting-max-height"), "474px");
+  page.stroke([10, 10], [60, 60]);
+  // 상태 줄이 생겨 내용이 20px 늘어도 위 끝은 입력 줄 아래 8px 그대로다.
+  page.padRect.height = 500;
+  page.respond(refused(503));
+  page.insert.click();
+  await settle();
+  assert.equal(page.pad.style.properties.get("--handwriting-top"), "318px");
+  assert.equal(page.pad.style.properties.get("--handwriting-max-height"), "474px");
   assert.equal(page.pad.style.properties.get("--handwriting-bottom"), "auto");
 });
 
