@@ -922,19 +922,38 @@ test("칸 밖으로 그어 잘린 부분은 실패 뒤 칸을 넓혀 다시 넣�
   assert.equal(page.status.textContent, messages.unavailable);
   // 칸을 750px로 넓힌 뒤 다시 넣는다.
   Object.assign(page.canvasRect, { width: 750, right: 850 });
+  const beforeResize = page.canvas.log.length;
   page.resize();
+  // 넓힌 칸에 다시 그릴 때도 그 획은 그을 때의 칸(600×200)으로 clip()한다.
+  const redrawn = page.canvas.log.slice(beforeResize);
+  assert.ok(redrawn.some(call => call.join() === "rect,0,0,600,200"), "stroke clip on screen");
   page.respond(ok("가상"));
   page.insert.click();
   await settle();
-  // 저장한 잉크는 쓸 때의 경계(600 + 굵기 절반 1.5)까지다. 가로 588.5~603 = 14.5 + 32 = 46.5, 배율 2.
+  // 획은 그을 때 보이던 칸(600×200)으로 잘린다. 칸을 넓혀도 둥근 끝·굵기 절반까지 포함해 한 픽셀도 늘지 않는다.
+  // 가로 588.5~600 = 11.5 + 32 = 43.5, 배율 2 → 처음과 같은 87px(예전 결함에서는 290px, 직전 수정에서는 93px).
   const [first, second] = page.exports;
   assert.equal(first.canvas.width, 87);
-  assert.equal(second.canvas.width, 93, "the clipped part does not come back (it was 290px)");
+  assert.equal(second.canvas.width, 87, "the clipped part does not come back");
+  // 보내는 그림도 화면도 그 획을 그을 때의 칸으로 clip()한 뒤 그린다.
+  assert.ok(second.canvas.log.some(call => call.join() === "rect,0,0,600,200"), "stroke clip in the image");
   const xs = second.canvas.log.filter(call => call[0] === "lineTo").map(call => call[1]);
   assert.ok(xs.every(x => x <= 601.5 + 1e-9), String(xs));
-  // 화면에 다시 그린 획도 경계를 넘지 않는다.
-  const drawn = page.canvas.log.filter(call => call[0] === "lineTo").map(call => call[1]);
-  assert.ok(drawn.every(x => x <= 601.5 + 1e-9), String(drawn));
+});
+
+test("획마다 그을 때의 칸으로 잘라, 경계에 걸친 굵기 절반이 칸을 넓혀도 배율이 줄지 않는다", async () => {
+  const page = loadPad();
+  page.button.click();
+  // 오른쪽 경계 바로 안쪽(599)에 세로로 긋는다. 굵기 절반 1.5px가 경계 밖 600.5까지 걸친다.
+  page.stroke([599, 20], [599, 180]);
+  // 크기 신호가 와도 기준 칸은 600 그대로라 배율은 1이다(기기 화소 비율 2).
+  page.resize();
+  assert.deepEqual(page.canvas.log.filter(call => call[0] === "setTransform").at(-1).slice(1), [2, 0, 0, 2, 0, 0]);
+  page.respond(ok("가상"));
+  page.insert.click();
+  await settle();
+  // 가로 597.5~600 = 2.5 + 32 = 34.5 → 69, 세로 18.5~181.5 = 163 + 32 = 195 → 390.
+  assert.deepEqual([page.exports[0].canvas.width, page.exports[0].canvas.height], [69, 390]);
 });
 
 test("창 크기 신호 없이 입력 줄과 필기 칸 폭만 바뀌어도 그리기 버퍼를 새 폭에 맞춘다", () => {
