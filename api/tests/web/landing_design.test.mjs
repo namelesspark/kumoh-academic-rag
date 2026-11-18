@@ -942,8 +942,9 @@ class LetteringImage {
 const titleAttributes = {
   src: "/chat-assets/title-lettering.png", alt: "졸업까지, 테크모와 함께", width: "1014", height: "376",
   "data-lettering-en": "/chat-assets/title-lettering-en.png?v=fictional-en",
-  "data-lettering-zh": "/chat-assets/title-lettering-zh.png?v=fictional-zh",
 };
+// 누가 중국어 주소를 다시 적어도 중국어 화면이 글자 제목으로 남는지 보려고 가상 속성을 하나 더한 그림이다.
+const titleWithFictionalZh = { ...titleAttributes, "data-lettering-zh": "/chat-assets/title-lettering-zh.png?v=fictional-zh" };
 function letteringPage(attributes = titleAttributes, { withImage = true } = {}) {
   const probes = [];
   // 브라우저의 Image 대신 쓰는 가짜 그림. answer()를 부를 때까지 응답이 오지 않는다.
@@ -986,14 +987,6 @@ test("언어별 제목 그림: 받은 뒤에만 그 언어 주소·alt·크기�
     src: "/chat-assets/title-lettering-en.png?v=fictional-en", alt: "To graduation, with Techmo", width: "1200", height: "400",
   });
 
-  // 404나 깨진 그림이면 영어 그림을 그대로 두지 않고 자리를 숨긴다. 바로 뒤의 중국어 글자 제목이 보인다.
-  page.switchTo("zh");
-  assert.equal(page.ready(), false);
-  page.probes[1].answer(false);
-  assert.equal(page.ready(), false);
-  assert.equal(page.swaps(), 1);
-  assert.equal(page.image.getAttribute("src"), "/chat-assets/title-lettering-en.png?v=fictional-en");
-
   // 한국어로 돌아오면 처음 주소·alt·크기를 다시 쓴다.
   page.switchTo("ko");
   assert.equal(page.ready(), true);
@@ -1001,27 +994,52 @@ test("언어별 제목 그림: 받은 뒤에만 그 언어 주소·alt·크기�
     src: "/chat-assets/title-lettering.png", alt: "졸업까지, 테크모와 함께", width: "1014", height: "376",
   });
 
+  // 404나 깨진 그림이면 한국어 그림을 그대로 두고 자리를 숨긴다. 바로 뒤의 영어 글자 제목이 보인다.
+  const missing = letteringPage();
+  missing.switchTo("en");
+  missing.probes[0].answer(false);
+  assert.equal(missing.ready(), false);
+  assert.equal(missing.swaps(), 0);
+  assert.equal(missing.image.getAttribute("src"), "/chat-assets/title-lettering.png");
+
   const bare = letteringPage(titleAttributes, { withImage: false });
   assert.doesNotThrow(() => bare.switchTo("en"));
   assert.equal(bare.ready(), false);
   const unlisted = letteringPage({ src: "/chat-assets/title-lettering.png", alt: "졸업까지, 테크모와 함께" });
-  unlisted.switchTo("zh");
+  unlisted.switchTo("en");
   assert.equal(unlisted.probes.length, 0);
   assert.equal(unlisted.ready(), false);
 });
 
-test("언어별 제목 그림: ko→en→zh를 빠르게 바꾸면 늦게 온 영어 그림은 버리고 마지막 언어만 쓴다", () => {
-  const page = letteringPage();
+test("언어별 제목 그림: 중국어는 주소 속성이 있어도 그림을 받지 않고 늘 글자 제목을 보인다", () => {
+  const page = letteringPage(titleWithFictionalZh);
+  page.switchTo("zh");
+  assert.equal(page.probes.length, 0);
+  assert.equal(page.ready(), false);
+  assert.equal(page.image.getAttribute("src"), "/chat-assets/title-lettering.png");
+
+  // 영어 그림이 보이던 중에 중국어로 바꿔도 영어 그림을 보이지 않고 글자 제목으로 바꾼다.
+  page.switchTo("en");
+  page.probes[0].answer(true);
+  assert.equal(page.ready(), true);
+  page.switchTo("zh");
+  assert.equal(page.probes.length, 1);
+  assert.equal(page.ready(), false);
+  page.switchTo("ko");
+  assert.equal(page.ready(), true);
+  assert.equal(page.image.getAttribute("src"), "/chat-assets/title-lettering.png");
+});
+
+test("언어별 제목 그림: ko→en→zh를 빠르게 바꾸면 늦게 온 영어 그림은 버리고 중국어 글자 제목을 남긴다", () => {
+  const page = letteringPage(titleWithFictionalZh);
   page.switchTo("en");
   page.switchTo("zh");
-  const [english, chinese] = page.probes;
-  chinese.answer(true, 1300, 420);
-  english.answer(true, 1200, 400);
-  assert.equal(page.image.getAttribute("src"), "/chat-assets/title-lettering-zh.png?v=fictional-zh");
-  assert.equal(page.image.getAttribute("alt"), "直到毕业，与 Techmo 同行");
-  assert.equal(page.image.getAttribute("width"), "1300");
-  assert.equal(page.swaps(), 1);
-  assert.equal(page.ready(), true);
+  assert.equal(page.probes.length, 1);
+  page.probes[0].answer(true, 1200, 400);
+  assert.equal(page.image.getAttribute("src"), "/chat-assets/title-lettering.png");
+  assert.equal(page.image.getAttribute("alt"), "졸업까지, 테크모와 함께");
+  assert.equal(page.swaps(), 0);
+  assert.equal(page.ready(), false);
 
   // 받는 도중 한국어로 돌아와도, 늦게 온 그림이 한국어 그림을 덮지 않는다.
   const back = letteringPage();
@@ -1034,11 +1052,11 @@ test("언어별 제목 그림: ko→en→zh를 빠르게 바꾸면 늦게 온 �
 
   // 메인 제목은 크기 속성 없이 시작하므로 바꾼 뒤에도 크기를 적지 않는다. 높이는 CSS가 정한다.
   const main = letteringPage({ src: "/chat-assets/main-lettering.png", alt: "물어봐요, 테크모",
-    "data-lettering-en": "/chat-assets/main-lettering-en.png", "data-lettering-zh": "/chat-assets/main-lettering-zh.png" });
-  main.switchTo("zh");
+    "data-lettering-en": "/chat-assets/main-lettering-en.png" });
+  main.switchTo("en");
   main.probes[0].answer(true, 900, 200);
-  assert.equal(main.image.getAttribute("src"), "/chat-assets/main-lettering-zh.png");
-  assert.equal(main.image.getAttribute("alt"), "问问 Techmo");
+  assert.equal(main.image.getAttribute("src"), "/chat-assets/main-lettering-en.png");
+  assert.equal(main.image.getAttribute("alt"), "Ask Techmo");
   assert.equal(main.image.getAttribute("width"), null);
   assert.equal(main.image.getAttribute("height"), null);
   main.switchTo("ko");
@@ -1046,12 +1064,13 @@ test("언어별 제목 그림: ko→en→zh를 빠르게 바꾸면 늦게 온 �
   assert.equal(main.image.getAttribute("src"), "/chat-assets/main-lettering.png");
 });
 
-// 서버가 네 그림을 내주는지는 test_web.py가 본다. 여기서는 화면 쪽 주소만 본다.
-test("두 제목 그림은 영어·중국어 주소를 data 속성으로 갖는다", () => {
+// 서버가 두 그림을 내주는지는 test_web.py가 본다. 여기서는 화면 쪽 주소만 본다.
+test("두 제목 그림은 영어 주소만 data 속성으로 갖고 중국어 주소는 없다", () => {
   for (const kind of ["title", "main"]) {
     const tag = new RegExp(`<img src="/chat-assets/${kind}-lettering\\.png"[^>]*>`).exec(html)?.[0] ?? "";
-    for (const lang of ["en", "zh"]) assert.ok(tag.includes(`data-lettering-${lang}="/chat-assets/${kind}-lettering-${lang}.png"`), kind + lang);
+    assert.ok(tag.includes(`data-lettering-en="/chat-assets/${kind}-lettering-en.png"`), kind);
   }
+  assert.doesNotMatch(html + script, /lettering-zh/);
 });
 
 // 운영자가 2026-11-17 학교 누리집에서 확인한 순서와 주소다. chat.js의 목록과 따로 적어 서로 견준다.

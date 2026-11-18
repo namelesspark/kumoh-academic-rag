@@ -117,12 +117,12 @@ MAIN_LETTERING = "/chat-assets/main-lettering.png"
 LIGHT_LOGO = "/chat-assets/kumoh-signature-light.png"
 TITLE_LETTERING = "/chat-assets/title-lettering.png"
 # 이슈 #122: 제목 글자 그림의 언어별 주소. (그림 기본 주소, 속성 이름, 언어별 주소) 순서다.
+# 중국어 그림은 글꼴 지문을 고정하는 다음 이슈에서 더한다. 그때까지 화면도 서버도 중국어 그림 주소를 모른다.
 LANGUAGE_LETTERINGS = (
     (TITLE_LETTERING, "data-lettering-en", "/chat-assets/title-lettering-en.png"),
-    (TITLE_LETTERING, "data-lettering-zh", "/chat-assets/title-lettering-zh.png"),
     (MAIN_LETTERING, "data-lettering-en", "/chat-assets/main-lettering-en.png"),
-    (MAIN_LETTERING, "data-lettering-zh", "/chat-assets/main-lettering-zh.png"),
 )
+RETIRED_LANGUAGE_LETTERING_NAMES = ("title-lettering-zh.png", "main-lettering-zh.png")
 LANGUAGE_LETTERING_NAMES = tuple(address.rsplit("/", 1)[1] for _, _, address in LANGUAGE_LETTERINGS)
 # 이슈 #107의 교내 주요 사이트. (보이는 이름, 주소) 순서다.
 CAMPUS_SITES = (
@@ -360,10 +360,9 @@ class TestChatWeb(unittest.TestCase):
         self.assertIn("hidden", slot["attrs"])
         (image,) = slot["children"]
         # 그림 크기는 배포 준비 때 정해지므로 가로·세로 값을 적지 않는다.
-        # 영어·중국어 그림 주소는 data-lettering-*에 둔다. 바꿔 끼우는 일은 chat.js가 한다.
+        # 영어 그림 주소는 data-lettering-en에 둔다. 바꿔 끼우는 일은 chat.js가 한다. 중국어 그림은 아직 없다.
         self.assertEqual(image["attrs"], {"src": MAIN_LETTERING, "alt": "물어봐요, 테크모",
-                                          "data-lettering-en": "/chat-assets/main-lettering-en.png",
-                                          "data-lettering-zh": "/chat-assets/main-lettering-zh.png"})
+                                          "data-lettering-en": "/chat-assets/main-lettering-en.png"})
 
         self.assertEqual((fallback["tag"], fallback["attrs"].get("class")),
                          ("span", "main-title-fallback"))
@@ -629,8 +628,7 @@ class TestChatWeb(unittest.TestCase):
     def test_missing_or_unreadable_lettering_does_not_stop_startup(self):
         self.assertEqual(web_main.FINGERPRINTED_IMAGES,
                          ("main-lettering.png", "kumoh-signature-light.png",
-                          "title-lettering-en.png", "main-lettering-en.png",
-                          "title-lettering-zh.png", "main-lettering-zh.png"))
+                          "title-lettering-en.png", "main-lettering-en.png"))
         real_read = Path.read_bytes
         target = CHAT_WEB_DIR / "assets" / "main-lettering.png"
         for failure in (FileNotFoundError(2, "fictional missing"), PermissionError(13, "fictional denied")):
@@ -671,9 +669,7 @@ class TestChatWeb(unittest.TestCase):
                              {"main-lettering.png": b"fictional main-lettering.png",
                               "kumoh-signature-light.png": b"fictional kumoh-signature-light.png",
                               "title-lettering-en.png": b"fictional title-lettering-en.png",
-                              "main-lettering-en.png": b"fictional main-lettering-en.png",
-                              "title-lettering-zh.png": b"fictional title-lettering-zh.png",
-                              "main-lettering-zh.png": b"fictional main-lettering-zh.png"})
+                              "main-lettering-en.png": b"fictional main-lettering-en.png"})
         self.assertEqual(asked, [CHAT_WEB_DIR / "assets" / name for name in web_main.FINGERPRINTED_IMAGES])
 
     def test_language_letterings_are_served_as_png_and_missing_file_is_404(self):
@@ -719,8 +715,8 @@ class TestChatWeb(unittest.TestCase):
             self.assertNotIn(f'"{address}"', html)
         self.assertEqual(image_addresses(parse_page(html)).count(TITLE_LETTERING), 1)
         self.assertEqual(image_addresses(parse_page(html)).count(MAIN_LETTERING), 1)
-        # 스타일·스크립트 두 개에 언어별 그림 네 개가 더해진다.
-        self.assertEqual(html.count("?v="), 6)
+        # 스타일·스크립트 두 개에 영어 그림 두 개가 더해진다.
+        self.assertEqual(html.count("?v="), 4)
 
         with patch.object(web_main, "read_prepared_images", return_value={}):
             html = call_app(create_app(), "GET", "/", allow_wait=True).text()
@@ -739,6 +735,17 @@ class TestChatWeb(unittest.TestCase):
                 name = address.rsplit("/", 1)[1]
                 self.assertEqual(web_main.CHAT_WEB_MEDIA_TYPES.get(name), "image/png")
                 self.assertIn(name, web_main.FINGERPRINTED_IMAGES)
+
+    def test_chinese_letterings_are_left_out_until_the_font_hash_is_fixed(self):
+        # 중국어 그림은 다음 이슈에서 더한다. 파일을 준비해 두어도 서버는 디스크를 보지 않고 404로 답한다.
+        self.assertNotIn("lettering-zh", read_index())
+        for name in RETIRED_LANGUAGE_LETTERING_NAMES:
+            with self.subTest(name=name):
+                self.assertNotIn(name, web_main.CHAT_WEB_MEDIA_TYPES)
+                self.assertNotIn(name, web_main.FINGERPRINTED_IMAGES)
+                with patch.object(Path, "is_file", side_effect=AssertionError("읽으면 안 됨")):
+                    response = call_app(web_main.app, "GET", f"/chat-assets/{name}", allow_wait=True)
+                self.assertEqual(response.status, 404)
 
     def test_language_pills_sit_in_the_masthead_and_on_the_login_screen(self):
         # 이슈 #116: 기본 드롭다운(select) 없이 지구본·현재 언어·꺾쇠 알약 두 개가 같은 메뉴를 연다.

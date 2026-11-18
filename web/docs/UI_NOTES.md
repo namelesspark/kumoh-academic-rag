@@ -988,8 +988,8 @@ node --test api/tests/web/campus_backdrop.test.mjs api/tests/web/citation_link.t
 - 두 버튼의 글자와 `aria-label`, `html lang`, 탭 제목(숨은 탭의 `(n)` 표시는 유지)
 - 문서의 고정 문구와 `aria-label`·`placeholder`·`alt`. 처음 바꿀 때 한국어 원문을 기억했다가 한국어로 돌아오면 되돌린다.
   대화 말풍선(`.turn`), 대화 목록, 패널 안 서버 내용(`[data-panel-content]`), 답변 모드 버튼, 메뉴·확인 창은 건너뛴다.
-- 제목 그림: 두 제목 그림(`title-lettering`, `main-lettering`)은 언어마다 따로 있다(#122, 아래 「언어별 제목 그림」).
-  그 언어 그림을 받기 전이거나 받지 못하면 그림 자리를 숨기고 바로 뒤 글자 제목을 번역한 글자로 바꾼다.
+- 제목 그림: 두 제목 그림(`title-lettering`, `main-lettering`)은 한국어와 영어 두 벌이다(#122, 아래 「언어별 제목 그림」).
+  영어 그림을 받기 전이거나 받지 못하면, 그리고 중국어 화면에서는 그림 자리를 숨기고 바로 뒤 글자 제목을 번역한 글자로 바꾼다.
 - 열린 대화 메뉴, 삭제 확인 창, 도착 알림, 테크모 말풍선, 로그인 안내·오류 줄, 인사 줄, 요청 상태 줄(`#status`),
   사진 안내 줄(`#photo-note`, 오류와 「행사를 찾았어요」 같은 결과 안내 모두), 대화 목록, 답변 모드 버튼. 줄마다 마지막 원문을 기억했다가(`say`) 다시 쓰고,
   그 사이 다른 코드가 글을 바꾼 줄은 건드리지 않는다.
@@ -1045,15 +1045,17 @@ node --test api/tests/web/campus_backdrop.test.mjs api/tests/web/chat_layout.tes
 
 ### 언어별 제목 그림
 
-- 그림은 배포 준비 때 언어마다 그린다. 영어 `title-lettering-en.png`·`main-lettering-en.png`, 중국어
-  `title-lettering-zh.png`·`main-lettering-zh.png`. 주소는 제목 `img`의 `data-lettering-en`·`data-lettering-zh`에 적는다.
-- 서버는 이 네 그림을 `image/png`로 내주고, 파일이 없으면 404다. 준비된 그림의 주소에는 HTML 안에서 내용 지문(`?v=`)을 붙인다
+- 영어 그림 두 장(`title-lettering-en.png`·`main-lettering-en.png`)을 배포 준비 때 그린다. 주소는 제목 `img`의 `data-lettering-en`에 적는다.
+- 중국어 그림은 이번 이슈에서 뺐다. 글꼴 ZCOOL KuaiLe의 지문(SHA-256, 파일 내용으로 계산한 값)을 아직 고정하지 못했기 때문이다.
+  중국어 화면은 늘 글자 제목을 보인다. `letteringSwitcher`는 그림이 있는 언어를 영어 하나로 정해 두어, 중국어 주소 속성이 생겨도 받지 않는다.
+  운영자가 글꼴 지문을 확인해 넘겨주면 다음 이슈에서 다시 넣는다.
+- 서버는 영어 그림 두 장을 `image/png`로 내주고, 파일이 없으면 404다. 중국어 그림 이름은 허용 목록에 없어 늘 404다. 준비된 그림의 주소에는 HTML 안에서 내용 지문(`?v=`)을 붙인다
   (`FINGERPRINTED_IMAGES`). 그림을 다시 그리면 주소가 바뀌어 브라우저가 옛 그림을 쓰지 않는다.
-- 언어를 바꾸면 `chat.js`의 `letteringSwitcher`가 그 언어 그림을 별도 `Image`로 먼저 받는다. 받은 뒤 요청 번호와 지금 언어가
+- 영어로 바꾸면 `chat.js`의 `letteringSwitcher`가 영어 그림을 별도 `Image`로 먼저 받는다. 받은 뒤 요청 번호와 지금 언어가
   둘 다 맞을 때만 `src`·`alt`·크기를 바꾼다. 로그인 제목은 새 그림의 가로·세로로 `width`·`height`를 바꾸고, 메인 제목은 높이를 CSS가 정하므로 적지 않는다.
 - 받는 중이거나 404·깨짐이면 그림 자리를 숨기고 그 언어의 글자 제목을 보인다. 한국어로 돌아오면 처음 주소·alt·크기를 다시 쓴다.
-- ko→en→zh처럼 빠르게 바꾸면 요청 번호가 앞서 나가므로, 늦게 도착한 영어 그림은 버린다.
-- 스크립트가 그림 주소를 바꾸는 곳은 `letteringSwitcher` 하나이고, `setAttribute("src")`로 `data-lettering-*` 주소만 넣는다.
+- ko→en→zh처럼 빠르게 바꾸면 요청 번호가 앞서 나가므로, 늦게 도착한 영어 그림은 버리고 중국어 글자 제목을 남긴다.
+- 스크립트가 그림 주소를 바꾸는 곳은 `letteringSwitcher` 하나이고, `setAttribute("src")`로 `data-lettering-en` 주소만 넣는다.
   `.src =` 대입 금지 검사는 그대로 두고, `techmo_assistant.test.mjs`가 이 예외의 자리와 개수를 확인한다.
 - 받지 못한 언어 그림은 언어를 다시 고르기 전까지 다시 받지 않는다. 일시적인 실패 뒤 자동으로 다시 받는 일은 다음 작업으로 남긴다.
 
@@ -1100,6 +1102,7 @@ node --test api/tests/web/campus_backdrop.test.mjs api/tests/web/chat_layout.tes
 ### 검사와 브라우저에서 볼 것
 
 - `landing_design.test.mjs`가 카드 13장의 순서·주소·번역·링크 속성, 한 화면 이동·끝 비활성·버튼 숨김·움직임 줄이기,
-  폭 0 미루기, 언어별 제목 그림 교체와 늦은 응답 무시, 카드 글자 대비를 본다. `test_web.py`가 바닥 구조와 새 그림의 응답·지문을 본다.
+  폭 0 미루기, 영어 제목 그림 교체와 늦은 응답 무시, 중국어 글자 제목 유지, 카드 글자 대비를 본다.
+  `test_web.py`가 바닥 구조, 영어 그림의 응답·지문, 중국어 그림 이름의 404를 본다.
 - 이 작업에서는 브라우저를 띄우지 않았다. 통합 뒤 360·390·1280px에서 카드 줄이 바닥 밖으로 넘치지 않는지,
   ‹ ›로 넘긴 뒤 카드 앞 끝이 맞는지, 키보드 초점 테두리가 잘리지 않는지 확인해 PR에 적는다.

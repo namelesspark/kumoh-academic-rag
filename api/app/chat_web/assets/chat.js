@@ -3070,8 +3070,8 @@ try {
 // 펫은 스프라이트 시트를 배경으로 그리는데 배경 그림은 로드 신호를 주지 않아, 같은 주소의 그림을 버튼 안에 두고 그 신호를 본다.
 // complete와 naturalWidth를 함께 보므로 이 스크립트가 로드·실패 신호보다 늦게 실행돼도 결과가 같다.
 // 파일이 없거나(404) 깨졌으면 자리를 숨긴 채 두고, 다른 그림으로 바꾸지 않는다.
-// 두 제목 그림은 언어마다 따로 있다(#122). 영어·중국어 주소는 그림의 data-lettering-en·zh 속성에 있고,
-// 서버가 준비된 그림에만 내용 지문을 붙여 둔다. lettering이 그 언어 그림으로 바꾸는 일을 맡는다.
+// 두 제목 그림은 한국어와 영어 두 벌이다(#122). 영어 주소는 그림의 data-lettering-en 속성에 있고,
+// 서버가 준비된 그림에만 내용 지문을 붙여 둔다. lettering이 영어 그림으로 바꾸는 일을 맡는다.
 for (const slot of document.querySelectorAll?.("[data-brand-slot]") ?? []) {
   const image = slot.querySelector("img");
   if (!image) continue;
@@ -3098,6 +3098,8 @@ for (const slot of document.querySelectorAll?.("[data-brand-slot]") ?? []) {
 // 받는 중이거나 404·깨짐이면 ready()가 거짓이라 자리를 숨기고, 바로 뒤의 번역한 글자 제목이 보인다.
 // 언어를 빠르게 바꾸면 요청 번호가 앞서 나가므로 늦게 도착한 이전 언어 그림은 버린다.
 function letteringSwitcher(image) {
+  // 그림이 있는 언어는 영어뿐이다. 중국어는 글꼴 지문을 고정하기 전이라 속성이 있어도 늘 글자 제목이다.
+  const letteringLangs = ["en"];
   const read = name => typeof image.getAttribute === "function" ? image.getAttribute(name) : null;
   const original = { src: read("src"), alt: read("alt"), width: read("width"), height: read("height") };
   let shown = "ko", wanted = "ko", request = 0;
@@ -3110,7 +3112,7 @@ function letteringSwitcher(image) {
       wanted = lang;
       const ticket = ++request;
       if (lang === "ko") { restore(); return; }
-      const address = read(`data-lettering-${lang}`);
+      const address = letteringLangs.includes(lang) ? read(`data-lettering-${lang}`) : null;
       if (!address || typeof Image !== "function") return;
       const probe = new Image();
       const finish = ok => {
