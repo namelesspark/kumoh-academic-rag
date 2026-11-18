@@ -893,7 +893,9 @@ body[data-conversation-drawer="open"] .campus-caption, body:has(#conversation-to
 .title-lettering img { display: block; width: 100%; height: auto; }
 .title-fallback span { display: block; padding-left: 0; }
 .title-lettering:not([hidden]) + .title-fallback { display: none; }
-.intro-description { font-size: 17px; line-height: 1.7; color: var(--intro-ink); word-break: keep-all; }
+/* 소개 문구와 인사말은 본문 크기라 사진 위 막만으로는 흰 사진 가정에서 4.5:1이 안 나온다(.88 흰 글자 약 2.9:1).
+   사진 이름처럼 남색 반투명 받침을 깔고 글자는 불투명 흰색으로 쓴다. 큰 제목(대체 h1·h2)은 막 위에서 큰 글자 기준 3:1을 넘는다. */
+.intro-description { width: fit-content; max-width: 100%; padding: 8px 12px; border-radius: 10px; background: var(--glass-pill); font-size: 17px; line-height: 1.7; color: var(--white); word-break: keep-all; }
 .login-card { position: relative; min-width: 0; margin-top: 61px; padding: 24px 32px; border-radius: 28px; color: var(--ink); background: linear-gradient(160deg, var(--glass-card), var(--card-end)); border: 1px solid var(--glass-card-edge); backdrop-filter: blur(1.5px) saturate(1.2); box-shadow: 0 30px 80px var(--shadow-card); animation: login-rise .8s ease-out; }
 @keyframes login-rise { from { opacity: 0; transform: translateY(28px); } to { opacity: 1; transform: translateY(0); } }
 .login-brand img { display: block; width: auto; height: 30px; max-width: 100%; }
@@ -1142,7 +1144,7 @@ button.card:hover:not([data-restored]) { border-color: var(--focus-ink); backgro
 .main-title-fallback { color: var(--white); }
 .main-title-fallback em { color: var(--yellow); font-style: normal; }
 .main-lettering:not([hidden]) + .main-title-fallback { display: none; }
-.main-welcome #main-greeting { margin: 0; color: var(--intro-ink); font-size: 16px; line-height: 1.6; }
+.main-welcome #main-greeting { width: fit-content; max-width: 100%; margin: 0 auto; padding: 6px 12px; border-radius: 10px; background: var(--glass-pill); color: var(--white); font-size: 16px; line-height: 1.6; }
 .main-welcome #main-greeting:empty { display: none; }
 /* 입력창을 위로 당기는 96px + 62px를 상쇄하고 인사말 아래 12px를 확보한다. */
 .main-welcome:has(#main-greeting:not(:empty)) { padding-bottom: 170px; }
@@ -1446,8 +1448,10 @@ body[data-techmo-dragging="true"] { user-select: none; }
   border-color: transparent;
   background: linear-gradient(var(--raised), var(--raised)) padding-box, linear-gradient(90deg, var(--sky), var(--deep-sky), var(--deep-gold)) 0 0 / 100% 100% border-box;
 }
-/* 세 색 고리는 장식이고 흰 면과 약 1.6~2.9:1이다. 메뉴가 열린 동안은 위 규칙이 덮은 테두리색을 되돌려 3:1 경계를 지킨다. */
-.mode-pill[data-mode="deep"][aria-expanded="true"] { border-color: var(--focus-ink); }
+/* 세 색 고리는 장식이고 흰 면과 약 1.6~2.9:1이다. 닫힌 동안은 고리 바로 안쪽 1px 경계선(#6E8098)이 3:1 경계가 된다.
+   메뉴가 열린 동안은 위 규칙이 덮은 테두리색을 되돌리고 오목 그림자를 쓴다. */
+.mode-pill[data-mode="deep"] { box-shadow: inset 0 0 0 1px var(--edge-strong), var(--emboss); }
+.mode-pill[data-mode="deep"][aria-expanded="true"] { border-color: var(--focus-ink); box-shadow: var(--deboss); }
 .composer-row { position: relative; }
 .composer-row.is-deep { border-color: transparent; }
 .composer-row.is-deep::before, .composer-row.is-deep-enter::after {

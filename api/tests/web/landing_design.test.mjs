@@ -330,7 +330,7 @@ test("음각·양각은 불투명 입력 줄 안의 질문 칸과 답변 모드 
     assert.equal(map.get("--deboss"), "inset 3px 3px 8px rgba(0,0,0,.5), inset -3px -3px 8px rgba(120,160,210,.08)");
   }
   const users = rules.filter(rule => rule.declarations.some(([, value]) => /var\(--(emboss|deboss)\)/.test(value))).flatMap(rule => rule.selectors);
-  assert.deepEqual(users, [".composer textarea", ".mode-pill", '.mode-pill[aria-expanded="true"]']);
+  assert.deepEqual(users, [".composer textarea", ".mode-pill", '.mode-pill[aria-expanded="true"]', '.mode-pill[data-mode="deep"]', '.mode-pill[data-mode="deep"][aria-expanded="true"]']);
   // 그 면들은 불투명 단색이다. 입력 줄도 불투명이라 바깥 사진이 비치지 않는다.
   for (const look of themes) for (const selector of [".composer-row", ".composer textarea", ".mode-pill"]) {
     for (const color of colors(declared(selector, ["background", "background-color"], undefined, look), look)) assert.equal(color[3], 1, `${themeName(look)} ${selector}`);
@@ -377,8 +377,13 @@ test("상태 표시와 열린 상태 테두리는 밝은 면에서도 3:1을 넘
     for (const surface of ["var(--surface)", "var(--bg)"]) assert.ok(ratioOn(edge, surface, look) >= 3, `${name} 읽지 않은 점`);
     // 깊이 모드에서 메뉴를 열면 세 색 고리 대신 열린 상태 테두리색이 3:1 경계가 된다.
     assert.ok(ratioOn("var(--focus-ink)", "var(--raised)", look) >= 3, `${name} 깊이 모드 열림`);
+    // 닫힌 깊이 모드는 고리 안쪽 1px 경계선이 3:1 경계다. 고리 색(하늘·밝은 하늘·노랑)은 흰 면과 3:1에 못 미치는 장식이다.
+    assert.ok(ratioOn("var(--edge-strong)", "var(--raised)", look) >= 3, `${name} 깊이 모드 닫힘`);
+    if (!isDark(look)) for (const ring of ["var(--sky)", "var(--deep-sky)", "var(--deep-gold)"]) assert.ok(ratioOn(ring, "var(--raised)", look) < 3, ring);
   }
   assert.match(declared(".conversation-unread", ["border"]), /^1\.5px solid var\(--unread-ring\)$/);
+  assert.match(declared('.mode-pill[data-mode="deep"]', ["box-shadow"]), /^inset 0 0 0 1px var\(--edge-strong\), var\(--emboss\)$/);
+  assert.equal(declared('.mode-pill[data-mode="deep"][aria-expanded="true"]', ["box-shadow"]), "var(--deboss)");
   assert.equal(declared('.mode-pill[data-mode="deep"][aria-expanded="true"]', ["border-color"]), "var(--focus-ink)");
   const deep = rules.findIndex(rule => rule.selectors.includes('.mode-pill[data-mode="deep"]') && rule.declarations.some(([name]) => name === "border-color"));
   const open = rules.findIndex(rule => rule.selectors.includes('.mode-pill[data-mode="deep"][aria-expanded="true"]'));
@@ -411,6 +416,11 @@ test("로그인 화면 언어·테마 묶음은 hover 바탕이 없고 안의 �
   assert.equal(declared(".pet:focus-visible", ["box-shadow"]), "0 0 0 6px var(--navy)");
   // 아래쪽 사진 이름은 남색 받침 위 흰 글자다. 라이트 아래쪽 막은 밝아서 받침 없이는 흰 사진에서 묻힌다.
   checkText([[".campus-caption", ".campus-caption-text"]]);
+  // 사진 위 본문 크기 글자(소개 문구·인사말)도 남색 받침 위 불투명 흰 글자다. 사진 위 막은 빼고 계산해 더 엄격하게 본다.
+  checkText([[".intro-description", ".intro-description"], [".main-welcome #main-greeting", ".main-welcome #main-greeting"]]);
+  // 근거: 받침 없이 흰 .88 글자를 라이트 위쪽 막(.50)과 흰 사진 위에 두면 4.5:1에 못 미친다.
+  const washed = blend(colors("var(--overlay-top)", lightEnv)[0], [255, 255, 255]);
+  assert.ok(contrast(blend(colors("var(--intro-ink)")[0], washed), washed) < 4.5);
   // 흰 글자는 남색 알약(흰 사진 가정)과 hover 남색 모두에서 4.5:1을 넘는다.
   for (const look of themes) {
     assert.ok(contrast([255, 255, 255], blend(colors("var(--glass-pill)", look)[0], [255, 255, 255])) >= 4.5);
