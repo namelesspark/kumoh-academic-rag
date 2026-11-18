@@ -1727,12 +1727,21 @@ button.login-lang:focus-visible, .login-lang .lang-pill:focus-visible { outline:
   color: var(--ink);
 }
 .handwriting-title { margin: 0; color: var(--ink); font-size: .95rem; font-weight: 700; }
+/* 테두리와 둥근 모서리는 캔버스를 감싼 판(.handwriting-well)에만 준다. 캔버스는 테두리·둥근 모서리가 없는 사각형이라
+   화면에 보이는 필기 칸이 getBoundingClientRect 사각형과 정확히 같다(모서리가 잉크를 가리거나 테두리 1px만큼 좌표가 밀리지 않는다).
+   안쪽 여백 3px는 둥근 안쪽 모서리(반지름 9px)의 곡선이 캔버스 모서리에 닿지 않는 최소값 9 × (1 − 1/√2) ≈ 2.64px보다 크다. */
+.handwriting-well {
+  padding: 3px;
+  border: 1px solid var(--control-line);
+  border-radius: 10px;
+  background: var(--well);
+}
 .handwriting-canvas {
   display: block;
   width: 100%;
   height: clamp(160px, 30vh, 240px);
-  border: 1px solid var(--control-line);
-  border-radius: 10px;
+  border: 0;
+  border-radius: 0;
   background: var(--well);
   color: var(--ink);
   cursor: crosshair;

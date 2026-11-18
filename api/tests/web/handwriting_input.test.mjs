@@ -992,6 +992,57 @@ test("세게 누르다 약하게 경계 밖으로 이어 간 선도 칸 안에 �
   assert.deepEqual([width, height], [89, 273]);
 });
 
+test("필기 칸은 테두리·둥근 모서리 없는 사각형 캔버스라 보이는 칸이 잰 사각형과 같다", () => {
+  const block = selector => new RegExp(`(?:^|\\})\\s*${selector.replace(".", "\\.")}\\s*\\{([^}]*)\\}`).exec(styles.replace(/\/\*[\s\S]*?\*\//g, ""))?.[1] ?? "";
+  const canvas = block(".handwriting-canvas"), well = block(".handwriting-well");
+  // 캔버스에 둥근 모서리가 있으면 브라우저가 모서리 잉크를 가리고, 테두리가 있으면 잰 사각형보다 그리는 칸이 1px씩 작다.
+  assert.match(canvas, /border:\s*0;/);
+  assert.match(canvas, /border-radius:\s*0;/);
+  assert.match(well, /border-radius:\s*10px;/);
+  // 판 안쪽 곡선(반지름 10 − 테두리 1 = 9px)이 캔버스 모서리에 닿지 않을 만큼 안쪽 여백을 둔다.
+  const padding = Number(/padding:\s*([\d.]+)px;/.exec(well)?.[1]);
+  assert.ok(padding >= 9 * (1 - Math.SQRT1_2), String(padding));
+  assert.match(html, /<div class="handwriting-well"><canvas class="handwriting-canvas" id="handwriting-canvas"/);
+});
+
+test("400×160 칸의 오른쪽 아래 끝 점은 화면에 보이므로 그대로 보낸다", async () => {
+  const page = loadPad();
+  page.button.click();
+  page.pointer("pointerdown", { id: 10, kind: "pen", x: 399.5, y: 159.5, pressure: 0.1 });
+  page.pointer("pointerup", { id: 10, kind: "pen", x: 399.5, y: 159.5 });
+  Object.assign(page.canvasRect, { width: 400, right: 500, height: 160, bottom: page.canvasRect.top + 160 });
+  const before = page.canvas.log.length;
+  page.resize();
+  // 캔버스가 사각형이라 이 점(반지름 0.8)은 칸 모서리 안에 그대로 그려진다.
+  assert.ok(page.canvas.log.slice(before).some(call => call[0] === "arc" && call[1] === 399.5 && call[2] === 159.5));
+  page.respond(ok("가상"));
+  page.insert.click();
+  await settle();
+  assert.equal(page.requests.length, 1);
+  // 가로·세로 399.5 − 0.8 ~ 칸 끝 = 1.3 + 32 = 33.3, 배율 2 → 67.
+  assert.deepEqual([page.exports[0].canvas.width, page.exports[0].canvas.height], [67, 67]);
+});
+
+test("경계 밖으로 나갔다 약하게 돌아오는 선은 자르기 전 선분 굵기 그대로 그려 칸 안 잉크를 남긴다", async () => {
+  const page = loadPad();
+  page.button.click();
+  page.pointer("pointerdown", { id: 11, kind: "pen", x: 590, y: 30, pressure: 1 });
+  page.pointer("pointermove", { id: 11, kind: "pen", x: 603, y: 30, pressure: 1 });
+  // (603,30)→(600.9,130) 선분은 굵기 (5.2 + 1.6) / 2 = 3.4px다. 칸 경계에서 잘라도 조각은 3.4px로 그려 599.2~600이 보인다.
+  page.pointer("pointermove", { id: 11, kind: "pen", x: 600.9, y: 130, pressure: 0.1 });
+  page.pointer("pointerup", { id: 11, kind: "pen", x: 600.9, y: 130 });
+  page.respond(ok("가상"));
+  page.insert.click();
+  await settle();
+  const { log, width, height } = page.exports[0].canvas;
+  const last = log.findLastIndex(call => call[0] === "lineTo");
+  assert.deepEqual(log[last].slice(1), [600.9, 130]);
+  const widthSet = log.slice(0, last).findLast(call => call[0] === "set" && call[1] === "lineWidth");
+  assert.ok(Math.abs(widthSet[2] - 3.4) < 1e-9, String(widthSet[2]));
+  // 가로 587.4~600 = 12.6 + 32 = 44.6 → 89, 세로 27.4~131.7 = 104.3 + 32 = 136.3 → 273(배율 2).
+  assert.deepEqual([width, height], [89, 273]);
+});
+
 test("세게 눌러 시작한 펜 획의 첫 점은 보내는 그림과 테마를 바꿔 다시 그린 화면에도 남는다", async () => {
   const page = loadPad();
   page.button.click();
