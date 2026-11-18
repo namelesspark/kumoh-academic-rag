@@ -1055,15 +1055,19 @@ test("칸 밖까지 그은 뒤 떼지 않고 칸을 넓혀 안으로 돌아와�
   const before = page.canvas.log.length;
   page.pointer("pointermove", { id: 13, kind: "pen", x: 590, y: 130, pressure: 0.5 });
   page.pointer("pointerup", { id: 13, kind: "pen", x: 590, y: 130 });
-  // (700,30)→(590,130) 대각선은 그리지 않는다.
-  assert.equal(page.canvas.log.slice(before).some(call => call[0] === "lineTo"), false, "no diagonal on screen");
+  // (700,30)→(590,130) 대각선은 그리지 않는다. 대신 새 칸 안의 마지막 점 (590,130)은 펜을 새로 댄 것처럼 점으로 남는다.
+  const after = page.canvas.log.slice(before);
+  const lastDot = log => log.some(call => call[0] === "arc" && call[1] === 590 && call[2] === 130);
+  assert.equal(after.some(call => call[0] === "lineTo"), false, "no diagonal on screen");
+  assert.ok(lastDot(after), "the last point is on screen");
   page.respond(ok("가상"));
   page.insert.click();
   await settle();
   const { log, width, height } = page.exports[0].canvas;
   assert.ok(log.filter(call => call[0] === "lineTo").every(call => call[2] === 30), "no diagonal in the image");
-  // 압력 0.5의 굵기 3.2: 가로 588.4~600 = 11.6 + 32 = 43.6 → 87, 세로 28.4~31.6 = 3.2 + 32 = 35.2 → 70(배율 2).
-  assert.deepEqual([width, height], [87, 70]);
+  assert.ok(lastDot(log), "the last point is in the image");
+  // 압력 0.5의 굵기 3.2: 가로 588.4~600 = 11.6 + 32 = 43.6 → 87, 세로 28.4~131.6 = 103.2 + 32 = 135.2 → 270(배율 2).
+  assert.deepEqual([width, height], [87, 270]);
 });
 
 test("칸 밖까지 그은 뒤 칸을 줄였다가 같은 폭으로 되돌리고 안으로 돌아오면 복귀 선분을 그대로 그린다", async () => {
@@ -1119,6 +1123,40 @@ test("위쪽이 좁은 화면에서 입력 줄 자리가 그대로면 질문 칸
   page.type("가상");
   assert.equal(page.pad.style.properties.get("--handwriting-bottom"), "268px");
   assert.equal(page.pad.style.properties.get("--handwriting-top"), "auto");
+});
+
+test("칸을 넓혀 다시 시작한 점 뒤로 이어 그으면 그 점부터 선이 이어진다", async () => {
+  const page = loadPad();
+  page.button.click();
+  page.pointer("pointerdown", { id: 16, kind: "pen", x: 590, y: 30, pressure: 0.5 });
+  page.pointer("pointermove", { id: 16, kind: "pen", x: 700, y: 30, pressure: 0.5 });
+  Object.assign(page.canvasRect, { width: 750, right: 850 });
+  page.resize();
+  page.pointer("pointermove", { id: 16, kind: "pen", x: 590, y: 130, pressure: 0.5 });
+  page.pointer("pointermove", { id: 16, kind: "pen", x: 650, y: 130, pressure: 0.5 });
+  page.pointer("pointerup", { id: 16, kind: "pen", x: 650, y: 130 });
+  page.respond(ok("가상"));
+  page.insert.click();
+  await settle();
+  const lines = page.exports[0].canvas.log.filter(call => call[0] === "lineTo").map(call => call.slice(1, 3));
+  assert.deepEqual(lines.at(-1), [650, 130]);
+  assert.ok(lines.every(([, y]) => y === 30 || y === 130), String(lines));
+});
+
+test("위쪽이 좁은 화면에서 패드 안쪽만 스크롤하면 패드는 입력 줄 위에 남는다", () => {
+  const page = loadPad({ innerWidth: 850, innerHeight: 360 });
+  Object.assign(page.rowRect, { top: 100, bottom: 160 });
+  page.button.click();
+  assert.equal(page.pad.style.properties.get("--handwriting-bottom"), "268px");
+  // 패드 안쪽 스크롤도 문서의 캡처 단계 scroll 신호로 온다. 입력 줄과 창 좌표는 그대로다.
+  page.scroll();
+  page.scroll();
+  assert.equal(page.pad.style.properties.get("--handwriting-bottom"), "268px");
+  assert.equal(page.pad.style.properties.get("--handwriting-top"), "auto");
+  // 문서가 스크롤돼 입력 줄이 실제로 움직이면 그때는 다시 놓는다. 위쪽 74px < 아래쪽 194px라 줄 아래(150 + 8)로 옮긴다.
+  Object.assign(page.rowRect, { top: 90, bottom: 150 });
+  page.scroll();
+  assert.equal(page.pad.style.properties.get("--handwriting-top"), "158px");
 });
 
 test("패드를 열 때 들어오는 크기 감시 첫 알림만으로는 패드를 입력 줄 아래로 옮기지 않는다", () => {

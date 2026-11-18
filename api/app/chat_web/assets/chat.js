@@ -3282,13 +3282,20 @@ function setupHandwriting() {
   function layoutKey() {
     const row = document.querySelector(".composer-row")?.getBoundingClientRect?.();
     const own = canvas.getBoundingClientRect?.();
-    return [row?.left, row?.top, row?.width, row?.height, own?.width, own?.height].join();
+    return [row?.left, row?.top, row?.width, row?.height, own?.width, own?.height, window.innerWidth, window.innerHeight, window.devicePixelRatio].join();
   }
   function layoutChanged() {
     const key = layoutKey();
     if (key === padLayout) return false;
     padLayout = key;
     return true;
+  }
+  // 연 뒤 자리를 다시 재는 길은 이 함수 하나다. 문서·패드 안쪽 스크롤, 크기 감시 알림(첫 알림 포함), 창 크기 변화,
+  // 질문 칸 입력·첨부 변화가 모두 여기로 온다. 입력 줄 자리·크기, 캔버스 크기, 창 크기가 마지막으로 잰 값과 같으면
+  // 아무것도 하지 않는다. 신호마다 따로 비교를 붙이다 빠뜨리면, 바뀐 것 없이 패드가 줄 아래로 옮겨 가는 결함이 되풀이됐다.
+  function relayout() {
+    if (!opened || !layoutChanged()) return;
+    place(true); prepare();
   }
   function makeRoom() {
     if ((window.innerWidth || 0) <= 680) return;
@@ -3583,6 +3590,14 @@ function setupHandwriting() {
       const stale = resized && !stroke.lastInside && handwritingInside(stroke.last, area);
       const piece = stale ? null : area ? clipHandwritingSegment(stroke.last, next, area, w / 2) : [stroke.last, next];
       stroke.last = next; stroke.lastArea = area; stroke.lastInside = handwritingInside(next, area);
+      if (stale) {
+        // 연결선만 버리고 이 자리에서 펜을 새로 댄 것처럼 다시 시작한다. 새 칸 안의 이 점은 제 굵기로 찍어 화면과 그림에 남긴다.
+        const own = handwritingWidth(stroke, next);
+        const dot = { x: next.x, y: next.y, p: next.p, w: own, clip: area, gap: true };
+        if (handwritingInkVisible(dot, dot, own / 2, area)) { stroke.points.push(dot); stroke.broken = false; }
+        else stroke.broken = true;
+        continue;
+      }
       if (!piece) { stroke.broken = true; continue; }
       const [enter, leave] = piece;
       const tail = stroke.points[stroke.points.length - 1];
@@ -3636,7 +3651,8 @@ function setupHandwriting() {
   button.addEventListener("click", openPad);
   // 넓은 화면의 패드는 화면에 고정돼 있어, 문서나 안쪽 칸이 스크롤되면 입력 줄 바로 위로 다시 옮긴다.
   // 캡처 단계로 들어 안쪽 칸의 스크롤도 받는다. 좁은 화면 시트는 CSS가 화면 아래에 두므로 좌표 변수가 쓰이지 않는다.
-  document.addEventListener?.("scroll", () => { if (opened) place(true); }, { capture: true, passive: true });
+  // 패드 안쪽이 스크롤돼도 이 신호가 오지만, 입력 줄 자리가 그대로라 relayout이 아무것도 하지 않는다.
+  document.addEventListener?.("scroll", () => relayout(), { capture: true, passive: true });
   // 질문 칸을 늘리거나 판 폭이 바뀌는 등 입력 줄·캔버스 크기만 바뀌면 scroll·resize 신호가 없다.
   // 두 크기를 지켜보다가 자리를 다시 재고 캔버스 그리기 버퍼(보이는 크기 × 기기 화소 비율)도 새로 맞춘다.
   // 버퍼를 그대로 두면 포인터 위치와 그려지는 획, 보내는 그림의 자르기 범위가 옛 폭에 머문다.
@@ -3648,14 +3664,12 @@ function setupHandwriting() {
   // 입력 줄의 자리·크기나 캔버스 크기가 마지막으로 잰 값과 달라졌을 때만 다시 잰다.
   if (typeof ResizeObserver === "function") {
     for (const node of [composerRow, composer, canvas]) {
-      if (node) new ResizeObserver(() => { if (opened && layoutChanged()) { place(true); prepare(); } }).observe(node);
+      if (node) new ResizeObserver(() => relayout()).observe(node);
     }
   }
-  refreshHandwritingPad.run = () => { if (opened) { place(true); prepare(); } };
+  refreshHandwritingPad.run = () => relayout();
   // 자리만 다시 잰다. 캔버스 크기는 그대로라 그리기 버퍼는 건드리지 않는다(질문 칸에 글을 쓸 때마다 불린다).
-  // 크기 감시 알림과 같이, 입력 줄의 자리·크기가 실제로 바뀌었을 때만 다시 놓는다. 그대로인데 다시 놓으면
-  // 위쪽이 좁은 화면에서 글자를 칠 때마다 패드가 줄 아래로 옮겨 간다.
-  placeHandwritingPad.run = () => { if (opened && layoutChanged()) place(true); };
+  placeHandwritingPad.run = () => relayout();
   closeHandwritingPad.run = closePad;
   redrawHandwritingPad.run = () => { if (opened) redraw(); };
   noteHandwritingEdit.run = noteEdit;
