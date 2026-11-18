@@ -199,9 +199,10 @@ function loadPad({ language, pixelRatio = 2, blobSize = pngBytes.length } = {}) 
     return route(request);
   }
 
+  const documentListeners = [];
   runInNewContext(script, {
     document: {
-      addEventListener() {},
+      addEventListener(type, listener) { documentListeners.push({ type, listener }); },
       querySelector(selector) {
         if (selector === "#ai-mode-button") return null;
         return get(selector);
@@ -256,6 +257,13 @@ function loadPad({ language, pixelRatio = 2, blobSize = pngBytes.length } = {}) 
     page.pointer("pointermove", { ...options, x: to[0], y: to[1] });
     page.pointer("pointerup", { ...options, x: to[0], y: to[1] });
   };
+  // 초점이 패드 밖에 있을 때 문서까지 올라온 키 신호를 흉내 낸다.
+  page.documentKey = key => {
+    const event = { type: "keydown", key, target: state.focused, defaultPrevented: false, preventDefault() { event.defaultPrevented = true; }, stopPropagation() {} };
+    for (const each of documentListeners) if (each.type === "keydown") each.listener(event);
+    return event;
+  };
+  page.get = get;
   page.respond = response => routes.push(() => Promise.resolve(response));
   // 응답을 붙잡아 두었다가 직접 풀어 준다. 요청이 끊기면(abort) 브라우저처럼 거절한다.
   page.hold = () => {
@@ -515,19 +523,111 @@ test("선택한 글자는 받은 글자로 바뀌고, 읽을 글씨가 없거나
   assert.equal(page.input.value, "가상 휴학 질문");
 });
 
-test("패드를 연 사이 질문 칸의 글이 바뀌면 적어 둔 자리 대신 질문 칸의 지금 커서에 넣는다", async () => {
+test("패드를 연 사이 질문 칸을 고치고 커서를 옮겨도 열기 전에 고른 범위에 넣는다", async () => {
   const page = loadPad();
-  page.input.value = "가상 질문";
-  page.input.selectionStart = page.input.selectionEnd = 0;
+  page.input.value = "휴학은 언제까지?";
+  // 「언제까지」를 고른 채 패드를 연다.
+  page.input.selectionStart = 4; page.input.selectionEnd = 8;
   page.button.click();
-  // Scribble이나 키보드로 질문 칸을 고쳤다.
-  page.input.value = "가상 질문입니다 ";
-  page.input.selectionStart = page.input.selectionEnd = 9;
+  // Scribble이나 키보드로 뒤에 글을 더 쓰고 커서를 문장 끝에 둔다.
+  page.input.value = "휴학은 언제까지? 알려 줘";
+  page.input.selectionStart = page.input.selectionEnd = page.input.value.length;
   page.stroke([10, 10], [60, 60]);
-  page.respond(ok("휴학"));
+  page.respond(ok("가상"));
   page.insert.click();
   await settle();
-  assert.equal(page.input.value, "가상 질문입니다 휴학");
+  assert.equal(page.input.value, "휴학은 가상? 알려 줘");
+});
+
+test("고른 범위 앞쪽 글이 바뀌면 그만큼 밀린 같은 범위에 넣는다", async () => {
+  const page = loadPad();
+  page.input.value = "휴학은 언제까지?";
+  page.input.selectionStart = 4; page.input.selectionEnd = 8;
+  page.button.click();
+  page.input.value = "가상 휴학은 언제까지?";
+  page.input.selectionStart = page.input.selectionEnd = 0;
+  page.stroke([10, 10], [60, 60]);
+  page.respond(ok("가상 날짜"));
+  page.insert.click();
+  await settle();
+  assert.equal(page.input.value, "가상 휴학은 가상 날짜?");
+});
+
+test("읽는 중 초점이 질문 칸으로 나가도 Esc는 패드를 닫고 요청을 끊어 늦은 응답을 넣지 않는다", async () => {
+  const page = loadPad();
+  page.input.value = "가상 질문";
+  page.button.click();
+  page.stroke([10, 10], [60, 60]);
+  const held = page.hold();
+  page.insert.click();
+  await settle();
+  // 취소에서 Tab으로 질문 칸에 나간다.
+  page.state.focused = page.cancel;
+  page.pad.fire("keydown", { key: "Tab" });
+  assert.equal(page.state.focused, page.input);
+  const escape = page.documentKey("Escape");
+  assert.equal(escape.defaultPrevented, true);
+  assert.equal(page.pad.hidden, true);
+  assert.equal(page.state.focused, page.button);
+  assert.equal(held.request.options.signal.aborted, true);
+  held.resolve(ok("늦은 가상 글자"));
+  await settle();
+  assert.equal(page.input.value, "가상 질문");
+  // 패드가 닫힌 뒤의 Esc는 건드리지 않는다.
+  assert.equal(page.documentKey("Escape").defaultPrevented, false);
+});
+
+test("읽는 중 로그아웃하면 패드를 닫고, 늦은 응답은 둘러보기 화면의 질문 칸에 들어가지 않는다", async () => {
+  const page = loadPad();
+  page.button.click();
+  page.stroke([10, 10], [60, 60]);
+  const held = page.hold();
+  page.insert.click();
+  await settle();
+  page.get("#demo-logout").click();
+  assert.equal(page.pad.hidden, true);
+  assert.equal(held.request.options.signal.aborted, true);
+  held.resolve(ok("이전 계정의 가상 글자"));
+  await settle();
+  page.get("#browse-main").click();
+  await settle();
+  assert.equal(page.input.value, "");
+  assert.equal(page.requests.filter(request => request.path === handwritingPath).length, 1);
+});
+
+test("캔버스 밖으로 나갔다 돌아온 획은 보이는 칸 안만 잘라 보낸다", async () => {
+  const page = loadPad();
+  page.button.click();
+  // 캔버스 폭은 600px다. 오른쪽으로 900px까지 나갔다가 안으로 돌아온다.
+  page.pointer("pointerdown", { x: 500, y: 100 });
+  page.pointer("pointermove", { x: 900, y: 100 });
+  page.pointer("pointermove", { x: 520, y: 100 });
+  page.pointer("pointerup", { x: 520, y: 100 });
+  page.respond(ok("가상"));
+  page.insert.click();
+  await settle();
+  const [{ canvas }] = page.exports;
+  // 왼쪽 끝 498.5px부터 칸 끝 600px까지 101.5 + 여백 32 = 133.5, 배율 2.
+  assert.equal(canvas.width, 267);
+  const clip = canvas.log.findIndex(call => call[0] === "clip");
+  assert.ok(clip > 0, "drawing is clipped to the visible area");
+  assert.deepEqual(canvas.log.find(call => call[0] === "rect"), ["rect", 0, 0, 600, 200]);
+  assert.ok(clip < canvas.log.findIndex(call => call[0] === "lineTo"), "clip comes before the ink");
+
+  // 모든 잉크가 칸 밖이면 보내지 않고 읽을 글씨가 없다고 알린다.
+  const outside = loadPad();
+  outside.button.click();
+  outside.pointer("pointerdown", { x: 50, y: 50 });
+  outside.pointer("pointermove", { x: 900, y: 50 });
+  outside.pointer("pointerup", { x: 900, y: 50 });
+  outside.undo.click();
+  outside.pointer("pointerdown", { x: 800, y: 300 });
+  outside.pointer("pointermove", { x: 900, y: 400 });
+  outside.pointer("pointerup", { x: 900, y: 400 });
+  outside.insert.click();
+  await settle();
+  assert.equal(outside.requests.length, 0);
+  assert.equal(outside.status.textContent, messages.unreadable);
 });
 
 test("열린 동안 Tab은 펜 버튼 → 캔버스, 캔버스 Shift+Tab → 펜 버튼, 마지막 버튼 Tab → 질문 칸으로 잇는다", () => {

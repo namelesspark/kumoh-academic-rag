@@ -743,6 +743,8 @@ function persistConversations() {
 }
 function switchHistoryAccount(account) {
   dismissConversationToast();
+  // 계정이 바뀌면 열린 필기 패드와 읽던 요청을 버린다. 첫 화면에서 로그아웃해도 이전 계정의 인식 글자가 남지 않는다(#134).
+  if (typeof closeHandwritingPad === "function") closeHandwritingPad(false);
   if (window.location?.hash === "#chat") {
     window.history?.replaceState(null, "", window.location.pathname + window.location.search);
   }
@@ -1326,6 +1328,7 @@ function loginMessage(line, pose = "guide") {
   setTechmoBubbleVisibility(loginPet, true);
 }
 function showScreen(main) {
+  if (!main && typeof closeHandwritingPad === "function") closeHandwritingPad(false);
   if (loginScreen) loginScreen.hidden = main;
   if (mainScreen) mainScreen.hidden = !main;
   document.body?.setAttribute("data-screen", main ? "main" : "login");
@@ -3020,21 +3023,26 @@ function drawHandwritingStroke(context, stroke, from = 0) {
   }
 }
 // 잉크 범위(굵기 절반 포함)에 여백을 더한 상자. 좌표는 캔버스의 CSS 픽셀이다.
-function handwritingBounds(strokes) {
+// area(보이는 필기 칸)를 주면 그 안의 잉크만 센다. 획이 칸 밖으로 나갔다 돌아와도 화면에서 잘린 부분은 보내지 않는다.
+function handwritingBounds(strokes, area = null) {
   let left = Infinity, top = Infinity, right = -Infinity, bottom = -Infinity;
   for (const stroke of strokes) for (const point of stroke.points) {
     const half = handwritingWidth(stroke, point) / 2;
     left = Math.min(left, point.x - half); top = Math.min(top, point.y - half);
     right = Math.max(right, point.x + half); bottom = Math.max(bottom, point.y + half);
   }
-  if (!Number.isFinite(left)) return null;
+  if (area) {
+    left = Math.max(left, 0); top = Math.max(top, 0);
+    right = Math.min(right, area.width); bottom = Math.min(bottom, area.height);
+  }
+  if (!Number.isFinite(left) || right <= left || bottom <= top) return null;
   return { x: left - handwritingMargin, y: top - handwritingMargin,
     width: right - left + 2 * handwritingMargin, height: bottom - top + 2 * handwritingMargin };
 }
 // 흰 바탕에 검은 잉크로 다시 그려 PNG로 만든다. 화면 테마와 상관없이 같은 그림이 나간다.
-// 배율은 기기 화소 비율을 따르되 긴 변이 1024px를 넘지 않게 줄인다.
-function handwritingImage(strokes, pixelRatio = 1) {
-  const box = handwritingBounds(strokes);
+// 배율은 기기 화소 비율을 따르되 긴 변이 1024px를 넘지 않게 줄인다. 잉크는 보이는 필기 칸(area) 안만 그린다.
+function handwritingImage(strokes, pixelRatio = 1, area = null) {
+  const box = handwritingBounds(strokes, area);
   if (!box) return Promise.resolve(null);
   const scale = Math.min(pixelRatio, handwritingMaxSide / Math.max(box.width, box.height));
   const canvas = document.createElement("canvas");
@@ -3045,6 +3053,11 @@ function handwritingImage(strokes, pixelRatio = 1) {
   context.fillStyle = "#ffffff";
   context.fillRect(0, 0, canvas.width, canvas.height);
   context.setTransform(scale, 0, 0, scale, -box.x * scale, -box.y * scale);
+  if (area) {
+    context.beginPath();
+    context.rect(0, 0, area.width, area.height);
+    context.clip();
+  }
   context.fillStyle = "#000000"; context.strokeStyle = "#000000";
   context.lineCap = "round"; context.lineJoin = "round";
   for (const stroke of strokes) drawHandwritingStroke(context, stroke);
@@ -3143,9 +3156,26 @@ function setupHandwriting() {
     const end = Number.isInteger(input.selectionEnd) ? input.selectionEnd : start;
     return { start, end, value: input.value };
   }
+  // 패드를 연 사이 질문 칸의 글이 바뀌었으면, 바뀐 구간을 앞뒤 공통 부분으로 찾아 열기 전 자리를 새 글 위로 옮긴다.
+  // 바뀐 구간 앞의 자리는 그대로, 뒤의 자리는 늘거나 준 길이만큼 밀고, 구간 안의 자리는 바뀐 구간 끝으로 보낸다.
+  // 지금 커서는 쓰지 않는다. 학생이 다른 곳을 눌렀어도 글자는 패드를 열 때 고른 자리에 들어간다.
+  function savedRange() {
+    const before = selection?.value ?? input.value, after = input.value;
+    const start = Math.min(selection?.start ?? after.length, before.length);
+    const end = Math.min(Math.max(selection?.end ?? start, start), before.length);
+    if (before === after) return { start, end };
+    let prefix = 0;
+    while (prefix < before.length && prefix < after.length && before[prefix] === after[prefix]) prefix++;
+    let suffix = 0;
+    while (suffix < before.length - prefix && suffix < after.length - prefix &&
+      before[before.length - 1 - suffix] === after[after.length - 1 - suffix]) suffix++;
+    const move = position => position <= prefix ? position
+      : position >= before.length - suffix ? position + after.length - before.length
+        : after.length - suffix;
+    return { start: move(start), end: move(end) };
+  }
   function placeText(text) {
-    // 패드를 연 사이 질문 칸의 글이 바뀌었으면 적어 둔 자리는 낡았다. 그때는 질문 칸의 지금 커서를 쓴다.
-    const spot = selection?.value === input.value ? selection : caret();
+    const spot = savedRange();
     const length = input.value.length;
     const start = Math.min(spot.start, length);
     const end = Math.min(Math.max(spot.end, start), length);
@@ -3160,7 +3190,15 @@ function setupHandwriting() {
   }
   async function read() {
     if (!opened || reading || !strokes.length) return;
-    const ticket = session;
+    const area = box?.width > 0 && box?.height > 0 ? { width: box.width, height: box.height } : null;
+    if (!handwritingBounds(strokes, area)) {
+      // 모든 잉크가 보이는 칸 밖에 있으면 보낼 글씨가 없다.
+      show(handwritingMessages.unreadable, true);
+      return;
+    }
+    // 패드를 닫거나 계정이 바뀌면 회차가 달라져 늦은 응답을 버린다. 계정도 함께 견줘 다른 계정의 입력창에 넣지 않는다.
+    const ticket = session, account = historyAccount;
+    const stale = () => ticket !== session || account !== historyAccount;
     const controller = new AbortController();
     reading = controller;
     let timedOut = false, message = null, text = "";
@@ -3169,8 +3207,8 @@ function setupHandwriting() {
     // 넣기 버튼이 잠기면 브라우저가 초점을 문서 밖으로 놓친다. 그 전에 취소로 옮겨 두어 Esc·취소가 계속 듣게 한다.
     cancel.focus();
     try {
-      const image = await handwritingImage(strokes, window.devicePixelRatio || 1);
-      if (ticket !== session) return;
+      const image = await handwritingImage(strokes, window.devicePixelRatio || 1, area);
+      if (stale()) return;
       if (!image) message = handwritingMessages.failed;
       else if (image.size > handwritingMaxBytes) message = handwritingMessages.tooLarge;
       else {
@@ -3178,24 +3216,24 @@ function setupHandwriting() {
         form.append("image", image, "handwriting.png");
         form.append("lang", uiLang);
         const response = await fetch(handwritingPath, { method: "POST", headers: { Accept: "application/json" }, body: form, signal: controller.signal });
-        if (ticket !== session) return;
+        if (stale()) return;
         if (response.ok) {
           // 본문이 JSON이 아니면 연결 문제가 아니라 서버 응답 문제다.
           const payload = await response.json().catch(() => null);
-          if (ticket !== session) return;
+          if (stale()) return;
           text = typeof payload?.text === "string" ? payload.text.trim() : "";
           if (payload === null) message = handwritingMessages.failed;
           else if (!text) message = handwritingMessages.unreadable;
         } else message = handwritingMessages[handwritingStatusMessages[response.status] ?? "failed"];
       }
     } catch {
-      if (ticket !== session) return;
+      if (stale()) return;
       message = timedOut ? handwritingMessages.timeout : handwritingMessages.offline;
     } finally {
       clearTimeout(timer);
       if (reading === controller) reading = null;
     }
-    if (ticket !== session) return;
+    if (stale()) return;
     if (message) {
       // 획은 그대로 둔다. 고쳐 쓰거나 바로 다시 넣을 수 있다.
       show(message, true); controls();
@@ -3275,6 +3313,13 @@ function setupHandwriting() {
     } else if (event.key === "Tab" && !event.shiftKey && document.activeElement === lastControl()) {
       event.preventDefault?.(); input.focus();
     }
+  });
+  // 초점이 패드 밖(질문 칸 등)에 있어도 열린 동안 Esc는 패드를 닫고 읽던 요청을 끊는다.
+  // 선택 메뉴처럼 Esc를 먼저 처리하고 전파를 멈춘 곳은 건드리지 않는다.
+  document.addEventListener?.("keydown", event => {
+    if (!opened || event.key !== "Escape" || event.defaultPrevented) return;
+    event.preventDefault?.();
+    closePad(true);
   });
   button.addEventListener("keydown", event => {
     if (!opened || event.key !== "Tab" || event.shiftKey) return;
