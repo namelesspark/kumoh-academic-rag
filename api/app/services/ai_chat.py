@@ -71,10 +71,23 @@ _DOCUMENT_EXAMPLES = {
 }
 
 
+# AI 비서의 이름은 아이오(AIO)다(이슈 #125). 테크모는 화면의 캐릭터 그림 이름이라 지침에 쓰지 않는다.
+# 두 지침의 첫 줄이 한국어 문장이고, 영어·중국어 요청은 이 줄을 해당 언어 문장으로 바꿔 보낸다.
+IDENTITY_LINES = {
+    "ko": "당신은 국립금오공과대학교 학사 행정 AI '아이오'입니다.",
+    "en": "You are AIO, the academic administration AI of Kumoh National Institute of Technology.",
+    "zh": "你是国立金乌工科大学的学务 AI「AIO」。",
+}
+
+
 def language_prompt(prompt: str, lang: str) -> str:
     if lang not in ("en", "zh"):
         return prompt
     language = "영어" if lang == "en" else "중국어"
+    first, newline, rest = prompt.partition("\n")
+    if first != IDENTITY_LINES["ko"]:
+        raise ValueError("지침 첫 줄이 아이오 소개 문장이 아님")
+    prompt = IDENTITY_LINES[lang] + newline + rest
     return prompt.replace("1. 한국어로 답합니다.", f"1. {language}로 답합니다.") + (
         f"\n답은 {language}로 쓴다. 조문 번호(제N조)와 문서명은 한국어 원문 표기를 괄호로 남긴다. "
         f"숫자 기준은 그대로 쓴다. 보류할 때는 반드시 {REFUSAL_PREFIX}로 시작한다."
@@ -86,7 +99,8 @@ NGROK_SKIP_HEADER = "ngrok-skip-browser-warning"
 # 위쪽 응답에서 줄바꿈 없이 쌓이는 글자의 상한. 끝없이 쌓여 메모리를 채우는 것을 막는다.
 MAX_PENDING_CHARS = 1_000_000
 
-SYSTEM_PROMPT = """당신은 국립금오공과대학교 학사 규정 안내 도우미입니다.
+SYSTEM_PROMPT = f"""{IDENTITY_LINES["ko"]}
+이름은 자기소개가 필요할 때만 말하고 답마다 붙이지 않습니다.
 
 규칙:
 1. 한국어로 답합니다.
@@ -130,7 +144,8 @@ def answer_format(lang: str) -> str:
     return FOREIGN_ANSWER_FORMATS.get(lang, ANSWER_FORMAT)
 
 
-GUIDANCE_PROMPT = """테크모라는 금오공대 학사 안내 도우미로서 한두 문장으로 답한다.
+GUIDANCE_PROMPT = f"""{IDENTITY_LINES["ko"]}
+한두 문장으로 답한다. 이름은 인사나 자기소개 때만 말한다.
 인사나 연결 확인에는 반갑게 답하고 졸업 요건, 학사 일정, 규정 질문을 물을 수 있다고 알려 준다.
 학사 질문이면 규정에서 근거를 찾지 못했다고 말하고 구체적인 낱말로 다시 묻거나 학사지원실에 확인하도록 권한다.
 규정 내용·숫자·날짜·기간을 지어내지 않는다. 마크다운을 쓰지 않는다.
