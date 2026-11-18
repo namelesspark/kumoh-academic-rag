@@ -47,7 +47,7 @@ test("셰이더 핵심의 물결·합성 수식과 uniform을 유지한다", () 
   assert.doesNotMatch(script, /generateMipmap\s*\(/);
 });
 
-async function backdrop({ unavailable = false, reduced = false, brokenPhoto = false, brokenShader = false, delayedPhoto = null, failures = {}, storedMotion = null, storageFailure = false } = {}) {
+async function backdrop({ unavailable = false, reduced = false, brokenPhoto = false, brokenShader = false, delayedPhoto = null, failures = {}, storedMotion = null, storageFailure = false, initiallyHidden = false } = {}) {
   const listeners = new Map(), pending = new Map(), uniforms = new Map(), requests = [], parameters = [];
   const windowListeners = new Map();
   let finishPhoto;
@@ -78,7 +78,7 @@ async function backdrop({ unavailable = false, reduced = false, brokenPhoto = fa
   const label = {};
   const caption = { hidden: true };
   const progress = { children: [], replaceChildren(...children) { this.children = children; } };
-  const document = { hidden: false,
+  const document = { hidden: initiallyHidden,
     querySelector: selector => ({ "#campus-canvas": canvas, "#campus-name": label, "#campus-caption": caption, "#campus-progress": progress, "#campus-motion-toggle": toggle })[selector] ?? null,
     createElement: () => ({ setAttribute(name, value) { this[name] = value; } }),
     addEventListener: (name, fn) => listeners.set(name, fn),
@@ -471,6 +471,27 @@ test("저장된 정지는 첫 장면을 그리고 늦은 사진과 창 크기 �
   assert.equal(page.uniforms.get("t"), time);
   assert.equal(page.label.textContent, name);
   assert.equal(page.pending.size, 0);
+});
+
+test("숨은 탭에서 로드한 정지 배경은 복귀 시 첫 장면과 재생 버튼을 보여 준다", async () => {
+  const page = await backdrop({ storedMotion: "paused", initiallyHidden: true });
+  assert.equal(page.draws(), 0);
+  assert.equal(page.caption.hidden, true);
+  assert.equal(page.pending.size, 0);
+
+  page.document.hidden = false;
+  page.fire("visibilitychange");
+  page.tick(50000);
+  assert.equal(page.draws(), 1);
+  assert.equal(page.canvas.hidden, false);
+  assert.equal(page.caption.hidden, false);
+  assert.equal(page.toggle["aria-pressed"], "true");
+  assert.equal(page.uniforms.get("t"), 0);
+  assert.equal(page.pending.size, 0);
+
+  page.clickToggle();
+  assert.equal(page.toggle["aria-pressed"], "false");
+  assert.equal(page.pending.size, 1);
 });
 
 test("저장 실패와 알 수 없는 저장 값에서도 현재 화면의 정지 조작을 받는다", async () => {

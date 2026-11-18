@@ -3588,9 +3588,19 @@ void main(){ vec2 uv=v; vec2 off=vec2(0.0); float light=0.0;
     motionPreference()?.addEventListener?.("change", event => {
       if (event.matches) fail();
     });
-    document.addEventListener("visibilitychange",()=>{
-      if (document.hidden) { if(frame!==null) window.cancelAnimationFrame(frame); frame=null; previous=null; }
-      else if(!stopped && !paused && frame===null && readyIndices().length && !reducedMotion()) frame=window.requestAnimationFrame(draw);
+    const showBackdrop = () => {
+      if (stopped || document.hidden || frame !== null || !readyIndices().length || reducedMotion()) return;
+      if (!paused) frame = window.requestAnimationFrame(draw);
+      else if (canvas.hidden) draw(0);
+    };
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) {
+        if (frame !== null) window.cancelAnimationFrame(frame);
+        frame = null;
+        previous = null;
+      } else {
+        showBackdrop();
+      }
     });
     canvas.addEventListener("webglcontextlost",event=>{event.preventDefault();fail();});
     const loadTexture = async index => {
@@ -3614,10 +3624,7 @@ void main(){ vec2 uv=v; vec2 off=vec2(0.0); float light=0.0;
         photoStates[index] = "ready";
         skippedPending.delete(index);
         refreshProgress();
-        if (!document.hidden && frame === null) {
-          if (paused && canvas.hidden) draw(0);
-          else if (!paused) frame = window.requestAnimationFrame(draw);
-        }
+        showBackdrop();
       } catch {
         bitmap?.close?.();
         if (texture) gl.deleteTexture(texture);
