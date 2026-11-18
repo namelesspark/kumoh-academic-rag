@@ -432,22 +432,26 @@ function langPage({ storage = memoryStorage(), language } = {}) {
   const body = make("body", {},
     loginButton,
     make("p", { class: "intro-badge" }, "국립금오공과대학교 학사 안내"),
-    make("h1", { class: "title-fallback" }, "졸업까지,", make("span", {}, make("em", {}, "테크모"), "와 함께")),
+    make("h1", { class: "title-fallback" }, "졸업까지, ", make("span", {}, make("em", {}, "아이오"), "와 함께")),
     make("input", { id: "student-number", placeholder: "예: 20990002" }),
     make("button", { id: "login-submit" }, "로그인"),
     headerButton,
     make("button", { id: "send" }, "보내기"),
+    make("textarea", { id: "brand-prompt", placeholder: "아이오에게 물어보세요 · 사진만 보내도 돼요" }),
+    make("button", { id: "brand-pet", "aria-label": "아이오와 새 대화" }, make("img", { id: "brand-pet-image", alt: "테크모" })),
+    make("span", { class: "main-title-fallback" }, "물어봐요, ", make("em", {}, "아이오")),
     make("a", { class: "campus-site-link" }, "학교 홈페이지", make("span", { class: "sr-only" }, " (새 창)")),
     make("ul", { id: "conversation-list" }, make("li", {}, "새 대화")),
-    make("div", { class: "turn" }, make("p", {}, "보내기")),
+    make("div", { class: "turn" }, make("p", { class: "fictional-message" }, "보내기"), make("small", { class: "reply-author" })),
     make("p", { id: "pet-line" }),
     make("p", { id: "photo-note" }),
   );
   const root = make("html", { lang: "ko" });
   const document = {
-    body, documentElement: root, title: "금오공대 학사 안내 · 시연",
+    body, documentElement: root, title: "금오공대 학사 행정 AI 아이오",
     get activeElement() { return focused; },
     querySelector: selector => body.querySelector(selector),
+    querySelectorAll: selector => body.querySelectorAll(selector),
     addEventListener() {},
     createTreeWalker(start) {
       const texts = [];
@@ -512,7 +516,7 @@ test("세 언어 사전은 같은 열쇠를 갖고, 자리 이름을 지키며, 
   const context = {};
   runInNewContext(langBlock, context);
   const t = (code) => runInNewContext(code, context);
-  assert.equal(t('t("‘{title}’ 대화에 답변이 왔어요", { title: "{count}" })'), "‘{count}’ 대화에 답변이 왔어요");
+  assert.equal(t('t("‘{title}’ 대화에 아이오의 답변이 왔어요", { title: "{count}" })'), "‘{count}’ 대화에 아이오의 답변이 왔어요");
   assert.equal(t('t("사전에 없는 가상 문구")'), "사전에 없는 가상 문구");
   t('uiLang = "en"');
   assert.equal(t('t("보관함 ({count})", { count: 3 })'), "Archive (3)");
@@ -521,6 +525,29 @@ test("세 언어 사전은 같은 열쇠를 갖고, 자리 이름을 지키며, 
   t('uiLang = "zh"');
   assert.equal(t('t("보내기")'), "发送");
   assert.equal(t('tr(["안녕하세요, {label} 님", { label: "가상 학생" }])'), "你好，가상 학생");
+});
+
+test("세 언어에서 화자는 아이오, 떠 있는 그림은 테크모로 표시한다", () => {
+  const p = langPage();
+  const aiPhrases = [
+    "아이오", "아이오에게 물어보세요 · 사진만 보내도 돼요", "아이오와 새 대화",
+    "아이오가 생각하는 중", "아이오가 {seconds}초 동안 생각함",
+    "아이오의 답변 기다리는 중", "아이오의 읽지 않은 답변", "아이오의 읽지 않은 답변 있음",
+    "‘{title}’ 대화에 아이오의 답변이 왔어요",
+  ];
+  for (const [language, ai, character] of [["en", "AIO", "Techmo"], ["zh", "AIO", "Techmo"], ["ko", "아이오", "테크모"]]) {
+    p.choose(p.headerButton, language);
+    assert.equal(p.run('t("아이오")'), ai);
+    assert.equal(p.get(".reply-author").textContent, ai);
+    for (const phrase of aiPhrases) {
+      const translated = p.run(`t(${JSON.stringify(phrase)}, {seconds: 4, title: "가상 대화"})`);
+      assert.ok(translated.includes(ai) && !translated.includes(character), translated);
+    }
+    assert.ok(p.get("#brand-prompt").getAttribute("placeholder").includes(ai));
+    assert.ok(p.get("#brand-pet").getAttribute("aria-label").includes(ai));
+    assert.equal(p.get("#brand-pet-image").getAttribute("alt"), character);
+  }
+  assert.doesNotMatch(html + script, /금오AI/);
 });
 
 test("index.html의 한국어 고정 문구와 aria-label·placeholder·alt는 모두 사전에 있다", () => {
@@ -603,7 +630,7 @@ test("고르면 새로고침 없이 html lang·탭 제목·두 버튼·고정 �
   p.run('say(document.querySelector("#pet-line"), "궁금한 점을 물어보세요")');
   p.choose(p.headerButton, "en");
   assert.equal(p.root.getAttribute("lang"), "en");
-  assert.equal(p.document.title, "Kumoh Tech Academic Guide · Demo");
+  assert.equal(p.document.title, "Kumoh Tech Academic AI · AIO");
   for (const button of [p.loginButton, p.headerButton]) {
     assert.equal(button.querySelector(".lang-pill-label").textContent, "English");
     assert.equal(button.getAttribute("aria-label"), "Language: English");
@@ -613,17 +640,22 @@ test("고르면 새로고침 없이 html lang·탭 제목·두 버튼·고정 �
   assert.equal(text("#send"), "Send");
   assert.equal(text("#login-submit"), "Log in");
   assert.equal(text(".campus-site-link"), "University website (new window)");
-  assert.equal(text(".title-fallback"), "To graduation,with Techmo");
+  assert.equal(text(".title-fallback"), "To graduation, with AIO");
+  assert.equal(text(".main-title-fallback"), "Ask AIO");
   assert.equal(p.get("#pet-line").textContent, "Ask me anything");
   // 대화 목록과 말풍선 안의 글은 사전과 같은 글자여도 바꾸지 않는다.
   assert.equal(text("#conversation-list"), "새 대화");
-  assert.equal(text(".turn"), "보내기");
+  assert.equal(text(".fictional-message"), "보내기");
   // 열린 메뉴·확인 창·대화 목록도 다시 그리게 부른다.
   for (const name of ["menu", "confirm", "list"]) assert.ok(p.calls.includes(name), name);
 
+  p.run("hiddenAnswers = 2; showTitle()");
+  assert.equal(p.document.title, "(2) Kumoh Tech Academic AI · AIO");
   p.choose(p.loginButton, "zh");
   assert.equal(p.root.getAttribute("lang"), "zh-Hans");
-  assert.equal(p.document.title, "金乌工大学业指南 · 演示");
+  assert.equal(p.document.title, "(2) 金乌工大学务 AI · AIO");
+  assert.equal(text(".title-fallback"), "直到毕业，与 AIO 同行");
+  assert.equal(text(".main-title-fallback"), "问问 AIO");
   assert.equal(text("#send"), "发送");
   assert.equal(p.headerButton.getAttribute("aria-label"), "语言 / Language：中文");
   assert.equal(p.headerButton.querySelector(".lang-pill-label").textContent, "中文");
@@ -631,12 +663,13 @@ test("고르면 새로고침 없이 html lang·탭 제목·두 버튼·고정 �
 
   p.choose(p.headerButton, "ko");
   assert.equal(p.root.getAttribute("lang"), "ko");
-  assert.equal(p.document.title, "금오공대 학사 안내 · 시연");
+  assert.equal(p.document.title, "(2) 금오공대 학사 행정 AI 아이오");
   assert.equal(text(".intro-badge"), "국립금오공과대학교 학사 안내");
   assert.equal(p.get("#student-number").getAttribute("placeholder"), "예: 20990002");
   assert.equal(text("#send"), "보내기");
   assert.equal(text(".campus-site-link"), "학교 홈페이지 (새 창)");
-  assert.equal(text(".title-fallback"), "졸업까지,테크모와 함께");
+  assert.equal(text(".title-fallback"), "졸업까지, 아이오와 함께");
+  assert.equal(text(".main-title-fallback"), "물어봐요, 아이오");
   assert.equal(p.headerButton.getAttribute("aria-label"), "언어 / Language: 한국어");
   assert.equal(p.get("#pet-line").textContent, "궁금한 점을 물어보세요");
 });
@@ -697,6 +730,6 @@ test("처음부터 영어·중국어면 첫 화면을 그 언어로 그리고 �
   assert.equal(chinese.get("#login-submit").text, "登录");
   const korean = langPage({ language: "ko-KR" });
   assert.equal(korean.root.getAttribute("lang"), "ko");
-  assert.equal(korean.get(".title-fallback").text, "졸업까지,테크모와 함께");
+  assert.equal(korean.get(".title-fallback").text, "졸업까지, 아이오와 함께");
   assert.deepEqual(korean.calls, []);
 });

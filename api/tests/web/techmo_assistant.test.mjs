@@ -107,9 +107,10 @@ test("펫 줄은 입력창 바로 앞, 첫 화면(#empty) 밖에 있고 평소 �
 test("펫은 요청 중에 잠기지 않는 버튼이다", () => {
   const [opening] = /^<button[^>]*>/.exec(petMarkup) ?? [""];
   assert.match(opening, /^<button type="button" class="pet" id="pet"[^>]* data-brand-slot hidden>$/);
+  assert.match(opening, /aria-label="아이오와 새 대화"/);
   assert.equal(html.split('id="pet"').length, 2);
   // 스프라이트 시트가 받아졌는지 보는 그림이 버튼 바로 안에 있다. 버튼은 숨긴 채 시작한다.
-  assert.ok(petMarkup.slice(opening.length).trimStart().startsWith(`<img src="${spriteUrl}" alt="" width="960" height="192">`));
+  assert.ok(petMarkup.slice(opening.length).trimStart().startsWith(`<img src="${spriteUrl}" alt="테크모" width="960" height="192">`));
   // 떠 있기·튀기·그림 칸은 서로 다른 요소다.
   assert.ok(petMarkup.includes('<span class="pet-float"><span class="pet-hop"><span class="pet-frame"></span></span></span>'));
   // 화면 보안 정책이 막는 style 속성과 스크립트의 그림 주소 교체는 쓰지 않는다.

@@ -11,11 +11,13 @@ const langChoices = [
 ];
 const uiText = {
   en: {
-    "금오공대 학사 안내 · 시연": "Kumoh Tech Academic Guide · Demo",
+    "테크모": "Techmo",
+    "아이오": "AIO",
+    "금오공대 학사 행정 AI 아이오": "Kumoh Tech Academic AI · AIO",
     "국립금오공과대학교 학사 안내": "Kumoh National Institute of Technology · Academic Guide",
     "근거 조문과 함께 답하는 금오공대 학사 안내": "Academic answers from Kumoh Tech, backed by the regulation articles",
-    "졸업까지, 테크모와 함께": "To graduation, with Techmo",
-    "물어봐요, 테크모": "Ask Techmo",
+    "졸업까지, 아이오와 함께": "To graduation, with AIO",
+    "물어봐요, 아이오": "Ask AIO",
     "학번으로 들어와 보세요!": "Sign in with your student number!",
     "국립금오공과대학교": "Kumoh National Institute of Technology",
     "금오공대 학사 안내": "Kumoh Tech Academic Guide",
@@ -74,13 +76,13 @@ const uiText = {
     "학사 규정에 질문하기": "Ask about academic regulations",
     "질문": "Question",
     "사진 첨부": "Attach photo",
-    "질문 입력 · 사진만 보내도 돼요": "Type a question · or just send a photo",
+    "아이오에게 물어보세요 · 사진만 보내도 돼요": "Ask AIO · or just send a photo",
     "보내기": "Send",
     "첨부 제거": "Remove attachment",
     "글자가 보이는 사진 한 장(JPEG·PNG, 5MB 이하). 서버는 사진을 저장하지 않아요. 얼굴이나 개인정보가 찍힌 사진은 올리지 마세요. 학번, 이름 같은 개인정보는 입력하지 마세요.":
       "One photo with readable text (JPEG or PNG, up to 5 MB). The server does not store photos. Do not upload photos showing faces or personal information. Do not type personal details such as your student number or name.",
     "대화 내용": "Conversation",
-    "졸업까지 남은 조건, 테크모가 같이 확인해요": "Techmo checks what is left until graduation with you",
+    "졸업까지 남은 조건, 아이오가 같이 확인해요": "AIO checks what is left until graduation with you",
     "규정 질문에는 근거 조문을 붙여 답해요.": "Regulation questions are answered with the supporting articles.",
     "기능 바로가기": "Shortcuts",
     "졸업 체크": "Graduation check",
@@ -91,7 +93,7 @@ const uiText = {
     "캠퍼스 안내": "Campus guide",
     "가상 학생의 이수 내역으로 남은 졸업 조건을 계산해요.": "Calculates the remaining graduation requirements from a fictional student's records.",
     "졸업 체크 결과 아래에 부족한 점수를 채울 프로그램이 함께 나와요.": "Programs that can fill missing points appear below the graduation check.",
-    "포스터나 안내문 사진을 고르면 글자를 읽어 답을 찾아요.": "Pick a photo of a poster or notice and Techmo reads the text to find answers.",
+    "포스터나 안내문 사진을 고르면 글자를 읽어 답을 찾아요.": "Pick a photo of a poster or notice and AIO reads the text to find answers.",
     "궁금한 점을 적으면 근거 조문과 함께 답해요.": "Write your question and get an answer with the supporting articles.",
     "확인한 수강신청 일정을 날짜순으로 보여 줘요.": "Shows confirmed course registration dates in order.",
     "장소를 고르면 용도와 위치를 볼 수 있어요.": "Pick a place to see what it is for and where it is.",
@@ -100,15 +102,15 @@ const uiText = {
     "졸업 체크 결과 아래에 부족한 점수를 채울 프로그램이 함께 나와요. 접수 상태와 정원은 공식 페이지에서 다시 확인해 주세요.":
       "Programs that can fill missing points appear below the graduation check. Please recheck application status and capacity on the official page.",
     "글자가 보이는 사진 한 장을 고르면 글자를 읽어 답을 찾아요. JPEG·PNG, 5MB 이하만 받아요. 얼굴이나 개인정보가 찍힌 사진은 올리지 마세요. 사진을 고른 뒤 「보내기」를 눌러 주세요.":
-      "Pick one photo with readable text and Techmo reads it to find answers. Only JPEG or PNG up to 5 MB. Do not upload photos showing faces or personal information. After choosing a photo, press “Send”.",
+      "Pick one photo with readable text and AIO reads it to find answers. Only JPEG or PNG up to 5 MB. Do not upload photos showing faces or personal information. After choosing a photo, press “Send”.",
     "궁금한 점을 적으면 근거 조문과 함께 답해요. 근거를 찾지 못하면 지어내지 않고, 찾지 못했다고 알려요.":
-      "Write your question and get an answer with the supporting articles. If no basis is found, Techmo says so instead of making things up.",
+      "Write your question and get an answer with the supporting articles. If no basis is found, AIO says so instead of making things up.",
     "종료일이 지나지 않은 수강신청 일정을 날짜순으로 보여 줘요.": "Shows upcoming course registration dates in order.",
     "졸업 체크 시작": "Start graduation check",
     "졸업 체크와 추천 보기": "See graduation check and picks",
     "사진 선택": "Choose photo",
     "질문 입력하기": "Type a question",
-    "테크모 · 새 대화 시작": "Techmo · start a new chat",
+    "아이오와 새 대화": "Start a new chat with AIO",
     "알림 닫기": "Close notification",
     "언어 / Language: {name}": "Language: {name}",
     "궁금한 점을 물어보세요": "Ask me anything",
@@ -118,9 +120,9 @@ const uiText = {
     "확인할 근거가 더 필요해요": "I need more evidence to confirm",
     "잠시 문제가 생겼어요. 다시 시도해 주세요": "Something went wrong. Please try again",
     "보관함 ({count})": "Archive ({count})",
-    "읽지 않은 답변 있음": "Unread replies",
-    "답변 기다리는 중": "Waiting for a reply",
-    "읽지 않은 답변": "Unread reply",
+    "아이오의 읽지 않은 답변 있음": "Unread replies from AIO",
+    "아이오의 답변 기다리는 중": "Waiting for AIO’s reply",
+    "아이오의 읽지 않은 답변": "Unread reply from AIO",
     "대화 메뉴": "Conversation menu",
     "보관하기": "Archive",
     "보관 해제": "Unarchive",
@@ -131,7 +133,7 @@ const uiText = {
     "대화 기록을 모두 삭제하시겠습니까?": "Delete all conversation history?",
     "보관함을 포함한 대화 {count}개가 지워지고 되돌릴 수 없어요.": "{count} conversations, including archived ones, will be deleted. This cannot be undone.",
     "답변이 도착했어요": "A reply has arrived",
-    "‘{title}’ 대화에 답변이 왔어요": "New reply in ‘{title}’",
+    "‘{title}’ 대화에 아이오의 답변이 왔어요": "AIO replied in ‘{title}’",
     "{label} 이수 내역으로 들어왔어요": "Signed in with the records of {label}",
     "안녕하세요, {label} 님": "Hello, {label}",
     "좋아요, 로그인을 눌러 보세요": "Great, now press Log in",
@@ -149,9 +151,9 @@ const uiText = {
     "공식 원문 보기": "View the official original",
     " ({context}, 새 탭에서 열림)": " ({context}, opens in a new tab)",
     "원문(한국어)": "Original (Korean)",
-    "생각하는 중": "Thinking",
+    "아이오가 생각하는 중": "AIO is thinking",
     "모델이 쓴 원문, 영어일 수 있음": "The model's own words, may be in English",
-    "{seconds}초 동안 생각함": "Thought for {seconds}s",
+    "아이오가 {seconds}초 동안 생각함": "AIO thought for {seconds}s",
     "이 질문은 가상 규정에서 근거를 찾지 못했어요.": "No basis for this question was found in the fictional regulations.",
     "다시 시도": "Try again",
     "서버 응답을 받지 못했어요.": "No response from the server.",
@@ -200,11 +202,13 @@ const uiText = {
     "서버 안내의 형식이 맞지 않아요.": "The server's guide data is malformed.",
   },
   zh: {
-    "금오공대 학사 안내 · 시연": "金乌工大学业指南 · 演示",
+    "테크모": "Techmo",
+    "아이오": "AIO",
+    "금오공대 학사 행정 AI 아이오": "金乌工大学务 AI · AIO",
     "국립금오공과대학교 학사 안내": "国立金乌工科大学 · 学业指南",
     "근거 조문과 함께 답하는 금오공대 학사 안내": "附上依据条款作答的金乌工大学业指南",
-    "졸업까지, 테크모와 함께": "直到毕业，与 Techmo 同行",
-    "물어봐요, 테크모": "问问 Techmo",
+    "졸업까지, 아이오와 함께": "直到毕业，与 AIO 同行",
+    "물어봐요, 아이오": "问问 AIO",
     "학번으로 들어와 보세요!": "用学号登录试试吧！",
     "국립금오공과대학교": "国立金乌工科大学",
     "금오공대 학사 안내": "金乌工大学业指南",
@@ -263,13 +267,13 @@ const uiText = {
     "학사 규정에 질문하기": "咨询学业规定",
     "질문": "问题",
     "사진 첨부": "附加照片",
-    "질문 입력 · 사진만 보내도 돼요": "输入问题 · 只发照片也可以",
+    "아이오에게 물어보세요 · 사진만 보내도 돼요": "问问 AIO · 只发照片也可以",
     "보내기": "发送",
     "첨부 제거": "移除附件",
     "글자가 보이는 사진 한 장(JPEG·PNG, 5MB 이하). 서버는 사진을 저장하지 않아요. 얼굴이나 개인정보가 찍힌 사진은 올리지 마세요. 학번, 이름 같은 개인정보는 입력하지 마세요.":
       "一张文字清晰的照片（JPEG·PNG，5MB 以内）。服务器不会保存照片。请勿上传含有人脸或个人信息的照片。请勿输入学号、姓名等个人信息。",
     "대화 내용": "对话内容",
-    "졸업까지 남은 조건, 테크모가 같이 확인해요": "距离毕业还差什么，Techmo 陪你一起确认",
+    "졸업까지 남은 조건, 아이오가 같이 확인해요": "距离毕业还差什么，AIO 陪你一起确认",
     "규정 질문에는 근거 조문을 붙여 답해요.": "规定问题会附上依据条款作答。",
     "기능 바로가기": "功能快捷入口",
     "졸업 체크": "毕业检查",
@@ -297,7 +301,7 @@ const uiText = {
     "졸업 체크와 추천 보기": "查看毕业检查和推荐",
     "사진 선택": "选择照片",
     "질문 입력하기": "输入问题",
-    "테크모 · 새 대화 시작": "Techmo · 开始新对话",
+    "아이오와 새 대화": "与 AIO 开始新对话",
     "알림 닫기": "关闭通知",
     "언어 / Language: {name}": "语言 / Language：{name}",
     "궁금한 점을 물어보세요": "有什么问题尽管问吧",
@@ -307,9 +311,9 @@ const uiText = {
     "확인할 근거가 더 필요해요": "还需要更多依据来确认",
     "잠시 문제가 생겼어요. 다시 시도해 주세요": "出了点问题，请重试",
     "보관함 ({count})": "归档（{count}）",
-    "읽지 않은 답변 있음": "有未读回答",
-    "답변 기다리는 중": "等待回答中",
-    "읽지 않은 답변": "未读回答",
+    "아이오의 읽지 않은 답변 있음": "有 AIO 的未读回答",
+    "아이오의 답변 기다리는 중": "正在等待 AIO 回答",
+    "아이오의 읽지 않은 답변": "AIO 的未读回答",
     "대화 메뉴": "对话菜单",
     "보관하기": "归档",
     "보관 해제": "取消归档",
@@ -320,7 +324,7 @@ const uiText = {
     "대화 기록을 모두 삭제하시겠습니까?": "确定要删除全部对话记录吗？",
     "보관함을 포함한 대화 {count}개가 지워지고 되돌릴 수 없어요.": "包括归档在内的 {count} 个对话将被删除，且无法恢复。",
     "답변이 도착했어요": "回答已送达",
-    "‘{title}’ 대화에 답변이 왔어요": "“{title}”有新的回答",
+    "‘{title}’ 대화에 아이오의 답변이 왔어요": "AIO 在“{title}”中回复了",
     "{label} 이수 내역으로 들어왔어요": "已用 {label} 的修读记录登录",
     "안녕하세요, {label} 님": "你好，{label}",
     "좋아요, 로그인을 눌러 보세요": "好的，请点击登录",
@@ -338,9 +342,9 @@ const uiText = {
     "공식 원문 보기": "查看官方原文",
     " ({context}, 새 탭에서 열림)": "（{context}，在新标签页打开）",
     "원문(한국어)": "原文（韩语）",
-    "생각하는 중": "思考中",
+    "아이오가 생각하는 중": "AIO 正在思考",
     "모델이 쓴 원문, 영어일 수 있음": "模型原文，可能是英文",
-    "{seconds}초 동안 생각함": "思考了 {seconds} 秒",
+    "아이오가 {seconds}초 동안 생각함": "AIO 思考了 {seconds} 秒",
     "이 질문은 가상 규정에서 근거를 찾지 못했어요.": "在虚拟规定中未找到此问题的依据。",
     "다시 시도": "重试",
     "서버 응답을 받지 못했어요.": "未收到服务器响应。",
@@ -800,6 +804,7 @@ function setChatView(next, push = true) {
 function renderActiveConversation() {
   if (!chatView) return;
   transcript.replaceChildren(...(activeConversation?.turns || []));
+  localizeReplyAuthors();
   scrollToLatest();
 }
 function openConversation(record) {
@@ -813,7 +818,9 @@ function openConversation(record) {
       if (message.role === "question" || !record.turns.length) record.turns.push(element("div", "turn"));
       const node = record.turns[record.turns.length - 1];
       const held = message.role === "answer" && message.answered === false && message.guided !== true;
-      node.append(element("p", message.role === "question" ? "question" : held ? "reply fallback" : "reply", message.text));
+      const line = element("p", message.role === "question" ? "question" : held ? "reply fallback" : "reply", message.text);
+      node.append(line);
+      if (message.role === "answer") node.append(element("small", "reply-author", t("아이오")));
       for (const source of message.sources || []) {
         const link = sourceLink(source.url, source.title, source.title);
         if (link) node.append(link);
@@ -849,7 +856,7 @@ function renderConversations() {
   toggle.setAttribute("aria-controls", list.id);
   if (!archiveOpen && archived.some(record => record.unread)) {
     const dot = element("span", "conversation-unread");
-    dot.append(element("span", "sr-only", t("읽지 않은 답변 있음")));
+    dot.append(element("span", "sr-only", t("아이오의 읽지 않은 답변 있음")));
     toggle.append(dot);
   }
   toggle.addEventListener("click", () => {
@@ -886,12 +893,12 @@ function conversationItem(record, visible) {
   if (record.pending) {
     item.setAttribute("data-conversation-state", "pending");
     const pending = element("span", "conversation-pending");
-    pending.append(element("span", "sr-only", t("답변 기다리는 중")));
+    pending.append(element("span", "sr-only", t("아이오의 답변 기다리는 중")));
     open.append(pending);
   }
   if (record.unread) {
     const dot = element("span", "conversation-unread");
-    dot.append(element("span", "sr-only", t("읽지 않은 답변")));
+    dot.append(element("span", "sr-only", t("아이오의 읽지 않은 답변")));
     open.append(dot);
   }
   const more = element("button", "conversation-more");
@@ -1175,7 +1182,7 @@ function notifyConversation(record) {
   if (document.hidden) { hiddenAnswers++; showTitle(); }
 }
 function toastLine(record) {
-  return t("‘{title}’ 대화에 답변이 왔어요", { title: Array.from(conversationTitle(record)).slice(0, 20).join("") });
+  return t("‘{title}’ 대화에 아이오의 답변이 왔어요", { title: Array.from(conversationTitle(record)).slice(0, 20).join("") });
 }
 // 탭 제목. 한국어는 문서에 적힌 제목을 그대로 쓴다. 숨은 탭에 온 답 수는 앞에 붙인다.
 function showTitle() {
@@ -2494,6 +2501,7 @@ function applyLang(lang) {
   resay();
   translateStatic();
   renderTitles();
+  localizeReplyAuthors();
   renderLangButtons();
   labelConversationMenu();
   labelConfirm();
@@ -2501,6 +2509,9 @@ function applyLang(lang) {
   if (toastRecord && toastOpen) toastOpen.textContent = toastLine(toastRecord);
   renderConversations();
   for (const listener of langListeners) listener();
+}
+function localizeReplyAuthors() {
+  for (const label of document.querySelectorAll?.(".reply-author") ?? []) label.textContent = t("아이오");
 }
 // 문서의 글 조각과 aria-label·placeholder·alt를 사전으로 바꾼다. 처음 바꿀 때 한국어 원문을 기억해 두었다가
 // 한국어로 돌아오면 그대로 되돌린다. 한국어로 시작한 화면은 한 번도 건드리지 않는다.
@@ -2540,9 +2551,9 @@ function renderTitles() {
   const em = text => element("em", null, text);
   const span = (...parts) => { const node = element("span"); node.append(...parts); return node; };
   const [login, main] = {
-    ko: [["졸업까지,", span(em("테크모"), "와 함께")], ["물어봐요, ", em("테크모")]],
-    en: [["To graduation,", span("with ", em("Techmo"))], ["Ask ", em("Techmo")]],
-    zh: [["直到毕业，", span("与 ", em("Techmo"), " 同行")], ["问问 ", em("Techmo")]],
+    ko: [["졸업까지, ", span(em("아이오"), "와 함께")], ["물어봐요, ", em("아이오")]],
+    en: [["To graduation, ", span("with ", em("AIO"))], ["Ask ", em("AIO")]],
+    zh: [["直到毕业，", span("与 ", em("AIO"), " 同行")], ["问问 ", em("AIO")]],
   }[uiLang];
   document.querySelector(".title-fallback")?.replaceChildren?.(...login);
   document.querySelector(".main-title-fallback")?.replaceChildren?.(...main);
@@ -2650,7 +2661,7 @@ async function ask(question, reply, record = activeConversation) {
     thinking = element("details", "thinking"); thinking.id = `thinking-${requestNumber}`;
     thinking.classList.add("is-waiting");
     const summary = element("summary"); summary.id = `${thinking.id}-summary`;
-    thinkingLabel = element("span", null, t("생각하는 중"));
+    thinkingLabel = element("span", null, t("아이오가 생각하는 중"));
     summary.append(thinkingLabel, element("small", null, t("모델이 쓴 원문, 영어일 수 있음")));
     thinkingContent = element("p"); thinkingContent.id = `${thinking.id}-content`;
     thinking.append(summary, thinkingContent); reply.append(thinking);
@@ -2659,7 +2670,7 @@ async function ask(question, reply, record = activeConversation) {
     if (!thinking || thinkingFinished) return;
     thinkingFinished = true;
     thinking.classList.remove("is-waiting"); thinking.open = false;
-    thinkingLabel.textContent = t("{seconds}초 동안 생각함", { seconds: Math.max(0, Math.round((Date.now() - thinkingStarted) / 1000)) });
+    thinkingLabel.textContent = t("아이오가 {seconds}초 동안 생각함", { seconds: Math.max(0, Math.round((Date.now() - thinkingStarted) / 1000)) });
   }
   startThinking();
   try {
@@ -2780,7 +2791,7 @@ composer.addEventListener("submit", event => {
   // 파일명은 화면에 적지 않는다. 사진을 붙였다는 사실만 보여 준다.
   if (file) prompt.append(element("span", "attachment", t("사진 1장")));
   const reply = element("div", file ? "reply photo" : "reply");
-  turn.append(prompt, reply);
+  turn.append(prompt, reply, element("small", "reply-author", t("아이오")));
   record.turns.push(turn);
   if (record.turns.length > 20) record.turns.shift().remove();
   if (chatView && requestedChatView) {
@@ -3094,14 +3105,14 @@ for (const slot of document.querySelectorAll?.("[data-brand-slot]") ?? []) {
 }
 
 // 제목 그림 한 장을 지금 언어에 맞춘다. 한국어는 처음 주소를 그대로 쓴다.
-// 다른 언어는 별도 Image로 먼저 받아 보고, 받은 뒤 요청 번호와 현재 언어가 둘 다 맞을 때만 src·alt·크기를 바꾼다.
+// 다른 언어는 별도 Image로 먼저 받고, 요청 번호와 현재 언어가 맞을 때만 src·alt를 바꾼다. 크기는 그림 비율을 따른다.
 // 받는 중이거나 404·깨짐이면 ready()가 거짓이라 자리를 숨기고, 바로 뒤의 번역한 글자 제목이 보인다.
 // 언어를 빠르게 바꾸면 요청 번호가 앞서 나가므로 늦게 도착한 이전 언어 그림은 버린다.
 function letteringSwitcher(image) {
   // 그림이 있는 언어는 영어뿐이다. 중국어는 글꼴 지문을 고정하기 전이라 속성이 있어도 늘 글자 제목이다.
   const letteringLangs = ["en"];
   const read = name => typeof image.getAttribute === "function" ? image.getAttribute(name) : null;
-  const original = { src: read("src"), alt: read("alt"), width: read("width"), height: read("height") };
+  const original = { src: read("src"), alt: read("alt") };
   let shown = "ko", wanted = "ko", request = 0;
   const switcher = {
     onSwap: null,
@@ -3119,9 +3130,6 @@ function letteringSwitcher(image) {
         if (ticket !== request || uiLang !== lang || !ok || !(probe.naturalWidth > 0)) return;
         image.setAttribute("src", address);
         if (original.alt !== null) image.setAttribute("alt", t(original.alt));
-        // 처음 그림에 크기가 적혀 있으면(로그인 제목) 새 그림의 크기로 바꿔 비율을 맞춘다. 메인 제목은 높이를 CSS가 정한다.
-        if (original.width !== null) image.setAttribute("width", String(probe.naturalWidth));
-        if (original.height !== null) image.setAttribute("height", String(probe.naturalHeight));
         shown = lang;
         switcher.onSwap?.();
       };
@@ -3133,7 +3141,7 @@ function letteringSwitcher(image) {
   function restore() {
     if (shown === "ko") return;
     shown = "ko";
-    for (const name of ["src", "alt", "width", "height"]) {
+    for (const name of ["src", "alt"]) {
       if (original[name] === null) image.removeAttribute?.(name);
       else image.setAttribute(name, original[name]);
     }

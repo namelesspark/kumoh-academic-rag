@@ -464,7 +464,7 @@ test("깊이 생각을 펼치고 답을 이어 그린 뒤 근거와 답만 기�
   assert.equal(JSON.parse(p.requests[0].options.body).mode, "deep");
   const waiting = p.get(".test-reply").children[0];
   assert.equal(waiting.classList.contains("is-waiting"), true);
-  assert.equal(waiting.children[0].children[0].textContent, "생각하는 중");
+  assert.equal(waiting.children[0].children[0].textContent, "아이오가 생각하는 중");
   assert.equal(waiting.children[0].children[1].textContent, "모델이 쓴 원문, 영어일 수 있음");
   selectMode(p, "fast");
   assert.equal(p.get(".composer-row").classList.contains("is-deep"), false);
@@ -483,7 +483,7 @@ test("깊이 생각을 펼치고 답을 이어 그린 뒤 근거와 답만 기�
   await setImmediate();
   assert.equal(thinking.open, false);
   assert.equal(thinking.classList.contains("is-waiting"), false);
-  assert.equal(thinking.children[0].children[0].textContent, "3초 동안 생각함");
+  assert.equal(thinking.children[0].children[0].textContent, "아이오가 3초 동안 생각함");
   assert.equal(reply.children[1].textContent, "가상 <b>");
   assert.equal(reply.children.length, 2);
   assert.equal(p.run("record.messages.length"), 1);
@@ -898,6 +898,8 @@ test("저장된 글 대화를 다시 열어 이어 물으면 같은 대화에 �
   }] });
   p.run('switchHistoryAccount("browse"); var restored = conversations[0]; openConversation(restored)');
   assert.equal(p.run('Object.hasOwn(restored, "photo")'), false);
+  const transcript = p.get("#transcript");
+  assert.equal(transcript.children[0].children.find(node => node.className === "reply-author")?.textContent, "아이오");
   p.get("#question").value = "가상 후속 질문";
   p.get("#composer").listeners.get("submit")({ preventDefault() {} });
   assert.equal(p.run("conversations.length"), 1);
@@ -908,6 +910,7 @@ test("저장된 글 대화를 다시 열어 이어 물으면 같은 대화에 �
   await setImmediate();
   assert.equal(p.run("restored.messages.length"), 4);
   assert.equal(p.run("restored.messages.at(-1).text"), "가상 답변");
+  assert.equal(transcript.children[1].children.find(node => node.className === "reply-author")?.textContent, "아이오");
 });
 
 test("글·사진 대화 종류를 바꾸면 새 대화의 말풍선만 그린다", async () => {

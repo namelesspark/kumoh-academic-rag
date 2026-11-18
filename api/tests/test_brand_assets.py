@@ -523,7 +523,7 @@ class TestTitleLettering(unittest.TestCase):
         ))
         self.assertIsNone(assets.TITLE_IMAGES[0].lines)
         self.assertEqual(assets.MAIN_TITLE_LINES, (
-            (("물어봐요, ", (255, 255, 255)), ("테크모", (255, 209, 0))),
+            (("물어봐요, ", (255, 255, 255)), ("아이오", (255, 209, 0))),
         ))
         self.assertEqual(web_main.CHAT_WEB_MEDIA_TYPES[MAIN_TITLE_NAME], "image/png")
         self.assertEqual([title.name for title in assets.TITLE_IMAGES],
@@ -532,13 +532,10 @@ class TestTitleLettering(unittest.TestCase):
             self.assertEqual((title.url, title.size, title.sha256),
                              (FONT_URL, 990856, FONT_HASH))
         self.assertEqual([title.lines for title in assets.TITLE_IMAGES[2:]], [
-            ((("To graduation,", assets.TITLE_WHITE),),
-             (("with ", assets.TITLE_WHITE), ("Techmo", assets.TITLE_YELLOW))),
-            ((("Ask ", assets.TITLE_WHITE), ("Techmo", assets.TITLE_YELLOW)),),
+            ((("To graduation,", (255, 255, 255)),),
+             (("with ", (255, 255, 255)), ("AIO", (255, 209, 0)))),
+            ((("Ask ", (255, 255, 255)), ("AIO", (255, 209, 0))),),
         ])
-        for title in assets.TITLE_IMAGES[2:]:
-            self.assertEqual([text for line in title.lines for text, color in line
-                              if color == assets.TITLE_YELLOW], ["Techmo"])
         self.assertEqual((assets.TITLE_FONT_SIZE, assets.TITLE_LINE_HEIGHT, assets.TITLE_MARGIN),
                          (172, 1.12, 16))
         # 둘째 줄 들여쓰기는 취소했다.
@@ -546,7 +543,7 @@ class TestTitleLettering(unittest.TestCase):
         self.assertNotIn(RETIRED_TITLE_NAME, web_main.CHAT_WEB_MEDIA_TYPES)
         self.assertEqual(assets.TITLE_LINES, (
             (("졸업까지,", (255, 255, 255)),),
-            (("테크모", (255, 209, 0)), ("와 함께", (255, 255, 255))),
+            (("아이오", (255, 209, 0)), ("와 함께", (255, 255, 255))),
         ))
         self.assertEqual(web_main.CHAT_WEB_MEDIA_TYPES[TITLE_NAME], "image/png")
         # 글꼴 파일 자체는 화면에 내려 주지 않는다.
@@ -1536,10 +1533,10 @@ class TestScreenAssetReferences(unittest.TestCase):
 
     def test_retired_title_address_is_reported_and_current_one_is_not(self):
         # 기존 재현 사례: 화면이 취소한 붓글씨 그림 주소를 그대로 요청한다.
-        retired = f'<img src="/chat-assets/{RETIRED_TITLE_NAME}" alt="졸업까지, 테크모와 함께">'
+        retired = f'<img src="/chat-assets/{RETIRED_TITLE_NAME}" alt="졸업까지, 아이오와 함께">'
         self.assertEqual(unlisted(html_asset_names(retired)), [RETIRED_TITLE_NAME])
         # 최신 사례: 새 주소는 허용 목록에 있다.
-        current = f'<img src="/chat-assets/{TITLE_NAME}" alt="졸업까지, 테크모와 함께">'
+        current = f'<img src="/chat-assets/{TITLE_NAME}" alt="졸업까지, 아이오와 함께">'
         self.assertEqual(unlisted(html_asset_names(current)), [])
         # 스타일과 스크립트에 적힌 주소도 같은 기준으로 본다.
         self.assertEqual(unlisted(asset_names(f'url("/chat-assets/{RETIRED_TITLE_NAME}")')),

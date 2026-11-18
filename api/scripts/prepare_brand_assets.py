@@ -97,11 +97,11 @@ TITLE_YELLOW = (255, 209, 0)  # #FFD100
 # 줄마다 (글자, 색) 조각을 왼쪽부터 이어 그린다.
 TITLE_LINES = (
     (("졸업까지,", TITLE_WHITE),),
-    (("테크모", TITLE_YELLOW), ("와 함께", TITLE_WHITE)),
+    (("아이오", TITLE_YELLOW), ("와 함께", TITLE_WHITE)),
 )
 # 메인 화면 제목. 한 줄이고 쉼표 뒤 빈칸까지 흰 조각에 넣는다.
 MAIN_TITLE_LINES = (
-    (("물어봐요, ", TITLE_WHITE), ("테크모", TITLE_YELLOW)),
+    (("물어봐요, ", TITLE_WHITE), ("아이오", TITLE_YELLOW)),
 )
 # Gugi Regular. SIL Open Font License 1.1, Copyright (c) 2017 by TAE System & Typefaces Co.
 # 글꼴 파일은 그림을 그릴 때만 메모리에서 쓰고 저장하거나 화면에 내려 주지 않는다.
@@ -116,9 +116,9 @@ TITLE_IMAGES = (
                MAIN_TITLE_LINES),
     TitleImage("title-lettering-en.png", TITLE_FONT_URL, TITLE_FONT_BYTES, TITLE_FONT_HASH,
                ((("To graduation,", TITLE_WHITE),),
-                (("with ", TITLE_WHITE), ("Techmo", TITLE_YELLOW)))),
+                (("with ", TITLE_WHITE), ("AIO", TITLE_YELLOW)))),
     TitleImage("main-lettering-en.png", TITLE_FONT_URL, TITLE_FONT_BYTES, TITLE_FONT_HASH,
-               ((("Ask ", TITLE_WHITE), ("Techmo", TITLE_YELLOW)),)),
+               ((("Ask ", TITLE_WHITE), ("AIO", TITLE_YELLOW)),)),
 )
 
 

@@ -28,10 +28,10 @@ test("문서 안 실행 코드와 스타일, 외부 라이브러리를 추가하
 });
 
 test("확정한 제목 그림과 도면 장식은 같은 글귀의 대체 제목과 함께 제공한다", () => {
-  assert.match(html, /<img src="\/chat-assets\/title-lettering\.png" alt="졸업까지, 테크모와 함께"[^>]*>/);
+  assert.match(html, /<img src="\/chat-assets\/title-lettering\.png" alt="졸업까지, 아이오와 함께"[^>]*>/);
   assert.doesNotMatch(html + script, /calligraphy-title\.png|East Sea Dokdo/);
   assert.match(html, /class="title-lettering"[^>]*data-brand-slot[^>]*hidden/);
-  assert.match(html, /<h1 class="title-fallback">졸업까지,<span><em>테크모<\/em>와 함께<\/span><\/h1>/);
+  assert.match(html, /<h1 class="title-fallback">졸업까지, <span><em>아이오<\/em>와 함께<\/span><\/h1>/);
   assert.match(html, /class="drawing-dimension"[^>]*aria-hidden="true"[^>]*>KIT · ACADEMIC GUIDE  ⟵ 2026 ⟶<\//);
   assert.match(html, /class="title-ticks"[^>]*aria-hidden="true"/);
   assert.doesNotMatch(html, /feature-pills|가상 학생의 이수 내역으로 졸업 조건을 계산하고/);

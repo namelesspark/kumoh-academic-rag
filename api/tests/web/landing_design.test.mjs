@@ -534,12 +534,12 @@ test("두 로고는 받침과 테두리 없이 밝은 그림을 표시한다", (
 });
 
 test("확정 제목 그림과 치수선·눈금·대체 제목을 제공하고 옛 그림·알약은 요청하지 않는다", () => {
-  assert.match(html,/<img[^>]*src="\/chat-assets\/title-lettering.png"[^>]*alt="졸업까지, 테크모와 함께"/);
+  assert.match(html,/<img[^>]*src="\/chat-assets\/title-lettering.png"[^>]*alt="졸업까지, 아이오와 함께"/);
   assert.doesNotMatch(html+styles+script,/calligraphy-title|calligraphy-fallback|EastSeaDokdo|feature-pills/);
   assert.match(html,/class="drawing-dimension"[^>]*aria-hidden="true"/);
   assert.match(html,/KIT · ACADEMIC GUIDE  ⟵ 2026 ⟶/);
   assert.match(html,/class="title-ticks"[^>]*aria-hidden="true"/);
-  assert.match(html,/<h1 class="title-fallback">졸업까지,<span><em>테크모<\/em>와 함께<\/span><\/h1>/);
+  assert.match(html,/<h1 class="title-fallback">졸업까지, <span><em>아이오<\/em>와 함께<\/span><\/h1>/);
   assert.equal(declared(".title-fallback span",["padding-left"]),"0");
   assert.equal(declared(".title-lettering",["width"],undefined,{width:390}),"78vw");
   assert.ok(styles.includes("clamp(280px, 40vw, 507px)"));
@@ -940,7 +940,7 @@ class LetteringImage {
   removeAttribute(name) { this.attributes.delete(name); }
 }
 const titleAttributes = {
-  src: "/chat-assets/title-lettering.png", alt: "졸업까지, 테크모와 함께", width: "1014", height: "376",
+  src: "/chat-assets/title-lettering.png", alt: "졸업까지, 아이오와 함께",
   "data-lettering-en": "/chat-assets/title-lettering-en.png?v=fictional-en",
 };
 // 누가 중국어 주소를 다시 적어도 중국어 화면이 글자 제목으로 남는지 보려고 가상 속성을 하나 더한 그림이다.
@@ -969,7 +969,7 @@ function letteringPage(attributes = titleAttributes, { withImage = true } = {}) 
   };
 }
 
-test("언어별 제목 그림: 받은 뒤에만 그 언어 주소·alt·크기로 바꾸고, 대기·404·Image 없음이면 글자 제목을 남긴다", () => {
+test("언어별 제목 그림: 받은 뒤에만 주소·alt를 바꾸고 이미지 비율을 사용한다", () => {
   const page = letteringPage();
   assert.equal(page.ready(), true);
   page.switchTo("ko");
@@ -984,14 +984,14 @@ test("언어별 제목 그림: 받은 뒤에만 그 언어 주소·alt·크기�
   assert.equal(page.ready(), true);
   assert.equal(page.swaps(), 1);
   assert.deepEqual(Object.fromEntries(["src", "alt", "width", "height"].map(name => [name, page.image.getAttribute(name)])), {
-    src: "/chat-assets/title-lettering-en.png?v=fictional-en", alt: "To graduation, with Techmo", width: "1200", height: "400",
+    src: "/chat-assets/title-lettering-en.png?v=fictional-en", alt: "To graduation, with AIO", width: null, height: null,
   });
 
-  // 한국어로 돌아오면 처음 주소·alt·크기를 다시 쓴다.
+  // 한국어로 돌아오면 처음 주소·alt를 다시 쓴다.
   page.switchTo("ko");
   assert.equal(page.ready(), true);
   assert.deepEqual(Object.fromEntries(["src", "alt", "width", "height"].map(name => [name, page.image.getAttribute(name)])), {
-    src: "/chat-assets/title-lettering.png", alt: "졸업까지, 테크모와 함께", width: "1014", height: "376",
+    src: "/chat-assets/title-lettering.png", alt: "졸업까지, 아이오와 함께", width: null, height: null,
   });
 
   // 404나 깨진 그림이면 한국어 그림을 그대로 두고 자리를 숨긴다. 바로 뒤의 영어 글자 제목이 보인다.
@@ -1005,7 +1005,7 @@ test("언어별 제목 그림: 받은 뒤에만 그 언어 주소·alt·크기�
   const bare = letteringPage(titleAttributes, { withImage: false });
   assert.doesNotThrow(() => bare.switchTo("en"));
   assert.equal(bare.ready(), false);
-  const unlisted = letteringPage({ src: "/chat-assets/title-lettering.png", alt: "졸업까지, 테크모와 함께" });
+  const unlisted = letteringPage({ src: "/chat-assets/title-lettering.png", alt: "졸업까지, 아이오와 함께" });
   unlisted.switchTo("en");
   assert.equal(unlisted.probes.length, 0);
   assert.equal(unlisted.ready(), false);
@@ -1037,7 +1037,7 @@ test("언어별 제목 그림: ko→en→zh를 빠르게 바꾸면 늦게 온 �
   assert.equal(page.probes.length, 1);
   page.probes[0].answer(true, 1200, 400);
   assert.equal(page.image.getAttribute("src"), "/chat-assets/title-lettering.png");
-  assert.equal(page.image.getAttribute("alt"), "졸업까지, 테크모와 함께");
+  assert.equal(page.image.getAttribute("alt"), "졸업까지, 아이오와 함께");
   assert.equal(page.swaps(), 0);
   assert.equal(page.ready(), false);
 
@@ -1051,12 +1051,12 @@ test("언어별 제목 그림: ko→en→zh를 빠르게 바꾸면 늦게 온 �
   assert.equal(back.ready(), true);
 
   // 메인 제목은 크기 속성 없이 시작하므로 바꾼 뒤에도 크기를 적지 않는다. 높이는 CSS가 정한다.
-  const main = letteringPage({ src: "/chat-assets/main-lettering.png", alt: "물어봐요, 테크모",
+  const main = letteringPage({ src: "/chat-assets/main-lettering.png", alt: "물어봐요, 아이오",
     "data-lettering-en": "/chat-assets/main-lettering-en.png" });
   main.switchTo("en");
   main.probes[0].answer(true, 900, 200);
   assert.equal(main.image.getAttribute("src"), "/chat-assets/main-lettering-en.png");
-  assert.equal(main.image.getAttribute("alt"), "Ask Techmo");
+  assert.equal(main.image.getAttribute("alt"), "Ask AIO");
   assert.equal(main.image.getAttribute("width"), null);
   assert.equal(main.image.getAttribute("height"), null);
   main.switchTo("ko");
@@ -1069,6 +1069,7 @@ test("두 제목 그림은 영어 주소만 data 속성으로 갖고 중국어 �
   for (const kind of ["title", "main"]) {
     const tag = new RegExp(`<img src="/chat-assets/${kind}-lettering\\.png"[^>]*>`).exec(html)?.[0] ?? "";
     assert.ok(tag.includes(`data-lettering-en="/chat-assets/${kind}-lettering-en.png"`), kind);
+    assert.doesNotMatch(tag, /\s(?:width|height)=/);
   }
   assert.doesNotMatch(html + script, /lettering-zh/);
 });
