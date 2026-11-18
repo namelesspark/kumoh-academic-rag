@@ -364,16 +364,19 @@ test("조작 영역은 44px 이상이다", () => {
   for (const selector of ["#conversation-toggle", "#home-button"]) assert.equal(declared(selector, ["min-width"]), "44px", selector);
   // 390px 채팅 머리글: 대화 목록(44)·홈(44)·언어·테마 알약 두 개가 한 줄이다. 로고(약 140px)를 두면 자리가 모자라
   // 채팅 화면에서만 480px 이하에서 로고 그림을 감춘다. 첫 화면과 넓은 화면에서는 그대로 보인다.
-  assert.equal(declared('body[data-view="chat"] .brand-logo', ["display"], undefined, { width: 390 }), "none");
-  assert.equal(find('body[data-view="chat"] .brand-logo', ["display"], { width: 481 }), undefined);
+  // 481px처럼 480px를 조금 넘는 화면에서도 영어 버튼 이름이면 로고와 버튼이 머리글을 넘는다. 그래서 기준은 680px다.
+  for (const width of [390, 481, 680]) {
+    assert.equal(declared('body[data-view="chat"] .brand-logo', ["display"], undefined, { width }), "none", `${width}px`);
+    // 로고를 받지 못하면 대신 보이는 학교 이름 글자도 그 자리를 차지하므로 화면에서만 감춘다.
+    assert.equal(declared('body[data-view="chat"] .brand-name', ["clip-path"], undefined, { width }), "inset(50%)", `${width}px`);
+    assert.equal(declared('body[data-view="chat"] .brand-name', ["position"], undefined, { width }), "absolute", `${width}px`);
+  }
+  assert.equal(find('body[data-view="chat"] .brand-logo', ["display"], { width: 681 }), undefined);
+  assert.equal(find('body[data-view="chat"] .brand-name', ["clip-path"], { width: 681 }), undefined);
   assert.equal(find(".brand-logo", ["display"], { width: 390 }), "inline-block");
-  // 로고를 받지 못하면 대신 보이는 학교 이름 글자(약 106px)도 그 자리를 차지하므로 화면에서만 감춘다.
-  assert.equal(declared('body[data-view="chat"] .brand-name', ["clip-path"], undefined, { width: 390 }), "inset(50%)");
-  assert.equal(declared('body[data-view="chat"] .brand-name', ["position"], undefined, { width: 390 }), "absolute");
-  assert.equal(find('body[data-view="chat"] .brand-name', ["clip-path"], { width: 481 }), undefined);
-  // 출처 링크는 답 아래 따로 놓인 조작 요소라 높이 44px다.
+  // 출처 링크는 답 아래 따로 놓인 조작 요소라 높이·너비 모두 44px 이상이다(제목이 한 글자여도).
   for (const selector of [".source-link", ".evidence .source-link", ".graduation .source-link", ".poster-result .source-link"]) {
-    assert.equal(declared(selector, ["min-height"]), "44px", selector);
+    for (const name of ["min-height", "min-width"]) assert.equal(declared(selector, [name]), "44px", `${selector} ${name}`);
   }
   // 대화 목록 아래 학교 링크도 한 줄 글자보다 높은 44px 누름 영역이다.
   for (const width of [1280, 390]) assert.equal(declared(".campus-site-link", ["min-height"], undefined, { width }), "44px");
@@ -428,6 +431,16 @@ test("로그인 화면 언어·테마 묶음은 hover 바탕이 없고 안의 �
       assert.ok(contrast(colors("var(--focus-ring)", look)[0].slice(0, 3), photoTop) < 3);
     }
   }
+  // 대화 영역 초점은 안쪽 고리다. 윗변이 큰 판의 투명 띠에 걸리므로 안쪽 6px 남색 띠 위에 흰 고리(안쪽 2~4px)를 그린다.
+  assert.equal(declared(".transcript:focus-visible", ["outline"]), "2px solid var(--white)");
+  assert.equal(declared(".transcript:focus-visible", ["outline-offset"]), "-4px");
+  assert.equal(declared(".transcript:focus-visible", ["box-shadow"]), "inset 0 0 0 6px var(--navy)");
+  assert.ok(Math.abs(Number.parseFloat(declared(".transcript:focus-visible", ["outline-offset"]))) <= 6 - 2);
+  // 저장 대화를 다시 열면 출처 링크와 작성자 이름이 말풍선 밖(.turn 바로 아래)에 붙는다. 그 자리에도 말풍선 보강 면을 깐다.
+  const restoredParents = { ...chatParents, ".turn > .source-link": chatSurface, ".turn > .reply-author": chatSurface };
+  checkText([[".source-link", ".turn > .source-link"], [".turn > .reply-author", ".turn > .reply-author"]], restoredParents);
+  checkText([[".source-link", ".turn > .source-link"], [".turn > .reply-author", ".turn > .reply-author"]],
+    { ...parents, ".turn > .source-link": ".layout", ".turn > .reply-author": ".layout" });
   // 테크모도 옮기면 판 없이 사진 위에 놓이므로 같은 흰 고리와 남색 띠를 쓴다.
   assert.equal(declared(".pet:focus-visible", ["outline"]), "2px solid var(--white)");
   assert.equal(declared(".pet:focus-visible", ["box-shadow"]), "0 0 0 6px var(--navy)");
