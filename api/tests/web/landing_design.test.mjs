@@ -346,6 +346,48 @@ test("조작 영역은 44px 이상이다", () => {
   for (const selector of ["#demo-logout", 'body[data-view="chat"] #home-button']) {
     assert.ok(Number.parseFloat(declared(selector, ["min-height"], undefined, { width: 390 })) >= 44, selector);
   }
+  // 390px 채팅 머리글의 대화 목록·홈 버튼은 가로도 44px, 생각 요약 토글은 한 줄이어도 44px 높이다.
+  for (const selector of ['body[data-view="chat"] #home-button', 'body[data-view="chat"] #conversation-toggle']) {
+    assert.ok(Number.parseFloat(declared(selector, ["min-width"], undefined, { width: 390 })) >= 44, selector);
+  }
+  for (const selector of ["#conversation-toggle", "#home-button"]) assert.equal(declared(selector, ["min-width"]), "44px", selector);
+  assert.equal(declared(".thinking summary", ["min-height"]), "44px");
+});
+
+test("상태 표시와 열린 상태 테두리는 밝은 면에서도 3:1을 넘는다", () => {
+  const ratioOn = (paint, surface, look) => contrast(colors(paint, look)[0].slice(0, 3), colors(surface, look)[0].slice(0, 3));
+  for (const look of themes) {
+    const name = themeName(look);
+    // 현재 대화 선·대기 표시(라이트 파랑, 다크 노랑)는 고른 대화 바탕과 목록 면 위에서 보인다.
+    assert.equal(declared('.conversation-item[aria-current="true"]', ["border-inline-start-color"]), "var(--current-mark)");
+    assert.equal(declared(".conversation-pending", ["border-top-color"]), "var(--current-mark)");
+    for (const surface of ["var(--surface)", "var(--bg)"]) assert.ok(ratioOn("var(--current-mark)", surface, look) >= 3, `${name} 현재 대화 선`);
+    // 읽지 않은 점: 다크는 코랄 채움 자체가, 라이트는 남색 테두리가 3:1 경계다.
+    const ring = resolve("var(--unread-ring)", look);
+    const edge = ring === "transparent" ? "var(--coral)" : "var(--unread-ring)";
+    for (const surface of ["var(--surface)", "var(--bg)"]) assert.ok(ratioOn(edge, surface, look) >= 3, `${name} 읽지 않은 점`);
+    // 깊이 모드에서 메뉴를 열면 세 색 고리 대신 열린 상태 테두리색이 3:1 경계가 된다.
+    assert.ok(ratioOn("var(--focus-ink)", "var(--raised)", look) >= 3, `${name} 깊이 모드 열림`);
+  }
+  assert.match(declared(".conversation-unread", ["border"]), /^1\.5px solid var\(--unread-ring\)$/);
+  assert.equal(declared('.mode-pill[data-mode="deep"][aria-expanded="true"]', ["border-color"]), "var(--focus-ink)");
+  const deep = rules.findIndex(rule => rule.selectors.includes('.mode-pill[data-mode="deep"]') && rule.declarations.some(([name]) => name === "border-color"));
+  const open = rules.findIndex(rule => rule.selectors.includes('.mode-pill[data-mode="deep"][aria-expanded="true"]'));
+  assert.ok(open > deep, "열린 깊이 모드 규칙이 고리 규칙 뒤에 와야 덮이지 않는다");
+});
+
+test("로그인 화면 언어·테마 묶음은 hover 바탕이 없고 안의 알약이 흰 글자를 쓴다", () => {
+  assert.equal(find(".login-lang:hover", ["background"]), undefined);
+  assert.equal(declared("button.login-lang:hover", ["background"]), "var(--navy)");
+  assert.equal(declared(".login-lang:not(button)", ["background"]), "transparent");
+  assert.equal(declared(".login-lang .lang-pill", ["color"]), "var(--white)");
+  assert.equal(declared(".login-lang .lang-pill", ["background"]), "var(--glass-pill)");
+  assert.equal(declared(".login-lang .lang-pill:hover", ["background"]), "var(--navy)");
+  // 흰 글자는 남색 알약(흰 사진 가정)과 hover 남색 모두에서 4.5:1을 넘는다.
+  for (const look of themes) {
+    assert.ok(contrast([255, 255, 255], blend(colors("var(--glass-pill)", look)[0], [255, 255, 255])) >= 4.5);
+    assert.ok(contrast([255, 255, 255], colors("var(--navy)", look)[0].slice(0, 3)) >= 4.5);
+  }
 });
 
 test("글이 많은 영역과 예시 질문은 밝고 어두운 사진에서 4.5 이상이다", () => {
