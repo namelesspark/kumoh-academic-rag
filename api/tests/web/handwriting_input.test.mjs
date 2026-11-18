@@ -939,12 +939,11 @@ test("넓힌 뒤 이어 그은 부분은 새 칸에서 보이고, 잇는 선분�
   page.respond(ok("가상"));
   page.insert.click();
   await settle();
-  // 550→700 선분은 옛 칸 경계 600에서 나뉜다. 600까지는 600 칸, 그 뒤는 750 칸에서 다시 시작해 끊기지 않는다.
-  // 498.5~701.5 = 203 + 32 = 235, 배율 2 → 470.
+  // 넓힌 뒤 그은 550→700 선분은 끝 점의 칸(750)으로 그려 끊기지 않는다. 498.5~701.5 = 203 + 32 = 235, 배율 2 → 470.
   const { log, width } = page.exports[0].canvas;
   assert.equal(width, 470);
   const lines = log.filter(call => call[0] === "lineTo").map(call => call[1]);
-  assert.deepEqual(lines, [550, 600, 700]);
+  assert.deepEqual(lines, [550, 700]);
   assert.ok(log.some(call => call.join() === "rect,0,0,750,200"), "the part drawn after widening uses the new area");
 });
 
@@ -1041,6 +1040,26 @@ test("경계 밖으로 나갔다 약하게 돌아오는 선은 자르기 전 선
   assert.ok(Math.abs(widthSet[2] - 3.4) < 1e-9, String(widthSet[2]));
   // 가로 587.4~600 = 12.6 + 32 = 44.6 → 89, 세로 27.4~131.7 = 104.3 + 32 = 136.3 → 273(배율 2).
   assert.deepEqual([width, height], [89, 273]);
+});
+
+test("경계 바로 안에 펜을 대고 떼기 전에 칸을 넓혀 그은 선은 새 칸에서 굵기 전체가 보이고 그대로 보낸다", async () => {
+  const page = loadPad();
+  page.button.click();
+  page.pointer("pointerdown", { id: 12, kind: "pen", x: 599.9, y: 30, pressure: 1 });
+  Object.assign(page.canvasRect, { width: 750, right: 850 });
+  page.resize();
+  page.pointer("pointermove", { id: 12, kind: "pen", x: 599.9, y: 130, pressure: 1 });
+  page.pointer("pointerup", { id: 12, kind: "pen", x: 599.9, y: 130 });
+  // 넓힌 뒤 그은 선분은 750 칸으로 자른다(옛 600 칸으로 자르면 오른쪽 약 2.5px가 빠진다).
+  const screen = page.canvas.log;
+  const line = screen.findLastIndex(call => call[0] === "lineTo");
+  const clipRect = screen.slice(0, line).findLast(call => call[0] === "rect");
+  assert.deepEqual(clipRect, ["rect", 0, 0, 750, 200]);
+  page.respond(ok("가상"));
+  page.insert.click();
+  await settle();
+  // 가로 597.3~602.5 = 5.2 + 32 = 37.2 → 74, 세로 27.4~132.6 = 105.2 + 32 = 137.2 → 274(배율 2).
+  assert.deepEqual([page.exports[0].canvas.width, page.exports[0].canvas.height], [74, 274]);
 });
 
 test("세게 눌러 시작한 펜 획의 첫 점은 보내는 그림과 테마를 바꿔 다시 그린 화면에도 남는다", async () => {
@@ -1343,6 +1362,20 @@ test("질문 칸을 늘려 입력 줄 크기만 바뀌어도 패드를 다시 �
   page.rowResized();
   assert.equal(page.pad.style.properties.get("--handwriting-bottom"), "608px");
   assert.equal(page.pad.style.properties.get("--handwriting-max-height"), "184px");
+});
+
+test("패드를 연 채 사진을 붙여 입력 줄이 크기 변화 없이 위로 올라가도 패드를 다시 놓아 입력 줄을 덮지 않는다", () => {
+  const page = loadPad();
+  page.button.click();
+  // 화면 높이 800 − 입력 줄 위 끝 650 + 8 = 158.
+  assert.equal(page.pad.style.properties.get("--handwriting-bottom"), "158px");
+  // 첨부 제거 버튼이 나타나 입력 줄이 44px 올라간다. 입력 줄·캔버스 크기는 그대로라 크기 변화 신호는 오지 않는다.
+  Object.assign(page.rowRect, { top: 606, bottom: 666 });
+  page.get("#photo-file").files = [{ name: "fictional.png", type: "image/png", size: 8 }];
+  page.get("#photo-file").fire("change");
+  assert.equal(page.get("#photo-clear").hidden, false);
+  // 800 − 606 + 8 = 202. 패드 아래 끝이 새 입력 줄 위 8px에 다시 붙는다.
+  assert.equal(page.pad.style.properties.get("--handwriting-bottom"), "202px");
 });
 
 test("다른 손가락으로 넣기를 누를 때 펜이 닿아 있어도 그 획을 끝내, 화면과 보내는 그림이 같다", async () => {

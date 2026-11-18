@@ -1687,6 +1687,8 @@ function updateSend() {
   photoFile.disabled = pending;
   photoAttach.disabled = pending;
   reset.disabled = pending;
+  // 첨부 제거 버튼이 나타나거나 사라지면 입력 줄이 크기 변화 없이 위아래로 움직인다. 열린 필기 패드 자리를 바로 다시 잰다(#134).
+  if (typeof placeHandwritingPad === "function") placeHandwritingPad();
 }
 
 function setBusy(pending, message = "서버에 질문을 보내는 중…") {
@@ -3072,7 +3074,8 @@ function drawHandwritingStroke(context, stroke, from = 0) {
       continue;
     }
     const before = points[index - 1];
-    use(handwritingClipMeet(handwritingClipOf(stroke, before), handwritingClipOf(stroke, point)));
+    // 선분은 끝 점을 찍을 때(그 선분을 그을 때)의 칸으로 자른다. 칸을 넓힌 뒤 그은 선분은 앞 점이 옛 칸 경계에 붙어 있어도 새 칸에서 온전히 보인다.
+    use(handwritingClipOf(stroke, point));
     // 좌표는 그대로이고 압력만 바뀐 신호는 길이 0인 선이다. 캔버스는 길이 0인 선을 그리지 않으므로 점으로 찍는다.
     if (before.x === point.x && before.y === point.y) {
       context.beginPath();
@@ -3144,14 +3147,9 @@ function handwritingBounds(strokes, area = null) {
       const point = points[index];
       // 범위를 가두는 칸은 그 점·선분을 그을 때의 칸과 지금 보이는 칸이 겹치는 곳이다.
       // 반지름은 drawHandwritingStroke와 같은 함수(handwritingDrawnWidth)로 읽는다.
-      let before = point;
-      if (index === 0 || point.gap) {
-        // 첫 점과 gap 점은 그 점의 굵기로 찍은 점이다.
-        clip = handwritingClipMeet(handwritingClipOf(stroke, point), area);
-      } else {
-        before = points[index - 1];
-        clip = handwritingClipMeet(handwritingClipMeet(handwritingClipOf(stroke, before), handwritingClipOf(stroke, point)), area);
-      }
+      // 첫 점과 gap 점은 그 점의 굵기로 찍은 점이고, 선분은 끝 점의 칸으로 자른다(drawHandwritingStroke와 같다).
+      const before = index === 0 || point.gap ? point : points[index - 1];
+      clip = handwritingClipMeet(handwritingClipOf(stroke, point), area);
       const half = handwritingDrawnWidth(stroke, point, before === point ? null : before) / 2;
       if (!handwritingInkVisible(before, point, half, clip)) continue;
       const piece = clip ? clipHandwritingSegment(before, point, clip, half) : [before, point];
@@ -3564,15 +3562,9 @@ function setupHandwriting() {
       const [enter, leave] = piece;
       const tail = stroke.points[stroke.points.length - 1];
       const add = (at, clip, gap = false) => stroke.points.push({ x: at.x, y: at.y, p: next.p, w, clip, ...(gap ? { gap } : {}) });
+      // 선분은 끝 점(leave)의 칸, 곧 지금 칸으로 그린다. 긋는 도중 칸이 넓어져도 이미 저장한 점과 선분은 옛 칸 그대로라
+      // 떼기 전에 넓혀도 잘린 잉크가 되살아나지 않고, 넓힌 뒤 새로 그은 선분은 경계 근처에서도 새 칸에서 온전히 보인다.
       if (stroke.broken || enter.x !== tail.x || enter.y !== tail.y) add(enter, area, true);
-      else if (tail.clip && area && tail.clip !== area) {
-        // 긋는 도중 칸이 바뀐 뒤의 첫 선분이다. 앞 점(옛 칸 소속)과 잇는 선분은 두 칸이 겹치는 곳만 그리므로,
-        // 옛 칸 경계에서 나눠 그 뒤는 새 칸에서 다시 시작한다. 앞 점의 둥근 끝이 새 칸에서 되살아나지 않고, 이어 그은 선도 끊기지 않는다.
-        const kept = clipHandwritingSegment(enter, leave, tail.clip, 0);
-        const cut = kept ? kept[1] : enter;
-        if (kept && (cut.x !== enter.x || cut.y !== enter.y)) add(cut, tail.clip);
-        if (cut.x !== leave.x || cut.y !== leave.y) add(cut, area, true);
-      }
       stroke.broken = false;
       add(leave, area);
     }
@@ -3623,13 +3615,17 @@ function setupHandwriting() {
   // 질문 칸을 늘리거나 판 폭이 바뀌는 등 입력 줄·캔버스 크기만 바뀌면 scroll·resize 신호가 없다.
   // 두 크기를 지켜보다가 자리를 다시 재고 캔버스 그리기 버퍼(보이는 크기 × 기기 화소 비율)도 새로 맞춘다.
   // 버퍼를 그대로 두면 포인터 위치와 그려지는 획, 보내는 그림의 자르기 범위가 옛 폭에 머문다.
+  // 입력 줄 크기는 그대로인 채 자리만 바뀌는 경우(질문 폼 안 다른 줄이 생기거나 사라질 때)도 있어 질문 폼 전체 크기도 지켜본다.
   const composerRow = document.querySelector(".composer-row");
+  // 질문 폼은 맨 위에서 찾아 둔 composer를 그대로 쓴다. 다시 찾지 않는다.
   if (typeof ResizeObserver === "function") {
-    for (const node of [composerRow, canvas]) {
+    for (const node of [composerRow, composer, canvas]) {
       if (node) new ResizeObserver(() => { if (opened) { place(true); prepare(); } }).observe(node);
     }
   }
   refreshHandwritingPad.run = () => { if (opened) { place(true); prepare(); } };
+  // 자리만 다시 잰다. 캔버스 크기는 그대로라 그리기 버퍼는 건드리지 않는다(질문 칸에 글을 쓸 때마다 불린다).
+  placeHandwritingPad.run = () => { if (opened) place(true); };
   closeHandwritingPad.run = closePad;
   redrawHandwritingPad.run = () => { if (opened) redraw(); };
   noteHandwritingEdit.run = noteEdit;
@@ -3646,6 +3642,9 @@ function redrawHandwritingPad() {
 // 두 함수는 초기화 순서와 상관없이 부를 수 있게 함수 속성에 실제 동작을 단다.
 function refreshHandwritingPad() {
   refreshHandwritingPad.run?.();
+}
+function placeHandwritingPad() {
+  placeHandwritingPad.run?.();
 }
 // 서랍을 열거나 첫 화면·채팅 화면을 오가면 입력 줄 자리가 바뀌므로 패드를 닫는다(초점은 옮기지 않는다).
 function closeHandwritingPad(restore = false) {
