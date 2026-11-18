@@ -334,6 +334,10 @@ test("펫의 움직임 네 가지는 서로 다른 요소·속성에 걸고, 움
     ["::view-transition-new(feature-cards)", "feature-cards-out .2s ease reverse both"],
     [".login-card", "login-rise .8s ease-out"],
     [".login-techmo", "login-float 3.6s ease-in-out infinite"],
+    // #128: 말풍선이 나타날 때 커지는 움직임과, 프레임 재생과 같은 움직임 줄이기 묶음에서 그것을 끄는 규칙.
+    ['.pet-dock[data-bubble-visible="true"] .pet-says::before', "pet-says-grow .2s ease-out"],
+    ['.pet-dock[data-bubble-visible="true"] .pet-says > *', "pet-says-fade .2s ease-out"],
+    ['.pet-dock .pet-says::before, .pet-dock[data-bubble-visible="true"] .pet-says::before, .pet-dock[data-bubble-visible="true"] .pet-says > *', "none !important"],
   ]);
   // 움직임 줄이기 묶음은 하나뿐이고, 펫·대기 점·도형과 카드 전환을 함께 끈다.
   assert.ok(styles.split("prefers-reduced-motion").length >= 3);
@@ -1294,11 +1298,48 @@ test("창 크기 변경과 Home 복귀와 그림 로드가 기본 자리 말풍�
 
 test("끄는 동안 말풍선을 숨기고 꼬리 방향은 위아래 배치에 따라 바뀐다", () => {
   assert.match(first('.pet-dock[data-dragging="true"] .pet-says'), /visibility: hidden/);
-  assert.match(first(".pet-dock .pet-says::before, .pet-dock .pet-says::after"), /left: calc\(var\(--techmo-bubble-tail-x\) - 1px\)/);
-  assert.match(first(".pet-dock .pet-says::before"), /bottom: -11px/);
-  assert.match(first('.pet-dock[data-bubble-below="true"] .pet-says::before'), /top: -11px/);
-  assert.match(styles, /\.pet-says::before[^{}]*\{[^}]*border-width: 10px 10px 0/);
-  assert.match(styles, /data-bubble-below="true"[^{}]*::before[^{}]*\{[^}]*border-width: 0 10px 10px/);
+  // 꼬리는 #pet-line 밖의 장식 SVG 한 장이다(#128). 예전 삼각형 두 겹(테두리 색 칠하기)과 ::after는 남지 않는다.
+  // ::before는 이제 크림 판 한 장만 그린다.
+  assert.doesNotMatch(styles, /\.pet-says::after/);
+  assert.doesNotMatch(styles, /\.pet-says::before[^{}]*\{[^}]*border-width/);
+  const bubble = /<p class="pet-says">([\s\S]*?)<\/p>/.exec(html)?.[1] ?? "";
+  const tail = /<svg class="pet-tail" viewBox="0 0 20 12" aria-hidden="true" focusable="false">([\s\S]*?)<\/svg>/.exec(bubble);
+  assert.ok(tail, "말풍선 꼬리 SVG");
+  assert.doesNotMatch(/<span id="pet-line">[^<]*<\/span>/.exec(bubble)?.[0] ?? "", /svg/);
+  assert.equal(tail[1], '<path class="pet-tail-fill" d="M0 0 L10 11.5 L20 0 Z"/><path class="pet-tail-line" d="M0 0 L10 11.5 L20 0"/>');
+  // 12px 그림의 위쪽 1.5px가 말풍선 선을 덮고 끝은 바깥 선에서 10px 떨어진다. 기준은 선 두께만큼 안쪽으로 옮긴다.
+  const tailRule = first(".pet-dock .pet-tail");
+  assert.match(tailRule, /left: calc\(var\(--techmo-bubble-tail-x\) - 1\.5px\);/);
+  assert.match(tailRule, /top: 100%;/);
+  assert.match(tailRule, /height: 12px;/);
+  assert.match(tailRule, /transform: translateX\(-50%\);/);
+  assert.match(first('.pet-dock[data-bubble-below="true"] .pet-tail'), /top: auto; bottom: 100%; transform: translateX\(-50%\) scaleY\(-1\);/);
+  assert.match(first(".pet-tail-fill"), /fill: var\(--pet-bubble\);/);
+  assert.match(first(".pet-tail-line"), /fill: none; stroke: var\(--navy\); stroke-width: 1\.5px;/);
+  // 나타날 때 꼬리 끝을 기준으로 .92에서 1로 커지고, 움직임 줄이기에서는 끈다.
+  assert.match(first(".pet-dock .pet-says"), /position: fixed;/);
+  // chat.js가 getBoundingClientRect로 재는 .pet-says 자신은 어떤 규칙에서도 변형하지 않는다.
+  // 그 값은 요소와 조상의 transform만 반영하므로, 커지는 동안 다시 재도 원래 높이가 나온다.
+  for (const [selector, body] of rules) {
+    if (/\.pet-says$/.test(selector.split(", ").at(-1)) || selector.split(", ").some(part => /\.pet-says$/.test(part))) {
+      assert.doesNotMatch(body, /(?:^|; )(?:transform|scale|zoom): /, selector);
+      assert.doesNotMatch(body, /(?:^|; )animation: (?!none)/, selector);
+    }
+  }
+  assert.match(first(".pet-dock .pet-says"), /position: fixed;/);
+  assert.equal(rules.find(([name, body]) => name === ".pet-dock .pet-says" && body.startsWith("border-color"))?.[1],
+    "border-color: transparent; background: transparent; box-shadow: none;");
+  // 크림 판·선·그림자는 자식 층이 그리고, 그 층이 꼬리 끝을 기준으로 .92에서 1로 커진다.
+  const plate = first(".pet-dock .pet-says::before");
+  for (const part of ['content: "";', "position: absolute;", "inset: -1.5px;", "z-index: -1;", "border: 1.5px solid var(--navy);",
+    "background: var(--pet-bubble);", "box-shadow: 3px 3px 0 var(--navy);", "pointer-events: none;",
+    "transform-origin: var(--techmo-bubble-tail-x) calc(100% + 10px);"]) assert.ok(plate.includes(part), part);
+  assert.match(first('.pet-dock[data-bubble-below="true"] .pet-says::before'), /^transform-origin: var\(--techmo-bubble-tail-x\) -10px;$/);
+  assert.match(first('.pet-dock[data-bubble-visible="true"] .pet-says::before'), /^animation: pet-says-grow \.2s ease-out;$/);
+  assert.match(first('.pet-dock[data-bubble-visible="true"] .pet-says > *'), /^animation: pet-says-fade \.2s ease-out;$/);
+  assert.match(styles, /@keyframes pet-says-grow \{\s*from \{ opacity: 0; transform: scale\(\.92\); \}\s*to \{ opacity: 1; transform: scale\(1\); \}\s*\}/);
+  assert.match(styles, /@keyframes pet-says-fade \{\s*0%, 40% \{ opacity: 0; \}\s*100% \{ opacity: 1; \}\s*\}/);
+  assert.match(styles, /@media \(prefers-reduced-motion: reduce\) \{[^{}]*\{[^{}]*\}\s*\.pet-dock \.pet-says::before, \.pet-dock\[data-bubble-visible="true"\] \.pet-says::before, \.pet-dock\[data-bubble-visible="true"\] \.pet-says > \* \{ animation: none !important; \}\s*\}/);
   const page = loadAssistant();
   page.context.techmoBubble();
   const y = page.assistant.properties.get("--techmo-bubble-y");
@@ -1307,6 +1348,24 @@ test("끄는 동안 말풍선을 숨기고 꼬리 방향은 위아래 배치에 
   assert.equal(page.assistant.dataset.dragging, "true");
   page.context.techmoBubble();
   assert.equal(page.assistant.properties.get("--techmo-bubble-y"), y);
+});
+
+test("말풍선은 패널 색과 나뉜 크림 바탕에 남색 선과 흐림 없는 그림자를 쓴다", () => {
+  const says = first(".pet-says");
+  for (const part of ["max-width: 22em;", "border: 1.5px solid var(--navy);", "background: var(--pet-bubble);",
+    "box-shadow: 3px 3px 0 var(--navy);", "color: var(--navy);", "font-weight: 600;", "word-break: keep-all;"]) {
+    assert.ok(says.includes(part), part);
+  }
+  assert.match(styles, /--pet-bubble: #FFF6D6;/);
+  assert.match(styles, /--pet-bubble-dark: #F3E7BF;/);
+  assert.match(styles, /@media \(prefers-color-scheme: dark\) \{\s*:root \{ --pet-bubble: var\(--pet-bubble-dark\); \}\s*\}/);
+  // 패널 색과의 공유를 끊었다. 말풍선 규칙 어디에도 --glass-dense가 없다.
+  for (const [selector, body] of rules) {
+    if (/pet-says|pet-tail/.test(selector)) assert.doesNotMatch(body, /--glass-dense/, selector);
+  }
+  // 고정 배치 말풍선도 22em을 넘지 않고, 로그인 말풍선은 이번 범위 밖이라 그대로다.
+  assert.match(first(".pet-dock .pet-says"), /max-width: min\(22em, calc\(100vw - 16px\)\);/);
+  assert.match(first("#login-pet-line"), /background: var\(--glass-dense\);/);
 });
 
 test("화살표는 16px, Shift 화살표는 64px 움직이며 Space 기본 클릭이 한 번 실행된다", () => {

@@ -839,6 +839,36 @@ class TestChatWeb(unittest.TestCase):
         self.assertEqual([(child["tag"], child["attrs"].get("class")) for child in dock["children"]],
                          [("p", "pet-says"), ("button", "pet")])
 
+    def test_campus_caption_sits_outside_the_hidden_backdrop_with_one_pause_button(self):
+        # 이슈 #128: 캡션은 낭독기에서 숨긴 배경 묶음 밖, 그 바로 뒤에 있고 버튼만 읽힌다.
+        page = parse_page(read_index())
+        backdrop = by_class(page, "campus-backdrop")
+        self.assertEqual(backdrop["attrs"].get("aria-hidden"), "true")
+        self.assertEqual([child["attrs"].get("id") or child["attrs"].get("class") for child in backdrop["children"]],
+                         ["campus-canvas", "campus-overlay"])
+        caption = by_id(page, "campus-caption")
+        self.assertIs(next_sibling(backdrop), caption)
+        self.assertEqual((caption["tag"], caption["attrs"].get("class")), ("div", "campus-caption"))
+        self.assertIn("hidden", caption["attrs"])
+        text, button = caption["children"]
+        self.assertEqual((text["attrs"].get("class"), text["attrs"].get("aria-hidden")), ("campus-caption-text", "true"))
+        self.assertEqual(child_ids(text), ["campus-name", "campus-progress"])
+        self.assertEqual(button["attrs"], {"type": "button", "id": "campus-motion-toggle",
+                                           "aria-pressed": "false", "aria-label": "배경 움직임 일시정지"})
+        icons = button["children"]
+        self.assertEqual([(icon["tag"], icon["attrs"].get("class"), icon["attrs"].get("aria-hidden")) for icon in icons],
+                         [("svg", "motion-icon motion-icon-pause", "true"), ("svg", "motion-icon motion-icon-play", "true")])
+
+    def test_pet_bubble_tail_is_one_decorative_svg_outside_the_spoken_line(self):
+        page = parse_page(read_index())
+        bubble = by_class(page, "pet-says")
+        self.assertEqual([(child["tag"], child["attrs"].get("id") or child["attrs"].get("class")) for child in bubble["children"]],
+                         [("span", "pet-line"), ("span", "pet-dots"), ("svg", "pet-tail")])
+        tail = bubble["children"][2]
+        self.assertEqual((tail["attrs"].get("aria-hidden"), tail["attrs"].get("focusable")), ("true", "false"))
+        self.assertEqual([path["attrs"].get("class") for path in tail["children"]], ["pet-tail-fill", "pet-tail-line"])
+        self.assertEqual(by_id(page, "pet-line")["children"], [])
+
     def test_pet_button_is_named_for_starting_a_new_conversation(self):
         html = call_app(app, "GET", "/", allow_wait=True).text()
         pet = by_id(parse_page(html), "pet")

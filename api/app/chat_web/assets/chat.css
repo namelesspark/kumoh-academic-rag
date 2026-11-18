@@ -95,6 +95,9 @@
   --deep-violet: #6A4BD8;
   --deep-gold: #F7C500;
   --deep-shine: rgba(106,75,216,.22);
+  /* 테크모 말풍선(#128). 패널 색(--glass-dense)과 나눈 크림 바탕이다. 시스템 다크에서는 아래 미디어 규칙이 한 단계 어두운 크림으로 바꾼다. */
+  --pet-bubble: #FFF6D6;
+  --pet-bubble-dark: #F3E7BF;
   color-scheme: dark;
   /* 첫 화면 보안 정책이 외부 글꼴을 막으므로 기기에 깔린 글꼴만 쓴다. 중국어(간체) 글꼴은 한국어 글꼴에 없는 글자를 채운다. */
   font-family: Pretendard, "Apple SD Gothic Neo", "Malgun Gothic", "맑은 고딕", "Noto Sans KR", "Microsoft YaHei", "PingFang SC", "Noto Sans SC", system-ui, sans-serif;
@@ -237,20 +240,30 @@ h1, h2, h3, p { margin-top: 0; }
   border-top: 1px solid var(--line);
   background: var(--white);
 }
+/* 말풍선은 패널과 다른 물건으로 보이게 크림 바탕, 남색 1.5px 선, 흐림 없는 그림자를 쓴다(#128). */
 .pet-says {
   position: relative;
   flex: 1;
   min-width: 0;
+  max-width: 22em;
   margin: 0;
   padding: 7px 12px;
-  border: 1px solid var(--edge);
+  border: 1.5px solid var(--navy);
   border-radius: 12px;
-  background: var(--white);
-  color: var(--ink);
+  background: var(--pet-bubble);
+  box-shadow: 3px 3px 0 var(--navy);
+  color: var(--navy);
   font-size: .88rem;
+  font-weight: 600;
   line-height: 1.45;
   word-break: keep-all;
 }
+@media (prefers-color-scheme: dark) {
+  :root { --pet-bubble: var(--pet-bubble-dark); }
+}
+/* 꼬리는 #pet-line 밖의 장식 그림 한 장이다. 채움이 말풍선 아래 선 1.5px를 덮고 양 빗변만 선을 그어 외곽선이 끊기지 않는다. */
+.pet-tail-fill { fill: var(--pet-bubble); }
+.pet-tail-line { fill: none; stroke: var(--navy); stroke-width: 1.5px; stroke-linejoin: round; }
 .pet-dots { display: inline-flex; gap: 4px; margin-left: 4px; vertical-align: middle; }
 .pet-dots span {
   width: 6px;
@@ -755,8 +768,32 @@ body { background: var(--navy); isolation: isolate; }
 .campus-backdrop { position: fixed; inset: 0; z-index: -1; background: var(--navy) url("/chat-assets/campus-aerial.jpg") center / cover no-repeat; }
 #campus-canvas { display: block; width: 100%; height: 100%; }
 .campus-overlay { position: absolute; inset: 0; pointer-events: none; background: radial-gradient(120% 90% at 18% 20%, var(--overlay-sky), transparent 60%), linear-gradient(180deg, var(--overlay-top) 0%, var(--overlay-mid) 42%, var(--overlay-bottom) 100%); }
-.campus-caption { position: absolute; left: 28px; bottom: 22px; color: var(--white); text-shadow: 0 2px 18px var(--shadow-text); font-size: .82rem; }
+/* 캡션은 배경 묶음 밖의 고정 줄이다(#128). 사진 이름·진행 표시는 장식이라 누름을 통과시키고, 일시정지 버튼만 누름을 받는다.
+   z-index 21은 옮겨 놓은 테크모(20) 위라, 테크모를 버튼 자리에 놓아도 버튼을 누를 수 있다. 대화 메뉴(30)·확인 창(40)보다는 아래다.
+   대화 목록 서랍(11)·가림막(10)과 답변 도착 알림(12)보다는 위라서, 아래 규칙이 그 둘이 떠 있는 동안 캡션을 숨긴다. */
+.campus-caption { position: fixed; left: 28px; bottom: 22px; z-index: 21; display: flex; align-items: center; gap: 12px; pointer-events: none; color: var(--white); text-shadow: 0 2px 18px var(--shadow-text); font-size: .82rem; }
 #campus-progress { display: flex; gap: 5px; margin-top: 8px; }
+/* 배경 움직임 일시정지(WCAG 2.2.2). 불투명 남색 판과 흰 선이라 어떤 사진 위에서도 버튼 경계가 보인다.
+   이름은 고정이고 멈춘 상태는 aria-pressed로 알린다. 아이콘만 그 값에 따라 일시정지 ↔ 재생으로 바뀐다. */
+#campus-motion-toggle { display: inline-grid; place-items: center; flex: none; width: 44px; height: 44px; min-width: 44px; min-height: 44px; padding: 0; border: 1.5px solid var(--white); border-radius: 50%; background: var(--navy); color: var(--white); pointer-events: auto; text-shadow: none; }
+#campus-motion-toggle:hover { background: var(--blue); }
+#campus-motion-toggle:focus-visible { outline: 2px solid var(--white); outline-offset: 2px; box-shadow: 0 0 0 6px var(--navy); }
+.motion-icon { width: 18px; height: 18px; fill: currentColor; }
+.motion-icon-play, #campus-motion-toggle[aria-pressed="true"] .motion-icon-pause { display: none; }
+#campus-motion-toggle[aria-pressed="true"] .motion-icon-play { display: block; }
+/* 채팅 화면은 왼쪽 아래가 대화 목록, 오른쪽 아래가 테크모와 입력창이라 버튼만 머리글 바로 아래 오른쪽에 둔다.
+   넓은 화면에서 이 자리는 테크모 몫으로 비워 둔 오른쪽 여백의 위쪽 끝이다. */
+body[data-view="chat"] .campus-caption { top: calc(var(--chat-header-height) + 12px); right: 12px; bottom: auto; left: auto; }
+body[data-view="chat"] .campus-caption > :not(#campus-motion-toggle) { display: none; }
+/* 대화 목록 서랍이 열려 있거나 답변 도착 알림이 떠 있는 동안에는 캡션을 감춘다. visibility: hidden은 그림뿐 아니라
+   키보드 초점과 화면 낭독기에서도 버튼을 빼므로, 서랍 가림막 뒤의 버튼으로 초점이 새지 않는다. 닫히면 그대로 돌아온다. */
+body[data-conversation-drawer="open"] .campus-caption, body:has(#conversation-toast:not([hidden])) .campus-caption { visibility: hidden; }
+/* 960px 이하는 화면 아래쪽 전체가 펫 줄이고(680px 이하 96px, 그 위 184px) 채팅 화면은 그 바로 위가 입력창이다.
+   그래서 모든 화면에서 버튼만 머리글 아래 오른쪽에 둔다. 로그인 화면에서는 오른쪽 위 언어 알약 바로 아래다. */
+@media (max-width: 960px) {
+  .campus-caption { top: calc(var(--chat-header-height) + 12px); right: 12px; bottom: auto; left: auto; }
+  .campus-caption > :not(#campus-motion-toggle) { display: none; }
+}
 [data-campus-step] { width: 22px; height: 3px; background: var(--glass-edge); }
 [data-campus-step][data-current="true"] { background: var(--yellow); }
 .login-screen { width: min(1180px, calc(100% - 64px)); min-height: 100dvh; margin-inline: auto; padding-block: 104px 66px; display: grid; grid-template-columns: minmax(0, 1fr) 440px; align-items: center; gap: 56px; }
@@ -839,7 +876,6 @@ button.card:hover:not([data-restored]) { border-color: var(--focus-ink); backgro
   .login-card { padding: 26px 22px 22px; }
   .login-pet { right: 0; }
   #login-pet-line { max-width: 210px; padding: 8px 10px; font-size: .76rem; }
-  .campus-caption { left: 16px; bottom: 14px; }
 }
 @media (max-width: 390px) {
   .title-lettering { width: 78vw; }
@@ -873,8 +909,7 @@ button.card:hover:not([data-restored]) { border-color: var(--focus-ink); backgro
 .composer .photo-note, .attach-row label, .attach-row input { color: var(--ink); }
 .composer textarea { background: var(--white); color-scheme: light; border-color: var(--blue); }
 .attach-clear { color: var(--link-ink); }
-.reply, .question, .evidence, .biskit .program, .poster-result, .reading, .fallback, .pet-says, .pet-says::after { color: var(--ink); border-color: var(--line); }
-.pet-says, .pet-says::after { background: var(--glass-dense); }
+.reply, .question, .evidence, .biskit .program, .poster-result, .reading, .fallback { color: var(--ink); border-color: var(--line); }
 /* 말풍선은 큰 면 위의 반투명 판이고, 그 안의 상자는 옅은 덧판만 깐다. */
 .reply, .question { background: var(--main-bubble); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); }
 .evidence, .biskit .program, .poster-result, .reading, .fallback { background: var(--main-inset); }
@@ -1161,28 +1196,56 @@ body[data-techmo-dragging="true"] { user-select: none; }
   left: var(--techmo-bubble-x);
   top: var(--techmo-bubble-y);
   width: var(--techmo-bubble-width);
-  max-width: calc(100vw - 16px);
+  max-width: min(22em, calc(100vw - 16px));
   text-align: left;
   overflow-wrap: anywhere;
 }
-/* 꼬리 끝은 상자에서 정확히 10px 떨어지고 바깥 삼각형이 테두리를 맡는다. */
-.pet-dock .pet-says::before, .pet-dock .pet-says::after {
+/* 꼬리 그림은 높이 12px이다. 위쪽 1.5px가 말풍선 아래 선을 덮고, 끝은 상자 바깥 선에서 정확히 10px 떨어진다.
+   chat.js가 주는 --techmo-bubble-tail-x는 상자 바깥 왼쪽 기준이라 선 두께 1.5px를 빼서 안쪽 기준으로 옮긴다.
+   말풍선이 펫 아래에 오면 같은 그림을 위아래로 뒤집어 상자 위쪽에 붙인다. */
+.pet-dock .pet-tail {
+  position: absolute;
+  left: calc(var(--techmo-bubble-tail-x) - 1.5px);
+  top: 100%;
+  display: block;
+  width: 20px;
+  height: 12px;
+  overflow: hidden;
+  pointer-events: none;
+  transform: translateX(-50%);
+}
+.pet-dock[data-bubble-below="true"] .pet-tail { top: auto; bottom: 100%; transform: translateX(-50%) scaleY(-1); }
+/* 나타날 때 꼬리 끝을 기준으로 .92에서 1로 커진다. chat.js가 data-bubble-visible을 "true"로 바꾸는 순간 애니메이션 이름이 생겨 한 번 돈다.
+   넓은 화면은 처음 그릴 때, 680px 이하는 말풍선을 다시 띄울 때마다다.
+   chat.js는 언제든(문구 변경·창 크기 변경·그림 로드) getBoundingClientRect로 .pet-says 높이를 재서 자리를 잡는다.
+   이 값은 그 요소와 조상의 transform만 반영하고 자식의 transform은 반영하지 않는다. 그래서 .pet-says 자신은 변형하지 않는다.
+   크림 판·선·그림자는 자식 층(::before)이 그리고 그 층만 커진다. 글자·점·꼬리는 판이 거의 다 커진 뒤 나타난다.
+   판은 선 두께만큼 바깥으로 넓혀(inset -1.5px) 예전 상자의 바깥 모서리와 같은 자리에 놓인다. */
+.pet-dock .pet-says { border-color: transparent; background: transparent; box-shadow: none; }
+.pet-dock .pet-says::before {
   content: "";
   position: absolute;
-  left: calc(var(--techmo-bubble-tail-x) - 1px);
-  right: auto;
-  top: auto;
-  width: 0;
-  height: 0;
-  margin: 0;
-  background: transparent;
-  transform: translateX(-50%);
-  border-style: solid;
+  inset: -1.5px;
+  z-index: -1;
+  border: 1.5px solid var(--navy);
+  border-radius: 12px;
+  background: var(--pet-bubble);
+  box-shadow: 3px 3px 0 var(--navy);
+  pointer-events: none;
+  transform-origin: var(--techmo-bubble-tail-x) calc(100% + 10px);
 }
-.pet-dock .pet-says::before { bottom: -11px; border-width: 10px 10px 0; border-color: var(--line) transparent transparent; }
-.pet-dock .pet-says::after { bottom: -10px; border-width: 10px 9px 0; border-color: var(--glass-dense) transparent transparent; }
-.pet-dock[data-bubble-below="true"] .pet-says::before { top: -11px; bottom: auto; border-width: 0 10px 10px; border-color: transparent transparent var(--line); }
-.pet-dock[data-bubble-below="true"] .pet-says::after { top: -10px; bottom: auto; border-width: 0 9px 10px; border-color: transparent transparent var(--glass-dense); }
+.pet-dock[data-bubble-below="true"] .pet-says::before { transform-origin: var(--techmo-bubble-tail-x) -10px; }
+.pet-dock[data-bubble-visible="true"] .pet-says::before { animation: pet-says-grow .2s ease-out; }
+.pet-dock[data-bubble-visible="true"] .pet-says > * { animation: pet-says-fade .2s ease-out; }
+@keyframes pet-says-grow {
+  from { opacity: 0; transform: scale(.92); }
+  to { opacity: 1; transform: scale(1); }
+}
+@keyframes pet-says-fade {
+  0%, 40% { opacity: 0; }
+  100% { opacity: 1; }
+}
+/* 움직임 줄이기에서는 이 커짐을 끈다. 끄는 규칙은 아래 프레임 재생과 같은 움직임 줄이기 묶음에 둔다. */
 @media (max-width: 680px) {
   .pet-dock .pet-says, .login-pet #login-pet-line { visibility: hidden; }
   .pet-dock[data-bubble-visible="true"] .pet-says,
@@ -1223,6 +1286,7 @@ body[data-techmo-dragging="true"] { user-select: none; }
 }
 @media (prefers-reduced-motion: reduce) {
   :is(.pet-dock, .login-pet)[data-sprite-layout="animated"] .pet-frame { animation: none !important; background-position: 0 var(--techmo-row); }
+  .pet-dock .pet-says::before, .pet-dock[data-bubble-visible="true"] .pet-says::before, .pet-dock[data-bubble-visible="true"] .pet-says > * { animation: none !important; }
 }
 
 /* 대화 메뉴와 삭제 확인 창은 chat.js가 body 끝에 한 번 만들어 다시 쓴다. 서랍(11)과 테크모(20) 위에 뜬다.

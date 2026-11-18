@@ -190,7 +190,7 @@ test("남색 유리의 양 끝과 밝고 어두운 사진 양쪽에서 글자 �
 });
 
 test("테두리와 초점은 유리 안쪽 바탕과 3 이상이고 밝은 입력창은 안쪽 경계를 보강한다", () => {
-  const selectors=[".login-card",".card","button.card:hover:not([data-restored])",".feature-panel","#demo-student-list button","#demo-student-list button:hover","#login-form input","#login-form input:focus",".reset",".login",".panel-close",".login-submit",".primary",".primary:not(:disabled):hover",".login-safety",".attach-button","textarea",".composer textarea",".composer textarea:hover",".mode-pill",".choice-menu"];
+  const selectors=[".login-card",".card","button.card:hover:not([data-restored])",".feature-panel","#demo-student-list button","#demo-student-list button:hover","#login-form input","#login-form input:focus",".reset",".login",".panel-close",".login-submit",".primary",".primary:not(:disabled):hover",".login-safety",".attach-button","textarea",".composer textarea",".composer textarea:hover",".mode-pill",".choice-menu",".pet-says","#campus-motion-toggle"];
   const failures=[];
   for(const photo of [[4,20,38],[255,255,255]]) for(const selector of selectors) for(const back of fills(selector,photo)) {
     const edge=colors(declared(selector,["border","border-color"]))[0]; const ratio=contrast(blend(edge,back),back);
@@ -265,10 +265,46 @@ test("내용 구분선과 상태색은 지정 변수를 사용하고 글 상자�
     }
   }
   // 작은 상태 상자와 입력칸, 사진 바로 위의 안내 줄은 진한 면을 유지한다.
-  for (const selector of [".error", ".poster-result.unconfirmed", ".card.soon", "textarea", ".pet-says", ".composer-meta"]) {
+  for (const selector of [".error", ".poster-result.unconfirmed", ".card.soon", "textarea", ".composer-meta"]) {
     for (const color of colors(declared(selector, ["background", "background-color"]))) {
       assert.ok(dark(color) && color[3] >= .80, selector);
     }
+  }
+  // 테크모 말풍선은 패널과 나눈 불투명 크림 면이고(#128), 일시정지 버튼은 불투명 남색 면이다.
+  assert.equal(declared(".pet-says", ["background"]), "var(--pet-bubble)");
+  assert.deepEqual(colors("var(--pet-bubble)"), [[255, 246, 214, 1]]);
+  assert.equal(declared("#campus-motion-toggle", ["background"]), "var(--navy)");
+});
+
+test("말풍선 글자는 라이트·다크 크림 모두에서, 일시정지 버튼과 초점 고리는 어떤 사진 위에서도 대비를 지킨다", () => {
+  const navy = colors("var(--navy)")[0];
+  for (const cream of [colors("var(--pet-bubble)")[0], colors("var(--pet-bubble-dark)")[0]]) {
+    assert.ok(contrast(navy.slice(0, 3), cream.slice(0, 3)) >= 4.5);
+    // 남색 선과 그림자도 크림 바탕과 3:1 이상이다.
+    assert.ok(contrast(navy.slice(0, 3), cream.slice(0, 3)) >= 3);
+  }
+  checkText([["#campus-motion-toggle", "#campus-motion-toggle"], ["#campus-motion-toggle", "#campus-motion-toggle:hover"]]);
+  // 펫 줄 말풍선은 상자 자신을 투명하게 두고 자식 층(::before)이 같은 크림 판·남색 선을 그린다.
+  assert.equal(declared(".pet-dock .pet-says::before", ["background"]), "var(--pet-bubble)");
+  checkText([[".pet-says", ".pet-dock .pet-says::before"]]);
+  const plateEdge = colors(declared(".pet-dock .pet-says::before", ["border"]))[0];
+  for (const cream of [colors("var(--pet-bubble)")[0], colors("var(--pet-bubble-dark)")[0]]) {
+    assert.ok(contrast(plateEdge.slice(0, 3), cream.slice(0, 3)) >= 3);
+  }
+  // 초점 고리는 흰 2px 실선이고 그 뒤에 남색 띠를 깔아 밝은 사진에서도 3:1을 넘는다.
+  assert.equal(declared("#campus-motion-toggle:focus-visible", ["outline"]), "2px solid var(--white)");
+  assert.equal(declared("#campus-motion-toggle:focus-visible", ["box-shadow"]), "0 0 0 6px var(--navy)");
+  assert.ok(contrast([255, 255, 255], navy.slice(0, 3)) >= 3);
+  for (const name of ["width", "height", "min-width", "min-height"]) assert.equal(declared("#campus-motion-toggle", [name]), "44px", name);
+  assert.equal(declared("#campus-motion-toggle", ["pointer-events"]), "auto");
+  assert.equal(declared(".campus-caption", ["pointer-events"]), "none");
+  // 옮겨 놓은 테크모(20)가 버튼을 덮지 않고, 대화 메뉴(30)·확인 창(40)보다는 아래다.
+  const layer = selector => Number(declared(selector, ["z-index"]));
+  assert.ok(layer(".campus-caption") > layer('.pet-dock[data-placed="true"]'));
+  assert.ok(layer(".campus-caption") < layer(".conversation-menu"));
+  // 서랍과 답변 도착 알림이 떠 있는 동안에는 그림·초점·낭독에서 모두 빠진다.
+  for (const selector of ['body[data-conversation-drawer="open"] .campus-caption', "body:has(#conversation-toast:not([hidden])) .campus-caption"]) {
+    assert.equal(declared(selector, ["visibility"]), "hidden", selector);
   }
 });
 
@@ -491,7 +527,7 @@ test("전체 CSS에서 남은 밝은 바탕은 입력 줄과 상태 표시이며
   assert.deepEqual(lightSurfaces, [
     ".attach-button:hover", ".composer textarea", ".composer-row",
     ".composer-row.is-deep-enter::after", ".composer-row.is-deep::before", ".conversation-unread", ".intro-badge::before",
-    ".login-safety::before", ".mode-pill.is-flowing::after", ".mode-pill:hover", '.mode-pill[data-mode="deep"]', ".mode-spark", ".pet-dots span", '[data-campus-step][data-current="true"]',
+    ".login-safety::before", ".mode-pill.is-flowing::after", ".mode-pill:hover", '.mode-pill[data-mode="deep"]', ".mode-spark", ".pet-dock .pet-says::before", ".pet-dots span", ".pet-says", '[data-campus-step][data-current="true"]',
   ]);
   checkText([
     [".composer-row", ".composer-row"], [".composer textarea", ".composer textarea"],
