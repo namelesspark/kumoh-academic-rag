@@ -178,7 +178,8 @@ function loadPad({ language, pixelRatio = 2, blobSize = pngBytes.length } = {}) 
 
   const canvasRect = { left: 100, top: 400, right: 700, bottom: 600, width: 600, height: 200 };
   get("#handwriting-canvas").getBoundingClientRect = () => canvasRect;
-  get(".composer-row").getBoundingClientRect = () => ({ left: 100, top: 650, right: 700, bottom: 710, width: 600, height: 60 });
+  const rowRect = { left: 100, top: 650, right: 700, bottom: 710, width: 600, height: 60 };
+  get(".composer-row").getBoundingClientRect = () => ({ ...rowRect });
   get("#handwriting-pad").getBoundingClientRect = () => ({ left: 100, top: 322, right: 700, bottom: 642, width: 600, height: 320 });
   get("#handwriting-pad").hidden = true;
   const input = get("#question");
@@ -267,6 +268,9 @@ function loadPad({ language, pixelRatio = 2, blobSize = pngBytes.length } = {}) 
     return event;
   };
   page.get = get;
+  page.rowRect = rowRect;
+  // 문서가 스크롤됐다는 신호를 보낸다.
+  page.scroll = () => { for (const each of documentListeners) if (each.type === "scroll") each.listener({ type: "scroll" }); };
   page.systemThemeChanged = () => {
     for (const each of mediaListeners) if (each.query.includes("prefers-color-scheme") && each.type === "change") each.listener({});
   };
@@ -588,6 +592,55 @@ test("고른 글자와 같은 말을 앞에 새로 써도 원래 범위 쪽(앞�
   page.insert.click();
   await settle();
   assert.equal(page.input.value, "A middle A fake Z");
+});
+
+test("커서 앞 말과 같은 말을 맨 앞에 새로 붙여도 원래 커서 쪽(뒤 글자까지 이어지는 곳)에 넣는다", async () => {
+  const page = loadPad();
+  page.input.value = "A cat B";
+  page.input.selectionStart = page.input.selectionEnd = 5;
+  page.button.click();
+  page.input.value = "A cat A cat B";
+  page.input.selectionStart = page.input.selectionEnd = 0;
+  page.stroke([10, 10], [60, 60]);
+  page.respond(ok("fake"));
+  page.insert.click();
+  await settle();
+  assert.equal(page.input.value, "A cat A catfake B");
+});
+
+test("넓은 화면에서 문서가 스크롤되면 패드를 입력 줄 바로 위로 다시 옮기고, 화면 밖으로 내보내지 않는다", () => {
+  const page = loadPad();
+  page.button.click();
+  assert.equal(page.pad.style.properties.get("--handwriting-bottom"), "158px");
+  // 80px 아래로 스크롤하면 입력 줄이 위로 올라간다(800 - 570 + 8).
+  Object.assign(page.rowRect, { top: 570, bottom: 630 });
+  page.scroll();
+  assert.equal(page.pad.style.properties.get("--handwriting-bottom"), "238px");
+  // 입력 줄이 화면 위로 사라져도 패드 위쪽 끝은 화면 안(8px)에 남는다: 800 - 320 - 8 = 472.
+  Object.assign(page.rowRect, { top: -200, bottom: -140 });
+  page.scroll();
+  assert.equal(page.pad.style.properties.get("--handwriting-bottom"), "472px");
+});
+
+test("패드를 연 채 사진을 붙여 보내 새 대화로 바뀌면 패드를 닫아, 이전 대화의 획이 새 질문 칸에 들어가지 않는다", async () => {
+  const page = loadPad();
+  page.routes.length = 0;
+  // 먼저 글 질문 하나로 채팅 화면과 대화를 만든다. 채팅 요청은 가짜 서버가 거절한다.
+  page.input.value = "가상 첫 질문";
+  page.get("#composer").fire("submit");
+  await settle();
+  page.button.click();
+  page.stroke([10, 10], [60, 60]);
+  assert.equal(page.pad.hidden, false);
+  // 같은 채팅 화면에서 사진을 붙여 보내면 새 사진 대화가 된다.
+  page.get("#photo-file").files = [new File([pngBytes], "가상.png", { type: "image/png" })];
+  page.input.value = "가상 사진 질문";
+  page.get("#composer").fire("submit");
+  assert.equal(page.pad.hidden, true);
+  await settle();
+  page.button.click();
+  assert.equal(page.insert.disabled, true, "the reopened pad starts empty");
+  assert.equal(page.requests.filter(request => request.path === handwritingPath).length, 0);
 });
 
 test("커서만 두고 연 뒤 앞뒤를 고치면 커서 바로 앞 글자 묶음 뒤에 넣는다", async () => {

@@ -2900,6 +2900,8 @@ composer.addEventListener("submit", event => {
   }
 
   if (!activeConversation || Boolean(activeConversation.photo) !== Boolean(file) || !requestedChatView) {
+    // 보내면서 새 대화로 바뀌면 이전 대화에서 연 필기 패드는 닫는다(#134).
+    if (typeof closeHandwritingPad === "function") closeHandwritingPad(false);
     activeConversation = { id: `conversation-${Date.now()}-${++conversationSequence}`, time: Date.now(),
       title: Array.from(question).slice(0, 29).join(""), messages: [], turns: [], photo: Boolean(file), unread: false };
     conversations.unshift(activeConversation);
@@ -3110,7 +3112,7 @@ function setupHandwriting() {
   const button = find("button"), pad = find("pad"), canvas = find("canvas"), status = find("status");
   const undo = find("undo"), clear = find("clear"), cancel = find("cancel"), insert = find("insert");
   if (![button, pad, canvas, status, undo, clear, cancel, insert].every(node => typeof node?.addEventListener === "function")) return;
-  let opened = false, strokes = [], penSeen = false, reading = null, session = 0, selection = null, context = null, box = null, origin = null, ink = null;
+  let opened = false, strokes = [], penSeen = false, reading = null, session = 0, selection = null, context = null, box = null, origin = null, ink = null, owner = null;
   const active = new Map();
   function controls() {
     const blank = strokes.length === 0, waiting = Boolean(reading);
@@ -3164,7 +3166,9 @@ function setupHandwriting() {
     pad.style?.setProperty("--handwriting-x", `${Math.max(8, row.left)}px`);
     pad.style?.setProperty("--handwriting-width", `${row.width}px`);
     const own = pad.getBoundingClientRect?.().height || 0;
-    const bottom = row.top - 8 >= own + 8 ? height - row.top + 8 : Math.max(8, height - row.bottom - 8 - own);
+    const wanted = row.top - 8 >= own + 8 ? height - row.top + 8 : height - row.bottom - 8 - own;
+    // 입력 줄이 스크롤로 화면 밖에 나가도 패드는 화면 안(위아래 8px)에 남긴다.
+    const bottom = Math.max(8, Math.min(wanted, height - own - 8));
     pad.style?.setProperty("--handwriting-bottom", `${bottom}px`);
   }
   function openPad() {
@@ -3172,6 +3176,8 @@ function setupHandwriting() {
     opened = true; session++;
     strokes = []; active.clear(); penSeen = false; reading = null; box = null;
     selection = caret();
+    // 패드는 연 순간의 계정·대화에 묶인다. 그 뒤 대화가 바뀌면(사진을 붙여 새 대화로 보낸 경우 등) 넣기 전에 버린다.
+    owner = { account: historyAccount, conversation: activeConversation };
     pad.hidden = false;
     button.setAttribute("aria-expanded", "true");
     show("");
@@ -3199,43 +3205,31 @@ function setupHandwriting() {
     return { start, end, value: input.value };
   }
   // 패드를 연 사이 질문 칸의 글이 바뀌었으면 열기 전 자리를 새 글 위에서 다시 찾는다. 지금 커서는 쓰지 않는다.
-  // 1) 고른 글자가 있으면 새 글에서 같은 글자를 찾는다(원래 자리에 가장 가까운 곳). 양끝을 함께 고쳐도 범위가 남는다.
-  // 2) 커서만 있었으면 커서 바로 앞 글자 묶음(최대 16자, 없으면 바로 뒤 묶음)을 찾아 그 옆에 둔다.
-  // 3) 둘 다 못 찾으면 앞뒤 공통 부분으로 바뀐 구간을 정해, 앞쪽 자리는 그대로·뒤쪽은 길이 차만큼 밀고·구간 안은 구간 끝으로 보낸다.
-  function nearestIndex(text, needle, guess) {
-    let best = -1;
-    for (let at = text.indexOf(needle); at >= 0; at = text.indexOf(needle, at + 1)) {
-      if (best < 0 || Math.abs(at - guess) < Math.abs(best - guess)) best = at;
-    }
-    return best;
-  }
+  // 후보 자리마다 "열기 전 범위 바로 앞 글자(32자까지)가 후보 앞과 얼마나 이어지는가 + 바로 뒤 글자가 후보 뒤와 얼마나 이어지는가"를 센다.
+  // 고른 글자가 있으면 같은 글자가 나오는 곳만, 커서만 있었으면 모든 자리가 후보다. 가장 많이 이어지는 곳을 고르고, 같으면 원래 자리에 가까운 곳이다.
+  // 그래서 양끝을 고치거나 같은 말을 앞에 새로 붙여도 원래 범위 쪽을 찾는다. 이어지는 글자가 하나도 없을 때만 아래 공통 부분 방식으로 옮긴다.
   function savedRange() {
     const before = selection?.value ?? input.value, after = input.value;
     const start = Math.min(selection?.start ?? after.length, before.length);
     const end = Math.min(Math.max(selection?.end ?? start, start), before.length);
     if (before === after) return { start, end };
     const picked = before.slice(start, end);
-    if (picked) {
-      // 같은 글자가 여러 번 나오면, 고른 범위 앞뒤 글자(각 32자까지)가 가장 많이 이어지는 곳을 고른다. 같으면 원래 자리에 가까운 곳이다.
-      const left = before.slice(Math.max(0, start - 32), start), right = before.slice(end, end + 32);
-      const sameEnd = (a, b) => { let n = 0; while (n < a.length && n < b.length && a[a.length - 1 - n] === b[b.length - 1 - n]) n++; return n; };
-      const sameStart = (a, b) => { let n = 0; while (n < a.length && n < b.length && a[n] === b[n]) n++; return n; };
-      let best = -1, bestScore = -1;
+    const left = before.slice(Math.max(0, start - 32), start), right = before.slice(end, end + 32);
+    const sameEnd = (a, b) => { let n = 0; while (n < a.length && n < b.length && a[a.length - 1 - n] === b[b.length - 1 - n]) n++; return n; };
+    const sameStart = (a, b) => { let n = 0; while (n < a.length && n < b.length && a[n] === b[n]) n++; return n; };
+    let best = -1, bestScore = 0;
+    for (let at = 0; at + picked.length <= after.length; at++) {
+      if (picked && !after.startsWith(picked, at)) continue;
+      const score = sameEnd(left, after.slice(Math.max(0, at - 32), at)) + sameStart(right, after.slice(at + picked.length, at + picked.length + 32));
+      if (score > bestScore || (score === bestScore && best >= 0 && Math.abs(at - start) < Math.abs(best - start))) { best = at; bestScore = score; }
+    }
+    // 고른 글자는 찾았는데 앞뒤가 하나도 안 이어지면, 같은 글자 가운데 원래 자리에 가까운 곳을 쓴다.
+    if (best < 0 && picked) {
       for (let at = after.indexOf(picked); at >= 0; at = after.indexOf(picked, at + 1)) {
-        const score = sameEnd(left, after.slice(Math.max(0, at - 32), at)) + sameStart(right, after.slice(at + picked.length, at + picked.length + 32));
-        if (score > bestScore || (score === bestScore && Math.abs(at - start) < Math.abs(best - start))) { best = at; bestScore = score; }
-      }
-      if (best >= 0) return { start: best, end: best + picked.length };
-    } else {
-      for (let size = Math.min(16, start); size > 0; size--) {
-        const at = nearestIndex(after, before.slice(start - size, start), start - size);
-        if (at >= 0) return { start: at + size, end: at + size };
-      }
-      for (let size = Math.min(16, before.length - end); size > 0; size--) {
-        const at = nearestIndex(after, before.slice(end, end + size), end);
-        if (at >= 0) return { start: at, end: at };
+        if (best < 0 || Math.abs(at - start) < Math.abs(best - start)) best = at;
       }
     }
+    if (best >= 0) return { start: best, end: best + picked.length };
     let prefix = 0;
     while (prefix < before.length && prefix < after.length && before[prefix] === after[prefix]) prefix++;
     let suffix = 0;
@@ -3268,15 +3262,16 @@ function setupHandwriting() {
       show(handwritingMessages.unreadable, true);
       return;
     }
-    // 패드를 닫으면 회차가 달라져 늦은 응답을 버린다. 계정이나 보고 있는 대화가 바뀌었는데 패드가 남아 있으면
-    // 그때 닫고 버린다. 그래서 인식 글자는 넣기를 누른 그 대화의 질문 칸에만 들어간다.
-    const ticket = session, account = historyAccount, conversation = activeConversation;
+    // 패드를 닫으면 회차가 달라져 늦은 응답을 버린다. 패드를 연 계정이나 대화에서 벗어났는데 패드가 남아 있으면
+    // 그때 닫고 버린다. 그래서 인식 글자는 패드를 연 그 대화의 질문 칸에만 들어간다.
+    const ticket = session;
     const stale = () => {
       if (ticket !== session) return true;
-      if (account === historyAccount && conversation === activeConversation) return false;
+      if (owner?.account === historyAccount && owner?.conversation === activeConversation) return false;
       closePad(false);
       return true;
     };
+    if (stale()) return;
     const controller = new AbortController();
     reading = controller;
     let timedOut = false, message = null, text = "";
@@ -3406,6 +3401,9 @@ function setupHandwriting() {
     event.preventDefault?.(); canvas.focus();
   });
   button.addEventListener("click", openPad);
+  // 넓은 화면의 패드는 화면에 고정돼 있어, 문서나 안쪽 칸이 스크롤되면 입력 줄 바로 위로 다시 옮긴다.
+  // 캡처 단계로 들어 안쪽 칸의 스크롤도 받는다. 좁은 화면 시트는 CSS가 화면 아래에 두므로 좌표 변수가 쓰이지 않는다.
+  document.addEventListener?.("scroll", () => { if (opened) place(); }, { capture: true, passive: true });
   refreshHandwritingPad.run = () => { if (opened) { place(); prepare(); } };
   closeHandwritingPad.run = closePad;
   redrawHandwritingPad.run = () => { if (opened) redraw(); };
