@@ -3160,14 +3160,14 @@ function setupHandwriting() {
   // 획은 기준 좌표(base)로 저장하고, 저장한 점은 바꾸지 않는다. 기준 칸은 이번 패드에서 본 가장 큰 칸 크기라 넓어지기만 한다.
   // 화면에 그릴 때만 배율(기준 칸이 지금 칸에 다 들어가는 비율, 1 이하)을 곱한다.
   // 그래서 600→400→600처럼 오가도 획은 처음 크기로 돌아오고, 400→600에서 오른쪽 끝에 쓴 점도 400으로 줄면 함께 줄어 보인다.
-  // 왕복할수록 작아지지 않는다. 칸 크기가 바뀌면 그리던 획은 끝낸다. 캔버스 화소는 보이는 크기 × 기기 화소 비율이다.
+  // 왕복할수록 작아지지 않는다. 캔버스 화소는 보이는 크기 × 기기 화소 비율이다.
+  // 칸 크기가 바뀌어도 그리던 획은 끝내지 않는다. 점이 기준 좌표라 그대로 이어지고,
+  // 그 뒤 브라우저가 포인터를 취소하면(pointercancel) 그 획을 찾아 버릴 수 있어야 하기 때문이다.
   function prepare() {
-    const before = box;
     box = canvas.getBoundingClientRect?.() ?? null;
     if (box?.width > 0 && box?.height > 0) {
       base = { width: Math.max(base?.width || 0, box.width), height: Math.max(base?.height || 0, box.height) };
     }
-    if (before && box && (before.width !== box.width || before.height !== box.height)) active.clear();
     scale = base && box?.width > 0 && box?.height > 0 ? Math.min(1, box.width / base.width, box.height / base.height) : 1;
     origin = box ? { left: box.left, top: box.top } : null;
     const ratio = window.devicePixelRatio || 1;
@@ -3272,15 +3272,24 @@ function setupHandwriting() {
   // 실행 취소·다시 실행은 브라우저가 알려 주는 입력 종류(inputType의 historyUndo·historyRedo)로만 알아본다.
   // 같은 글이 다시 나왔다는 것만으로 되돌리면, 앞에 A를 붙이고 끝의 A를 지운 보통 편집도 실행 취소로 잘못 본다.
   // 보통 편집 때마다 직전 범위를 실행 취소 목록에 쌓고(50개까지), 실행 취소는 거기서 꺼내 다시 실행 목록으로 옮긴다.
-  // 꺼낸 범위의 글이 지금 글과 다르면(브라우저가 여러 편집을 한 번에 되돌린 경우) 아래 보통 방식으로 옮긴다.
+  // 브라우저는 이어 친 삭제처럼 여러 편집을 한 번에 되돌리기도 하므로, 맨 위 하나가 아니라 지금 글과 같은 기록을
+  // 위에서부터 찾아 그 범위로 돌아간다. 건너뛴 중간 기록은 브라우저도 다시 실행으로 들르지 않으므로 버린다.
+  // 같은 글이 없으면 아래 보통 방식으로 옮긴다.
   function noteEdit(inputType) {
     if (!opened || !selection) return;
     const before = selection.value, after = input.value;
     if (before === after) return;
     const history = inputType === "historyUndo" ? [undoRanges, redoRanges] : inputType === "historyRedo" ? [redoRanges, undoRanges] : null;
     if (history) {
-      const saved = history[0].pop();
-      if (saved?.value === after) { history[1].push({ ...selection }); selection = { ...saved }; return; }
+      const [from, to] = history;
+      const index = from.map(entry => entry.value).lastIndexOf(after);
+      if (index >= 0) {
+        const saved = from[index];
+        from.length = index;
+        to.push({ ...selection });
+        selection = { ...saved };
+        return;
+      }
     }
     const caretAt = Number.isInteger(input.selectionEnd) ? Math.min(input.selectionEnd, after.length) : after.length;
     let suffix = 0;

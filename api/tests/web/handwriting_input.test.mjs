@@ -707,6 +707,24 @@ test("고른 글자를 지웠다가 실행 취소로 되살리면 원래 범위�
   assert.equal(page.input.value, "XXfake");
 });
 
+test("이어 친 두 번의 삭제를 한 번에 되돌려도 지우기 전 범위로 돌아온다", async () => {
+  const page = loadPad();
+  page.input.value = "ABCD";
+  // 「B」를 고른다.
+  page.input.selectionStart = 1; page.input.selectionEnd = 2;
+  page.button.click();
+  // C 뒤에서 Backspace를 두 번 눌러 C와 B를 지운다.
+  page.type("ABD", 2, "deleteContentBackward");
+  page.type("AD", 1, "deleteContentBackward");
+  // 브라우저가 두 삭제를 한 번에 되돌린다.
+  page.type("ABCD", 3, "historyUndo");
+  page.stroke([10, 10], [60, 60]);
+  page.respond(ok("fake"));
+  page.insert.click();
+  await settle();
+  assert.equal(page.input.value, "AfakeCD");
+});
+
 test("보통 편집으로 전에 본 글이 다시 나와도 실행 취소로 보지 않고 편집을 따라간다", async () => {
   const page = loadPad();
   page.input.value = "AA";
@@ -721,6 +739,22 @@ test("보통 편집으로 전에 본 글이 다시 나와도 실행 취소로 �
   page.insert.click();
   await settle();
   assert.equal(page.input.value, "Afake");
+});
+
+test("손가락으로 그리는 중 칸이 좁아진 뒤 포인터가 취소돼도 그 획을 버린다", () => {
+  const page = loadPad();
+  page.button.click();
+  page.pointer("pointerdown", { id: 2, kind: "touch", x: 20, y: 20 });
+  page.pointer("pointermove", { id: 2, kind: "touch", x: 80, y: 80 });
+  // 그리는 도중 칸이 600px에서 400px로 좁아진다(회전·창 크기 변화).
+  Object.assign(page.canvasRect, { width: 400, right: 500 });
+  page.resize();
+  page.pointer("pointercancel", { id: 2, kind: "touch", x: 80, y: 80 });
+  assert.equal(page.insert.disabled, true, "the cancelled finger stroke is gone");
+  page.stroke([100, 100], [160, 100], { id: 3, kind: "pen" });
+  page.undo.click();
+  assert.equal(page.insert.disabled, true);
+  assert.equal(page.undo.disabled, true);
 });
 
 test("브라우저가 취소한 포인터의 획은 버려, 되돌리기 한 번에 펜 획만 지워진다", () => {
