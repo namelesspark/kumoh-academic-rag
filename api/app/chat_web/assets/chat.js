@@ -11,6 +11,7 @@ const langChoices = [
 ];
 const uiText = {
   en: {
+    "배경 움직임 일시정지": "Pause background motion",
     "테크모": "Techmo",
     "아이오": "AIO",
     "금오공대 학사 행정 AI 아이오": "Kumoh Tech Academic AI · AIO",
@@ -202,6 +203,7 @@ const uiText = {
     "서버 안내의 형식이 맞지 않아요.": "The server's guide data is malformed.",
   },
   zh: {
+    "배경 움직임 일시정지": "暂停背景动画",
     "테크모": "Techmo",
     "아이오": "AIO",
     "금오공대 학사 행정 AI 아이오": "金乌工大学务 AI · AIO",
@@ -1846,8 +1848,7 @@ function dateNode(value, withYear) {
 function mileageText(program) {
   const points = program.mileage_points;
   if (program.mileage_status === "published" && Number.isInteger(points) && points > 0) return `마일리지 ${points}점`;
-  if (program.mileage_status === "announced") return "마일리지 지급 공지 · 정확한 점수 확인 필요";
-  return "마일리지 미공개";
+  return null;
 }
 
 function biskitProgram(program) {
@@ -1884,7 +1885,8 @@ function biskitProgram(program) {
     for (const check of checks) line.append(element("span", "badge needs-check", check));
     card.append(line);
   }
-  card.append(element("p", "mileage", mileageText(program)));
+  const mileage = mileageText(program);
+  if (mileage) card.append(element("p", "mileage", mileage));
 
   const links = element("div", "links");
   links.append(
@@ -1902,14 +1904,21 @@ function biskitProgram(program) {
 
 // 교내 비교과 시스템(BISKIT) 추천 영역. 고르고 줄 세우는 일은 서버가 끝냈으므로 받은 순서대로 그린다.
 // 값이 없거나 형식이 어긋나면 null을 돌려주어 추천 영역만 빠지고 졸업 표는 남는다.
-function biskitRecommendations(recommendation) {
+function biskitRecommendations(recommendation, items) {
   try {
     if (recommendation === null || typeof recommendation !== "object" || Array.isArray(recommendation)) return null;
     const shortfall = recommendation.shortfall_points;
     if (!Number.isInteger(shortfall) || shortfall < 1 || !Array.isArray(recommendation.programs)) return null;
 
     const section = element("section", "biskit");
-    section.append(element("h3", null, `BISKIT 추천 · ${shortfall}점 부족`));
+    const details = Array.isArray(items) ? items.find(item => item?.id === "extracurricular")?.details : null;
+    const row = Array.isArray(details) ? details.find(item => item?.id === "mileage") : null;
+    const points = value => typeof value === "string" && /^\d+점$/.test(value) && value.endsWith("점") ? Number(value.slice(0, -1)) : NaN;
+    const current = points(row?.current), required = points(row?.required);
+    const verified = Number.isSafeInteger(current) && Number.isSafeInteger(required) && required - current === shortfall;
+    section.append(element("h3", null, verified
+      ? `내 BISKIT ${current}/${required}점 · ${shortfall}점 부족`
+      : `BISKIT 추천 · ${shortfall}점 부족`));
 
     const listed = element("p", "source");
     const listedOn = shownText(recommendation.listed_on);
@@ -1972,7 +1981,7 @@ async function checkGraduation() {
     if (!current()) return;
     if (result?.profile?.id !== studentId) throw new Error("Student mismatch");
     reply.append(...graduationResult(result));
-    const recommendations = biskitRecommendations(result.biskit_recommendations);
+    const recommendations = biskitRecommendations(result.biskit_recommendations, result.items);
     if (recommendations) reply.append(recommendations);
     celebrate();
   } catch {
@@ -3360,6 +3369,16 @@ async function initializeCampusBackdrop() {
   const label = document.querySelector("#campus-name");
   const progressBar = document.querySelector("#campus-progress");
   let progressSteps = [];
+  const toggle = document.querySelector("#campus-motion-toggle");
+  const motionKey = "kumoh-campus-motion:v1";
+  let paused = false;
+  try { paused = window.localStorage?.getItem(motionKey) === "paused"; } catch {}
+  const renderToggle = () => {
+    toggle?.setAttribute("aria-pressed", String(paused));
+    toggle?.setAttribute("aria-label", t("배경 움직임 일시정지"));
+  };
+  renderToggle();
+  onLangChange(renderToggle);
   const fail = () => {
     stopped = true;
     if (frame !== null) window.cancelAnimationFrame?.(frame);
@@ -3378,19 +3397,19 @@ async function initializeCampusBackdrop() {
     if (!gl || !gl.getShaderPrecisionFormat(gl.FRAGMENT_SHADER, gl.HIGH_FLOAT)?.precision) return;
     const vertex = "attribute vec2 p; varying vec2 v; void main(){v=(p+1.0)*0.5;gl_Position=vec4(p,0.0,1.0);}";
     const fragment = `precision highp float;
-      varying vec2 v; uniform sampler2D a,b; uniform float mixv,t,aspect,imgAspect,panA,panB,still;
+      varying vec2 v; uniform sampler2D a,b; uniform float mixv,t,aspect,imgAspect,panA,panB,zoomA,zoomB,still;
       uniform vec3 drops[16];
-vec2 cover(vec2 uv, float pan){ float win=min(1.0,aspect/imgAspect)*0.94;
+vec2 cover(vec2 uv, float pan, float zoom){ uv=0.5+(uv-0.5)/zoom; float win=min(1.0,aspect/imgAspect)*0.94;
   float x=mix(0.5*win,1.0-0.5*win,pan)+(uv.x-0.5)*win; return vec2(x,0.5+(uv.y-0.5)*0.94); }
 void main(){ vec2 uv=v; vec2 off=vec2(0.0); float light=0.0;
   for(int i=0;i<16;i++){ float age=t-drops[i].z; if(age<0.0||age>1.8) continue;
     vec2 d=uv-drops[i].xy; d.x*=aspect; float r=length(d)+1e-4; float front=age*0.085;
     float env=exp(-age*2.2)*smoothstep(0.075,0.0,abs(r-front))*smoothstep(0.0,0.012,r);
-    float w=cos((r-front)*70.0)*env; off+=(d/r)*w*0.0075; light+=w; }
-  off+=still*0.0008*vec2(sin(uv.y*18.0+t*0.9),cos(uv.x*14.0-t*0.7));
+    float w=cos((r-front)*70.0)*env; off+=(d/r)*w*0.00375; light+=w; }
+  off+=still*0.0004*vec2(sin(uv.y*18.0+t*0.9),cos(uv.x*14.0-t*0.7));
   uv+=off; uv.y=1.0-uv.y;
-  vec3 c=mix(texture2D(a,cover(uv,panA)).rgb,texture2D(b,cover(uv,panB)).rgb,mixv);
-  c+=vec3(0.70,0.92,1.0)*max(light,0.0)*0.10; c-=vec3(0.08,0.06,0.03)*max(-light,0.0)*0.18;
+  vec3 c=mix(texture2D(a,cover(uv,panA,zoomA)).rgb,texture2D(b,cover(uv,panB,zoomB)).rgb,mixv);
+  c+=vec3(0.70,0.92,1.0)*max(light,0.0)*0.05; c-=vec3(0.08,0.06,0.03)*max(-light,0.0)*0.09;
   gl_FragColor=vec4(c,1.0); }`;
     const compile = (type, source) => {
       const shader = gl.createShader(type);
@@ -3415,11 +3434,13 @@ void main(){ vec2 uv=v; vec2 off=vec2(0.0); float light=0.0;
     ];
     const photoStates = photos.map(() => "pending");
     const skippedPending = new Set();
+    let shownPhoto = null;
     const readyIndices = () => photos.map((_, index) => index).filter(index => photoStates[index] === "ready");
     const refreshProgress = () => {
       progressSteps = readyIndices().map(index => {
         const step = document.createElement("span");
         step.setAttribute("data-campus-step", String(index));
+        step.setAttribute("data-current", String(index === shownPhoto));
         return { index, step };
       });
       progressBar?.replaceChildren(...progressSteps.map(({ step }) => step));
@@ -3436,14 +3457,14 @@ void main(){ vec2 uv=v; vec2 off=vec2(0.0); float light=0.0;
       }
       return null;
     };
-    const uniforms = Object.fromEntries(["a","b","mixv","t","aspect","imgAspect","panA","panB","still","drops[0]"].map(name=>[name,gl.getUniformLocation(program,name)]));
+    const uniforms = Object.fromEntries(["a","b","mixv","t","aspect","imgAspect","panA","panB","zoomA","zoomB","still","drops[0]"].map(name=>[name,gl.getUniformLocation(program,name)]));
     gl.uniform1i(uniforms.a,0); gl.uniform1i(uniforms.b,1);
     // 사진마다 1920×280인지 확인한 뒤에만 이 공통 비율로 그린다.
     gl.uniform1f(uniforms.imgAspect,1920/280); gl.uniform1f(uniforms.still,1);
     const drops = new Float32Array(48);
     for (let i=0;i<16;i++) drops[i*3+2]=-1000;
-    const HOLD = 9;
-    const FADE = 3.2;
+    const HOLD = 24;
+    const FADE = 6;
     const period = HOLD + FADE;
     const life = HOLD + 2 * FADE;
     const clamp = value => Math.max(0, Math.min(1, value));
@@ -3451,6 +3472,7 @@ void main(){ vec2 uv=v; vec2 off=vec2(0.0); float light=0.0;
       const progress = clamp(local / life);
       return number % 2 === 0 ? 0.28 + progress * 0.44 : 0.72 - progress * 0.44;
     };
+    const zoom = (number, local) => 1 + 0.05 * (number % 2 === 0 ? clamp(local / life) : 1 - clamp(local / life));
     let cycleNumber = 0;
     let photoNumber = 0;
     let appearedAt = -FADE;
@@ -3459,6 +3481,7 @@ void main(){ vec2 uv=v; vec2 off=vec2(0.0); float light=0.0;
     let fadeDecided = false;
     let singleStartedAt = null;
     let singlePhase = 0;
+    let singleZoomPhase = 0;
     let dropIndex = 0;
     let elapsed = 0;
     let previous = null;
@@ -3473,7 +3496,7 @@ void main(){ vec2 uv=v; vec2 off=vec2(0.0); float light=0.0;
       drops[index + 2] = elapsed;
     };
     const pointer = event => {
-      if (stopped || reducedMotion() || document.hidden) return;
+      if (stopped || paused || reducedMotion() || document.hidden) return;
       const tooSoon = elapsed * 1000 - lastPointer < 70;
       const tooClose = Math.hypot(event.clientX - lastX, event.clientY - lastY) < 26;
       if (event.type === "pointermove" && (tooSoon || tooClose)) return;
@@ -3490,8 +3513,8 @@ void main(){ vec2 uv=v; vec2 off=vec2(0.0); float light=0.0;
       frame=null;
       if (document.hidden) { previous=null; return; }
       if (reducedMotion()) { fail(); return; }
-      if (previous !== null) elapsed+=(timestamp-previous)/1000;
-      previous=timestamp;
+      if (!paused && previous !== null) elapsed+=(timestamp-previous)/1000;
+      previous=paused ? null : timestamp;
       while (automatic<3 && elapsed >= [0.3,0.9,1.5][automatic]) { drop([0.25,0.67,0.44][automatic],[0.65,0.42,0.25][automatic]); automatic++; }
       const ratio=Math.min(window.devicePixelRatio||1,1.5);
       const width=Math.max(1,Math.round(window.innerWidth*ratio)), height=Math.max(1,Math.round(window.innerHeight*ratio));
@@ -3521,32 +3544,63 @@ void main(){ vec2 uv=v; vec2 off=vec2(0.0); float light=0.0;
       gl.uniform1f(uniforms.t,elapsed);
       gl.uniform1f(uniforms.aspect,width/height);
       let currentPan = pan(photoNumber, elapsed - appearedAt);
+      let currentZoom = zoom(photoNumber, elapsed - appearedAt);
       // 늦게 도착한 사진이 있어도 현재 사진의 왕복 흐름은 전환이 끝날 때까지 이어 간다.
       if (singleStartedAt !== null || readyIndices().length === 1) {
         if (singleStartedAt === null) {
           singleStartedAt = elapsed;
+          singleZoomPhase = Math.acos(Math.max(-1, Math.min(1, 1 - 2 * (currentZoom - 1) / 0.05)));
           singlePhase = Math.acos(Math.max(-1, Math.min(1, (0.5 - currentPan) / 0.22)));
         }
         const local = (elapsed - singleStartedAt) / life;
         currentPan = 0.5 - 0.22 * Math.cos(singlePhase + local * Math.PI);
+        currentZoom = 1 + 0.025 * (1 - Math.cos(singleZoomPhase + local * Math.PI));
       }
       gl.uniform1f(uniforms.panA, currentPan);
+      gl.uniform1f(uniforms.zoomA, currentZoom);
+      gl.uniform1f(uniforms.zoomB, zoom(photoNumber + 1, phase - HOLD));
       gl.uniform1f(uniforms.panB, pan(photoNumber + 1, phase - HOLD));
       gl.uniform3fv(uniforms["drops[0]"],drops);
       gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D,textures[currentPhoto]);
       gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D,textures[fadingPhoto ?? currentPhoto]);
       gl.drawArrays(gl.TRIANGLES,0,6);
       const shownIndex = mix > 0.5 ? fadingPhoto : currentPhoto;
+      shownPhoto = shownIndex;
       if (label) label.textContent = photos[shownIndex][1];
       for (const { index, step } of progressSteps) step.setAttribute("data-current", String(index === shownIndex));
       if (caption) caption.hidden = false;
       canvas.hidden=false;
-      frame=window.requestAnimationFrame(draw);
+      if (!paused) frame=window.requestAnimationFrame(draw);
       } catch { fail(); }
     };
-    document.addEventListener("visibilitychange",()=>{
-      if (document.hidden) { if(frame!==null) window.cancelAnimationFrame(frame); frame=null; previous=null; }
-      else if(!stopped && frame===null && readyIndices().length && !reducedMotion()) frame=window.requestAnimationFrame(draw);
+    toggle?.addEventListener("click", () => {
+      paused = !paused;
+      try { window.localStorage?.setItem(motionKey, paused ? "paused" : "playing"); } catch {}
+      if (frame !== null) window.cancelAnimationFrame(frame);
+      frame = null;
+      previous = null;
+      renderToggle();
+      if (!paused && !stopped && !document.hidden && readyIndices().length && !reducedMotion()) frame = window.requestAnimationFrame(draw);
+    });
+    window.addEventListener("resize", () => {
+      if (paused && !stopped && !document.hidden && readyIndices().length) draw(0);
+    });
+    motionPreference()?.addEventListener?.("change", event => {
+      if (event.matches) fail();
+    });
+    const showBackdrop = () => {
+      if (stopped || document.hidden || frame !== null || !readyIndices().length || reducedMotion()) return;
+      if (!paused) frame = window.requestAnimationFrame(draw);
+      else if (canvas.hidden) draw(0);
+    };
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) {
+        if (frame !== null) window.cancelAnimationFrame(frame);
+        frame = null;
+        previous = null;
+      } else {
+        showBackdrop();
+      }
     });
     canvas.addEventListener("webglcontextlost",event=>{event.preventDefault();fail();});
     const loadTexture = async index => {
@@ -3570,7 +3624,7 @@ void main(){ vec2 uv=v; vec2 off=vec2(0.0); float light=0.0;
         photoStates[index] = "ready";
         skippedPending.delete(index);
         refreshProgress();
-        if (!document.hidden && frame === null) frame = window.requestAnimationFrame(draw);
+        showBackdrop();
       } catch {
         bitmap?.close?.();
         if (texture) gl.deleteTexture(texture);

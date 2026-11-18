@@ -618,7 +618,7 @@ function readBiskit(page) {
       title: text(byTag(card, "h4")[0]),
       when: text(card.querySelectorAll(".when")[0]),
       checks: card.querySelectorAll(".badge").map(text),
-      mileage: text(card.querySelectorAll(".mileage")[0]),
+      mileage: card.querySelectorAll(".mileage").map(text),
       hints: card.querySelectorAll(".hint").map(text),
       links: byTag(card, "a"),
     })),
@@ -649,16 +649,16 @@ test("버튼 한 번에 요청 한 번으로 D02의 졸업 표와 추천 카드�
   assert.deepEqual(rows[2].note, ["1회 부족"]);
 
   const biskit = readBiskit(page);
-  assert.equal(biskit.heading, "BISKIT 추천 · 20점 부족");
+  assert.equal(biskit.heading, "내 BISKIT 480/500점 · 20점 부족");
   assert.equal(biskit.listed, "목록 확인 2026년 11월 13일 · 접수 상태와 정원은 공식 페이지에서 확인");
   assert.deepEqual(biskit.cards.map(card => [card.title, card.when, card.mileage]), [
-    ["가상 진로 설명회", "가상 재학생 · 신청 11월 20일까지 · 행사 2026년 11월 23일", "마일리지 미공개"],
+    ["가상 진로 설명회", "가상 재학생 · 신청 11월 20일까지 · 행사 2026년 11월 23일", []],
     [
       "2027년 가상 해외 설명회",
       "가상 재학생·졸업생 · 신청 11월 22일까지 · 행사 2026년 11월 23일",
-      "마일리지 미공개",
+      [],
     ],
-    ["가상 학습법 특강", "가상 학부 재학생 · 신청 11월 26일까지", "마일리지 지급 공지 · 정확한 점수 확인 필요"],
+    ["가상 학습법 특강", "가상 학부 재학생 · 신청 11월 26일까지", []],
   ]);
   for (const card of biskit.cards) {
     assert.deepEqual(card.checks, [], card.title);
@@ -680,7 +680,7 @@ test("버튼 한 번에 요청 한 번으로 D02의 졸업 표와 추천 카드�
   assert.equal(reply.children[0].className, "table-scroll");
 });
 
-test("점수는 공개된 정수만 N점으로 쓰고, 지급 공지와 미공개를 구분하며 합산하지 않는다", async () => {
+test("프로그램 점수는 공개된 양의 정수만 표시하고 나머지는 줄을 만들지 않는다", async () => {
   const page = await shown(d02(recommending([
     program("가상 공개", { mileage_status: "published", mileage_points: 40 }),
     program("가상 지급 공지", { mileage_status: "announced", mileage_points: 40 }),
@@ -690,21 +690,55 @@ test("점수는 공개된 정수만 N점으로 쓰고, 지급 공지와 미공�
     program("가상 점수 누락", { mileage_status: "published", mileage_points: null }),
     program("가상 점수 글자", { mileage_status: "published", mileage_points: "40" }),
     program("가상 점수 0", { mileage_status: "published", mileage_points: 0 }),
+    program("가상 음수", { mileage_status: "published", mileage_points: -1 }),
+    program("가상 소수", { mileage_status: "published", mileage_points: 1.5 }),
   ])));
   const biskit = readBiskit(page);
 
   assert.deepEqual(biskit.cards.map(card => card.mileage), [
-    "마일리지 40점",
-    "마일리지 지급 공지 · 정확한 점수 확인 필요",
-    "마일리지 미공개",
-    "마일리지 미공개",
-    "마일리지 미공개",
-    "마일리지 미공개",
-    "마일리지 미공개",
-    "마일리지 미공개",
+    ["마일리지 40점"],
+    [], [], [], [], [], [], [], [], [],
   ]);
-  assert.equal(biskit.heading, "BISKIT 추천 · 20점 부족");
+  assert.equal(biskit.section.querySelectorAll(".mileage").length, 1);
+  assert.equal(biskit.heading, "내 BISKIT 480/500점 · 20점 부족");
   assert.doesNotMatch(text(biskit.section), /충족|채울|합계|80점/);
+});
+
+test("추천 제목은 졸업 응답의 현재 점수와 기준 점수가 부족 점수와 맞을 때만 표시한다", async () => {
+  for (const [current, required] of [["0점", "20점"], ["480점", "500점"]]) {
+    const payload = d02(recommending([]));
+    payload.items = [entry("extracurricular", "가상 비교과", "short", {
+      details: [entry("mileage", "가상 마일리지", "short", { current, required })],
+    })];
+    const biskit = readBiskit(await shown(payload));
+    assert.equal(biskit.heading, `내 BISKIT ${current.slice(0, -1)}/${required} · 20점 부족`);
+  }
+});
+
+test("점수 누락이나 형식 오류, 부족 점수 불일치가 있으면 기존 추천 제목을 표시한다", async () => {
+  const mileage = fields => [entry("extracurricular", "가상 비교과", "short", {
+    details: [entry("mileage", "가상 마일리지", "short", fields)],
+  })];
+  const cases = [
+    [entry("credits", "가상 학점", "short", { current: "120학점", required: "130학점" })],
+    [entry("mileage", "가상 최상위 마일리지", "short", { current: "480점", required: "500점" })],
+    [entry("extracurricular", "가상 비교과", "short", { details: [] })],
+    mileage({ current: "480점" }),
+    mileage({ required: "500점" }),
+    mileage({ current: 480, required: "500점" }),
+    mileage({ current: "480", required: "500점" }),
+    mileage({ current: "480.0점", required: "500점" }),
+    mileage({ current: "-20점", required: "0점" }),
+    mileage({ current: "480점 ", required: "500점" }),
+    mileage({ current: "480점", required: "500점\n" }),
+    mileage({ current: "479점", required: "500점" }),
+    mileage({ current: "520점", required: "500점" }),
+    mileage({ current: "9007199254740992점", required: "9007199254741012점" }),
+  ];
+  for (const items of cases) {
+    const payload = { ...d02(recommending([])), items };
+    assert.equal(readBiskit(await shown(payload)).heading, "BISKIT 추천 · 20점 부족", JSON.stringify(items));
+  }
 });
 
 test("대상이나 마감이 확인됨이 아니면 카드에 확인 필요를 붙인다", async () => {
@@ -754,7 +788,7 @@ for (const [label, url] of [
     assert.deepEqual(open.hints, ["공식 공지 확인 필요"]);
     assert.equal(login.title, "가상 로그인 필요");
     assert.equal(login.when, "가상 재학생 · 신청 11월 26일까지 · 행사 2026년 11월 23일");
-    assert.equal(login.mileage, "마일리지 미공개");
+    assert.deepEqual(login.mileage, []);
     assert.equal(readRows(page).length, 3);
   });
 }
@@ -782,7 +816,7 @@ test("추천 목록이 비면 안내 문구와 BISKIT 링크를 보여 준다", 
   const page = await shown(d02(recommending([])));
   const biskit = readBiskit(page);
 
-  assert.equal(biskit.heading, "BISKIT 추천 · 20점 부족");
+  assert.equal(biskit.heading, "내 BISKIT 480/500점 · 20점 부족");
   assert.deepEqual(biskit.cards, []);
   assert.deepEqual(biskit.section.querySelectorAll(".none").map(text), ["지금 신청할 수 있는 프로그램을 확인하지 못했어요"]);
   assert.equal(biskit.portal.length, 1);
