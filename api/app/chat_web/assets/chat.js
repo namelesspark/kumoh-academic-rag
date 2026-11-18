@@ -3168,7 +3168,16 @@ function setupHandwriting() {
   function prepare() {
     box = canvas.getBoundingClientRect?.() ?? null;
     if (box?.width > 0 && box?.height > 0) {
-      base = { width: Math.max(base?.width || 0, box.width), height: Math.max(base?.height || 0, box.height) };
+      // 기준 칸은 본 적 있는 가장 큰 칸 크기와, 쓸 때 칸 안에 있던 잉크의 범위 중 큰 쪽이다.
+      // 높이만 줄어 가로에 여유가 생긴 칸에서 쓴 획(기준 칸 밖 좌표)도 크기를 되돌린 뒤 기준 칸 안에 남는다.
+      // 칸 밖으로 끌고 나간 점(쓸 때 칸 밖)은 넓히는 데 쓰지 않아, 보이지 않던 잉크가 다시 나타나거나 서버로 가지 않는다.
+      let width = box.width, height = box.height;
+      for (const stroke of strokes) for (const point of stroke.points) {
+        if (!point.inside) continue;
+        const half = handwritingWidth(stroke, point) / 2;
+        width = Math.max(width, point.x + half); height = Math.max(height, point.y + half);
+      }
+      base = { width: Math.max(base?.width || 0, width), height: Math.max(base?.height || 0, height) };
     }
     scale = base && box?.width > 0 && box?.height > 0 ? Math.min(1, box.width / base.width, box.height / base.height) : 1;
     origin = box ? { left: box.left, top: box.top } : null;
@@ -3432,8 +3441,11 @@ function setupHandwriting() {
   }
   function point(event) {
     const pressure = typeof event.pressure === "number" && event.pressure > 0 ? Math.min(1, event.pressure) : .5;
-    // 화면 좌표를 기준 좌표로 바꿔 저장한다(배율로 나눈다).
-    return { x: (event.clientX - (origin?.left || 0)) / scale, y: (event.clientY - (origin?.top || 0)) / scale, p: pressure };
+    // 화면 좌표를 기준 좌표로 바꿔 저장한다(배율로 나눈다). 쓸 때 보이는 칸 안이었는지도 함께 적는다.
+    const x = (event.clientX - (origin?.left || 0)) / scale, y = (event.clientY - (origin?.top || 0)) / scale;
+    const area = visibleArea();
+    const inside = !area || (x >= 0 && y >= 0 && x <= area.width && y <= area.height);
+    return { x, y, p: pressure, inside };
   }
   function dropStroke(stroke) {
     const index = strokes.indexOf(stroke);

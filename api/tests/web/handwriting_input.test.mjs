@@ -875,6 +875,42 @@ test("패드를 열기 전 글로 실행 취소했다가 다시 실행해도 열
   assert.equal(page.input.value, "ABCDfake");
 });
 
+test("높이만 줄인 칸의 가로 여유 자리에 쓴 점도 크기를 되돌린 뒤 보이고 그대로 보낸다", async () => {
+  const page = loadPad();
+  Object.assign(page.canvasRect, { height: 240, bottom: 640 });
+  page.button.click();
+  // 600×240 → 600×160. 높이 기준 배율 2/3이라 가로로는 기준 좌표 900까지 보인다.
+  Object.assign(page.canvasRect, { height: 160, bottom: 560 });
+  page.resize();
+  // 화면 550px 지점 = 기준 좌표 825.
+  page.pointer("pointerdown", { x: 550, y: 50 });
+  page.pointer("pointerup", { x: 550, y: 50 });
+  Object.assign(page.canvasRect, { height: 240, bottom: 640 });
+  page.resize();
+  // 기준 칸이 점(825 + 굵기 절반 1.5)까지 넓어져, 600px 칸에 600/826.5 배율로 모두 보인다.
+  const transform = page.canvas.log.filter(call => call[0] === "setTransform").at(-1);
+  assert.ok(Math.abs(transform[1] - 2 * 600 / 826.5) < 1e-9, String(transform));
+  page.respond(ok("가상"));
+  page.insert.click();
+  await settle();
+  assert.equal(page.requests.length, 1, "the dot is still inside the visible area");
+  assert.notEqual(page.status.textContent, messages.unreadable);
+
+  // 크기는 그대로 두고 다시 크기 신호가 와도 배율은 더 줄지 않는다.
+  const again = loadPad();
+  Object.assign(again.canvasRect, { height: 240, bottom: 640 });
+  again.button.click();
+  Object.assign(again.canvasRect, { height: 160, bottom: 560 });
+  again.resize();
+  again.pointer("pointerdown", { x: 550, y: 50 });
+  again.pointer("pointerup", { x: 550, y: 50 });
+  Object.assign(again.canvasRect, { height: 240, bottom: 640 });
+  again.resize();
+  again.resize();
+  const steady = again.canvas.log.filter(call => call[0] === "setTransform").at(-1);
+  assert.ok(Math.abs(steady[1] - 2 * 600 / 826.5) < 1e-9, String(steady));
+});
+
 test("창 크기 신호 없이 입력 줄과 필기 칸 폭만 바뀌어도 그리기 버퍼를 새 폭에 맞춘다", () => {
   const page = loadPad();
   page.button.click();
