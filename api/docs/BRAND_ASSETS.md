@@ -134,10 +134,6 @@
 
 이 라이선스는 글꼴로 만든 문서(여기서는 PNG)에는 같은 라이선스를 요구하지 않는다. 글꼴 파일을 함께 나눠 주지 않으므로 라이선스 사본을 저장소에 넣지 않고 위 표로 출처를 밝힌다.
 
-### 중국어 글꼴 확인 현황
-
-중국어 후보는 [google/fonts 커밋 `7af0d90b4d532ffa4b041937b560c6df4e7b1e95`의 ZCOOL KuaiLe](https://github.com/google/fonts/tree/7af0d90b4d532ffa4b041937b560c6df4e7b1e95/ofl/zcoolkuaile)임. 저작권 줄은 `Copyright 2018 The ZCOOL KuaiLe Project Authors`이며 [SIL Open Font License 1.1 원문](https://github.com/google/fonts/blob/7af0d90b4d532ffa4b041937b560c6df4e7b1e95/ofl/zcoolkuaile/OFL.txt)을 확인했음. 고정 원본은 `https://raw.githubusercontent.com/google/fonts/7af0d90b4d532ffa4b041937b560c6df4e7b1e95/ofl/zcoolkuaile/ZCOOLKuaiLe-Regular.ttf`임. 현재 환경에서 바이너리를 받지 못해 바이트 수·내용 지문을 계산하지 못했으며 중국어 그림 두 장 추가는 미완료임.
-
 ## 검증
 
 추가 의존성이나 외부 복사 코드 없이 기존 Pillow와 파이썬 표준 라이브러리(`colorsys` 포함)를 사용한다. 밝은 로고 검사는 몇 픽셀짜리 가짜 로고로 파란 픽셀 유지, 흰 바탕 투명, 검정 글자 흰색을 본다. 제목 글자 그리기 검사는 Pillow에 들어 있는 기본 글꼴과 영문 글귀로 한다. 동작 시트의 형식·색 모드·크기 검사는 메모리에서 만든 가상 그림으로 하고, 저장소의 실제 시트는 테스트 하나가 읽기만 해서 지문과 크기를 확인한다. 그 밖에는 가상 이미지와 가짜 응답만 사용한다. 검증 명령은 다음과 같음.

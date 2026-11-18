@@ -526,11 +526,17 @@ class TestTitleLettering(unittest.TestCase):
             (("물어봐요, ", (255, 255, 255)), ("테크모", (255, 209, 0))),
         ))
         self.assertEqual(web_main.CHAT_WEB_MEDIA_TYPES[MAIN_TITLE_NAME], "image/png")
-        self.assertEqual([title.name for title in assets.TITLE_IMAGES[2:]],
-                         ["title-lettering-en.png", "main-lettering-en.png"])
-        for title in assets.TITLE_IMAGES[2:]:
+        self.assertEqual([title.name for title in assets.TITLE_IMAGES],
+                         [TITLE_NAME, MAIN_TITLE_NAME, "title-lettering-en.png", "main-lettering-en.png"])
+        for title in assets.TITLE_IMAGES[2:4]:
             self.assertEqual((title.url, title.size, title.sha256),
                              (FONT_URL, 990856, FONT_HASH))
+        self.assertEqual([title.lines for title in assets.TITLE_IMAGES[2:]], [
+            ((("To graduation,", assets.TITLE_WHITE),),
+             (("with ", assets.TITLE_WHITE), ("Techmo", assets.TITLE_YELLOW))),
+            ((("Ask ", assets.TITLE_WHITE), ("Techmo", assets.TITLE_YELLOW)),),
+        ])
+        for title in assets.TITLE_IMAGES[2:]:
             self.assertEqual([text for line in title.lines for text, color in line
                               if color == assets.TITLE_YELLOW], ["Techmo"])
         self.assertEqual((assets.TITLE_FONT_SIZE, assets.TITLE_LINE_HEIGHT, assets.TITLE_MARGIN),
@@ -621,13 +627,22 @@ class TestTitleLettering(unittest.TestCase):
                                     "success.png: 준비 완료"])
 
     def test_font_stream_stops_at_expected_size(self):
-        title = assets.TitleImage("fictional.png", FONT_URL, 8, "fictional")
-        with patch.object(assets, "TITLE_IMAGES", (title,)):
-            self.assertEqual(assets.download(FONT_URL, opener=lambda *args, **kwargs:
-                                            FakeResponse(b"12345678", url=FONT_URL)), b"12345678")
-            with self.assertRaises(assets.AssetError):
-                assets.download(FONT_URL, opener=lambda *args, **kwargs:
-                                FakeResponse(b"123456789", url=FONT_URL))
+        titles = (assets.TitleImage("fictional-a.png", FONT_URL, 8, "fictional"),
+                  assets.TitleImage("fictional-b.png", FONT_URL.replace("Regular", "Other"), 12, "fictional"))
+        with patch.object(assets, "TITLE_IMAGES", titles):
+            for title in titles:
+                with self.subTest(url=title.url):
+                    data = b"a" * title.size
+                    opener = lambda *args, **kwargs: FakeResponse(data, url=title.url)
+                    self.assertEqual(assets.download(title.url, opener=opener), data)
+                    with self.assertRaises(assets.AssetError):
+                        assets.download(title.url, opener=lambda *args, **kwargs:
+                                        FakeResponse(data + b"!", url=title.url))
+                    too_large = FakeResponse(data, url=title.url,
+                                             headers={"Content-Length": str(title.size + 1)})
+                    too_large.read1 = Mock(side_effect=AssertionError("읽으면 안 됨"))
+                    with self.assertRaises(assets.AssetError):
+                        assets.download(title.url, opener=lambda *args, **kwargs: too_large)
 
     def test_font_bytes_and_hash_are_checked_before_the_font_is_opened(self):
         data = b"fictional font"
@@ -689,19 +704,17 @@ class TestTitleLettering(unittest.TestCase):
         # 흰 글자가 왼쪽에서 끝난 뒤에 노란 낱말이 시작한다.
         self.assertLess(max(white), min(yellow))
 
-    def test_main_draws_both_titles_from_one_font_download(self):
-        font_bytes = b"fictional font"
-        digest = sha256(font_bytes).hexdigest()
-        titles = (
-            assets.TitleImage(TITLE_NAME, FONT_URL, len(font_bytes), digest),
-            assets.TitleImage(MAIN_TITLE_NAME, FONT_URL, len(font_bytes), digest, LATIN_MAIN_LINES),
-        )
+    def test_main_draws_four_titles_from_one_font_download(self):
+        font_bytes = b"fictional Gugi"
+        titles = tuple(assets.TitleImage(title.name, title.url, len(font_bytes),
+                                        sha256(font_bytes).hexdigest(),
+                                        LATIN_LINES if index % 2 == 0 else LATIN_MAIN_LINES)
+                       for index, title in enumerate(assets.TITLE_IMAGES))
         written, logs = {}, []
         downloader = Mock(side_effect=lambda url: font_bytes if url == FONT_URL else b"fictional")
         with (
             patch.object(assets, "CAMPUS_PHOTOS", ()),
             patch.object(assets, "TITLE_IMAGES", titles),
-            patch.object(assets, "TITLE_LINES", LATIN_LINES),
             patch.object(assets.ImageFont, "truetype", return_value=self.font),
             patch.object(assets, "logo_png", return_value=b"logo"),
             patch.object(assets, "light_logo_png", return_value=b"light logo"),
@@ -710,10 +723,11 @@ class TestTitleLettering(unittest.TestCase):
                                writer=lambda path, data: written.__setitem__(path.name, data),
                                report=logs.append)
         self.assertEqual(code, 0)
-        self.assertEqual(written[TITLE_NAME], self.png)
-        self.assertEqual(written[MAIN_TITLE_NAME], assets.render_title(self.font, LATIN_MAIN_LINES))
-        self.assertEqual(logs[-2:], [f"{TITLE_NAME}: 준비 완료", f"{MAIN_TITLE_NAME}: 준비 완료"])
-        # 글꼴은 한 번만 받고, 받은 글꼴은 어디에도 쓰지 않는다.
+        self.assertEqual(len(titles), 4)
+        for title in titles:
+            self.assertEqual(written[title.name], assets.render_title(self.font, title.lines))
+        self.assertEqual(logs[-len(titles):], [f"{title.name}: 준비 완료" for title in titles])
+        # 글꼴은 주소별 한 번만 받고 받은 바이트는 어디에도 저장하지 않음.
         self.assertEqual(sum(call.args == (FONT_URL,) for call in downloader.call_args_list), 1)
         self.assertNotIn(font_bytes, written.values())
         self.assertFalse([name for name in written if name.endswith(".ttf")])

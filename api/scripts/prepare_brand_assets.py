@@ -109,7 +109,7 @@ TITLE_FONT_URL = ("https://raw.githubusercontent.com/google/fonts/16680f8688ffcd
                   "/ofl/gugi/Gugi-Regular.ttf")
 TITLE_FONT_BYTES = 990856
 TITLE_FONT_HASH = "c0b1f979979cfc309fb2438fa9464f96173353e0c4842cc7a5919658184ed9d3"
-# 두 그림은 글꼴 주소가 같다. main()이 주소마다 한 번만 받으므로 글꼴도 한 번만 받는다.
+# 한국어·영어 그림 네 장은 같은 Gugi 글꼴을 한 번 받아 함께 쓴다.
 TITLE_IMAGES = (
     TitleImage("title-lettering.png", TITLE_FONT_URL, TITLE_FONT_BYTES, TITLE_FONT_HASH),
     TitleImage("main-lettering.png", TITLE_FONT_URL, TITLE_FONT_BYTES, TITLE_FONT_HASH,
