@@ -3106,6 +3106,8 @@ function clipHandwritingSegment(from, to, area, half = 0) {
   }
   return [{ x: from.x + enter * dx, y: from.y + enter * dy }, { x: from.x + leave * dx, y: from.y + leave * dy }];
 }
+// 중심 좌표가 칸 안(경계 포함)인지. 칸이 없으면 안으로 본다.
+const handwritingInside = (point, rect) => !rect || (point.x >= 0 && point.y >= 0 && point.x <= rect.width && point.y <= rect.height);
 // 점(원)과 칸 사이 거리. 칸 안이면 0이다. 칸은 (0,0)에서 시작한다.
 function handwritingRectDistance(point, rect) {
   const dx = Math.max(-point.x, 0, point.x - rect.width), dy = Math.max(-point.y, 0, point.y - rect.height);
@@ -3532,7 +3534,8 @@ function setupHandwriting() {
     // last는 잘라 내기 전의 마지막 포인터 자리다. 다음 선분을 칸 경계에서 자를 때 쓴다.
     // 점마다 clip에 그 점을 찍을 때 보이던 칸을 적는다. 화면에 그릴 때와 보낼 그림을 만들 때 이 칸으로 자른다.
     first.clip = visibleArea();
-    const stroke = { type, points: [first], last: first, broken: false };
+    // lastArea·lastInside는 앞 포인터 자리를 잴 때의 칸과, 그 자리가 그 칸 안이었는지다(pointermove 참고).
+    const stroke = { type, points: [first], last: first, broken: false, lastArea: first.clip, lastInside: handwritingInside(first, first.clip) };
     first.w = handwritingWidth(stroke, first);
     strokes.push(stroke); active.set(event.pointerId, stroke);
     if (context) { paint(); drawHandwritingStroke(context, stroke); }
@@ -3556,8 +3559,12 @@ function setupHandwriting() {
       // 자르기 전 선분(앞 포인터 자리 → 새 자리)의 굵기를 한 번 정해, 잘라 낸 조각의 모든 점에 w로 적는다.
       // 자른 점에 새 압력만 붙여 굵기를 다시 계산하면, 세게 누르다 약하게 경계 밖으로 이어 간 선이 가늘어져 칸 안 잉크가 사라진다.
       const w = handwritingDrawnWidth(stroke, next, stroke.last);
-      const piece = area ? clipHandwritingSegment(stroke.last, next, area, w / 2) : [stroke.last, next];
-      stroke.last = next;
+      // 앞 포인터 자리가 그때 보이던 칸 밖이었고 그 뒤 칸이 바뀌었으면, 그 자리에서 시작하는 선분은 버린다.
+      // 칸을 넓혀 옛 칸 밖 자리(예: 600 칸의 x=700)가 새 칸 안에 들어와도, 화면에 그은 적 없는 선이 새로 생기지 않는다.
+      // 다음 신호부터는 칸 밖에서 들어온 것처럼(gap) 다시 시작한다.
+      const stale = stroke.lastArea !== area && !stroke.lastInside;
+      const piece = stale ? null : area ? clipHandwritingSegment(stroke.last, next, area, w / 2) : [stroke.last, next];
+      stroke.last = next; stroke.lastArea = area; stroke.lastInside = handwritingInside(next, area);
       if (!piece) { stroke.broken = true; continue; }
       const [enter, leave] = piece;
       const tail = stroke.points[stroke.points.length - 1];

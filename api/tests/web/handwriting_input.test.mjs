@@ -1042,6 +1042,28 @@ test("경계 밖으로 나갔다 약하게 돌아오는 선은 자르기 전 선
   assert.deepEqual([width, height], [89, 273]);
 });
 
+test("칸 밖까지 그은 뒤 떼지 않고 칸을 넓혀 안으로 돌아와도 옛 칸 밖 자리에서 시작하는 선은 생기지 않는다", async () => {
+  const page = loadPad();
+  page.button.click();
+  // 폭 600px에서 (590,30)부터 경계 밖 (700,30)까지 긋고, 떼지 않은 채 750px로 넓힌 뒤 (590,130)으로 옮긴다.
+  page.pointer("pointerdown", { id: 13, kind: "pen", x: 590, y: 30, pressure: 0.5 });
+  page.pointer("pointermove", { id: 13, kind: "pen", x: 700, y: 30, pressure: 0.5 });
+  Object.assign(page.canvasRect, { width: 750, right: 850 });
+  page.resize();
+  const before = page.canvas.log.length;
+  page.pointer("pointermove", { id: 13, kind: "pen", x: 590, y: 130, pressure: 0.5 });
+  page.pointer("pointerup", { id: 13, kind: "pen", x: 590, y: 130 });
+  // (700,30)→(590,130) 대각선은 그리지 않는다.
+  assert.equal(page.canvas.log.slice(before).some(call => call[0] === "lineTo"), false, "no diagonal on screen");
+  page.respond(ok("가상"));
+  page.insert.click();
+  await settle();
+  const { log, width, height } = page.exports[0].canvas;
+  assert.ok(log.filter(call => call[0] === "lineTo").every(call => call[2] === 30), "no diagonal in the image");
+  // 압력 0.5의 굵기 3.2: 가로 588.4~600 = 11.6 + 32 = 43.6 → 87, 세로 28.4~31.6 = 3.2 + 32 = 35.2 → 70(배율 2).
+  assert.deepEqual([width, height], [87, 70]);
+});
+
 test("경계 바로 안에 펜을 대고 떼기 전에 칸을 넓혀 그은 선은 새 칸에서 굵기 전체가 보이고 그대로 보낸다", async () => {
   const page = loadPad();
   page.button.click();
