@@ -468,7 +468,7 @@ class TestCampusPhotos(unittest.TestCase):
         writer.assert_not_called()
         self.assertEqual([line.split(":")[0] for line in logs],
                          [SPRITE_NAME, "kumoh-signature.png", LIGHT_LOGO_NAME, *PHOTO_NAMES,
-                          "title-lettering.png", "main-lettering.png"])
+                          *[title.name for title in assets.TITLE_IMAGES]])
         # 원본 지문을 통과하지 못하면 밝은 로고도 같은 사유로 만들지 않는다.
         self.assertEqual(logs[1:3], ["kumoh-signature.png: 준비 실패 (BadZipFile)",
                                      f"{LIGHT_LOGO_NAME}: 준비 실패 (BadZipFile)"])
@@ -517,7 +517,7 @@ class TestTitleLettering(unittest.TestCase):
 
     def test_constants_match_the_agreed_values(self):
         # 두 제목 그림은 같은 글꼴 주소·바이트 수·지문을 쓴다. 글귀만 다르다.
-        self.assertEqual(assets.TITLE_IMAGES, (
+        self.assertEqual(assets.TITLE_IMAGES[:2], (
             assets.TitleImage(TITLE_NAME, FONT_URL, 990856, FONT_HASH),
             assets.TitleImage(MAIN_TITLE_NAME, FONT_URL, 990856, FONT_HASH, assets.MAIN_TITLE_LINES),
         ))
@@ -526,8 +526,13 @@ class TestTitleLettering(unittest.TestCase):
             (("물어봐요, ", (255, 255, 255)), ("테크모", (255, 209, 0))),
         ))
         self.assertEqual(web_main.CHAT_WEB_MEDIA_TYPES[MAIN_TITLE_NAME], "image/png")
-        self.assertEqual(assets.MAX_FONT_DOWNLOAD, 2 * 1024 * 1024)
-        self.assertLess(assets.TITLE_IMAGES[0].size, assets.MAX_FONT_DOWNLOAD)
+        self.assertEqual([title.name for title in assets.TITLE_IMAGES[2:]],
+                         ["title-lettering-en.png", "main-lettering-en.png"])
+        for title in assets.TITLE_IMAGES[2:]:
+            self.assertEqual((title.url, title.size, title.sha256),
+                             (FONT_URL, 990856, FONT_HASH))
+            self.assertEqual([text for line in title.lines for text, color in line
+                              if color == assets.TITLE_YELLOW], ["Techmo"])
         self.assertEqual((assets.TITLE_FONT_SIZE, assets.TITLE_LINE_HEIGHT, assets.TITLE_MARGIN),
                          (172, 1.12, 16))
         # 둘째 줄 들여쓰기는 취소했다.
@@ -580,6 +585,49 @@ class TestTitleLettering(unittest.TestCase):
         with self.assertRaises(assets.AssetError) as caught:
             assets.render_title(self.font, ((("   ", assets.TITLE_WHITE),),))
         self.assertEqual(str(caught.exception), "제목 글자가 비어 있음")
+
+    def test_missing_glyph_is_rejected(self):
+        with self.assertRaises(assets.AssetError) as caught:
+            assets.render_title(self.font, ((("Ask 问", assets.TITLE_WHITE),),))
+        self.assertEqual(str(caught.exception), "글꼴에 제목 글자가 없음")
+
+    def test_failed_title_does_not_stop_the_next_title(self):
+        data = b"fictional font"
+        titles = tuple(assets.TitleImage(name, FONT_URL, len(data), sha256(data).hexdigest(), lines)
+                       for name, lines in (
+                           ("missing.png", ((("问", assets.TITLE_WHITE),),)),
+                           ("write-failure.png", LATIN_LINES),
+                           ("success.png", LATIN_MAIN_LINES)))
+        written = {"missing.png": b"previous missing", "write-failure.png": b"previous failed"}
+        logs = []
+
+        def write(path, png):
+            if path.name == "write-failure.png":
+                raise OSError("fictional write error")
+            written[path.name] = png
+
+        downloader = Mock(return_value=data)
+        with (patch.object(assets, "TITLE_IMAGES", titles),
+              patch.object(assets, "CAMPUS_PHOTOS", ()),
+              patch.object(assets.ImageFont, "truetype", return_value=self.font)):
+            self.assertEqual(run_prepare(downloader=downloader, writer=write, report=logs.append), 0)
+        self.assertIn("success.png", written)
+        self.assertEqual(written["missing.png"], b"previous missing")
+        self.assertEqual(written["write-failure.png"], b"previous failed")
+        self.assertNotIn(data, written.values())
+        self.assertEqual(sum(call.args == (FONT_URL,) for call in downloader.call_args_list), 1)
+        self.assertEqual(logs[-3:], ["missing.png: 준비 실패 (글꼴에 제목 글자가 없음)",
+                                    "write-failure.png: 준비 실패 (OSError)",
+                                    "success.png: 준비 완료"])
+
+    def test_font_stream_stops_at_expected_size(self):
+        title = assets.TitleImage("fictional.png", FONT_URL, 8, "fictional")
+        with patch.object(assets, "TITLE_IMAGES", (title,)):
+            self.assertEqual(assets.download(FONT_URL, opener=lambda *args, **kwargs:
+                                            FakeResponse(b"12345678", url=FONT_URL)), b"12345678")
+            with self.assertRaises(assets.AssetError):
+                assets.download(FONT_URL, opener=lambda *args, **kwargs:
+                                FakeResponse(b"123456789", url=FONT_URL))
 
     def test_font_bytes_and_hash_are_checked_before_the_font_is_opened(self):
         data = b"fictional font"
@@ -682,6 +730,7 @@ class TestTitleLettering(unittest.TestCase):
             return b"fictional"
 
         with (
+            patch.object(assets, "TITLE_IMAGES", assets.TITLE_IMAGES[:2]),
             patch.object(assets, "CAMPUS_PHOTOS", ()),
             patch.object(assets, "logo_png", return_value=b"logo"),
             patch.object(assets, "light_logo_png", return_value=b"light logo"),
@@ -702,12 +751,12 @@ class TestTitleLettering(unittest.TestCase):
         self.assertEqual(assets.download(FONT_URL, opener=opener), b"fictional")
         # 사진과 달리 브라우저형 헤더를 붙이지 않는다.
         opener.assert_called_once_with(FONT_URL, timeout=assets.REQUEST_TIMEOUT)
-        # 글꼴 한도는 로고용 1MiB와 따로 둔 2MiB다. 넘으면 본문을 읽기 전에 멈춘다.
+        # 글꼴마다 확인한 바이트 수를 상한으로 삼는다.
         between = str(assets.MAX_DOWNLOAD + 1)
         self.assertEqual(assets.download(FONT_URL, opener=lambda *args, **kwargs: FakeResponse(
-            b"fictional", url=FONT_URL, headers={"Content-Length": between})), b"fictional")
+            b"fictional", url=FONT_URL, headers={"Content-Length": str(990856)})), b"fictional")
         too_large = FakeResponse(b"fictional", url=FONT_URL,
-                                 headers={"Content-Length": str(assets.MAX_FONT_DOWNLOAD + 1)})
+                                 headers={"Content-Length": str(990857)})
         too_large.read1 = Mock(side_effect=AssertionError("읽으면 안 됨"))
         with self.assertRaises(assets.AssetError):
             assets.download(FONT_URL, opener=lambda *args, **kwargs: too_large)
