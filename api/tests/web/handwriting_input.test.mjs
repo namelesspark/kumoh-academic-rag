@@ -948,6 +948,50 @@ test("넓힌 뒤 이어 그은 부분은 새 칸에서 보이고, 잇는 선분�
   assert.ok(log.some(call => call.join() === "rect,0,0,750,200"), "the part drawn after widening uses the new area");
 });
 
+test("줄인 칸 밖에서 그린 굵기가 칸에 닿지 않으면 흰 그림을 보내지 않는다", async () => {
+  // 압력 0.1→1로 x=402에 세로로 긋는다. 실제 선 반지름은 평균 굵기 3.4의 절반 1.7이라 400px 칸에 닿지 않는다.
+  const line = loadPad();
+  line.button.click();
+  line.pointer("pointerdown", { id: 7, kind: "pen", x: 402, y: 20, pressure: 0.1 });
+  line.pointer("pointermove", { id: 7, kind: "pen", x: 402, y: 100, pressure: 1 });
+  line.pointer("pointerup", { id: 7, kind: "pen", x: 402, y: 100 });
+  Object.assign(line.canvasRect, { width: 400, right: 500 });
+  line.resize();
+  line.insert.click();
+  await settle();
+  assert.equal(line.requests.length, 0, "no blank image");
+  assert.equal(line.status.textContent, messages.unreadable);
+
+  // 압력 1의 점(반지름 2.6)을 (402,162)에 찍고 400×160으로 줄이면 모서리까지 거리 2.83이라 보이지 않는다.
+  const dot = loadPad();
+  dot.button.click();
+  dot.pointer("pointerdown", { id: 8, kind: "pen", x: 402, y: 162, pressure: 1 });
+  dot.pointer("pointerup", { id: 8, kind: "pen", x: 402, y: 162 });
+  Object.assign(dot.canvasRect, { width: 400, right: 500, height: 160, bottom: dot.canvasRect.top + 160 });
+  dot.resize();
+  dot.insert.click();
+  await settle();
+  assert.equal(dot.requests.length, 0, "a dot that misses the corner is not sent");
+  assert.equal(dot.status.textContent, messages.unreadable);
+});
+
+test("세게 누르다 약하게 경계 밖으로 이어 간 선도 칸 안에 보이는 굵기는 남긴다", async () => {
+  const page = loadPad();
+  page.button.click();
+  page.pointer("pointerdown", { id: 9, kind: "pen", x: 590, y: 30, pressure: 1 });
+  page.pointer("pointermove", { id: 9, kind: "pen", x: 601, y: 30, pressure: 1 });
+  // 새 점 반지름은 0.8이지만 그리는 선 반지름은 (5.2 + 1.6) / 4 = 1.7이라 599.3~600이 칸 안에 보인다.
+  page.pointer("pointermove", { id: 9, kind: "pen", x: 601, y: 130, pressure: 0.1 });
+  page.pointer("pointerup", { id: 9, kind: "pen", x: 601, y: 130 });
+  page.respond(ok("가상"));
+  page.insert.click();
+  await settle();
+  const { log, width, height } = page.exports[0].canvas;
+  assert.ok(log.some(call => call[0] === "lineTo" && call[1] === 601 && call[2] === 130), "the downward segment is kept");
+  // 가로 587.4~600 = 12.6 + 32 = 44.6 → 89, 세로 27.4~131.7 = 104.3 + 32 = 136.3 → 273(배율 2).
+  assert.deepEqual([width, height], [89, 273]);
+});
+
 test("세게 눌러 시작한 펜 획의 첫 점은 보내는 그림과 테마를 바꿔 다시 그린 화면에도 남는다", async () => {
   const page = loadPad();
   page.button.click();

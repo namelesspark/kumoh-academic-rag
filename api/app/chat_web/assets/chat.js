@@ -3093,6 +3093,27 @@ function clipHandwritingSegment(from, to, area, half = 0) {
   }
   return [{ x: from.x + enter * dx, y: from.y + enter * dy }, { x: from.x + leave * dx, y: from.y + leave * dy }];
 }
+// 점(원)과 칸 사이 거리. 칸 안이면 0이다. 칸은 (0,0)에서 시작한다.
+function handwritingRectDistance(point, rect) {
+  const dx = Math.max(-point.x, 0, point.x - rect.width), dy = Math.max(-point.y, 0, point.y - rect.height);
+  return Math.hypot(dx, dy);
+}
+// 반지름 half로 그린 점·선분이 칸 안에 픽셀을 하나라도 남기는지. 굵기를 상자로 넓혀 따지면 모서리 근처의
+// 보이지 않는 잉크도 있다고 보므로, 칸까지의 실제 거리가 반지름보다 짧을 때만 보인다고 본다.
+function handwritingInkVisible(from, to, half, rect) {
+  if (!rect) return true;
+  if (clipHandwritingSegment(from, to, rect, 0)) return true;
+  if (handwritingRectDistance(from, rect) < half || handwritingRectDistance(to, rect) < half) return true;
+  const dx = to.x - from.x, dy = to.y - from.y, length = dx * dx + dy * dy;
+  if (!length) return false;
+  for (const corner of [{ x: 0, y: 0 }, { x: rect.width, y: 0 }, { x: 0, y: rect.height }, { x: rect.width, y: rect.height }]) {
+    const t = Math.min(1, Math.max(0, ((corner.x - from.x) * dx + (corner.y - from.y) * dy) / length));
+    if (Math.hypot(from.x + t * dx - corner.x, from.y + t * dy - corner.y) < half) return true;
+  }
+  return false;
+}
+// 선분을 그릴 때 쓰는 반지름. drawHandwritingStroke와 같은 값(두 점 굵기의 평균)이어야 화면과 범위가 맞는다.
+const handwritingSegmentHalf = (stroke, from, to) => (handwritingWidth(stroke, from) + handwritingWidth(stroke, to)) / 4;
 function handwritingBounds(strokes, area = null) {
   let left = Infinity, top = Infinity, right = -Infinity, bottom = -Infinity;
   // 점·선분마다 그을 때 보이던 칸 안으로 범위를 가둔다. 그릴 때 같은 칸으로 clip()하므로 범위도 같은 칸을 넘지 않는다.
@@ -3113,19 +3134,24 @@ function handwritingBounds(strokes, area = null) {
     const points = stroke.points;
     for (let index = 0; index < points.length; index++) {
       const point = points[index];
-      // 첫 점과 gap 점은 그 점의 굵기로 찍은 점이다.
+      // 범위를 가두는 칸은 그 점·선분을 그을 때의 칸과 지금 보이는 칸이 겹치는 곳이다.
+      // 반지름은 drawHandwritingStroke가 실제로 그리는 값과 같게 쓴다.
+      let before = point, half;
       if (index === 0 || point.gap) {
-        clip = handwritingClipOf(stroke, point);
-        const half = handwritingWidth(stroke, point) / 2;
-        const inside = !area || (point.x >= -half && point.y >= -half && point.x <= area.width + half && point.y <= area.height + half);
-        if (inside) add(point, half);
-        continue;
+        // 첫 점과 gap 점은 그 점의 굵기로 찍은 점이다.
+        clip = handwritingClipMeet(handwritingClipOf(stroke, point), area);
+        half = handwritingWidth(stroke, point) / 2;
+      } else {
+        before = points[index - 1];
+        clip = handwritingClipMeet(handwritingClipMeet(handwritingClipOf(stroke, before), handwritingClipOf(stroke, point)), area);
+        // 길이 0인 선분은 두 굵기 중 큰 쪽으로 점을 찍는다.
+        half = before.x === point.x && before.y === point.y
+          ? Math.max(handwritingWidth(stroke, before), handwritingWidth(stroke, point)) / 2
+          : handwritingSegmentHalf(stroke, before, point);
       }
-      const before = points[index - 1];
-      clip = handwritingClipMeet(handwritingClipOf(stroke, before), handwritingClipOf(stroke, point));
-      const half = Math.max(handwritingWidth(stroke, before), handwritingWidth(stroke, point)) / 2;
-      const piece = area ? clipHandwritingSegment(before, point, area, half) : [before, point];
-      for (const end of piece ?? []) add(end, half);
+      if (!handwritingInkVisible(before, point, half, clip)) continue;
+      const piece = clip ? clipHandwritingSegment(before, point, clip, half) : [before, point];
+      for (const end of piece ?? [before, point]) add(end, half);
     }
   }
   if (area) {
@@ -3524,7 +3550,10 @@ function setupHandwriting() {
     const area = visibleArea();
     for (const each of coalesced?.length ? coalesced : [event]) {
       const next = point(each);
-      const piece = area ? clipHandwritingSegment(stroke.last, next, area, handwritingWidth(stroke, next) / 2) : [stroke.last, next];
+      // 그릴 때 선 굵기는 앞뒤 점 굵기의 평균이라 새 점 굵기보다 클 수 있다(세게 누르다 약하게 이어 갈 때).
+      // 자를 때는 두 굵기 중 큰 쪽 절반만큼 넓힌 상자를 써서, 칸 안에 보일 잉크를 버리지 않는다. 보이는 픽셀은 그릴 때 clip()이 정한다.
+      const half = Math.max(handwritingWidth(stroke, stroke.last), handwritingWidth(stroke, next)) / 2;
+      const piece = area ? clipHandwritingSegment(stroke.last, next, area, half) : [stroke.last, next];
       stroke.last = next;
       if (!piece) { stroke.broken = true; continue; }
       const [enter, leave] = piece;
