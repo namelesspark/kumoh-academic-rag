@@ -2877,9 +2877,9 @@ async function ask(question, reply, record = activeConversation) {
   }
 }
 // 입력 처리기는 하나다. 필기 패드가 열려 있으면 고친 구간을 따라 열기 전 자리를 옮긴다(#134). 포인터 처리기는 두지 않는다.
-input.addEventListener("input", () => {
+input.addEventListener("input", event => {
   updateSend();
-  if (typeof noteHandwritingEdit === "function") noteHandwritingEdit();
+  if (typeof noteHandwritingEdit === "function") noteHandwritingEdit(event?.inputType);
 });
 input.addEventListener("keydown", event => {
   if (event.key !== "Enter" || event.shiftKey || event.isComposing || event.keyCode === 229) return;
@@ -3125,7 +3125,7 @@ function setupHandwriting() {
   const undo = find("undo"), clear = find("clear"), cancel = find("cancel"), insert = find("insert");
   if (![button, pad, canvas, status, undo, clear, cancel, insert].every(node => typeof node?.addEventListener === "function")) return;
   let opened = false, strokes = [], penSeen = false, reading = null, session = 0, selection = null, context = null, box = null, origin = null, ink = null, owner = null;
-  let base = null, scale = 1, editHistory = [];
+  let base = null, scale = 1, undoRanges = [], redoRanges = [];
   const active = new Map();
   function controls() {
     const blank = strokes.length === 0, waiting = Boolean(reading);
@@ -3184,30 +3184,21 @@ function setupHandwriting() {
     if (!row || !(row.width > 0) || !height) return;
     pad.style?.setProperty("--handwriting-x", `${Math.max(8, row.left)}px`);
     pad.style?.setProperty("--handwriting-width", `${row.width}px`);
-    // 최대 높이로 잘려 있을 수 있으므로 내용 전체 높이(scrollHeight)와 견줘 큰 쪽을 패드 높이로 본다.
-    const own = Math.max(pad.getBoundingClientRect?.().height || 0, Number(pad.scrollHeight) || 0);
-    // 수용 조건대로 넓은 화면에서는 입력 줄 위(8px 띄움)에 연다. 위쪽이 패드보다 낮으면 최대 높이를 위쪽 남은 높이로 줄여
-    // 패드 안에서 스크롤한다. 아래 끝(bottom)을 입력 줄 위 8px에 묶으므로 상태 줄이 생겨 커져도 입력 줄을 덮지 않는다.
-    // 입력 줄이 스크롤로 화면 맨 위에 붙거나 밖으로 나가 위쪽이 120px도 안 남을 때만 줄 아래(top 고정)로 연다.
-    const room = { above: row.top - 16, below: height - row.bottom - 16 };
-    const up = room.above >= Math.min(own, 120);
-    if (up) {
-      pad.style?.setProperty("--handwriting-top", "auto");
-      pad.style?.setProperty("--handwriting-bottom", `${Math.max(8, height - row.top + 8)}px`);
-      pad.style?.setProperty("--handwriting-max-height", `${Math.max(0, room.above)}px`);
-    } else {
-      const top = Math.max(8, row.bottom + 8);
-      pad.style?.setProperty("--handwriting-bottom", "auto");
-      pad.style?.setProperty("--handwriting-top", `${top}px`);
-      pad.style?.setProperty("--handwriting-max-height", `${Math.max(0, height - top - 8)}px`);
-    }
+    // 수용 조건대로 넓은 화면에서는 늘 입력 줄 위(8px 띄움)에 연다. 줄 아래로는 열지 않는다.
+    // 아래 끝(bottom)을 입력 줄 위 8px에 묶고 위쪽 남은 높이(위 8px 여백 포함)를 최대 높이로 주므로,
+    // 위쪽이 패드보다 낮으면 패드 안에서 스크롤하고, 상태 줄이 생겨 커져도 입력 줄을 덮지 않는다.
+    // 입력 줄이 스크롤로 화면 위쪽에 붙으면 남은 높이도 줄어든다. 스크롤해 돌아오면 다시 넓어진다.
+    const bottom = Math.min(height - 8, Math.max(8, height - row.top + 8));
+    pad.style?.setProperty("--handwriting-top", "auto");
+    pad.style?.setProperty("--handwriting-bottom", `${bottom}px`);
+    pad.style?.setProperty("--handwriting-max-height", `${Math.max(0, height - bottom - 8)}px`);
   }
   function openPad() {
     if (opened) { canvas.focus(); return; }
     opened = true; session++;
     strokes = []; active.clear(); penSeen = false; reading = null; box = null; base = null; scale = 1;
     selection = caret();
-    editHistory = [{ ...selection }];
+    undoRanges = []; redoRanges = [];
     // 패드는 연 순간의 계정·대화에 묶인다. 그 뒤 대화가 바뀌면(사진을 붙여 새 대화로 보낸 경우 등) 넣기 전에 버린다.
     owner = { account: historyAccount, conversation: activeConversation };
     pad.hidden = false;
@@ -3278,14 +3269,19 @@ function setupHandwriting() {
   // 패드가 열린 동안 질문 칸에서 글이 바뀔 때마다(키보드·Scribble 모두 input 이벤트) 적어 둔 자리를 옮긴다.
   // 글자 비교만으로는 같은 글을 앞에 붙였는지 뒤에 붙였는지 가를 수 없어, 고친 직후의 커서를 기준으로 삼는다.
   // 커서 뒤 글자는 이번 편집에서 그대로이므로 공통 끝 부분을 커서 뒤까지만 인정하고, 공통 앞 부분은 그 나머지 안에서만 센다.
-  // 실행 취소·다시 실행으로 전에 본 글이 그대로 돌아오면, 그 글일 때 적어 둔 범위로 되돌린다.
-  // 지운 범위는 다시 만들 수 없으므로 이렇게 해야 실행 취소 뒤 원래 선택이 살아난다. 패드를 열 때마다 비우고 50개까지만 둔다.
-  function noteEdit() {
+  // 실행 취소·다시 실행은 브라우저가 알려 주는 입력 종류(inputType의 historyUndo·historyRedo)로만 알아본다.
+  // 같은 글이 다시 나왔다는 것만으로 되돌리면, 앞에 A를 붙이고 끝의 A를 지운 보통 편집도 실행 취소로 잘못 본다.
+  // 보통 편집 때마다 직전 범위를 실행 취소 목록에 쌓고(50개까지), 실행 취소는 거기서 꺼내 다시 실행 목록으로 옮긴다.
+  // 꺼낸 범위의 글이 지금 글과 다르면(브라우저가 여러 편집을 한 번에 되돌린 경우) 아래 보통 방식으로 옮긴다.
+  function noteEdit(inputType) {
     if (!opened || !selection) return;
     const before = selection.value, after = input.value;
     if (before === after) return;
-    const seen = editHistory.findLast?.(entry => entry.value === after) ?? [...editHistory].reverse().find(entry => entry.value === after);
-    if (seen) { selection = { ...seen }; return; }
+    const history = inputType === "historyUndo" ? [undoRanges, redoRanges] : inputType === "historyRedo" ? [redoRanges, undoRanges] : null;
+    if (history) {
+      const saved = history[0].pop();
+      if (saved?.value === after) { history[1].push({ ...selection }); selection = { ...saved }; return; }
+    }
     const caretAt = Number.isInteger(input.selectionEnd) ? Math.min(input.selectionEnd, after.length) : after.length;
     let suffix = 0;
     while (suffix < before.length && suffix < after.length - caretAt &&
@@ -3305,9 +3301,13 @@ function setupHandwriting() {
     };
     const collapsed = selection.start === selection.end;
     const start = move(selection.start, "start");
+    const previous = selection;
     selection = { start, end: collapsed ? start : Math.max(start, move(selection.end, "end")), value: after };
-    editHistory.push({ ...selection });
-    if (editHistory.length > 50) editHistory.shift();
+    if (!history) {
+      undoRanges.push({ ...previous });
+      if (undoRanges.length > 50) undoRanges.shift();
+      redoRanges = [];
+    }
   }
   function placeText(text) {
     const spot = savedRange();
@@ -3435,7 +3435,14 @@ function setupHandwriting() {
     for (const each of coalesced?.length ? coalesced : [event]) stroke.points.push(point(each));
     if (context) { paint(); drawHandwritingStroke(context, stroke, from); }
   });
-  for (const name of ["pointerup", "pointercancel", "lostpointercapture"]) canvas.addEventListener(name, event => { active.delete(event.pointerId); });
+  for (const name of ["pointerup", "lostpointercapture"]) canvas.addEventListener(name, event => { active.delete(event.pointerId); });
+  // 브라우저가 포인터를 취소하면(손바닥·스크롤 몸짓으로 판정한 경우 등) 그 획은 쓰다 만 것이라 버린다.
+  canvas.addEventListener("pointercancel", event => {
+    const stroke = active.get(event.pointerId);
+    active.delete(event.pointerId);
+    if (!stroke) return;
+    dropStroke(stroke); redraw(); controls();
+  });
   undo.addEventListener("click", () => {
     if (reading || !strokes.length) return;
     const last = strokes.pop();
@@ -3451,16 +3458,13 @@ function setupHandwriting() {
   });
   cancel.addEventListener("click", () => closePad(true));
   insert.addEventListener("click", () => { void read(); });
-  // 패드는 문서에서 <main> 뒤, 테크모 앞에 있다. 열린 동안 펜 버튼의 Tab만 캔버스로 이어 주어
-  // 펜 버튼 → 캔버스 → 되돌리기 → 지우기 → 취소 → 넣기 순서가 되고, 캔버스의 Shift+Tab은 펜 버튼으로 돌아간다.
-  // 넣기 다음은 문서 순서 그대로 테크모 쪽으로 나간다. 질문 칸으로 되돌리면 Tab이 패드와 입력 줄 사이를 맴돌아 그 뒤로 갈 수 없다.
+  // Tab은 가로채지 않는다. 펜 버튼을 누르면 초점이 캔버스로 옮겨 가므로 펜 버튼 → 캔버스 → 되돌리기 → 지우기 → 취소 → 넣기가 되고,
+  // 넣기 다음은 문서 순서대로 테크모로 나간다. 펜 버튼에서 누른 Tab은 원래대로 질문 칸·답변 모드·보내기로 간다.
+  // Tab을 이어 붙이면 입력 줄을 건너뛰거나 입력 줄과 패드 사이를 맴돌게 되어 둘 다 막혔다.
   pad.addEventListener("keydown", event => {
-    if (event.key === "Escape") {
-      event.preventDefault?.(); event.stopPropagation?.();
-      closePad(true);
-    } else if (event.key === "Tab" && event.shiftKey && document.activeElement === canvas) {
-      event.preventDefault?.(); button.focus();
-    }
+    if (event.key !== "Escape") return;
+    event.preventDefault?.(); event.stopPropagation?.();
+    closePad(true);
   });
   // 초점이 패드 밖(질문 칸 등)에 있어도 열린 동안 Esc는 패드를 닫고 읽던 요청을 끊는다.
   // 선택 메뉴처럼 Esc를 먼저 처리하고 전파를 멈춘 곳은 건드리지 않는다.
@@ -3468,10 +3472,6 @@ function setupHandwriting() {
     if (!opened || event.key !== "Escape" || event.defaultPrevented) return;
     event.preventDefault?.();
     closePad(true);
-  });
-  button.addEventListener("keydown", event => {
-    if (!opened || event.key !== "Tab" || event.shiftKey) return;
-    event.preventDefault?.(); canvas.focus();
   });
   button.addEventListener("click", openPad);
   // 넓은 화면의 패드는 화면에 고정돼 있어, 문서나 안쪽 칸이 스크롤되면 입력 줄 바로 위로 다시 옮긴다.
@@ -3486,8 +3486,8 @@ function setupHandwriting() {
   noteHandwritingEdit.run = noteEdit;
 }
 // 질문 칸의 input 처리기가 불러, 패드가 열린 동안 고친 구간을 따라 넣을 자리를 옮긴다.
-function noteHandwritingEdit() {
-  noteHandwritingEdit.run?.();
+function noteHandwritingEdit(inputType) {
+  noteHandwritingEdit.run?.(inputType);
 }
 // 테마가 바뀌면 applyTheme이 불러 열린 패드의 잉크를 새 글자색으로 다시 그린다.
 function redrawHandwritingPad() {
