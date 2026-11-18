@@ -3307,11 +3307,13 @@ function setupHandwriting() {
     const history = inputType === "historyUndo" ? [undoRanges, redoRanges] : inputType === "historyRedo" ? [redoRanges, undoRanges] : null;
     if (history) {
       const [from, to] = history;
+      // 직전 범위는 기록에서 찾든 못 찾든 반대쪽 목록에 먼저 쌓는다. 패드를 열기 전 글로 실행 취소한 뒤 다시 실행해도
+      // 돌아올 범위가 남는다(그 이전 글은 패드가 본 적이 없어 기록에 없다).
+      to.push({ ...selection });
       const index = from.map(entry => entry.value).lastIndexOf(after);
       if (index >= 0) {
         const saved = from[index];
         from.length = index;
-        to.push({ ...selection });
         selection = { ...saved };
         return;
       }
@@ -3516,9 +3518,15 @@ function setupHandwriting() {
   // 넓은 화면의 패드는 화면에 고정돼 있어, 문서나 안쪽 칸이 스크롤되면 입력 줄 바로 위로 다시 옮긴다.
   // 캡처 단계로 들어 안쪽 칸의 스크롤도 받는다. 좁은 화면 시트는 CSS가 화면 아래에 두므로 좌표 변수가 쓰이지 않는다.
   document.addEventListener?.("scroll", () => { if (opened) place(true); }, { capture: true, passive: true });
-  // 질문 칸을 세로로 늘리는 등 입력 줄 크기만 바뀌면 scroll·resize 신호가 없다. 입력 줄 크기를 지켜보다가 자리를 다시 잰다.
+  // 질문 칸을 늘리거나 판 폭이 바뀌는 등 입력 줄·캔버스 크기만 바뀌면 scroll·resize 신호가 없다.
+  // 두 크기를 지켜보다가 자리를 다시 재고 캔버스 그리기 버퍼(보이는 크기 × 기기 화소 비율)도 새로 맞춘다.
+  // 버퍼를 그대로 두면 포인터 위치와 그려지는 획, 보내는 그림의 자르기 범위가 옛 폭에 머문다.
   const composerRow = document.querySelector(".composer-row");
-  if (typeof ResizeObserver === "function" && composerRow) new ResizeObserver(() => { if (opened) place(true); }).observe(composerRow);
+  if (typeof ResizeObserver === "function") {
+    for (const node of [composerRow, canvas]) {
+      if (node) new ResizeObserver(() => { if (opened) { place(true); prepare(); } }).observe(node);
+    }
+  }
   refreshHandwritingPad.run = () => { if (opened) { place(true); prepare(); } };
   closeHandwritingPad.run = closePad;
   redrawHandwritingPad.run = () => { if (opened) redraw(); };

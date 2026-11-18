@@ -838,6 +838,34 @@ test("Delete로 지운 뒤 다시 골라 지운 두 삭제 중 두 번째만 되
   assert.equal(page.input.value, "ABCfake");
 });
 
+test("패드를 열기 전 글로 실행 취소했다가 다시 실행해도 열 때 고른 범위로 돌아온다", async () => {
+  const page = loadPad();
+  // ABC에 DE를 붙인 뒤(패드를 열기 전) E를 고른다.
+  page.input.value = "ABCDE";
+  page.input.selectionStart = 4; page.input.selectionEnd = 5;
+  page.button.click();
+  // 실행 취소로 패드가 본 적 없는 ABC로 돌아갔다가, 다시 실행으로 ABCDE가 된다.
+  page.type("ABC", 3, "historyUndo");
+  page.type("ABCDE", 5, "historyRedo");
+  page.stroke([10, 10], [60, 60]);
+  page.respond(ok("fake"));
+  page.insert.click();
+  await settle();
+  assert.equal(page.input.value, "ABCDfake");
+});
+
+test("창 크기 신호 없이 입력 줄과 필기 칸 폭만 바뀌어도 그리기 버퍼를 새 폭에 맞춘다", () => {
+  const page = loadPad();
+  page.button.click();
+  assert.equal(page.canvas.width, 1200);
+  // 600px에서 400px로 줄었다. 창 크기 이벤트는 오지 않고 입력 줄 크기 변화 신호만 온다.
+  Object.assign(page.rowRect, { width: 400, right: 500 });
+  Object.assign(page.canvasRect, { width: 400, right: 500 });
+  page.rowResized();
+  // 기기 화소 비율 2 × 400px.
+  assert.equal(page.canvas.width, 800);
+});
+
 test("보통 편집으로 전에 본 글이 다시 나와도 실행 취소로 보지 않고 편집을 따라간다", async () => {
   const page = loadPad();
   page.input.value = "AA";
