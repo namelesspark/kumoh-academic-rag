@@ -1116,14 +1116,25 @@ test("보이는 띠가 겹치지 않게 바뀐 뒤 그은 선분은 두 띠 사�
   page.pointer("pointermove", { id: 18, kind: "pen", x: 100, y: 52.4, pressure: 1 });
   page.pointer("pointerup", { id: 18, kind: "pen", x: 100, y: 52.4 });
   const negative = log => log.some(call => call[0] === "rect" && (call[3] < 0 || call[4] < 0));
-  const bridged = log => log.some(call => call[0] === "lineTo" && call[2] === 52.4);
-  assert.equal(bridged(page.canvas.log.slice(before)), false, "no ink in the gap on screen");
+  // 좌표는 화면 좌표(270 + 52.4)에서 캔버스 위치(270)를 빼서 얻으므로 부동소수점 오차가 있다(52.39999…). 오차를 허용해 비교한다.
+  const near = (value, expected) => Math.abs(value - expected) < 1e-6;
+  const bridged = log => log.some(call => call[0] === "lineTo" && near(call[2], 52.4));
+  // 새 띠 안의 끝 점 (100,52.4)은 압력 1의 점(반지름 2.6)으로 남는다.
+  const tip = log => log.some(call => call[0] === "arc" && near(call[1], 100) && near(call[2], 52.4) && near(call[3], 2.6));
+  const after = page.canvas.log.slice(before);
+  assert.equal(bridged(after), false, "no ink in the gap on screen");
+  assert.ok(tip(after), "the new point stays on screen");
+  // 그 점은 새 띠(y 52~100)로 clip()한다.
+  const clipBefore = after.slice(0, after.findIndex(call => call[0] === "arc")).findLast(call => call[0] === "rect");
+  assert.deepEqual(clipBefore, ["rect", 0, 52, 600, 48]);
   assert.equal(negative(page.canvas.log), false);
   page.respond(ok("가상"));
   page.insert.click();
   await settle();
-  assert.equal(bridged(page.exports[0].canvas.log), false, "no ink in the gap in the image");
-  assert.equal(negative(page.exports[0].canvas.log), false);
+  const image = page.exports[0].canvas.log;
+  assert.equal(bridged(image), false, "no ink in the gap in the image");
+  assert.ok(tip(image), "the new point is in the image");
+  assert.equal(negative(image), false);
 });
 
 // 크기가 바뀐 뒤 첫 선분: 옛 경계(x ≤ 601.6)에서 시작하고 600×200 칸으로 clip()한 채 (590,130)에서 끝난다.

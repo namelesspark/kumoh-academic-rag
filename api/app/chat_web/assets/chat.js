@@ -3620,7 +3620,18 @@ function setupHandwriting() {
       const bridge = !stroke.lastInside && !same(stroke.lastArea, area) ? handwritingClipMeet(stroke.lastArea, area) : area;
       const piece = bridge ? clipHandwritingSegment(stroke.last, next, bridge, w / 2) : [stroke.last, next];
       stroke.last = next; stroke.lastArea = area; stroke.lastInside = handwritingInside(next, area);
-      if (!piece) { stroke.broken = true; continue; }
+      // 칸이 바뀐 직후 선분이 겹치는 칸에서 잘려 끝 점까지 닿지 못했는데(겹치는 칸이 비었을 때 포함) 끝 점은 지금 칸에서 보이면,
+      // 그 자리에서 펜을 새로 댄 것처럼 제 굵기로 점을 찍는다. 선은 겹치는 칸에서만 그리되 지금 보이는 자리의 잉크는 빠지지 않는다.
+      const restart = () => {
+        const own = handwritingWidth(stroke, next);
+        const tip = stroke.points[stroke.points.length - 1];
+        if (bridge === area || (tip && !stroke.broken && tip.x === next.x && tip.y === next.y)) return false;
+        if (!handwritingInkVisible(next, next, own / 2, area)) return false;
+        stroke.points.push({ x: next.x, y: next.y, p: next.p, w: own, clip: area, gap: true });
+        stroke.broken = false;
+        return true;
+      };
+      if (!piece) { if (!restart()) stroke.broken = true; continue; }
       const [enter, leave] = piece;
       const tail = stroke.points[stroke.points.length - 1];
       const add = (at, clip, gap = false) => stroke.points.push({ x: at.x, y: at.y, p: next.p, w, clip, ...(gap ? { gap } : {}) });
@@ -3629,6 +3640,7 @@ function setupHandwriting() {
       if (stroke.broken || enter.x !== tail.x || enter.y !== tail.y) add(enter, bridge, true);
       stroke.broken = false;
       add(leave, bridge);
+      if (leave.x !== next.x || leave.y !== next.y) restart();
     }
     if (context) { paint(); drawHandwritingStroke(context, stroke, from); }
   });
