@@ -45,7 +45,8 @@ function loadPad({ language, pixelRatio = 2, blobSize = pngBytes.length } = {}) 
   const timers = [];
   const requests = [];
   const exports = [];
-  const state = { focused: null, blobSize, submits: 0 };
+  const state = { focused: null, blobSize, submits: 0, ink: "rgb(10, 37, 64)" };
+  const mediaListeners = [];
 
   class FakeElement {
     children = [];
@@ -214,14 +215,15 @@ function loadPad({ language, pixelRatio = 2, blobSize = pngBytes.length } = {}) 
       get activeElement() { return state.focused; },
     },
     window: {
-      matchMedia: () => ({ matches: false }),
+      // 시스템 테마 변화 신호를 테스트에서 직접 보낼 수 있게 처리기를 모아 둔다.
+      matchMedia: query => ({ matches: false, addEventListener: (type, listener) => mediaListeners.push({ query, type, listener }) }),
       devicePixelRatio: pixelRatio,
       innerWidth: 1280,
       innerHeight: 800,
       navigator: language ? { language } : undefined,
       // 저장소가 없으면 첫 방문 언어 감지가 한국어로 돌아간다. 언어를 줄 때만 빈 저장소를 둔다.
       localStorage: language ? { getItem: () => null, setItem() {}, removeItem() {} } : undefined,
-      getComputedStyle: () => ({ color: "rgb(10, 37, 64)" }),
+      getComputedStyle: () => ({ color: state.ink }),
     },
     URL,
     AbortSignal: { timeout: () => undefined },
@@ -265,6 +267,9 @@ function loadPad({ language, pixelRatio = 2, blobSize = pngBytes.length } = {}) 
     return event;
   };
   page.get = get;
+  page.systemThemeChanged = () => {
+    for (const each of mediaListeners) if (each.query.includes("prefers-color-scheme") && each.type === "change") each.listener({});
+  };
   page.respond = response => routes.push(() => Promise.resolve(response));
   // 응답을 붙잡아 두었다가 직접 풀어 준다. 요청이 끊기면(abort) 브라우저처럼 거절한다.
   page.hold = () => {
@@ -572,6 +577,19 @@ test("고른 글자의 양끝 바깥을 함께 고쳐도 같은 글자를 새 �
   assert.equal(page.input.value, "B fake Y");
 });
 
+test("고른 글자와 같은 말을 앞에 새로 써도 원래 범위 쪽(앞뒤 글자가 이어지는 곳)을 바꾼다", async () => {
+  const page = loadPad();
+  page.input.value = "A middle Z";
+  page.input.selectionStart = 2; page.input.selectionEnd = 8;
+  page.button.click();
+  page.input.value = "A middle A middle Z";
+  page.stroke([10, 10], [60, 60]);
+  page.respond(ok("fake"));
+  page.insert.click();
+  await settle();
+  assert.equal(page.input.value, "A middle A fake Z");
+});
+
 test("커서만 두고 연 뒤 앞뒤를 고치면 커서 바로 앞 글자 묶음 뒤에 넣는다", async () => {
   const page = loadPad();
   page.input.value = "왼쪽 가운데 오른쪽";
@@ -599,6 +617,49 @@ test("읽는 중 사이드바에서 새 대화를 열면 패드를 닫고, 늦�
   held.resolve(ok("이전 대화의 가상 글자"));
   await settle();
   assert.equal(page.input.value, "");
+});
+
+test("읽는 중 첫 화면의 새 대화를 누르면 패드를 닫고, 늦은 응답은 비운 질문 칸을 다시 채우지 않는다", async () => {
+  const page = loadPad();
+  page.input.value = "가상 질문";
+  page.button.click();
+  page.stroke([10, 10], [60, 60]);
+  const held = page.hold();
+  page.insert.click();
+  await settle();
+  page.get("#reset").click();
+  assert.equal(page.pad.hidden, true);
+  assert.equal(held.request.options.signal.aborted, true);
+  assert.equal(page.input.value, "");
+  held.resolve(ok("이전 대화의 가상 글자"));
+  await settle();
+  assert.equal(page.input.value, "");
+});
+
+test("기록을 모두 지우면 열린 패드와 획을 버려, 다시 넣어도 이전 획이 새 질문 칸에 가지 않는다", async () => {
+  const page = loadPad();
+  page.button.click();
+  page.stroke([10, 10], [60, 60]);
+  page.get("#clear-conversations").click();
+  // 확인 창은 취소 버튼에 초점을 두고, 같은 줄의 첫 버튼이 삭제다.
+  page.state.focused.parent.children[0].click();
+  assert.equal(page.pad.hidden, true);
+  page.button.click();
+  assert.equal(page.insert.disabled, true, "the reopened pad starts empty");
+  assert.equal(page.requests.length, 0);
+});
+
+test("패드를 연 채 테마가 바뀌면 이미 쓴 획을 새 글자색으로 바로 다시 그린다", () => {
+  const page = loadPad();
+  page.button.click();
+  page.stroke([10, 10], [60, 60]);
+  const before = page.canvas.log.length;
+  page.state.ink = "rgb(232, 238, 246)";
+  page.systemThemeChanged();
+  const after = page.canvas.log.slice(before);
+  assert.ok(after.some(call => call[0] === "clearRect"), "the canvas is cleared");
+  assert.ok(after.some(call => call.join() === "set,strokeStyle,rgb(232, 238, 246)"), "existing ink uses the new color");
+  assert.ok(after.some(call => call[0] === "lineTo"), "existing strokes are redrawn");
 });
 
 test("읽는 중 초점이 질문 칸으로 나가도 Esc는 패드를 닫고 요청을 끊어 늦은 응답을 넣지 않는다", async () => {
@@ -662,15 +723,28 @@ test("캔버스 밖으로 나갔다 돌아온 획은 보이는 칸 안만 잘라
   assert.deepEqual(canvas.log.find(call => call[0] === "rect"), ["rect", 0, 0, 600, 200]);
   assert.ok(clip < canvas.log.findIndex(call => call[0] === "lineTo"), "clip comes before the ink");
 
-  // 칸 오른쪽 끝(590,20)에서 바깥(900,180)으로 비스듬히 그으면 보이는 조각은 x 590~600, y 20~약 25.2뿐이다.
-  // 바깥 점(y 180)은 범위를 늘리지 않는다: 가로 11.5 + 32 = 43.5, 세로 약 8.16 + 32 = 40.16, 배율 2.
+  // 칸 오른쪽 끝(590,20)에서 바깥(900,180)으로 비스듬히 그으면 보이는 잉크는 중심선이 x 601.5(칸 600 + 굵기 절반)에 닿는 곳까지다.
+  // 바깥 점(y 180)은 범위를 늘리지 않는다: 가로 11.5 + 32 = 43.5, 세로 약 8.94 + 32 = 40.94, 배율 2.
   const slant = loadPad();
   slant.button.click();
   slant.stroke([590, 20], [900, 180]);
   slant.respond(ok("가상"));
   slant.insert.click();
   await settle();
-  assert.deepEqual([slant.exports[0].canvas.width, slant.exports[0].canvas.height], [87, 80]);
+  assert.deepEqual([slant.exports[0].canvas.width, slant.exports[0].canvas.height], [87, 82]);
+
+  // 중심선이 칸 바로 밖(x 600.5)이어도 칸 안에 보이는 세로 잉크는 범위에 남는다.
+  // 가로 593.5~600 = 6.5 + 32 = 38.5, 세로 18.5~181.5 = 163 + 32 = 195, 배율 2.
+  const edge = loadPad();
+  edge.button.click();
+  edge.pointer("pointerdown", { x: 595, y: 20 });
+  edge.pointer("pointermove", { x: 600.5, y: 20 });
+  edge.pointer("pointermove", { x: 600.5, y: 180 });
+  edge.pointer("pointerup", { x: 600.5, y: 180 });
+  edge.respond(ok("가상"));
+  edge.insert.click();
+  await settle();
+  assert.deepEqual([edge.exports[0].canvas.width, edge.exports[0].canvas.height], [77, 390]);
 
   // 모든 잉크가 칸 밖이면 보내지 않고 읽을 글씨가 없다고 알린다.
   const outside = loadPad();

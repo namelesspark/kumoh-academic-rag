@@ -1148,7 +1148,11 @@ function askDelete(record, origin) {
 function removeConversation(record) {
   conversations = conversations.filter(value => value !== record);
   if (toastRecord === record) dismissConversationToast();
-  if (activeConversation === record) { activeConversation = null; renderActiveConversation(); }
+  if (activeConversation === record) {
+    // 보고 있던 대화를 지우면 그 대화에서 쓰던 필기 패드도 버린다(#134).
+    if (typeof closeHandwritingPad === "function") closeHandwritingPad(false);
+    activeConversation = null; renderActiveConversation();
+  }
   persistConversations(); renderConversations(); updateSend();
 }
 function confirmDialog() {
@@ -1271,6 +1275,7 @@ clearButton?.addEventListener("click", () => openConfirm({
   run: () => {
     clearConversations(historyStorage(), historyAccount);
     dismissConversationToast();
+    if (typeof closeHandwritingPad === "function") closeHandwritingPad(false);
     conversations = []; activeConversation = null; renderConversations(); renderActiveConversation(); updateSend();
   },
   restore: () => (listVisible() ? clearButton : input).focus(),
@@ -2535,6 +2540,8 @@ function applyTheme() {
   document.documentElement?.setAttribute?.("data-theme-mode", themeMode);
   document.documentElement?.setAttribute?.("data-theme", actual);
   renderThemeButtons();
+  // 열린 필기 패드의 잉크를 새 테마 글자색으로 바로 다시 그린다. 다음 획을 기다리면 그사이 대비가 무너진다(#134).
+  if (typeof redrawHandwritingPad === "function") redrawHandwritingPad();
 }
 function renderThemeButtons() {
   const name = t(themeChoices.find(choice => choice.value === themeMode).name);
@@ -2952,6 +2959,8 @@ photoClear.addEventListener("click", () => {
 
 reset.addEventListener("click", () => {
   if (busy || (requestedChatView && activeConversation?.pending)) return;
+  // 입력창을 비우는 새 대화이므로 열린 필기 패드와 읽던 요청도 버린다(#134).
+  if (typeof closeHandwritingPad === "function") closeHandwritingPad(false);
   changeFeature(null, { animate: false, focus: false });
   sessionId = null;
   graduationTurn = null;
@@ -3030,11 +3039,12 @@ function drawHandwritingStroke(context, stroke, from = 0) {
 }
 // 잉크 범위(굵기 절반 포함)에 여백을 더한 상자. 좌표는 캔버스의 CSS 픽셀이다.
 // area(보이는 필기 칸)를 주면 그 안의 잉크만 센다. 획이 칸 밖으로 나갔다 돌아와도 화면에서 잘린 부분은 보내지 않는다.
-// 칸 밖으로 나간 선분은 칸 경계에서 잘라 보이는 부분만 센다(Liang–Barsky 선분 자르기). 바깥 점이 범위를 늘리지 않는다.
-function clipHandwritingSegment(from, to, area) {
+// 칸 밖으로 나간 선분은 잘라 보이는 부분만 센다(Liang–Barsky 선분 자르기). 바깥 점이 범위를 늘리지 않는다.
+// 잉크는 중심선에서 굵기 절반(half)만큼 퍼지므로, 칸을 그만큼 넓힌 상자로 자른다. 중심선이 칸 바로 밖이어도 칸 안에 보이는 잉크는 남는다.
+function clipHandwritingSegment(from, to, area, half = 0) {
   const dx = to.x - from.x, dy = to.y - from.y;
   let enter = 0, leave = 1;
-  for (const [p, q] of [[-dx, from.x], [dx, area.width - from.x], [-dy, from.y], [dy, area.height - from.y]]) {
+  for (const [p, q] of [[-dx, from.x + half], [dx, area.width + half - from.x], [-dy, from.y + half], [dy, area.height + half - from.y]]) {
     if (p === 0) { if (q < 0) return null; continue; }
     const ratio = q / p;
     if (p < 0) { if (ratio > leave) return null; enter = Math.max(enter, ratio); }
@@ -3052,14 +3062,15 @@ function handwritingBounds(strokes, area = null) {
     const points = stroke.points;
     if (!area || points.length === 1) {
       for (const point of points) {
-        const inside = !area || (point.x >= 0 && point.y >= 0 && point.x <= area.width && point.y <= area.height);
-        if (inside) add(point, handwritingWidth(stroke, point) / 2);
+        const half = handwritingWidth(stroke, point) / 2;
+        const inside = !area || (point.x >= -half && point.y >= -half && point.x <= area.width + half && point.y <= area.height + half);
+        if (inside) add(point, half);
       }
       continue;
     }
     for (let index = 1; index < points.length; index++) {
       const half = Math.max(handwritingWidth(stroke, points[index - 1]), handwritingWidth(stroke, points[index])) / 2;
-      for (const point of clipHandwritingSegment(points[index - 1], points[index], area) ?? []) add(point, half);
+      for (const point of clipHandwritingSegment(points[index - 1], points[index], area, half) ?? []) add(point, half);
     }
   }
   if (area) {
@@ -3205,8 +3216,16 @@ function setupHandwriting() {
     if (before === after) return { start, end };
     const picked = before.slice(start, end);
     if (picked) {
-      const at = nearestIndex(after, picked, start);
-      if (at >= 0) return { start: at, end: at + picked.length };
+      // 같은 글자가 여러 번 나오면, 고른 범위 앞뒤 글자(각 32자까지)가 가장 많이 이어지는 곳을 고른다. 같으면 원래 자리에 가까운 곳이다.
+      const left = before.slice(Math.max(0, start - 32), start), right = before.slice(end, end + 32);
+      const sameEnd = (a, b) => { let n = 0; while (n < a.length && n < b.length && a[a.length - 1 - n] === b[b.length - 1 - n]) n++; return n; };
+      const sameStart = (a, b) => { let n = 0; while (n < a.length && n < b.length && a[n] === b[n]) n++; return n; };
+      let best = -1, bestScore = -1;
+      for (let at = after.indexOf(picked); at >= 0; at = after.indexOf(picked, at + 1)) {
+        const score = sameEnd(left, after.slice(Math.max(0, at - 32), at)) + sameStart(right, after.slice(at + picked.length, at + picked.length + 32));
+        if (score > bestScore || (score === bestScore && Math.abs(at - start) < Math.abs(best - start))) { best = at; bestScore = score; }
+      }
+      if (best >= 0) return { start: best, end: best + picked.length };
     } else {
       for (let size = Math.min(16, start); size > 0; size--) {
         const at = nearestIndex(after, before.slice(start - size, start), start - size);
@@ -3389,6 +3408,11 @@ function setupHandwriting() {
   button.addEventListener("click", openPad);
   refreshHandwritingPad.run = () => { if (opened) { place(); prepare(); } };
   closeHandwritingPad.run = closePad;
+  redrawHandwritingPad.run = () => { if (opened) redraw(); };
+}
+// 테마가 바뀌면 applyTheme이 불러 열린 패드의 잉크를 새 글자색으로 다시 그린다.
+function redrawHandwritingPad() {
+  redrawHandwritingPad.run?.();
 }
 // 창 크기 신호는 테크모 resize 처리기 하나가 받아 이 함수를 부른다. 처리기를 따로 늘리지 않는다.
 // 두 함수는 초기화 순서와 상관없이 부를 수 있게 함수 속성에 실제 동작을 단다.
