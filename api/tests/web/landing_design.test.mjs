@@ -805,7 +805,9 @@ test("스크립트가 늦게 실행돼 신호를 놓쳐도, 이미 끝난 성공
   assert.equal(reversed.techmo.hidden, false);
 });
 
-test("영어·중국어 화면은 한국어 글씨가 든 제목 그림이 늦게 받아져도 숨긴 채 두고 다른 그림은 보인다", () => {
+// 이 가짜 화면에는 Image와 data-lettering-* 속성이 없다. 그 언어 그림을 받지 못한 경우와 같아 글자 제목이 남는다.
+// 그림을 바꾸는 순서는 아래 「언어별 제목 그림」 검사들이 letteringSwitcher만 떼어 본다.
+test("영어·중국어 화면은 그 언어 그림을 받기 전에는 한국어 제목 그림이 받아져도 숨긴 채 두고 다른 그림은 보인다", () => {
   for (const lang of ["en", "zh"]) {
     const shown = loadLanding({ lettering: waiting(), lang });
     finish(shown.lettering, drawn(1014), "load");
@@ -915,4 +917,379 @@ test("대화 요청 중에도 홈 기능의 입력 초점과 사진 선택은 �
   release();
   await setImmediate();
   assert.deepEqual(requests, ["/api/v1/chat/stream", chatPath]);
+});
+
+// ── 언어별 제목 그림과 교내 주요 사이트 퀵링크 캐러셀(#122) ─────────────────────────
+// chat.js에서 해당 함수 묶음만 떼어 가짜 그림·가짜 요소로 돌린다. 실제 학교 사이트에는 요청하지 않는다.
+const langCode = script.slice(0, script.indexOf("function trimConversations("));
+function scriptBetween(from, until) {
+  const start = script.indexOf(from);
+  const end = script.indexOf(until, start);
+  assert.ok(start >= 0 && end > start, from);
+  return script.slice(start, end);
+}
+
+class LetteringImage {
+  constructor(attributes) {
+    this.attributes = new Map(Object.entries(attributes));
+    this.complete = true;
+    this.naturalWidth = 1014;
+  }
+  getAttribute(name) { return this.attributes.has(name) ? this.attributes.get(name) : null; }
+  setAttribute(name, value) { this.attributes.set(name, String(value)); }
+  removeAttribute(name) { this.attributes.delete(name); }
+}
+const titleAttributes = {
+  src: "/chat-assets/title-lettering.png", alt: "졸업까지, 테크모와 함께", width: "1014", height: "376",
+  "data-lettering-en": "/chat-assets/title-lettering-en.png?v=fictional-en",
+};
+// 누가 중국어 주소를 다시 적어도 중국어 화면이 글자 제목으로 남는지 보려고 가상 속성을 하나 더한 그림이다.
+const titleWithFictionalZh = { ...titleAttributes, "data-lettering-zh": "/chat-assets/title-lettering-zh.png?v=fictional-zh" };
+function letteringPage(attributes = titleAttributes, { withImage = true } = {}) {
+  const probes = [];
+  // 브라우저의 Image 대신 쓰는 가짜 그림. answer()를 부를 때까지 응답이 오지 않는다.
+  class Image {
+    constructor() { this.listeners = {}; this.naturalWidth = 0; this.naturalHeight = 0; probes.push(this); }
+    addEventListener(type, listener) { this.listeners[type] = listener; }
+    setAttribute(name, value) { this[name] = String(value); }
+    answer(ok, width = 1200, height = 400) {
+      if (ok) Object.assign(this, { naturalWidth: width, naturalHeight: height });
+      this.listeners[ok ? "load" : "error"]();
+    }
+  }
+  const image = new LetteringImage(attributes);
+  const context = { image, swaps: 0, ...(withImage ? { Image } : {}) };
+  runInNewContext(langCode + scriptBetween("function letteringSwitcher(", "// 퀵링크 카드 한 장") +
+    "\nconst switcher = letteringSwitcher(image); switcher.onSwap = () => { swaps += 1; };", context);
+  return {
+    image, probes,
+    swaps: () => context.swaps,
+    switchTo(lang) { runInNewContext(`uiLang = ${JSON.stringify(lang)}; switcher.follow();`, context); },
+    ready: () => runInNewContext("switcher.ready()", context),
+  };
+}
+
+test("언어별 제목 그림: 받은 뒤에만 그 언어 주소·alt·크기로 바꾸고, 대기·404·Image 없음이면 글자 제목을 남긴다", () => {
+  const page = letteringPage();
+  assert.equal(page.ready(), true);
+  page.switchTo("ko");
+  assert.equal(page.probes.length, 0);
+
+  page.switchTo("en");
+  assert.deepEqual(page.probes.map(probe => probe.src), ["/chat-assets/title-lettering-en.png?v=fictional-en"]);
+  // 받는 중에는 한국어 그림을 그대로 두고 자리를 숨기게 한다.
+  assert.equal(page.ready(), false);
+  assert.equal(page.image.getAttribute("src"), "/chat-assets/title-lettering.png");
+  page.probes[0].answer(true, 1200, 400);
+  assert.equal(page.ready(), true);
+  assert.equal(page.swaps(), 1);
+  assert.deepEqual(Object.fromEntries(["src", "alt", "width", "height"].map(name => [name, page.image.getAttribute(name)])), {
+    src: "/chat-assets/title-lettering-en.png?v=fictional-en", alt: "To graduation, with Techmo", width: "1200", height: "400",
+  });
+
+  // 한국어로 돌아오면 처음 주소·alt·크기를 다시 쓴다.
+  page.switchTo("ko");
+  assert.equal(page.ready(), true);
+  assert.deepEqual(Object.fromEntries(["src", "alt", "width", "height"].map(name => [name, page.image.getAttribute(name)])), {
+    src: "/chat-assets/title-lettering.png", alt: "졸업까지, 테크모와 함께", width: "1014", height: "376",
+  });
+
+  // 404나 깨진 그림이면 한국어 그림을 그대로 두고 자리를 숨긴다. 바로 뒤의 영어 글자 제목이 보인다.
+  const missing = letteringPage();
+  missing.switchTo("en");
+  missing.probes[0].answer(false);
+  assert.equal(missing.ready(), false);
+  assert.equal(missing.swaps(), 0);
+  assert.equal(missing.image.getAttribute("src"), "/chat-assets/title-lettering.png");
+
+  const bare = letteringPage(titleAttributes, { withImage: false });
+  assert.doesNotThrow(() => bare.switchTo("en"));
+  assert.equal(bare.ready(), false);
+  const unlisted = letteringPage({ src: "/chat-assets/title-lettering.png", alt: "졸업까지, 테크모와 함께" });
+  unlisted.switchTo("en");
+  assert.equal(unlisted.probes.length, 0);
+  assert.equal(unlisted.ready(), false);
+});
+
+test("언어별 제목 그림: 중국어는 주소 속성이 있어도 그림을 받지 않고 늘 글자 제목을 보인다", () => {
+  const page = letteringPage(titleWithFictionalZh);
+  page.switchTo("zh");
+  assert.equal(page.probes.length, 0);
+  assert.equal(page.ready(), false);
+  assert.equal(page.image.getAttribute("src"), "/chat-assets/title-lettering.png");
+
+  // 영어 그림이 보이던 중에 중국어로 바꿔도 영어 그림을 보이지 않고 글자 제목으로 바꾼다.
+  page.switchTo("en");
+  page.probes[0].answer(true);
+  assert.equal(page.ready(), true);
+  page.switchTo("zh");
+  assert.equal(page.probes.length, 1);
+  assert.equal(page.ready(), false);
+  page.switchTo("ko");
+  assert.equal(page.ready(), true);
+  assert.equal(page.image.getAttribute("src"), "/chat-assets/title-lettering.png");
+});
+
+test("언어별 제목 그림: ko→en→zh를 빠르게 바꾸면 늦게 온 영어 그림은 버리고 중국어 글자 제목을 남긴다", () => {
+  const page = letteringPage(titleWithFictionalZh);
+  page.switchTo("en");
+  page.switchTo("zh");
+  assert.equal(page.probes.length, 1);
+  page.probes[0].answer(true, 1200, 400);
+  assert.equal(page.image.getAttribute("src"), "/chat-assets/title-lettering.png");
+  assert.equal(page.image.getAttribute("alt"), "졸업까지, 테크모와 함께");
+  assert.equal(page.swaps(), 0);
+  assert.equal(page.ready(), false);
+
+  // 받는 도중 한국어로 돌아와도, 늦게 온 그림이 한국어 그림을 덮지 않는다.
+  const back = letteringPage();
+  back.switchTo("en");
+  back.switchTo("ko");
+  back.probes[0].answer(true);
+  assert.equal(back.image.getAttribute("src"), "/chat-assets/title-lettering.png");
+  assert.equal(back.swaps(), 0);
+  assert.equal(back.ready(), true);
+
+  // 메인 제목은 크기 속성 없이 시작하므로 바꾼 뒤에도 크기를 적지 않는다. 높이는 CSS가 정한다.
+  const main = letteringPage({ src: "/chat-assets/main-lettering.png", alt: "물어봐요, 테크모",
+    "data-lettering-en": "/chat-assets/main-lettering-en.png" });
+  main.switchTo("en");
+  main.probes[0].answer(true, 900, 200);
+  assert.equal(main.image.getAttribute("src"), "/chat-assets/main-lettering-en.png");
+  assert.equal(main.image.getAttribute("alt"), "Ask Techmo");
+  assert.equal(main.image.getAttribute("width"), null);
+  assert.equal(main.image.getAttribute("height"), null);
+  main.switchTo("ko");
+  assert.equal(main.image.getAttribute("width"), null);
+  assert.equal(main.image.getAttribute("src"), "/chat-assets/main-lettering.png");
+});
+
+// 서버가 두 그림을 내주는지는 test_web.py가 본다. 여기서는 화면 쪽 주소만 본다.
+test("두 제목 그림은 영어 주소만 data 속성으로 갖고 중국어 주소는 없다", () => {
+  for (const kind of ["title", "main"]) {
+    const tag = new RegExp(`<img src="/chat-assets/${kind}-lettering\\.png"[^>]*>`).exec(html)?.[0] ?? "";
+    assert.ok(tag.includes(`data-lettering-en="/chat-assets/${kind}-lettering-en.png"`), kind);
+  }
+  assert.doesNotMatch(html + script, /lettering-zh/);
+});
+
+// 운영자가 2026-11-17 학교 누리집에서 확인한 순서와 주소다. chat.js의 목록과 따로 적어 서로 견준다.
+const campusQuickLinks = [
+  ["학교 홈페이지", "공지와 학교 소식", "https://www.kumoh.ac.kr/ko/index.do"],
+  ["포털(Onekit)", "수강신청·성적·학적", "https://onekit.kumoh.ac.kr/"],
+  ["BISKIT", "비교과·마일리지", "https://biskit.kumoh.ac.kr/"],
+  ["학습관리시스템(LMS)", "강의 자료와 과제", "https://lms.kumoh.ac.kr/"],
+  ["도서관", "자료 검색·열람실", "https://library.kumoh.ac.kr/"],
+  ["생활관(기숙사)", "입사 신청과 생활 안내", "https://dorm.kumoh.ac.kr/"],
+  ["학사일정", "학기 주요 날짜", "https://www.kumoh.ac.kr/ko/schedule.do"],
+  ["식당 메뉴", "오늘의 학식", "https://www.kumoh.ac.kr/ko/restaurant02.do"],
+  ["웹메일", "학교 메일", "https://mail.kumoh.ac.kr/"],
+  ["학생상담센터", "심리·진로 상담", "https://consult.kumoh.ac.kr/"],
+  ["국제교류·어학교육", "교환학생·한국어 과정", "https://iplec.kumoh.ac.kr/"],
+  ["교내 전화번호", "부서 연락처", "https://www.kumoh.ac.kr/ko/campusTel.do"],
+  ["에브리타임", "학생 커뮤니티·시간표", "https://everytime.kr/"],
+];
+
+class CarouselNode {
+  constructor(tag) {
+    Object.assign(this, { tag, children: [], attributes: new Map(), listeners: new Map(), className: "", textContent: "", hidden: false });
+  }
+  append(...nodes) { this.children.push(...nodes); }
+  replaceChildren(...nodes) { this.children = []; this.append(...nodes); }
+  setAttribute(name, value) { this.attributes.set(name, String(value)); }
+  getAttribute(name) { return this.attributes.has(name) ? this.attributes.get(name) : null; }
+  addEventListener(type, listener) { this.listeners.set(type, [...(this.listeners.get(type) ?? []), listener]); }
+  fire(type) { for (const listener of this.listeners.get(type) ?? []) listener({}); }
+  classes() { return (this.getAttribute("class") ?? this.className).split(/\s+/); }
+  all(name) { return this.children.filter(child => child instanceof CarouselNode).flatMap(child => [...(child.classes().includes(name) ? [child] : []), ...child.all(name)]); }
+  querySelector(selector) { return this.all(selector.slice(1))[0] ?? null; }
+  get text() { return this.children.length ? this.children.map(child => child.text).join("") : this.textContent; }
+}
+function carouselPage({ clientWidth = 600, scrollWidth = 2800, reduced = false, observer = true } = {}) {
+  const observers = [], resizes = [];
+  const roots = ["login", "main"].map(() => {
+    const root = new CarouselNode("nav");
+    const button = name => Object.assign(new CarouselNode("button"), { className: `quicklink-nav ${name}`, hidden: true });
+    const prev = button("quicklink-prev"), next = button("quicklink-next");
+    prev.setAttribute("aria-disabled", "true");
+    next.setAttribute("aria-disabled", "true");
+    const track = Object.assign(new CarouselNode("ul"), { className: "quicklink-track", clientWidth, scrollWidth, scrollLeft: 0, moves: [] });
+    track.scrollBy = function (options) {
+      // vm 안에서 만든 객체는 프로토타입이 달라 deepEqual이 어긋난다. 이 테스트 쪽 객체로 옮겨 적는다.
+      this.moves.push({ left: options.left, behavior: options.behavior });
+      this.scrollLeft = Math.min(Math.max(0, this.scrollLeft + options.left), this.scrollWidth - this.clientWidth);
+    };
+    const viewport = Object.assign(new CarouselNode("div"), { className: "quicklink-viewport" });
+    viewport.append(track);
+    root.append(prev, viewport, next);
+    return { root, prev, next, track };
+  });
+  const context = {
+    document: {
+      querySelectorAll: selector => selector === "[data-quicklink-carousel]" ? roots.map(({ root }) => root) : [],
+      createElement: tag => new CarouselNode(tag),
+      createElementNS: (namespace, tag) => Object.assign(new CarouselNode(tag), { namespace }),
+    },
+    window: { addEventListener: (type, listener) => { if (type === "resize") resizes.push(listener); } },
+    reducedMotion: () => reduced,
+    element(tag, className, text) {
+      const node = new CarouselNode(tag);
+      if (className) node.className = className;
+      if (text !== undefined) node.textContent = text;
+      return node;
+    },
+    ResizeObserver: observer ? class { constructor(callback) { this.callback = callback; observers.push(this); } observe(node) { this.node = node; } } : undefined,
+  };
+  runInNewContext(langCode + scriptBetween("const svgNamespace =", "setupQuickLinks();") + "\nsetupQuickLinks();", context);
+  return {
+    roots, observers, resizes,
+    switchTo(lang) { runInNewContext(`uiLang = ${JSON.stringify(lang)}; for (const listener of langListeners) listener();`, context); },
+    measure() { runInNewContext("measureQuickLinks();", context); },
+  };
+}
+const cardsOf = ({ track }) => track.children.map(item => item.children[0]);
+const cardPart = (card, name) => card.all(name)[0]?.text;
+
+test("퀵링크 캐러셀: 두 바닥이 같은 목록으로 카드 13장을 순서대로 그리고 새 창·외부 서비스 표시를 붙인다", () => {
+  const page = carouselPage();
+  for (const carousel of page.roots) {
+    const cards = cardsOf(carousel);
+    assert.equal(carousel.track.children.length, 13);
+    assert.ok(carousel.track.children.every(item => item.tag === "li" && item.className === "quicklink-item"));
+    assert.deepEqual(cards.map(card => [cardPart(card, "quicklink-name"), cardPart(card, "quicklink-desc"), card.getAttribute("href")]), campusQuickLinks);
+    for (const card of cards) {
+      assert.equal(card.tag, "a");
+      assert.equal(card.className, "quicklink-card");
+      assert.equal(card.getAttribute("target"), "_blank");
+      assert.equal(card.getAttribute("rel"), "noopener noreferrer");
+      assert.ok(card.getAttribute("href").startsWith("https://"));
+      assert.equal(cardPart(card, "sr-only"), " (새 창)");
+      // 선 아이콘 두 개(사이트 아이콘·새 창 표시)는 읽지 않고, 채운 도형 없이 선으로만 그린다.
+      const icons = card.children.filter(child => child.tag === "svg");
+      assert.deepEqual(icons.map(icon => icon.getAttribute("class")), ["quicklink-icon", "external-link-icon"]);
+      for (const icon of icons) {
+        assert.equal(icon.namespace, "http://www.w3.org/2000/svg");
+        assert.deepEqual([icon.getAttribute("aria-hidden"), icon.getAttribute("focusable"), icon.getAttribute("fill"), icon.getAttribute("stroke")],
+          ["true", "false", "none", "currentColor"]);
+        assert.ok(icon.children.length > 0 && icon.children.every(path => path.tag === "path" && path.getAttribute("d")));
+      }
+    }
+    // 학교 공식 사이트가 아닌 에브리타임에만 외부 서비스 표시가 붙는다.
+    assert.deepEqual(cards.map(card => cardPart(card, "quicklink-badge") ?? null),
+      [...Array(12).fill(null), "외부 서비스"]);
+  }
+  // 두 바닥은 같은 카드를 그리지만 요소는 따로다.
+  assert.notEqual(page.roots[0].track.children[0], page.roots[1].track.children[0]);
+});
+
+test("퀵링크 캐러셀: 언어를 바꾸면 이름·설명·표시·(새 창)을 사전으로 다시 그리고, 한국어로 돌아온다", () => {
+  const page = carouselPage();
+  page.switchTo("en");
+  let cards = cardsOf(page.roots[1]);
+  assert.deepEqual([cardPart(cards[0], "quicklink-name"), cardPart(cards[0], "quicklink-desc"), cardPart(cards[0], "sr-only")],
+    ["University website", "Notices and campus news", " (new window)"]);
+  assert.equal(cardPart(cards[2], "quicklink-name"), "BISKIT");
+  assert.equal(cardPart(cards[12], "quicklink-badge"), "External service");
+  page.switchTo("zh");
+  cards = cardsOf(page.roots[0]);
+  assert.deepEqual([cardPart(cards[4], "quicklink-name"), cardPart(cards[4], "quicklink-desc")], ["图书馆", "资料检索·阅览室"]);
+  assert.equal(cardPart(cards[12], "quicklink-badge"), "外部服务");
+  assert.equal(cardPart(cards[12], "sr-only"), " （新窗口）");
+  page.switchTo("ko");
+  assert.deepEqual(cardsOf(page.roots[0]).map(card => cardPart(card, "quicklink-name")), campusQuickLinks.map(([name]) => name));
+  // 모든 이름·설명·버튼 이름·표시는 영어·중국어 사전에 있다. BISKIT은 고유 이름이라 그대로 쓴다.
+  const { en, zh } = runInNewContext(langCode + "\nuiText", {});
+  for (const key of [...campusQuickLinks.flatMap(([name, description]) => [name, description]), "외부 서비스", "이전 사이트 보기", "다음 사이트 보기"]) {
+    if (key === "BISKIT") continue;
+    assert.ok(Object.hasOwn(en, key) && Object.hasOwn(zh, key), key);
+  }
+});
+
+test("퀵링크 캐러셀: ‹ ›는 보이는 폭만큼 부드럽게 넘기고 끝에서는 그쪽 버튼을 aria-disabled로 둔다", () => {
+  const page = carouselPage();
+  const { root, prev, next, track } = page.roots[0];
+  assert.deepEqual([prev.hidden, next.hidden], [false, false]);
+  assert.deepEqual([prev.getAttribute("aria-disabled"), next.getAttribute("aria-disabled")], ["true", "false"]);
+  assert.deepEqual([root.getAttribute("data-at-start"), root.getAttribute("data-at-end")], ["true", "false"]);
+  // 처음 자리에서 ‹는 움직이지 않는다.
+  prev.fire("click");
+  assert.deepEqual(track.moves, []);
+
+  next.fire("click");
+  assert.deepEqual(track.moves, [{ left: 600, behavior: "smooth" }]);
+  assert.deepEqual([prev.getAttribute("aria-disabled"), next.getAttribute("aria-disabled")], ["false", "false"]);
+  prev.fire("click");
+  assert.deepEqual(track.moves.at(-1), { left: -600, behavior: "smooth" });
+
+  // 손가락·트랙패드로 끝까지 밀면 scroll 신호로 다시 잰다. 끝 판정에는 1px 오차를 허용한다.
+  track.scrollLeft = 2199.5;
+  track.fire("scroll");
+  assert.deepEqual([prev.getAttribute("aria-disabled"), next.getAttribute("aria-disabled")], ["false", "true"]);
+  assert.equal(root.getAttribute("data-at-end"), "true");
+  const moves = track.moves.length;
+  next.fire("click");
+  assert.equal(track.moves.length, moves);
+
+  // 움직임 줄이기 설정이면 즉시 옮긴다.
+  const calm = carouselPage({ reduced: true });
+  calm.roots[1].next.fire("click");
+  assert.deepEqual(calm.roots[1].track.moves, [{ left: 600, behavior: "auto" }]);
+});
+
+test("퀵링크 캐러셀: 카드가 다 보이면 버튼을 숨기고, 폭이 0인 숨은 화면은 판정을 미뤘다가 크기 변화에 다시 잰다", () => {
+  const fits = carouselPage({ clientWidth: 2800, scrollWidth: 2801 });
+  for (const { root, prev, next } of fits.roots) {
+    assert.deepEqual([prev.hidden, next.hidden], [true, true]);
+    assert.deepEqual([root.getAttribute("data-at-start"), root.getAttribute("data-at-end")], ["true", "true"]);
+  }
+
+  const hidden = carouselPage({ clientWidth: 0, scrollWidth: 0 });
+  const [login] = hidden.roots;
+  assert.deepEqual([login.prev.hidden, login.next.hidden], [true, true]);
+  assert.equal(login.root.getAttribute("data-at-start"), null);
+  // 화면이 보이면 ResizeObserver가 track을 다시 잰다.
+  assert.deepEqual(hidden.observers.map(observer => observer.node), hidden.roots.map(({ track }) => track));
+  Object.assign(login.track, { clientWidth: 600, scrollWidth: 2800 });
+  hidden.observers[0].callback();
+  assert.deepEqual([login.prev.hidden, login.next.hidden], [false, false]);
+  assert.equal(login.next.getAttribute("aria-disabled"), "false");
+
+  // ResizeObserver가 없는 브라우저에서도 멈추지 않고, 창 크기 신호로 다시 잰다.
+  // 창 크기 신호는 테크모 resize 처리기 하나가 받아 measureQuickLinks를 부른다. 처리기를 따로 늘리지 않는다.
+  const old = carouselPage({ clientWidth: 0, scrollWidth: 0, observer: false });
+  assert.equal(old.observers.length, 0);
+  assert.equal(old.resizes.length, 0);
+  Object.assign(old.roots[1].track, { clientWidth: 600, scrollWidth: 2800 });
+  old.measure();
+  assert.equal(old.roots[1].next.hidden, false);
+  const resizeHandler = /window\.addEventListener\?\.\("resize", \(\) => \{[\s\S]*?\n\}\);/.exec(script)?.[0] ?? "";
+  assert.match(resizeHandler, /refreshTechmoBubbleVisibility\(\)[\s\S]*measureQuickLinks\(\)/);
+});
+
+test("퀵링크 캐러셀의 마크업과 CSS: 빈 카드 줄·숨은 버튼·scroll-snap·클릭을 막지 않는 양 끝 흐림", () => {
+  for (const id of ["login-campus-site-links", "main-campus-site-links"]) {
+    const nav = new RegExp(`<nav class="quicklink-carousel" id="${id}" aria-label="교내 주요 사이트" data-quicklink-carousel>[\\s\\S]*?</nav>`).exec(html)?.[0] ?? "";
+    assert.match(nav, /<button type="button" class="quicklink-nav quicklink-prev" aria-label="이전 사이트 보기" aria-disabled="true" hidden>/, id);
+    assert.match(nav, /<div class="quicklink-viewport"><ul class="quicklink-track"><\/ul><\/div>/, id);
+    assert.match(nav, /<button type="button" class="quicklink-nav quicklink-next" aria-label="다음 사이트 보기" aria-disabled="true" hidden>/, id);
+    assert.doesNotMatch(nav, /<a\b/, id);
+  }
+  assert.equal(declared(".quicklink-track", ["scroll-snap-type"]), "x mandatory");
+  assert.equal(declared(".quicklink-track", ["overflow-x"]), "auto");
+  assert.equal(declared(".quicklink-item", ["scroll-snap-align"]), "start");
+  assert.equal(declared(".quicklink-nav", ["border-radius"]), "50%");
+  assert.equal(declared(".quicklink-viewport::before", ["pointer-events"], ".quicklink-viewport::after"), "none");
+  assert.equal(declared(".quicklink-viewport::after", ["pointer-events"], ".quicklink-viewport::before"), "none");
+  assert.equal(declared('.quicklink-carousel[data-at-start="true"] .quicklink-viewport::before', ["opacity"]), "0");
+  assert.equal(declared('.quicklink-carousel[data-at-end="true"] .quicklink-viewport::after', ["opacity"]), "0");
+  // 카드에는 transition을 걸지 않는다. 움직임은 scrollBy 넘김 하나이고 움직임 줄이기 설정은 chat.js가 따른다.
+  assert.equal(find(".quicklink-card", ["transition", "transform"]), undefined);
+  assert.equal(find(".quicklink-card:hover", ["transition", "transform"]), undefined);
+  // 카드 글자는 메인·로그인 바닥 양쪽에서, 밝고 어두운 사진 위에서 4.5 이상이다.
+  for (const footer of [".site-footer", "#login-site-footer"]) {
+    checkText([
+      [".quicklink-name", ".quicklink-card"], [".quicklink-desc", ".quicklink-card"], [".quicklink-badge", ".quicklink-card"],
+      [".quicklink-name", ".quicklink-card:hover"], [".quicklink-desc", ".quicklink-card:hover"],
+    ], { ...parents, ".quicklink-card": footer, ".quicklink-card:hover": footer });
+  }
 });

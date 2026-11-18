@@ -49,6 +49,9 @@ CHAT_WEB_MEDIA_TYPES = {
     "title-lettering.png": "image/png",
     # 메인 화면의 제목 글씨 그림. 같은 글꼴로 배포 준비 때 그린다.
     "main-lettering.png": "image/png",
+    # 영어 화면의 제목 글자 그림. 배포 준비 때 그리며, 없으면 화면이 같은 글귀를 글자로 보인다.
+    # 중국어 그림은 글꼴 지문을 고정한 뒤 다음 이슈에서 더한다. 그때까지 중국어 화면은 글자 제목이다.
+    "title-lettering-en.png": "image/png", "main-lettering-en.png": "image/png",
     # 캠퍼스 사진 네 장. 배포 준비 때만 받으므로 파일이 없으면 404로 답한다.
     "campus-aerial.jpg": "image/jpeg", "campus-hill.jpg": "image/jpeg",
     "campus-gate.jpg": "image/jpeg", "campus-field.jpg": "image/jpeg",
@@ -57,7 +60,11 @@ CHAT_WEB_MEDIA_TYPES = {
 # 사진 주소들은 실제로 422를 내므로 여기에 넣지 않는다.
 PATHS_WITHOUT_422 = ("/api/v1/chat", "/api/v1/chat/stream", "/api/v1/demo-login")
 # 주소에 내용 지문을 붙이는 그림. 배포 준비 때 생기므로 없을 수 있다.
-FINGERPRINTED_IMAGES = ("main-lettering.png", "kumoh-signature-light.png")
+FINGERPRINTED_IMAGES = (
+    "main-lettering.png", "kumoh-signature-light.png",
+    # 영어 제목 그림은 `index.html`의 data-lettering-en 속성에 주소가 있다. 다시 그리면 지문이 바뀐다.
+    "title-lettering-en.png", "main-lettering-en.png",
+)
 # 테크모 그림 묶음의 칸 배치를 화면에 넘기는 자리. `index.html`에 정확히 한 번 있어야 한다.
 # 배치 파일은 서버가 읽어 화면에 넣을 뿐, `/chat-assets/` 주소로 내주지 않는다.
 TECHMO_LAYOUT_SLOT = "__TECHMO_LAYOUT__"

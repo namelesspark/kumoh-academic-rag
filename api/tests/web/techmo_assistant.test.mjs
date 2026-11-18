@@ -116,6 +116,13 @@ test("펫은 요청 중에 잠기지 않는 버튼이다", () => {
   // 스크립트는 테크모·대화 메뉴·선택 메뉴(답변 모드) 좌표를 CSS 변수로만 넘긴다.
   assert.doesNotMatch(html, /\sstyle=/);
   assert.doesNotMatch(script, /\.src\s*=|\.style\b(?!\??\.(?:setProperty|removeProperty)\(["`]--(?:techmo|conversation-menu|choice-menu)-)/);
+  // 예외는 하나다(#122). 언어별 제목 그림은 index.html의 data-lettering-* 주소로만, letteringSwitcher 안에서만 바꾼다.
+  const swapStart = script.indexOf("function letteringSwitcher(");
+  const swapEnd = script.indexOf("// 퀵링크 카드 한 장", swapStart);
+  assert.ok(swapStart >= 0 && swapEnd > swapStart);
+  const sourceSwaps = [...script.matchAll(/setAttribute\("src"/g)].map(match => match.index);
+  assert.equal(sourceSwaps.length, 2);
+  assert.ok(sourceSwaps.every(index => index > swapStart && index < swapEnd));
 });
 
 test("그림 칸은 스프라이트 한 장의 배경 위치로만 고른다: 0·25·50·75·100%", () => {

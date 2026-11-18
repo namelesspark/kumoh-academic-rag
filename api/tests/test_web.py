@@ -115,6 +115,15 @@ NEW_BUTTON_IDS = (
 )
 MAIN_LETTERING = "/chat-assets/main-lettering.png"
 LIGHT_LOGO = "/chat-assets/kumoh-signature-light.png"
+TITLE_LETTERING = "/chat-assets/title-lettering.png"
+# 이슈 #122: 제목 글자 그림의 언어별 주소. (그림 기본 주소, 속성 이름, 언어별 주소) 순서다.
+# 중국어 그림은 글꼴 지문을 고정하는 다음 이슈에서 더한다. 그때까지 화면도 서버도 중국어 그림 주소를 모른다.
+LANGUAGE_LETTERINGS = (
+    (TITLE_LETTERING, "data-lettering-en", "/chat-assets/title-lettering-en.png"),
+    (MAIN_LETTERING, "data-lettering-en", "/chat-assets/main-lettering-en.png"),
+)
+RETIRED_LANGUAGE_LETTERING_NAMES = ("title-lettering-zh.png", "main-lettering-zh.png")
+LANGUAGE_LETTERING_NAMES = tuple(address.rsplit("/", 1)[1] for _, _, address in LANGUAGE_LETTERINGS)
 # 이슈 #107의 교내 주요 사이트. (보이는 이름, 주소) 순서다.
 CAMPUS_SITES = (
     ("학교 홈페이지", "https://www.kumoh.ac.kr/ko/index.do"),
@@ -351,7 +360,9 @@ class TestChatWeb(unittest.TestCase):
         self.assertIn("hidden", slot["attrs"])
         (image,) = slot["children"]
         # 그림 크기는 배포 준비 때 정해지므로 가로·세로 값을 적지 않는다.
-        self.assertEqual(image["attrs"], {"src": MAIN_LETTERING, "alt": "물어봐요, 테크모"})
+        # 영어 그림 주소는 data-lettering-en에 둔다. 바꿔 끼우는 일은 chat.js가 한다. 중국어 그림은 아직 없다.
+        self.assertEqual(image["attrs"], {"src": MAIN_LETTERING, "alt": "물어봐요, 테크모",
+                                          "data-lettering-en": "/chat-assets/main-lettering-en.png"})
 
         self.assertEqual((fallback["tag"], fallback["attrs"].get("class")),
                          ("span", "main-title-fallback"))
@@ -418,6 +429,36 @@ class TestChatWeb(unittest.TestCase):
                 for child in icon["children"]:
                     self.assertNotIn("fill", child["attrs"])
 
+    def assert_quicklink_carousel(self, nav, nav_id):
+        # 이슈 #122: 로그인·메인 바닥의 링크 줄은 넘겨 보는 묶음이 됐다. 카드는 chat.js가 그린다.
+        self.assertEqual(nav["tag"], "nav")
+        self.assertEqual(nav["attrs"].get("class"), "quicklink-carousel")
+        self.assertEqual(nav["attrs"].get("id"), nav_id)
+        self.assertEqual(nav["attrs"].get("aria-label"), "교내 주요 사이트")
+        self.assertIn("data-quicklink-carousel", nav["attrs"])
+        self.assertEqual([(child["tag"], child["attrs"].get("class")) for child in nav["children"]],
+                         [("button", "quicklink-nav quicklink-prev"), ("div", "quicklink-viewport"),
+                          ("button", "quicklink-nav quicklink-next")])
+        previous, viewport, following = nav["children"]
+        for button, label in ((previous, "이전 사이트 보기"), (following, "다음 사이트 보기")):
+            with self.subTest(button=label):
+                self.assertEqual(button["attrs"].get("type"), "button")
+                self.assertEqual(button["attrs"].get("aria-label"), label)
+                # 넘길 카드가 생기기 전에는 숨기고, 눌러도 아무 일이 없다고 알린다.
+                self.assertEqual(button["attrs"].get("aria-disabled"), "true")
+                self.assertIn("hidden", button["attrs"])
+                self.assertEqual([child["tag"] for child in button["children"]], ["svg"])
+                self.assertEqual(button["children"][0]["attrs"].get("aria-hidden"), "true")
+                self.assertEqual(button["text"].strip(), "")
+        (track,) = viewport["children"]
+        self.assertEqual((track["tag"], track["attrs"].get("class")), ("ul", "quicklink-track"))
+        self.assertEqual((track["children"], track["text"].strip()), ([], ""))
+
+    def descendants(self, node):
+        for child in node["children"]:
+            yield child
+            yield from self.descendants(child)
+
     def test_login_and_main_footers_carry_the_campus_links_and_the_demo_note(self):
         page = parse_page(read_index())
         for screen_id, footer_id, nav_id in (
@@ -436,8 +477,9 @@ class TestChatWeb(unittest.TestCase):
                 label, nav, note = footer["children"]
                 self.assertEqual(label["text"], "교내 주요 사이트")
                 self.assertEqual(note["text"], FOOTER_NOTE)
-                self.assertEqual(nav["attrs"].get("class"), "campus-site-links")
-                self.assert_campus_links(nav)
+                self.assert_quicklink_carousel(nav, nav_id)
+                # 처음 화면의 바닥에는 링크가 없다. 사이트 카드는 스크립트가 채운다.
+                self.assertFalse([node for node in self.descendants(footer) if node["tag"] == "a"])
         # 바닥은 두 곳뿐이다. 메인 화면 끝에 따로 떠 있던 바닥은 지웠다.
         footers = [node for node in page.elements if node["tag"] == "footer"]
         self.assertEqual([node["attrs"].get("id") for node in footers],
@@ -452,11 +494,14 @@ class TestChatWeb(unittest.TestCase):
         self.assertIs(next_sibling(by_class(page, "conversation-note")), nav)
         self.assertEqual(nav["attrs"].get("class"), "campus-site-links campus-site-links--compact")
         self.assert_campus_links(nav)
-        # 세 묶음은 같은 이름으로 불린다. 링크는 모두 아홉 개다.
+        # 세 묶음은 같은 이름으로 불린다. 처음 화면의 링크는 사이드바의 세 개뿐이다.
         navs = [node for node in page.elements if node["tag"] == "nav"]
         self.assertEqual([node["attrs"].get("id") for node in navs],
                          ["login-campus-site-links", "sidebar-campus-site-links", "main-campus-site-links"])
-        self.assertEqual(len([node for node in page.elements if node["tag"] == "a"]), 9)
+        self.assertEqual({node["attrs"].get("aria-label") for node in navs}, {"교내 주요 사이트"})
+        links = [node for node in page.elements if node["tag"] == "a"]
+        self.assertEqual(len(links), 3)
+        self.assertTrue(all(link["parent"] is nav for link in links))
 
     def test_reply_toast_follows_the_pet_and_the_announcer_is_always_present(self):
         page = parse_page(read_index())
@@ -582,7 +627,8 @@ class TestChatWeb(unittest.TestCase):
 
     def test_missing_or_unreadable_lettering_does_not_stop_startup(self):
         self.assertEqual(web_main.FINGERPRINTED_IMAGES,
-                         ("main-lettering.png", "kumoh-signature-light.png"))
+                         ("main-lettering.png", "kumoh-signature-light.png",
+                          "title-lettering-en.png", "main-lettering-en.png"))
         real_read = Path.read_bytes
         target = CHAT_WEB_DIR / "assets" / "main-lettering.png"
         for failure in (FileNotFoundError(2, "fictional missing"), PermissionError(13, "fictional denied")):
@@ -621,8 +667,85 @@ class TestChatWeb(unittest.TestCase):
         with patch.object(Path, "read_bytes", autospec=True, side_effect=read):
             self.assertEqual(web_main.read_prepared_images(),
                              {"main-lettering.png": b"fictional main-lettering.png",
-                              "kumoh-signature-light.png": b"fictional kumoh-signature-light.png"})
+                              "kumoh-signature-light.png": b"fictional kumoh-signature-light.png",
+                              "title-lettering-en.png": b"fictional title-lettering-en.png",
+                              "main-lettering-en.png": b"fictional main-lettering-en.png"})
         self.assertEqual(asked, [CHAT_WEB_DIR / "assets" / name for name in web_main.FINGERPRINTED_IMAGES])
+
+    def test_language_letterings_are_served_as_png_and_missing_file_is_404(self):
+        served = []
+
+        def memory_response(path, *, media_type, headers):
+            served.append(path.name)
+            return web_main.Response(content=f"fictional {path.name}".encode(),
+                                     media_type=media_type, headers=headers)
+
+        for name in LANGUAGE_LETTERING_NAMES:
+            with self.subTest(name=name):
+                with patch.object(Path, "is_file", return_value=False):
+                    response = call_app(web_main.app, "GET", f"/chat-assets/{name}", allow_wait=True)
+                self.assertEqual(response.status, 404)
+                self.assertEqual(response.headers["cache-control"], "no-cache")
+                with (
+                    patch.object(Path, "is_file", return_value=True),
+                    patch.object(web_main, "FileResponse", side_effect=memory_response),
+                ):
+                    response = call_app(web_main.app, "GET", f"/chat-assets/{name}", allow_wait=True)
+                self.assertEqual(response.status, 200)
+                self.assertEqual(response.headers["content-type"], "image/png")
+                self.assertEqual(response.body, f"fictional {name}".encode())
+                self.assertEqual(response.headers["cache-control"], "no-cache")
+        self.assertEqual(served, list(LANGUAGE_LETTERING_NAMES))
+
+    def test_language_lettering_addresses_are_fingerprinted_only_when_prepared(self):
+        prepared = {name: f"fictional {name} bytes".encode() for name in LANGUAGE_LETTERING_NAMES}
+
+        def lettering_attrs(html):
+            images = {node["attrs"].get("src"): node["attrs"]
+                      for node in parse_page(html).elements if node["tag"] == "img"}
+            return [images[src].get(attribute) for src, attribute, _ in LANGUAGE_LETTERINGS]
+
+        with patch.object(web_main, "read_prepared_images", return_value=prepared):
+            html = call_app(create_app(), "GET", "/", allow_wait=True).text()
+        # 그림마다 제 내용의 지문이 붙는다. 기본 그림 주소는 준비되지 않았으니 그대로다.
+        self.assertEqual(lettering_attrs(html),
+                         [f"{address}?v={sha256(prepared[address.rsplit('/', 1)[1]]).hexdigest()}"
+                          for _, _, address in LANGUAGE_LETTERINGS])
+        for _, _, address in LANGUAGE_LETTERINGS:
+            self.assertNotIn(f'"{address}"', html)
+        self.assertEqual(image_addresses(parse_page(html)).count(TITLE_LETTERING), 1)
+        self.assertEqual(image_addresses(parse_page(html)).count(MAIN_LETTERING), 1)
+        # 스타일·스크립트 두 개에 영어 그림 두 개가 더해진다.
+        self.assertEqual(html.count("?v="), 4)
+
+        with patch.object(web_main, "read_prepared_images", return_value={}):
+            html = call_app(create_app(), "GET", "/", allow_wait=True).text()
+        self.assertEqual(lettering_attrs(html), [address for _, _, address in LANGUAGE_LETTERINGS])
+        self.assertEqual(html.count("?v="), 2)
+
+    def test_language_lettering_names_are_served_and_fingerprinted(self):
+        page = parse_page(read_index())
+        found = [(node["attrs"].get("src"), name, value)
+                 for node in page.elements if node["tag"] == "img"
+                 for name, value in node["attrs"].items() if name.startswith("data-lettering-")]
+        self.assertEqual(sorted(found), sorted(LANGUAGE_LETTERINGS))
+        for _, _, address in found:
+            with self.subTest(address=address):
+                self.assertTrue(address.startswith("/chat-assets/"))
+                name = address.rsplit("/", 1)[1]
+                self.assertEqual(web_main.CHAT_WEB_MEDIA_TYPES.get(name), "image/png")
+                self.assertIn(name, web_main.FINGERPRINTED_IMAGES)
+
+    def test_chinese_letterings_are_left_out_until_the_font_hash_is_fixed(self):
+        # 중국어 그림은 다음 이슈에서 더한다. 파일을 준비해 두어도 서버는 디스크를 보지 않고 404로 답한다.
+        self.assertNotIn("lettering-zh", read_index())
+        for name in RETIRED_LANGUAGE_LETTERING_NAMES:
+            with self.subTest(name=name):
+                self.assertNotIn(name, web_main.CHAT_WEB_MEDIA_TYPES)
+                self.assertNotIn(name, web_main.FINGERPRINTED_IMAGES)
+                with patch.object(Path, "is_file", side_effect=AssertionError("읽으면 안 됨")):
+                    response = call_app(web_main.app, "GET", f"/chat-assets/{name}", allow_wait=True)
+                self.assertEqual(response.status, 404)
 
     def test_language_pills_sit_in_the_masthead_and_on_the_login_screen(self):
         # 이슈 #116: 기본 드롭다운(select) 없이 지구본·현재 언어·꺾쇠 알약 두 개가 같은 메뉴를 연다.
