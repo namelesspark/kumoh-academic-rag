@@ -367,6 +367,14 @@ test("조작 영역은 44px 이상이다", () => {
   assert.equal(declared('body[data-view="chat"] .brand-logo', ["display"], undefined, { width: 390 }), "none");
   assert.equal(find('body[data-view="chat"] .brand-logo', ["display"], { width: 481 }), undefined);
   assert.equal(find(".brand-logo", ["display"], { width: 390 }), "inline-block");
+  // 로고를 받지 못하면 대신 보이는 학교 이름 글자(약 106px)도 그 자리를 차지하므로 화면에서만 감춘다.
+  assert.equal(declared('body[data-view="chat"] .brand-name', ["clip-path"], undefined, { width: 390 }), "inset(50%)");
+  assert.equal(declared('body[data-view="chat"] .brand-name', ["position"], undefined, { width: 390 }), "absolute");
+  assert.equal(find('body[data-view="chat"] .brand-name', ["clip-path"], { width: 481 }), undefined);
+  // 출처 링크는 답 아래 따로 놓인 조작 요소라 높이 44px다.
+  for (const selector of [".source-link", ".evidence .source-link", ".graduation .source-link", ".poster-result .source-link"]) {
+    assert.equal(declared(selector, ["min-height"]), "44px", selector);
+  }
   // 대화 목록 아래 학교 링크도 한 줄 글자보다 높은 44px 누름 영역이다.
   for (const width of [1280, 390]) assert.equal(declared(".campus-site-link", ["min-height"], undefined, { width }), "44px");
   assert.equal(declared(".thinking summary", ["min-height"]), "44px");
@@ -427,10 +435,13 @@ test("로그인 화면 언어·테마 묶음은 hover 바탕이 없고 안의 �
   checkText([[".campus-caption", ".campus-caption-text"]]);
   // 사진 위 본문 크기 글자(소개 문구·인사말)도 남색 받침 위 불투명 흰 글자다. 사진 위 막은 빼고 계산해 더 엄격하게 본다.
   checkText([[".intro-description", ".intro-description"], [".main-welcome #main-greeting", ".main-welcome #main-greeting"]]);
-  // 대체 제목(큰 글자)은 위쪽 막 위 흰 글자라 흰 사진 가정에서도 큰 글자 기준 3:1을 넘는다. 노랑이었으면 못 넘는다.
+  // 대체 제목은 화면 높이 25% 안팎, 막이 옅어지는 자리에 놓인다. 막에 기대지 않고 남색 받침 위 흰 글자로 계산한다.
+  checkText([[".main-title-fallback", ".main-title-fallback"], [".login-intro", ".title-fallback"]]);
+  // 근거: 막 맨 위(.50)보다 옅은 25% 지점(약 .30)에서는 흰 사진 위 흰 글자가 큰 글자 기준 3:1에도 못 미친다.
+  const mid = colors("var(--overlay-top)", lightEnv)[0][3] - (colors("var(--overlay-top)", lightEnv)[0][3] - colors("var(--overlay-mid)", lightEnv)[0][3]) * 25 / 42;
+  assert.ok(contrast([255, 255, 255], blend([10, 37, 64, mid], [255, 255, 255])) < 3);
   for (const look of themes) {
     const top = blend(colors("var(--overlay-top)", look)[0], [255, 255, 255]);
-    assert.ok(contrast([255, 255, 255], top) >= 3, `${themeName(look)} 대체 제목`);
     if (!isDark(look)) assert.ok(contrast(colors("var(--yellow)", look)[0].slice(0, 3), top) < 3);
   }
   // 사진 위 설정 버튼 경계: 어두운 사진에서는 흰 테두리가, 흰 사진에서는 남색 면이 바깥과 3:1을 넘는다.
@@ -631,7 +642,9 @@ test("흐림을 지원하지 않으면 큰 판은 불투명 바탕, 글이 놓�
   const old = { supports: false };
   const panel = "linear-gradient(180deg, transparent, var(--panel-surface) 56px)";
   assert.equal(declared(".layout", ["background"], undefined, old), panel);
-  assert.equal(declared('body[data-view="chat"] .layout', ["background"], undefined, old), panel);
+  // 채팅 화면 판은 투명 띠 없이 불투명하다. 색 읽기 함수는 그라데이션 안의 transparent를 색으로 세지 않으므로 글자로 따로 막는다.
+  assert.equal(declared('body[data-view="chat"] .layout', ["background"], undefined, old), "var(--panel-surface)");
+  assert.doesNotMatch(declared('body[data-view="chat"] .layout', ["background"], undefined, old), /transparent/);
   assert.equal(declared(".layout::before", ["display"], undefined, old), "none");
   assert.equal(declared(chatSurface, ["background"], undefined, old), "transparent");
   for (const selector of ["#conversation-sidebar", ".reply", ".question", ".card", ".feature-panel", ".composer-meta"]) {

@@ -639,7 +639,10 @@ html:has(body[data-feature-direction="back"])::view-transition-new(feature-morph
 .evidence .source-link, .graduation .source-link, .poster-result .source-link {
   /* 링크 안의 화면 낭독용 글자(.sr-only)는 절대 위치라, 기준을 링크에 두어야 표의 가로 스크롤 밖으로 뻗지 않는다. */
   position: relative;
-  display: inline-block;
+  /* 한 줄 글자여도 누름 영역은 높이 44px다. 글자는 그 안 세로 가운데에 놓는다. */
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
   margin-top: 9px;
   color: var(--link-ink);
   text-decoration: underline;
@@ -894,8 +897,9 @@ body[data-conversation-drawer="open"] .campus-caption, body:has(#conversation-to
 .title-lettering img { display: block; width: 100%; height: auto; }
 .title-fallback span { display: block; padding-left: 0; }
 .title-lettering:not([hidden]) + .title-fallback { display: none; }
+.title-fallback { width: fit-content; max-width: 100%; padding: 4px 16px; border-radius: 14px; background: var(--glass-pill); }
 /* 소개 문구와 인사말은 본문 크기라 사진 위 막만으로는 흰 사진 가정에서 4.5:1이 안 나온다(.88 흰 글자 약 2.9:1).
-   사진 이름처럼 남색 반투명 받침을 깔고 글자는 불투명 흰색으로 쓴다. 큰 제목(대체 h1·h2)은 막 위에서 큰 글자 기준 3:1을 넘는다. */
+   사진 이름처럼 남색 반투명 받침을 깔고 글자는 불투명 흰색으로 쓴다. 대체 제목(h1·h2)도 아래 규칙에서 같은 받침을 쓴다. */
 .intro-description { width: fit-content; max-width: 100%; padding: 8px 12px; border-radius: 10px; background: var(--glass-pill); font-size: 17px; line-height: 1.7; color: var(--white); word-break: keep-all; }
 .login-card { position: relative; min-width: 0; margin-top: 61px; padding: 24px 32px; border-radius: 28px; color: var(--ink); background: linear-gradient(160deg, var(--glass-card), var(--card-end)); border: 1px solid var(--glass-card-edge); backdrop-filter: blur(1.5px) saturate(1.2); box-shadow: 0 30px 80px var(--shadow-card); animation: login-rise .8s ease-out; }
 @keyframes login-rise { from { opacity: 0; transform: translateY(28px); } to { opacity: 1; transform: translateY(0); } }
@@ -1059,7 +1063,8 @@ button.card:hover:not([data-restored]) { border-color: var(--focus-ink); backgro
 .feature-badge svg { width: 23px; height: 23px; fill: none; stroke: var(--white); stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 .feature-badge .a { stroke: var(--yellow); }
 .feature-badge .f { fill: var(--yellow); }
-.source-link { color: var(--link-ink); }
+/* 출처 링크는 문장 속 글자가 아니라 답 아래 따로 놓이는 조작 요소라 한 줄이어도 높이 44px다. */
+.source-link { display: inline-flex; align-items: center; min-height: 44px; color: var(--link-ink); }
 .reading textarea { background: var(--glass-dense); color: var(--ink); }
 .reading textarea::placeholder { color: var(--muted); }
 
@@ -1142,7 +1147,9 @@ button.card:hover:not([data-restored]) { border-color: var(--focus-ink); backgro
 .main-welcome #main-title { margin: 0 0 12px; }
 .main-lettering { display: block; max-width: 100%; }
 .main-lettering img { display: block; width: auto; max-width: 100%; height: 72px; object-fit: contain; margin-inline: auto; }
-.main-title-fallback { color: var(--white); }
+/* 대체 제목은 사진 위 막이 옅어지는 화면 높이 25% 안팎에 놓인다. 그 자리에서는 막만으로 큰 글자 3:1도 안 나와
+   소개 글과 같은 남색 받침을 깐다. 받침은 막 없이 흰 사진 위에서도 흰 글자 약 4.5:1이다. */
+.main-title-fallback { display: inline-block; max-width: 100%; padding: 2px 14px; border-radius: 12px; background: var(--glass-pill); color: var(--white); }
 .main-title-fallback em { color: var(--white); font-style: normal; text-decoration: underline .12em var(--yellow); text-underline-offset: .16em; }
 .main-lettering:not([hidden]) + .main-title-fallback { display: none; }
 .main-welcome #main-greeting { width: fit-content; max-width: 100%; margin: 0 auto; padding: 6px 12px; border-radius: 10px; background: var(--glass-pill); color: var(--white); font-size: 16px; line-height: 1.6; }
@@ -1600,7 +1607,9 @@ body[data-techmo-dragging="true"] { user-select: none; }
 /* 흐림을 지원하지 않는 브라우저는 반투명 면 뒤 사진이 그대로 비쳐 글이 흔들려 보인다. 큰 판은 불투명 바탕(--panel-surface),
    글이 놓이는 면은 진한 면(--glass-dense)으로 바꾼다. 두 테마 모두 같은 대비 검사를 받는다. */
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-  .layout, body[data-view="chat"] .layout { background: linear-gradient(180deg, transparent, var(--panel-surface) 56px); }
+  .layout { background: linear-gradient(180deg, transparent, var(--panel-surface) 56px); }
+  /* 채팅 화면에는 위에 제목이 없어 판 위쪽까지 대화 영역이 닿는다. 투명 띠 없이 처음부터 불투명 바탕을 깐다. */
+  body[data-view="chat"] .layout { background: var(--panel-surface); }
   .layout::before { display: none; }
   #conversation-sidebar { background: var(--glass-dense); }
   body[data-view="chat"] .chat { background: transparent; }
@@ -1658,4 +1667,6 @@ button.login-lang:focus-visible, .login-lang .lang-pill:focus-visible { outline:
      설정 버튼이 홈 버튼 자리로 밀리므로 채팅 화면에서만 로고 그림을 감춘다. 글자 이름은 화면 낭독기용으로 그대로 남고,
      홈 버튼이 첫 화면으로 돌아가는 길이다. */
   body[data-view="chat"] .brand-logo { display: none; }
+  /* 로고 그림을 받지 못한 경우 대신 보이는 학교 이름 글자도 같은 이유로 화면에서만 감춘다. 화면 낭독기는 그대로 읽는다. */
+  body[data-view="chat"] .brand-name { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 }
