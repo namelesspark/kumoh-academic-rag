@@ -749,6 +749,38 @@ test("50번 넘게 이어 지운 뒤 한 번에 되돌려도 패드를 열 때 �
   assert.equal(page.input.value, `Afake${"B".repeat(50)}D`);
 });
 
+test("끝에 글을 붙인 뒤 50번 넘게 이어 지우고 한 번에 되돌려도, 붙인 뒤의 범위로 돌아온다", async () => {
+  const page = loadPad();
+  const original = `A${"B".repeat(51)}D`;
+  page.input.value = original;
+  page.input.selectionStart = 1; page.input.selectionEnd = 2;
+  page.button.click();
+  page.type(`${original}Z`, original.length + 1, "insertText");
+  // D 앞에서 B를 51번 이어 지운다. 같은 종류의 편집이라 기록은 한 묶음만 늘어난다.
+  for (let left = 50; left >= 0; left--) page.type(`A${"B".repeat(left)}DZ`, 1 + left, "deleteContentBackward");
+  page.type(`${original}Z`, 52, "historyUndo");
+  page.stroke([10, 10], [60, 60]);
+  page.respond(ok("fake"));
+  page.insert.click();
+  await settle();
+  assert.equal(page.input.value, `Afake${"B".repeat(50)}DZ`);
+});
+
+test("획을 긋는 도중 패드가 스크롤로 움직여도 지금 캔버스 위치로 점을 잰다", async () => {
+  const page = loadPad();
+  page.button.click();
+  page.pointer("pointerdown", { x: 10, y: 10 });
+  // 휠로 패드가 화면 위로 60px 움직였다. 실제 캔버스 안 좌표 (10, 70)을 지난다.
+  Object.assign(page.canvasRect, { top: 340, bottom: 540 });
+  page.pointer("pointermove", { x: 10, y: 70 });
+  page.pointer("pointerup", { x: 10, y: 70 });
+  page.respond(ok("가상"));
+  page.insert.click();
+  await settle();
+  // 가로 굵기 3 + 여백 32 = 35, 세로 60 + 3 + 32 = 95, 배율 2.
+  assert.deepEqual([page.exports[0].canvas.width, page.exports[0].canvas.height], [70, 190]);
+});
+
 test("보통 편집으로 전에 본 글이 다시 나와도 실행 취소로 보지 않고 편집을 따라간다", async () => {
   const page = loadPad();
   page.input.value = "AA";
