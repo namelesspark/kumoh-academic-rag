@@ -33,13 +33,13 @@ test("셰이더 핵심의 물결·합성 수식과 uniform을 유지한다", () 
     "float front=age*0.085;",
     "exp(-age*2.2)*smoothstep(0.075,0.0,abs(r-front))*smoothstep(0.0,0.012,r)",
     "cos((r-front)*70.0)*env",
-    "off+=(d/r)*w*0.0075;",
-    "off+=still*0.0008*vec2(sin(uv.y*18.0+t*0.9),cos(uv.x*14.0-t*0.7));",
-    "c+=vec3(0.70,0.92,1.0)*max(light,0.0)*0.10;",
-    "c-=vec3(0.08,0.06,0.03)*max(-light,0.0)*0.18;",
+    "off+=(d/r)*w*0.00375;",
+    "off+=still*0.0004*vec2(sin(uv.y*18.0+t*0.9),cos(uv.x*14.0-t*0.7));",
+    "c+=vec3(0.70,0.92,1.0)*max(light,0.0)*0.05;",
+    "c-=vec3(0.08,0.06,0.03)*max(-light,0.0)*0.09;",
     "uv.y=1.0-uv.y;",
-    "texture2D(a,cover(uv,panA)).rgb",
-    "texture2D(b,cover(uv,panB)).rgb",
+    "texture2D(a,cover(uv,panA,zoomA)).rgb",
+    "texture2D(b,cover(uv,panB,zoomB)).rgb",
     "gl_FragColor=vec4(c,1.0);",
   ]) assert.ok(script.includes(expression), expression);
   assert.match(script, /uniform\s+vec3\s+drops\[16\]/);
@@ -47,12 +47,21 @@ test("셰이더 핵심의 물결·합성 수식과 uniform을 유지한다", () 
   assert.doesNotMatch(script, /generateMipmap\s*\(/);
 });
 
-async function backdrop({ unavailable = false, reduced = false, brokenPhoto = false, brokenShader = false, delayedPhoto = null, failures = {} } = {}) {
+async function backdrop({ unavailable = false, reduced = false, brokenPhoto = false, brokenShader = false, delayedPhoto = null, failures = {}, storedMotion = null, storageFailure = false } = {}) {
   const listeners = new Map(), pending = new Map(), uniforms = new Map(), requests = [], parameters = [];
   const windowListeners = new Map();
   let finishPhoto;
   const delayed = new Promise(resolve => { finishPhoto = resolve; });
-  let next = 0, draws = 0;
+  let next = 0, draws = 0, now = 0, mediaListener;
+  const storage = new Map([["kumoh-campus-motion:v1", storedMotion]]);
+  const localStorage = {
+    getItem(key) { if (storageFailure) throw new Error("fictional storage failure"); return storage.get(key) ?? null; },
+    setItem(key, value) { if (storageFailure) throw new Error("fictional storage failure"); storage.set(key, value); },
+    removeItem(key) { if (storageFailure) throw new Error("fictional storage failure"); storage.delete(key); },
+  };
+  const toggleListeners = new Map();
+  const toggle = { setAttribute(name, value) { this[name] = value; },
+    addEventListener(name, fn) { toggleListeners.set(name, fn); } };
   const gl = new Proxy({
     getShaderPrecisionFormat: () => ({ precision: 23 }),
     getShaderParameter: () => !brokenShader,
@@ -70,12 +79,16 @@ async function backdrop({ unavailable = false, reduced = false, brokenPhoto = fa
   const caption = { hidden: true };
   const progress = { children: [], replaceChildren(...children) { this.children = children; } };
   const document = { hidden: false,
-    querySelector: selector => ({ "#campus-canvas": canvas, "#campus-name": label, "#campus-caption": caption, "#campus-progress": progress })[selector] ?? null,
+    querySelector: selector => ({ "#campus-canvas": canvas, "#campus-name": label, "#campus-caption": caption, "#campus-progress": progress, "#campus-motion-toggle": toggle })[selector] ?? null,
     createElement: () => ({ setAttribute(name, value) { this[name] = value; } }),
     addEventListener: (name, fn) => listeners.set(name, fn),
   };
-  const context = { document, reducedMotion: () => reduced,
+  const context = { document, reducedMotion: () => reduced, localStorage,
+    motionPreference: () => ({ addEventListener: (_name, fn) => { mediaListener = fn; } }),
+    t: text => text, onLangChange() {}, performance: { now: () => now },
     window: { innerWidth: 1280, innerHeight: 800, devicePixelRatio: 3,
+      localStorage, performance: { now: () => now },
+      matchMedia: () => ({ get matches() { return reduced; }, addEventListener: (_name, fn) => { mediaListener = fn; } }),
       requestAnimationFrame: fn => { pending.set(++next, fn); return next; },
       cancelAnimationFrame: id => pending.delete(id),
       addEventListener: (name, listener, options) => windowListeners.set(name, { listener, options }),
@@ -97,10 +110,13 @@ async function backdrop({ unavailable = false, reduced = false, brokenPhoto = fa
   const source = script.slice(start, script.indexOf("void initializeCampusBackdrop();", start));
   await runInNewContext(`${source}\ninitializeCampusBackdrop()`, context);
   await setImmediate();
-  return { canvas, caption, uniforms, requests, parameters, pending, document, label,
+  return { canvas, caption, uniforms, requests, parameters, pending, document, label, toggle, storage,
+    window: context.window,
+    clickToggle() { toggleListeners.get("click")?.(); },
+    setReduced(value) { reduced = value; mediaListener?.({ matches: value }); },
     get steps() { return progress.children; }, draws: () => draws,
     async finishPhoto() { finishPhoto(); await setImmediate(); },
-    tick(time) { const callbacks = [...pending.values()]; pending.clear(); for (const fn of callbacks) fn(time); },
+    tick(time) { now = time; const callbacks = [...pending.values()]; pending.clear(); for (const fn of callbacks) fn(time); },
     fire(name, event = {}) {
       const dispatched = { type: name, preventDefault() {}, ...event };
       windowListeners.get(name)?.listener(dispatched);
@@ -121,7 +137,7 @@ async function backdrop({ unavailable = false, reduced = false, brokenPhoto = fa
   };
 }
 
-test("사진은 9초 유지하고 3.2초 겹치며 절반을 넘으면 이름과 진행 칸을 바꾼다", async () => {
+test("사진은 24초 유지하고 6초 겹치며 절반을 넘으면 이름과 진행 칸을 바꾼다", async () => {
   const page = await backdrop();
   assert.equal(page.requests.length, 4);
   assert.equal(page.parameters.filter(args => args[2] === "CLAMP_TO_EDGE").length, 8);
@@ -129,15 +145,15 @@ test("사진은 9초 유지하고 3.2초 겹치며 절반을 넘으면 이름과
   page.tick(0);
   assert.equal(page.canvas.width, 1920);
   assert.equal(page.canvas.height, 1200);
-  page.tick(9000);
+  page.tick(24000);
   assert.equal(page.uniforms.get("mixv"), 0);
-  page.tick(10600);
+  page.tick(27000);
   assert.ok(Math.abs(page.uniforms.get("mixv") - 0.5) < 1e-8);
   assert.equal(page.label.textContent, "양호동 캠퍼스");
-  page.tick(10601);
+  page.tick(27001);
   assert.equal(page.label.textContent, "디지털관과 금오산 자락");
   assert.equal(page.steps[1]["data-current"], "true");
-  page.tick(12200);
+  page.tick(30000);
   assert.equal(page.uniforms.get("mixv"), 0);
   assert.equal(page.label.textContent, "디지털관과 금오산 자락");
 });
@@ -145,7 +161,7 @@ test("사진은 9초 유지하고 3.2초 겹치며 절반을 넘으면 이름과
 test("여러 사진 주기의 교체 직전 panB와 교체 직후 panA는 1e-6 이내로 이어진다", async () => {
   const page = await backdrop();
   page.tick(0);
-  const HOLD = 9, FADE = 3.2, period = HOLD + FADE, life = HOLD + 2 * FADE;
+  const HOLD = 24, FADE = 6, period = HOLD + FADE, life = HOLD + 2 * FADE;
   const expectedPan = (number, local) => {
     const p = Math.max(0, Math.min(1, local / life));
     return number % 2 === 0 ? 0.28 + p * 0.44 : 0.72 - p * 0.44;
@@ -164,25 +180,25 @@ test("다음 사진이 늦으면 그 주기를 건너뛰고 다음 주기까지 
   const page = await backdrop({ delayedPhoto: "campus-hill.jpg" });
   page.tick(0);
   assert.equal(page.canvas.hidden, false, "첫 사진은 다음 사진을 기다리지 않고 보인다");
-  page.tick(9000);
+  page.tick(24000);
   const heldPan = page.uniforms.get("panA");
   await page.finishPhoto();
-  page.tick(10601);
+  page.tick(27001);
   assert.equal(page.uniforms.get("mixv"), 0, "준비가 끝나도 이미 건너뛴 주기는 전환하지 않는다");
   assert.equal(page.label.textContent, "양호동 캠퍼스");
-  page.tick(12199.999);
+  page.tick(29999.999);
   const beforeSkippedBoundary = page.uniforms.get("panA");
-  page.tick(12200);
+  page.tick(30000);
   assert.equal(page.label.textContent, "양호동 캠퍼스");
   assert.equal(page.uniforms.get("mixv"), 0);
   assert.ok(Math.abs(beforeSkippedBoundary - page.uniforms.get("panA")) < 1e-6);
   assert.ok(page.uniforms.get("panA") >= heldPan);
-  page.tick(21200);
-  page.tick(22801);
+  page.tick(54000);
+  page.tick(57001);
   assert.equal(page.label.textContent, "디지털관과 금오산 자락");
-  page.tick(24399.999);
+  page.tick(59999.999);
   const beforeSuccessfulBoundary = page.uniforms.get("panB");
-  page.tick(24400.00001);
+  page.tick(60000.00001);
   assert.ok(Math.abs(beforeSuccessfulBoundary - page.uniforms.get("panA")) < 1e-6);
 });
 
@@ -198,11 +214,11 @@ test("첫 사진을 포함해 어느 한 장이 404여도 성공한 세 장과 �
     assert.equal(page.caption.hidden, false);
     assert.equal(page.steps.length, 3);
     assert.equal(page.label.textContent, available[0]);
-    page.tick(10601);
+    page.tick(27001);
     assert.equal(page.label.textContent, available[1]);
     assert.equal(page.steps.filter(step => step["data-current"] === "true").length, 1);
     page.fire("pointerdown", { clientX: 256, clientY: 160 });
-    page.tick(10700);
+    page.tick(27100);
     assert.ok(page.uniforms.get("drops[0]").some((value, index) => index % 3 === 2 && value > 1.5));
     assert.equal(page.pending.size, 1);
   }
@@ -236,12 +252,12 @@ test("연결·판독·비율 오류는 그 사진만 제외하고 남은 두 장
     page.tick(0);
     assert.equal(page.steps.length, 2);
     assert.equal(page.label.textContent, "디지털관과 금오산 자락");
-    page.tick(12199.999);
+    page.tick(29999.999);
     const before = page.uniforms.get("panB");
-    page.tick(12200.00001);
+    page.tick(30000.00001);
     assert.equal(page.label.textContent, "대운동장의 저녁");
     assert.ok(Math.abs(before - page.uniforms.get("panA")) < 1e-6);
-    page.tick(24400.00001);
+    page.tick(60000.00001);
     assert.equal(page.label.textContent, "디지털관과 금오산 자락");
     assert.equal(page.canvas.hidden, false);
     assert.equal(page.pending.size, 1);
@@ -255,7 +271,7 @@ test("사진이 중간 위치일 때 한 장만 남아도 위치를 이어 받�
   });
   page.tick(0);
   const initialPhase = Math.acos((0.5 - page.uniforms.get("panA")) / 0.22);
-  const midpoint = (Math.PI / 2 - initialPhase) * 15.4 / Math.PI * 1000;
+  const midpoint = (Math.PI / 2 - initialPhase) * 36 / Math.PI * 1000;
   page.tick(midpoint);
   const before = page.uniforms.get("panA");
   assert.ok(Math.abs(before - 0.5) < 1e-6);
@@ -280,7 +296,7 @@ test("첫 사진만 늦어도 받은 사진을 먼저 그리고 늦은 준비 �
   page.tick(5000);
   assert.equal(page.label.textContent, "디지털관과 금오산 자락");
   assert.equal(page.uniforms.get("panA"), before);
-  page.tick(10601);
+  page.tick(27001);
   assert.equal(page.label.textContent, "정문의 밤");
 });
 
@@ -298,13 +314,13 @@ test("다음 사진이 계속 준비 중이면 첫 주기만 기다리고 받은
   const page = await backdrop({ delayedPhoto: "campus-hill.jpg", failures: { "campus-field.jpg": "404" } });
   page.tick(0);
   assert.equal(page.steps.length, 2);
-  page.tick(9000);
-  page.tick(10601);
+  page.tick(24000);
+  page.tick(27001);
   assert.equal(page.uniforms.get("mixv"), 0);
   assert.equal(page.label.textContent, "양호동 캠퍼스");
-  page.tick(12200);
-  page.tick(21200);
-  page.tick(22801);
+  page.tick(30000);
+  page.tick(54000);
+  page.tick(57001);
   assert.equal(page.label.textContent, "정문의 밤");
   assert.ok(page.uniforms.get("mixv") > 0.5);
   assert.equal(page.steps.length, 2);
@@ -326,12 +342,12 @@ test("한 장과 준비 중인 사진만 있어도 계속 흐르고 늦은 합�
   page.tick(31000);
   assert.equal(page.uniforms.get("panA"), beforeReady, "새 사진을 받는 순간 현재 흐름을 초기화하지 않는다");
   assert.equal(page.steps.length, 2);
-  page.tick(33400);
-  page.tick(35001);
+  page.tick(54000);
+  page.tick(57001);
   assert.equal(page.label.textContent, "디지털관과 금오산 자락");
-  page.tick(36599.999);
+  page.tick(59999.999);
   const beforeBoundary = page.uniforms.get("panB");
-  page.tick(36600.00001);
+  page.tick(60000.00001);
   assert.ok(Math.abs(beforeBoundary - page.uniforms.get("panA")) < 1e-6);
   assert.equal(page.canvas.hidden, false);
 });
@@ -408,4 +424,111 @@ test("가려진 시간은 제외하고 재개하며 그래픽·사진 실패와 
     assert.equal(failed.canvas.hidden, true);
     assert.equal(failed.pending.size, 0);
   }
+});
+
+test("일시정지는 장면과 물결을 유지하고 재개할 때 멈춘 시간을 뺀다", async () => {
+  const page = await backdrop();
+  page.tick(0); page.tick(1000);
+  page.clickToggle();
+  assert.equal(page.toggle["aria-pressed"], "true");
+  assert.equal(page.storage.get("kumoh-campus-motion:v1"), "paused");
+  assert.equal(page.pending.size, 0);
+  const scene = new Map(page.uniforms);
+  const label = page.label.textContent;
+  const draws = page.draws();
+  page.fire("pointerdown", { clientX: 250, clientY: 250 });
+  page.tick(100000);
+  assert.equal(page.draws(), draws);
+  assert.deepEqual(page.uniforms, scene);
+  assert.equal(page.label.textContent, label);
+  page.document.hidden = true; page.fire("visibilitychange");
+  page.document.hidden = false; page.fire("visibilitychange");
+  assert.equal(page.pending.size, 0);
+  page.clickToggle();
+  assert.equal(page.toggle["aria-pressed"], "false");
+  page.tick(100000); page.tick(101000);
+  assert.equal(page.uniforms.get("t"), 2);
+});
+
+test("저장된 정지는 첫 장면을 그리고 늦은 사진과 창 크기 변경 뒤에도 유지한다", async () => {
+  const page = await backdrop({ storedMotion: "paused", delayedPhoto: "campus-hill.jpg" });
+  page.tick(0);
+  assert.equal(page.canvas.hidden, false);
+  assert.equal(page.toggle["aria-pressed"], "true");
+  assert.equal(page.pending.size, 0);
+  const time = page.uniforms.get("t");
+  const name = page.label.textContent;
+  page.tick(50000);
+  await page.finishPhoto();
+  assert.equal(page.pending.size, 0);
+  assert.equal(page.steps.filter(step => step["data-current"] === "true").length, 1);
+  page.window.innerWidth = 390;
+  page.window.innerHeight = 844;
+  page.fire("resize");
+  page.tick(50000);
+  assert.equal(page.canvas.width, 585);
+  assert.equal(page.canvas.height, 1266);
+  assert.equal(page.uniforms.get("t"), time);
+  assert.equal(page.label.textContent, name);
+  assert.equal(page.pending.size, 0);
+});
+
+test("저장 실패와 알 수 없는 저장 값에서도 현재 화면의 정지 조작을 받는다", async () => {
+  for (const options of [{ storageFailure: true }, { storedMotion: "unexpected" }]) {
+    const page = await backdrop(options);
+    page.tick(0);
+    assert.equal(page.pending.size, 1);
+    page.clickToggle();
+    assert.equal(page.toggle["aria-pressed"], "true");
+    assert.equal(page.pending.size, 0);
+    page.clickToggle();
+    assert.equal(page.pending.size, 1);
+  }
+});
+
+test("정지 중 동작 줄이기나 WebGL 실패가 생기면 캡션과 버튼을 숨긴다", async () => {
+  for (const failure of ["reduced", "webgl"]) {
+    const page = await backdrop({ storedMotion: "paused" });
+    page.tick(0);
+    if (failure === "reduced") page.setReduced(true);
+    else page.fire("webglcontextlost");
+    assert.equal(page.caption.hidden, true);
+    assert.equal(page.pending.size, 0);
+    page.document.hidden = false; page.fire("visibilitychange");
+    await page.finishPhoto();
+    assert.equal(page.pending.size, 0);
+  }
+});
+
+test("확대 방향은 사진마다 번갈고 전환 경계에서 이어진다", async () => {
+  const page = await backdrop();
+  page.tick(0);
+  let before = page.uniforms.get("zoomA");
+  page.tick(20000);
+  assert.ok(page.uniforms.get("zoomA") > before);
+  for (let cycle = 1; cycle <= 8; cycle++) {
+    page.tick(cycle * 30000 - 0.00001);
+    before = page.uniforms.get("zoomB");
+    assert.ok(before >= 1 && before <= 1.05);
+    page.tick(cycle * 30000 + 0.00001);
+    assert.ok(Math.abs(page.uniforms.get("zoomA") - before) < 1e-6);
+    const start = page.uniforms.get("zoomA");
+    page.tick(cycle * 30000 + 10000);
+    const direction = page.uniforms.get("zoomA") - start;
+    assert.ok(cycle % 2 === 0 ? direction > 0 : direction < 0);
+  }
+});
+
+test("사진 한 장의 확대는 범위를 지키며 왕복한다", async () => {
+  const failures = Object.fromEntries(photoFiles.slice(1).map(name => [name, "404"]));
+  const page = await backdrop({ failures });
+  const values = [];
+  for (let time = 0; time <= 150000; time += 1000) {
+    page.tick(time);
+    values.push(page.uniforms.get("zoomA"));
+  }
+  assert.ok(values.every(value => value >= 1 && value <= 1.05));
+  assert.ok(values.some((value, index) => index && value > values[index - 1]));
+  assert.ok(values.some((value, index) => index && value < values[index - 1]));
+  assert.ok(values.every((value, index) => !index || Math.abs(value - values[index - 1]) < 0.005));
 });
