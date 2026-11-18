@@ -11,6 +11,13 @@ const langChoices = [
 ];
 const uiText = {
   en: {
+    "테마": "Theme",
+    "시스템": "System",
+    "라이트": "Light",
+    "다크": "Dark",
+    "테마: {name}": "Theme: {name}",
+    "테마: 시스템": "Theme: System",
+    "화면 설정": "Display settings",
     "배경 움직임 일시정지": "Pause background motion",
     "테크모": "Techmo",
     "아이오": "AIO",
@@ -203,6 +210,13 @@ const uiText = {
     "서버 안내의 형식이 맞지 않아요.": "The server's guide data is malformed.",
   },
   zh: {
+    "테마": "主题",
+    "시스템": "跟随系统",
+    "라이트": "浅色",
+    "다크": "深色",
+    "테마: {name}": "主题：{name}",
+    "테마: 시스템": "主题：跟随系统",
+    "화면 설정": "显示设置",
     "배경 움직임 일시정지": "暂停背景动画",
     "테크모": "Techmo",
     "아이오": "AIO",
@@ -2467,6 +2481,64 @@ function setupAiMode() {
 }
 setupAiMode();
 
+// 테마 선택기(#131).
+const themeModeKey = "kumoh-chat-theme:v1";
+const themeChoices = [
+  { value: "system", name: "시스템" },
+  { value: "light", name: "라이트" },
+  { value: "dark", name: "다크" },
+];
+let themeMode = "system";
+let themeMedia = null;
+const themeButtons = [];
+function applyTheme() {
+  const actual = themeMode === "system" ? (themeMedia?.matches ? "dark" : "light") : themeMode;
+  document.documentElement?.setAttribute?.("data-theme-mode", themeMode);
+  document.documentElement?.setAttribute?.("data-theme", actual);
+  renderThemeButtons();
+}
+function renderThemeButtons() {
+  const name = t(themeChoices.find(choice => choice.value === themeMode).name);
+  for (const { button, label } of themeButtons) {
+    label.textContent = name;
+    button.setAttribute("aria-label", t("테마: {name}", { name }));
+  }
+}
+function openThemeMenu(button) {
+  if (activeChoiceMenu?.button === button) { activeChoiceMenu.close(); return; }
+  openChoiceMenu(button, t("테마"), themeChoices.map(choice => ({
+    value: choice.value, name: t(choice.name), description: "", checked: choice.value === themeMode,
+  })), value => {
+    themeMode = value;
+    try { historyStorage()?.setItem(themeModeKey, value); } catch { /* 저장에 실패해도 현재 탭의 선택은 유지한다. */ }
+    applyTheme();
+  });
+}
+function setupTheme() {
+  try {
+    const saved = historyStorage()?.getItem(themeModeKey);
+    themeMode = themeChoices.some(choice => choice.value === saved) ? saved : "system";
+  } catch { themeMode = "system"; }
+  try { themeMedia = window.matchMedia?.("(prefers-color-scheme: dark)") ?? null; } catch { themeMedia = null; }
+  const changed = () => { if (themeMode === "system") applyTheme(); };
+  if (typeof themeMedia?.addEventListener === "function") themeMedia.addEventListener("change", changed);
+  else if (typeof themeMedia?.addListener === "function") themeMedia.addListener(changed);
+  for (const selector of ["#login-theme-button", "#theme-button"]) {
+    const button = document.querySelector(selector);
+    if (!button || typeof button.querySelector !== "function" || typeof button.addEventListener !== "function") continue;
+    const label = button.querySelector(".lang-pill-label");
+    if (!label) continue;
+    themeButtons.push({ button, label });
+    button.addEventListener("click", () => openThemeMenu(button));
+    button.addEventListener("keydown", event => {
+      if (["ArrowDown", "ArrowUp", "Enter", " "].includes(event.key)) { event.preventDefault(); openThemeMenu(button); }
+    });
+  }
+  applyTheme();
+  onLangChange(renderThemeButtons);
+}
+// 테마 선택기 끝.
+
 // 언어 선택기(#116). 머리글과 로그인 화면의 두 알약 버튼이 같은 언어 상태를 쓰고, 메뉴는 답변 모드와 같은 openChoiceMenu다.
 // 기본 드롭다운(select)은 쓰지 않는다. 고르면 새로고침 없이 지금 보이는 글을 바꾼다.
 const langButtons = [];
@@ -2580,6 +2652,7 @@ function setupLang() {
     });
   }
   renderLangButtons();
+  setupTheme();
   if (uiLang !== "ko") applyLang(uiLang);
 }
 

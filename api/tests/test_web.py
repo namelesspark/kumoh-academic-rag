@@ -228,10 +228,11 @@ class TestChatWeb(unittest.TestCase):
         self.assertEqual(ids("composer-row"), ["photo-attach", "question", "ai-mode-button", "send"])
         # 상자 아래 묶음: 첨부 제거, 알림, 안내문 한 문단.
         self.assertEqual(ids("composer-meta"), ["photo-clear", "photo-note", "photo-hint"])
-        # 폼 바로 아래에는 읽기용 라벨, 입력 줄, 숨긴 파일 입력, 아래 묶음만 있다.
+        # 화면 설정은 사진 안내 묶음 아래에 따로 둔다.
         self.assertEqual(
             [(tag, attributes.get("class") or attributes.get("id")) for owner, tag, attributes in composer.found if owner == "composer"],
-            [("label", "sr-only"), ("div", "composer-row"), ("input", "photo-file"), ("div", "composer-meta")],
+            [("label", "sr-only"), ("div", "composer-row"), ("input", "photo-file"),
+             ("div", "composer-meta"), ("div", "main-display-settings")],
         )
 
         _, tag, attach = by_id["photo-attach"]
@@ -747,14 +748,23 @@ class TestChatWeb(unittest.TestCase):
                     response = call_app(web_main.app, "GET", f"/chat-assets/{name}", allow_wait=True)
                 self.assertEqual(response.status, 404)
 
-    def test_language_pills_sit_in_the_masthead_and_on_the_login_screen(self):
+    def test_language_pills_sit_by_theme_pills_on_both_screens(self):
         # 이슈 #116: 기본 드롭다운(select) 없이 지구본·현재 언어·꺾쇠 알약 두 개가 같은 메뉴를 연다.
         page = parse_page(read_index())
         self.assertFalse([node for node in page.elements if node["tag"] == "select"])
         login = by_id(page, "login-lang-button")
         header = by_id(page, "lang-button")
-        self.assertIs(by_id(page, "login-screen")["children"][0], login)
-        self.assertIs(by_class(page, "masthead-actions")["children"][0], header)
+        settings = by_class(page, "login-lang")
+        self.assertIs(by_id(page, "login-screen")["children"][0], settings)
+        self.assertEqual(settings["attrs"].get("role"), "group")
+        self.assertEqual(settings["attrs"].get("aria-label"), "화면 설정")
+        self.assertEqual(child_ids(settings), ["login-lang-button", "login-theme-button"])
+        self.assertIs(settings["children"][0], login)
+        main_settings = by_id(page, "main-display-settings")
+        self.assertIs(next_sibling(by_class(page, "composer-meta")), main_settings)
+        self.assertEqual(child_ids(main_settings), ["lang-button", "theme-button"])
+        self.assertIs(main_settings["children"][0], header)
+        self.assertIs(next_sibling(header), by_id(page, "theme-button"))
         for button in (login, header):
             with self.subTest(button=button["attrs"]["id"]):
                 attrs = button["attrs"]

@@ -88,7 +88,9 @@ async function backdrop({ unavailable = false, reduced = false, brokenPhoto = fa
     t: text => text, onLangChange() {}, performance: { now: () => now },
     window: { innerWidth: 1280, innerHeight: 800, devicePixelRatio: 3,
       localStorage, performance: { now: () => now },
-      matchMedia: () => ({ get matches() { return reduced; }, addEventListener: (_name, fn) => { mediaListener = fn; } }),
+      matchMedia: query => query === "(prefers-reduced-motion: reduce)"
+        ? { get matches() { return reduced; }, addEventListener: (_name, fn) => { mediaListener = fn; } }
+        : { matches: false, addEventListener() {} },
       requestAnimationFrame: fn => { pending.set(++next, fn); return next; },
       cancelAnimationFrame: id => pending.delete(id),
       addEventListener: (name, listener, options) => windowListeners.set(name, { listener, options }),
