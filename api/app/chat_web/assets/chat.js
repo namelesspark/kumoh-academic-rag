@@ -3622,9 +3622,22 @@ function setupHandwriting() {
       // 떼기 신호라면 더할 것이 없다. 캔버스 좌표로 비교하면 움직이지 않은 펜에 가짜 선이 붙는다(이동·떼기 모두 같은 규칙).
       const still = stroke.lastClient && each.clientX === stroke.lastClient.x && each.clientY === stroke.lastClient.y;
       if (still && release) continue;
+      if (still) {
+        // 압력만 바뀐 신호는 선분 처리(자르기·칸 비교)를 타지 않는다. 새 위치를 만들지 않고, 이미 기록한 마지막 잉크의 굵기만 갱신한다.
+        // 선분 처리를 타면 칸 밖이던 옛 포인터 자리(600 칸의 x=700)를 넓힌 칸 기준으로 다시 해석해, 압력 변화만으로 새 점이 생겼다.
+        // 마지막 포인터 자리가 칸 밖이라 그 자리에 잉크가 없으면(broken이거나 끝 점이 경계에서 잘린 자리) 갱신할 것도 없다.
+        // 갱신한 점은 마지막 잉크를 기록할 때의 칸으로 자른다.
+        const p = typeof each.pressure === "number" && each.pressure > 0 ? Math.min(1, each.pressure) : stroke.last.p;
+        stroke.last = { ...stroke.last, p };
+        const tail = stroke.points[stroke.points.length - 1];
+        if (!stroke.broken && tail && tail.x === stroke.last.x && tail.y === stroke.last.y) {
+          const w = Math.max(handwritingDrawnWidth(stroke, tail), handwritingWidth(stroke, stroke.last));
+          stroke.points.push({ x: tail.x, y: tail.y, p, w, clip: handwritingClipOf(stroke, tail) });
+        }
+        continue;
+      }
       stroke.lastClient = { x: each.clientX, y: each.clientY };
       const next = point(each);
-      if (still) { next.x = stroke.last.x; next.y = stroke.last.y; }
       if (release) next.p = stroke.last.p;
       // 자르기 전 선분(앞 포인터 자리 → 새 자리)의 굵기를 한 번 정해, 잘라 낸 조각의 모든 점에 w로 적는다.
       // 자른 점에 새 압력만 붙여 굵기를 다시 계산하면, 세게 누르다 약하게 경계 밖으로 이어 간 선이 가늘어져 칸 안 잉크가 사라진다.

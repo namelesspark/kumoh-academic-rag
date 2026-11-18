@@ -1207,6 +1207,45 @@ test("펜을 누른 채 패드가 스크롤된 뒤 같은 화면 자리에서 �
   assert.deepEqual(image.filter(call => call[0] === "lineTo").at(-1).slice(1), [110, 30]);
 });
 
+test("칸 밖까지 그은 뒤 칸을 넓히고 같은 화면 자리에서 압력만 바꿔도 옛 칸 밖 자리에 점이 생기지 않는다", async () => {
+  const page = loadPad();
+  page.button.click();
+  page.pointer("pointerdown", { id: 25, kind: "pen", x: 590, y: 30, pressure: 0.5 });
+  page.pointer("pointermove", { id: 25, kind: "pen", x: 700, y: 30, pressure: 0.5 });
+  // 왼쪽 기준점은 그대로 두고 폭만 750px로 넓힌다. 펜은 화면 (800, 430)에 그대로 있고 압력만 0.5 → 0.7로 바뀐다.
+  Object.assign(page.canvasRect, { width: 750, right: 850 });
+  page.resize();
+  const before = page.canvas.log.length;
+  page.pointer("pointermove", { id: 25, kind: "pen", x: 700, y: 30, pressure: 0.7 });
+  page.pointer("pointerup", { id: 25, kind: "pen", x: 700, y: 30, pressure: 0 });
+  const at700 = log => log.some(call => (call[0] === "arc" || call[0] === "lineTo") && call[1] > 601.6 + 1e-9);
+  // 마지막 포인터 자리 (700,30)은 그때 칸 밖이라 잉크가 없다. 압력 변화는 새 잉크를 만들지 않는다.
+  assert.equal(page.canvas.log.slice(before).some(call => call[0] === "arc" || call[0] === "lineTo"), false, "nothing new on screen");
+  page.respond(ok("가상"));
+  page.insert.click();
+  await settle();
+  const image = page.exports[0].canvas.log;
+  assert.equal(at700(image), false, "no ink past the old edge in the image");
+  // 처음 그은 획 그대로다: 가로 588.4~600 = 11.6 + 32 = 43.6 → 87, 세로 28.4~31.6 = 3.2 + 32 = 35.2 → 70(배율 2).
+  assert.deepEqual([page.exports[0].canvas.width, page.exports[0].canvas.height], [87, 70]);
+});
+
+test("칸 안 마지막 잉크에서 압력만 바꾸면 그 잉크를 기록할 때의 칸으로 굵기만 갱신한다", () => {
+  const page = loadPad();
+  page.button.click();
+  page.pointer("pointerdown", { id: 26, kind: "pen", x: 590, y: 30, pressure: 0.5 });
+  page.pointer("pointermove", { id: 26, kind: "pen", x: 598, y: 30, pressure: 0.5 });
+  Object.assign(page.canvasRect, { width: 750, right: 850 });
+  page.resize();
+  const before = page.canvas.log.length;
+  page.pointer("pointermove", { id: 26, kind: "pen", x: 598, y: 30, pressure: 1 });
+  const after = page.canvas.log.slice(before);
+  const dot = after.findIndex(call => call[0] === "arc" && call[1] === 598 && call[2] === 30 && Math.abs(call[3] - 2.6) < 1e-9);
+  assert.ok(dot >= 0, "thicker dot at the last ink");
+  // 그 잉크를 그은 600 칸으로 자른다(넓힌 750 칸이 아니다). 반지름 2.6이 경계 밖 600.6으로 넘지 않는다.
+  assert.deepEqual(after.slice(0, dot).findLast(call => call[0] === "rect"), ["rect", 0, 0, 600, 200]);
+});
+
 test("오류 문구가 보이는 채 캔버스 위쪽을 찍어도 첫 점은 누른 자리에 찍히고, 문구는 펜을 뗀 뒤 지운다", async () => {
   const page = loadPad();
   page.button.click();
