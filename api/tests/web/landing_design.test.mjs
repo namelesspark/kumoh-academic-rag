@@ -40,21 +40,48 @@ function parse(text, context = []) {
   return found;
 }
 const rules = parse(styles.replace(/\/\*[\s\S]*?\*\//g, ""));
-// 기본 환경: 1280px 화면, 흐림 지원, 움직임 줄이기 꺼짐.
-const desktop = { width: 1280, supports: true, motion: false };
+// 기본 환경: 1280px 화면, 흐림 지원, 움직임 줄이기 꺼짐, 테마 속성 없음, 시스템 라이트.
+// theme은 html의 data-theme 값이다("light"·"dark", 없으면 undefined). scheme은 시스템 설정(prefers-color-scheme)이다.
+const desktop = { width: 1280, supports: true, motion: false, theme: undefined, scheme: "light" };
 function applies(context, env) {
   return context.every(header => {
     if (header.startsWith("@keyframes")) return false;
     if (header.startsWith("@supports not")) return !env.supports;
     if (header.startsWith("@supports")) return env.supports;
     if (header.includes("prefers-reduced-motion")) return env.motion;
+    if (header.includes("prefers-color-scheme: dark")) return env.scheme === "dark";
     const limits = [...header.matchAll(/\((min|max)-width:\s*(\d+)px\)/g)];
     return limits.length > 0 && limits.every(([, kind, pixels]) =>
       kind === "min" ? env.width >= Number(pixels) : env.width <= Number(pixels));
   });
 }
+// 색 이름표는 세 블록에 있다. 라이트 기본(:root), 직접 고른 다크(:root[data-theme="dark"]),
+// 속성이 없을 때의 시스템 다크(@media (prefers-color-scheme: dark) 안 :root:not([data-theme])).
 const rootRules = rules.filter(rule => rule.context.length === 0 && rule.selectors.includes(":root"));
-const variables = new Map(rootRules.flatMap(rule => rule.declarations).filter(([name]) => name.startsWith("--")));
+const darkAttrRules = rules.filter(rule => rule.context.length === 0 && rule.selectors.includes(':root[data-theme="dark"]'));
+const darkSystemRules = rules.filter(rule => rule.context.length === 1 && rule.context[0].includes("prefers-color-scheme: dark")
+  && rule.selectors.includes(":root:not([data-theme])"));
+const themeRules = [...rootRules, ...darkAttrRules, ...darkSystemRules];
+const customProperties = list => list.flatMap(rule => rule.declarations).filter(([name]) => name.startsWith("--"));
+const variables = new Map(customProperties(rootRules));
+const darkAttrVariables = new Map([...variables, ...customProperties(darkAttrRules)]);
+const darkSystemVariables = new Map([...variables, ...customProperties(darkSystemRules)]);
+const isDark = env => env.theme === "dark" || (env.theme === undefined && env.scheme === "dark");
+function variablesFor(env = {}) {
+  env = { ...desktop, ...env };
+  if (env.theme === "dark") return darkAttrVariables;
+  if (env.theme === undefined && env.scheme === "dark") return darkSystemVariables;
+  return variables;
+}
+// 대비 검사를 돌리는 테마 네 가지. 직접 고른 라이트는 시스템이 다크여도 라이트다.
+const themes = [
+  { theme: undefined, scheme: "light" }, { theme: "light", scheme: "dark" },
+  { theme: "dark", scheme: "light" }, { theme: undefined, scheme: "dark" },
+];
+const themeName = env => env.theme === "dark" ? "dark" : isDark(env) ? "system-dark" : env.theme === "light" ? "light" : "system-light";
+const lightEnv = themes[0];
+const darkEnv = themes[2];
+const systemDarkEnv = themes[3];
 function find(selector, names, env = {}) {
   env = { ...desktop, ...env };
   let value;
@@ -90,17 +117,18 @@ test("CSS 읽기 함수는 @supports not과 화면 너비 조건을 기본 값�
   assert.equal(find(".mode-pill-label", ["display"]), undefined);
   assert.equal(declared(".mode-pill-label", ["display"], undefined, { width: 480 }), "none");
 });
-function resolve(value) {
+function resolve(value, env = {}) {
+  const map = variablesFor(env);
   for (let i = 0; i < 8 && /var\(/.test(value); i++) {
     value = value.replace(/var\((--[\w-]+)\)/g, (_, name) => {
-      assert.ok(variables.has(name), name);
-      return variables.get(name);
+      assert.ok(map.has(name), name);
+      return map.get(name);
     });
   }
   return value;
 }
-function colors(value) {
-  value = resolve(value);
+function colors(value, env = {}) {
+  value = resolve(value, env);
   if (value === "transparent" || value === "none") return [[0, 0, 0, 0]];
   return [...value.matchAll(/#[0-9a-f]{6}|rgba\([\d.,]+\)/gi)].map(([color]) => {
     if (color.startsWith("#")) return [1, 3, 5].map(i => parseInt(color.slice(i, i + 2), 16)).concat(1);
@@ -148,30 +176,87 @@ const chatParents = { ...parents, ".reply": chatSurface, ".question": chatSurfac
 // 사진 위로 면을 차례로 합성한다. 사진의 가장 밝은 부분은 흰색(#FFFFFF)으로 가정한다.
 function fills(selector, photo, map = parents, env = {}) {
   const backing = map[selector] ? fills(map[selector], photo, map, env) : [photo];
-  const paint = colors(declared(selector,["background","background-color"], selector === ".composer textarea:hover" ? ".composer textarea" : undefined, env));
+  const paint = colors(declared(selector,["background","background-color"], selector === ".composer textarea:hover" ? ".composer textarea" : undefined, env), env);
   assert.ok(paint.length,selector);
   return backing.flatMap(back => paint.map(front => blend(front,back)));
 }
+// 테마를 정하지 않으면 네 테마를 모두 계산한다. 흐림 미지원·움직임 줄이기 같은 다른 조건은 env로 함께 넘긴다.
+const looks = env => "scheme" in env ? [env] : themes.map(look => ({ ...env, ...look }));
 function checkText(pairs, map = parents, env = {}) {
   const failures = [];
-  for (const photo of [[4, 20, 38], [255, 255, 255]]) {
-    for (const [inkSelector, backSelector] of pairs) {
-      for (const background of fills(backSelector, photo, map, env)) {
-        const foreground = colors(declared(inkSelector, ["color"], undefined, env))[0];
-        const ratio = contrast(blend(foreground, background), background);
-        if (ratio < 4.5) failures.push(`${inkSelector} on ${backSelector} ${ratio.toFixed(2)}`);
+  for (const look of looks(env)) {
+    for (const photo of [[4, 20, 38], [255, 255, 255]]) {
+      for (const [inkSelector, backSelector] of pairs) {
+        for (const background of fills(backSelector, photo, map, look)) {
+          const foreground = colors(declared(inkSelector, ["color"], undefined, look), look)[0];
+          const ratio = contrast(blend(foreground, background), background);
+          if (ratio < 4.5) failures.push(`${themeName(look)} ${inkSelector} on ${backSelector} ${ratio.toFixed(2)}`);
+        }
       }
     }
   }
   assert.deepEqual(failures, []);
 }
 
-test("모든 색은 root 변수로 선언하고 남색 테마의 밝은 글자를 쓴다", () => {
-  for(const rule of rules.filter(rule=>!rootRules.includes(rule))) for(const [,value] of rule.declarations) assert.doesNotMatch(value.replace(/var\(--[\w-]+\)/g,""),/#[0-9a-f]{3,8}\b|\brgba?\(/i);
-  for(const [name,value] of Object.entries({"--sky":"#00A3D9","--blue":"#005B96","--navy":"#0A2540","--yellow":"#FFD100","--ink":"#eaf4fb","--card-ink":"#eef7fd","--link-ink":"#8fdcff"})) assert.equal(variables.get(name).toLowerCase(),value.toLowerCase());
+test("CSS 읽기 함수는 시스템 다크 조건과 테마 속성을 구별한다", () => {
+  assert.equal(applies(["@media (prefers-color-scheme: dark)"], { ...desktop, scheme: "dark" }), true);
+  assert.equal(applies(["@media (prefers-color-scheme: dark)"], desktop), false);
+  assert.equal(isDark({ theme: "light", scheme: "dark" }), false);
+  assert.equal(isDark({ theme: "dark", scheme: "light" }), true);
+  assert.equal(isDark({ theme: undefined, scheme: "dark" }), true);
+  assert.equal(variablesFor({ theme: "light", scheme: "dark" }), variables);
+  assert.equal(variablesFor(systemDarkEnv), darkSystemVariables);
+  assert.equal(resolve("var(--ink)"), "#0A2540");
+  assert.equal(resolve("var(--ink)", darkEnv), "#E8EEF6");
+  assert.equal(resolve("var(--ink)", systemDarkEnv), "#E8EEF6");
 });
 
-test("남색 유리의 양 끝과 밝고 어두운 사진 양쪽에서 글자 대비가 4.5 이상이다", () => {
+test("모든 색은 세 이름표 블록에만 선언하고, 라이트·다크 이름표는 피드백 값과 같다", () => {
+  for (const rule of rules.filter(rule => !themeRules.includes(rule))) for (const [, value] of rule.declarations) assert.doesNotMatch(value.replace(/var\(--[\w-]+\)/g, ""), /#[0-9a-f]{3,8}\b|\brgba?\(/i);
+  // :root는 색 블록 말고도 배치 변수(--pet-reserve) 블록이 하나 더 있다. 그 블록에는 색이 없다.
+  assert.equal(rootRules.length, 2);
+  assert.ok(rootRules[1].declarations.every(([name]) => ["--pet-reserve", "--chat-header-height"].includes(name)));
+  assert.equal(darkAttrRules.length, 1);
+  assert.equal(darkSystemRules.length, 1);
+  const light = { "--bg": "#F5F8FC", "--surface": "#FFFFFF", "--text": "#0A2540", "--text-muted": "#4A5D75", "--accent": "#005B96",
+    "--sky-text": "#0071A4", "--sky": "#00A3D9", "--yellow": "#FFD100", "--coral": "#FF7A59", "--success": "#0F7A43", "--warning": "#9A5B00", "--danger": "#C62F2F" };
+  const dark = { "--bg": "#0B1626", "--surface": "#13233A", "--raised": "#1A2B44", "--text": "#E8EEF6", "--text-muted": "#9DB0C7", "--accent": "#3DB8E8",
+    "--yellow": "#FFD100", "--coral": "#FF8F73", "--success": "#4ADE80", "--warning": "#FBBF24", "--danger": "#F87171" };
+  for (const [name, value] of Object.entries(light)) assert.equal(variables.get(name), value, `light ${name}`);
+  for (const map of [darkAttrVariables, darkSystemVariables]) for (const [name, value] of Object.entries(dark)) assert.equal(map.get(name), value, `dark ${name}`);
+  // 학교 색과 역할 변수의 연결. 하늘색 #00A3D9는 글자·테두리 색으로 쓰지 않는다.
+  for (const [name, value] of Object.entries({ "--blue": "#005B96", "--navy": "#0A2540", "--edge-strong": "#6E8098" })) assert.equal(variables.get(name), value);
+  for (const [name, target] of Object.entries({ "--ink": "--text", "--muted": "--text-muted", "--link-ink": "--sky-text", "--good": "--success", "--warn": "--warning", "--bad": "--danger" })) {
+    assert.equal(variables.get(name), `var(${target})`, name);
+  }
+  for (const rule of rules) for (const [name, value] of rule.declarations) {
+    if (["color", "border", "border-color", "outline", "outline-color", "stroke"].includes(name) || name.startsWith("border-")) assert.doesNotMatch(value, /var\(--sky\)/, rule.selectors.join(","));
+  }
+  // 노란 글자는 불투명 남색 면 위 준비 중 표시뿐이다. 사진 위 제목 강조는 흰 글자에 노란 밑줄이다.
+  const yellowText = rules.filter(rule => rule.declarations.some(([name, value]) => name === "color" && value === "var(--yellow)")).flatMap(rule => rule.selectors);
+  assert.deepEqual(yellowText, [".soon-label"]);
+  for (const selector of [".login-intro em", ".main-title-fallback em"]) {
+    assert.equal(declared(selector, ["color"]), "var(--white)", selector);
+    assert.match(declared(selector, ["text-decoration"]), /var\(--yellow\)/, selector);
+  }
+  assert.equal(declared(".soon-label", ["background"]), "var(--navy)");
+});
+
+test("두 다크 블록은 같은 선언을 같은 순서로 적고, color-scheme을 테마에 맞춘다", () => {
+  assert.deepEqual(darkAttrRules[0].declarations, darkSystemRules[0].declarations);
+  for (const [name] of customProperties(darkAttrRules)) assert.ok(variables.has(name), `라이트에 없는 이름 ${name}`);
+  const scheme = list => list.flatMap(rule => rule.declarations).filter(([name]) => name === "color-scheme").map(([, value]) => value);
+  assert.deepEqual(scheme(rootRules), ["light"]);
+  assert.deepEqual(scheme(darkAttrRules), ["dark"]);
+  assert.deepEqual(scheme(darkSystemRules), ["dark"]);
+  // 시스템 다크 조건은 이 블록 하나에만 쓴다. 말풍선도 같은 블록이 --pet-bubble을 바꾼다.
+  assert.deepEqual(rules.filter(rule => rule.context.some(header => header.includes("prefers-color-scheme"))), darkSystemRules);
+  assert.equal(darkAttrVariables.get("--pet-bubble"), "var(--pet-bubble-dark)");
+  // 라이트 값과 다른 값은 라이트 블록에 그대로 남지 않는다. 다크는 라이트를 덮어쓰기만 한다.
+  assert.ok(customProperties(darkAttrRules).every(([name, value]) => variables.get(name) !== value || name === "--yellow"));
+});
+
+test("라이트·다크와 밝고 어두운 사진 양쪽에서 글자 대비가 4.5 이상이다", () => {
   checkText([
     [":root",":root"],[".masthead",".masthead"],[".reset",".reset"],[".reset:not(:disabled):hover",".reset:not(:disabled):hover"],[".login",".login"],
     [".login-card",".login-card"],[".login-help",".login-card"],["#login-form label",".login-card"],["#login-form input","#login-form input"],["#login-form input::placeholder","#login-form input"],["#login-form input::placeholder","#login-form input:focus"],["#login-error",".login-card"],[".browse-main",".login-card"],
@@ -189,34 +274,253 @@ test("남색 유리의 양 끝과 밝고 어두운 사진 양쪽에서 글자 �
   ]);
 });
 
-test("테두리와 초점은 유리 안쪽 바탕과 3 이상이고 밝은 입력창은 안쪽 경계를 보강한다", () => {
-  const selectors=[".login-card",".card","button.card:hover:not([data-restored])",".feature-panel","#demo-student-list button","#demo-student-list button:hover","#login-form input","#login-form input:focus",".reset",".login",".panel-close",".login-submit",".primary",".primary:not(:disabled):hover",".login-safety",".attach-button","textarea",".composer textarea",".composer textarea:hover",".mode-pill",".choice-menu",".pet-says","#campus-motion-toggle"];
+test("테두리와 초점 고리는 네 테마에서 바탕과 3 이상이고, 초점은 어디서나 2px 실선 고리 하나다", () => {
+  const selectors=[".login-card",".card","button.card:hover:not([data-restored])",".feature-panel","#demo-student-list button","#demo-student-list button:hover","#login-form input","#login-form input:focus",".reset",".login",".panel-close",".login-submit",".primary",".primary:not(:disabled):hover",".login-safety",".attach-button","textarea",".composer textarea",".composer textarea:hover",".composer-row",".mode-pill",'.mode-pill[aria-expanded="true"]',".choice-menu",'.choice-menu-item[aria-checked="true"]',".quicklink-nav",".pet-says","#campus-motion-toggle",
+    ".quicklink-card","#home-button","#conversation-toggle",".lang-pill"];
+  const edgeParents = { ...parents, '.mode-pill[aria-expanded="true"]': ".composer-row", '.choice-menu-item[aria-checked="true"]': ".choice-menu", ".quicklink-nav": ".site-footer",
+    ".quicklink-card": ".site-footer", "#home-button": ".masthead", "#conversation-toggle": ".masthead", ".lang-pill": ".masthead" };
+  const surfaceOf = selector => selector === '.mode-pill[aria-expanded="true"]' ? ".mode-pill" : selector === ".quicklink-nav" ? ".quicklink-nav" : selector;
   const failures=[];
-  for(const photo of [[4,20,38],[255,255,255]]) for(const selector of selectors) for(const back of fills(selector,photo)) {
-    const edge=colors(declared(selector,["border","border-color"]))[0]; const ratio=contrast(blend(edge,back),back);
-    if(ratio<3) failures.push(selector+" "+ratio.toFixed(2));
-  }
-  const focus=colors(declared(":focus-visible",["outline","outline-color"]))[0];
-  for (const photo of [[4,20,38],[255,255,255]]) {
-    for (const back of fills(".masthead",photo)) {
-      const edge = colors(declared(".masthead",["border-bottom-color"]))[0];
-      const ratio = contrast(blend(edge,back),back);
-      if (ratio < 3) failures.push(".masthead " + ratio.toFixed(2));
+  for (const look of themes) {
+    for(const photo of [[4,20,38],[255,255,255]]) for(const selector of selectors) for(const back of fills(surfaceOf(selector),photo,edgeParents,look)) {
+      const edge=colors(declared(selector,["border","border-color"],undefined,look),look)[0]; const ratio=contrast(blend(edge,back),back);
+      if(ratio<3) failures.push(themeName(look)+" "+selector+" "+ratio.toFixed(2));
+    }
+    // 로그인 화면 바닥의 바로가기 카드도 같은 경계를 쓴다.
+    for (const photo of [[4,20,38],[255,255,255]]) for (const back of fills(".quicklink-card",photo,{ ...parents, ".quicklink-card": "#login-site-footer" },look)) {
+      const ratio = contrast(blend(colors(declared(".quicklink-card",["border"],undefined,look),look)[0],back),back);
+      if (ratio < 3) failures.push(themeName(look)+" login .quicklink-card "+ratio.toFixed(2));
+    }
+    for (const photo of [[4,20,38],[255,255,255]]) {
+      for (const back of fills(".masthead",photo,parents,look)) {
+        const edge = colors(declared(".masthead",["border-bottom-color"],undefined,look),look)[0];
+        const ratio = contrast(blend(edge,back),back);
+        if (ratio < 3) failures.push(themeName(look)+" .masthead " + ratio.toFixed(2));
+      }
+    }
+    // 초점 고리는 라이트 남색, 다크 흰색이다. 반투명 판(흐림 지원·미지원)과 불투명 면 모두에서 3:1을 넘는다.
+    const focus=colors(declared(":focus-visible",["outline"],undefined,look),look)[0];
+    // 흐림 미지원에서는 대화 영역이 투명해지고 그 뒤 채팅 판이 불투명 바탕을 깐다.
+    const noBlurParents = { ...parents, [chatSurface]: 'body[data-view="chat"] .layout' };
+    for (const env of [look, { ...look, supports: false }]) for(const photo of [[4,20,38],[255,255,255]]) {
+      for(const surface of [".login-card",".masthead",".choice-menu",".layout",".card",".reply",chatSurface,"#conversation-sidebar",".composer-row",".mode-pill"]) for(const back of fills(surface,photo,env.supports ? parents : noBlurParents,env)) {
+        const ratio=contrast(blend(focus,back),back);
+        if(ratio<3) failures.push(`${themeName(env)}${env.supports ? "" : " no-blur"} focus on ${surface} ${ratio.toFixed(2)}`);
+      }
     }
   }
-  for(const photo of [[4,20,38],[255,255,255]]) for(const surface of [".login-card",".masthead",".choice-menu"]) for(const back of fills(surface,photo)) assert.ok(contrast(blend(focus,back),back)>=3,surface);
-  // 메인 화면은 반투명 판 위에서 흰 초점 테두리를 쓴다. 기존 하늘색은 흰 사진 가정에서 판(.50)과 약 2.1:1이다.
-  const mainFocus=colors(declared("#main-screen :focus-visible",["outline-color"]))[0];
-  for(const photo of [[4,20,38],[255,255,255]]) {
-    for(const surface of [".layout",".card",".reply",".masthead",chatSurface,"#conversation-sidebar"]) for(const back of fills(surface,photo)) {
-      const ratio=contrast(blend(mainFocus,back),back);
-      if(ratio<3) failures.push("main focus on "+surface+" "+ratio.toFixed(2));
-    }
-  }
-  assert.equal(declared("#main-screen .composer-row :focus-visible",["outline-color"]),"var(--blue)");
-  assert.match(declared(".composer-row",["box-shadow"]),/inset 0 0 0 1px var\(--blue\)/);
-  for(const back of fills(".composer-row",[255,255,255])) assert.ok(contrast(colors("var(--blue)")[0].slice(0,3),back)>=3);
   assert.deepEqual(failures,[]);
+  assert.equal(declared(":focus-visible",["outline"]),"2px solid var(--focus-ring)");
+  assert.equal(declared(":focus-visible",["outline-offset"]),"2px");
+  // 초점 규칙을 덮는 곳은 메뉴 항목(안쪽 고리)과 배경 일시정지 버튼(사진 위 흰 고리와 남색 띠)뿐이고, 모두 2px 실선이다.
+  const focusRules = rules.filter(rule => rule.selectors.some(selector => selector.includes(":focus")));
+  for (const rule of focusRules) for (const [name, value] of rule.declarations) {
+    if (name === "outline") assert.match(value, /^2px solid var\(--(focus-ring|white)\)$/, rule.selectors.join(","));
+    assert.notEqual(name, "outline-color", rule.selectors.join(","));
+    assert.notEqual(value, "none", rule.selectors.join(","));
+  }
+  assert.equal(find("#main-screen :focus-visible", ["outline-color"]), undefined);
+  assert.equal(find("#login-form input:focus", ["outline", "box-shadow"]), undefined);
+  // 고른 상태는 그림자만이 아니라 테두리 색으로도 보인다.
+  assert.equal(declared('.mode-pill[aria-expanded="true"]', ["border-color"]), "var(--focus-ink)");
+  assert.equal(declared('.choice-menu-item[aria-checked="true"]', ["border-color"]), "var(--control-line)");
+});
+
+test("음각·양각은 불투명 입력 줄 안의 질문 칸과 답변 모드 버튼에만 피드백 수치로 쓴다", () => {
+  assert.equal(variables.get("--emboss"), "6px 6px 14px rgba(10,37,64,.16), -6px -6px 14px rgba(255,255,255,.9)");
+  assert.equal(variables.get("--deboss"), "inset 3px 3px 7px rgba(10,37,64,.14), inset -3px -3px 7px rgba(255,255,255,.85)");
+  for (const map of [darkAttrVariables, darkSystemVariables]) {
+    assert.equal(map.get("--emboss"), "6px 6px 14px rgba(0,0,0,.45), -6px -6px 14px rgba(255,255,255,.05)");
+    assert.equal(map.get("--deboss"), "inset 3px 3px 8px rgba(0,0,0,.5), inset -3px -3px 8px rgba(120,160,210,.08)");
+  }
+  const users = rules.filter(rule => rule.declarations.some(([, value]) => /var\(--(emboss|deboss)\)/.test(value))).flatMap(rule => rule.selectors);
+  assert.deepEqual(users, [".composer textarea", ".mode-pill", '.mode-pill[aria-expanded="true"]', '.mode-pill[data-mode="deep"]', '.mode-pill[data-mode="deep"][aria-expanded="true"]']);
+  // 그 면들은 불투명 단색이다. 입력 줄도 불투명이라 바깥 사진이 비치지 않는다.
+  for (const look of themes) for (const selector of [".composer-row", ".composer textarea", ".mode-pill"]) {
+    for (const color of colors(declared(selector, ["background", "background-color"], undefined, look), look)) assert.equal(color[3], 1, `${themeName(look)} ${selector}`);
+  }
+  assert.equal(declared(".composer textarea", ["border-color"]), "var(--edge-strong)");
+  assert.equal(declared(".mode-pill", ["border"]), "1.5px solid var(--edge-strong)");
+  // 반투명 패널에는 음각·양각이 없다.
+  for (const selector of [".reply", ".question", ".card", ".feature-panel", "#conversation-sidebar", chatSurface, ".masthead", ".login-card"]) {
+    assert.doesNotMatch(find(selector, ["box-shadow"]) ?? "", /emboss|deboss|inset/, selector);
+  }
+});
+
+test("조작 영역은 44px 이상이다", () => {
+  for (const [selector, names] of [[".quicklink-nav", ["width", "height"]], ["#conversation-sidebar .conversation-more", ["width", "min-height"]],
+    [".mode-pill", ["min-width", "min-height"]], [".attach-button", ["width", "min-height"]], [".lang-pill", ["min-width", "min-height"]]]) {
+    for (const width of [1280, 480, 390]) for (const name of names) {
+      assert.ok(Number.parseFloat(declared(selector, [name], undefined, { width })) >= 44, `${selector} ${name} ${width}px`);
+    }
+  }
+  for (const selector of ["#demo-logout", 'body[data-view="chat"] #home-button']) {
+    assert.ok(Number.parseFloat(declared(selector, ["min-height"], undefined, { width: 390 })) >= 44, selector);
+  }
+  // 390px 채팅 머리글의 대화 목록·홈 버튼은 가로도 44px, 생각 요약 토글은 한 줄이어도 44px 높이다.
+  for (const selector of ['body[data-view="chat"] #home-button', 'body[data-view="chat"] #conversation-toggle']) {
+    assert.ok(Number.parseFloat(declared(selector, ["min-width"], undefined, { width: 390 })) >= 44, selector);
+  }
+  for (const selector of ["#conversation-toggle", "#home-button"]) assert.equal(declared(selector, ["min-width"]), "44px", selector);
+  // 390px 채팅 머리글: 대화 목록(44)·홈(44)·언어·테마 알약 두 개가 한 줄이다. 로고(약 140px)를 두면 자리가 모자라
+  // 채팅 화면에서만 480px 이하에서 로고 그림을 감춘다. 첫 화면과 넓은 화면에서는 그대로 보인다.
+  // 481px처럼 480px를 조금 넘는 화면에서도 영어 버튼 이름이면 로고와 버튼이 머리글을 넘는다. 그래서 기준은 680px다.
+  for (const width of [390, 481, 680]) {
+    assert.equal(declared('body[data-view="chat"] .brand-logo', ["display"], undefined, { width }), "none", `${width}px`);
+    // 로고를 받지 못하면 대신 보이는 학교 이름 글자도 그 자리를 차지하므로 화면에서만 감춘다.
+    assert.equal(declared('body[data-view="chat"] .brand-name', ["clip-path"], undefined, { width }), "inset(50%)", `${width}px`);
+    assert.equal(declared('body[data-view="chat"] .brand-name', ["position"], undefined, { width }), "absolute", `${width}px`);
+  }
+  assert.equal(find('body[data-view="chat"] .brand-logo', ["display"], { width: 681 }), undefined);
+  assert.equal(find('body[data-view="chat"] .brand-name', ["clip-path"], { width: 681 }), undefined);
+  assert.equal(find(".brand-logo", ["display"], { width: 390 }), "inline-block");
+  // 480px 이하 머리글: 언어 이름은 남기고 지구본만, 테마는 이름을 낭독기용으로 빼서 320px 로그인 채팅 머리글에도 들어간다.
+  // 오른쪽 묶음은 내용 폭을 지키고 로고가 줄어 390px 첫 화면에서도 겹치지 않는다.
+  for (const width of [320, 390, 480]) {
+    assert.equal(declared('.masthead-actions > .lang-pill:not([id$="theme-button"]) .lang-pill-globe', ["display"], undefined, { width }), "none");
+    assert.equal(declared('[id$="theme-button"] .lang-pill-label', ["clip-path"], undefined, { width }), "inset(50%)");
+    assert.equal(declared(".brand", ["flex"], undefined, { width }), "0 1 auto");
+    assert.equal(declared(".brand", ["min-width"], undefined, { width }), "0");
+    assert.equal(declared(".masthead-actions", ["flex"], undefined, { width }), "0 1 auto");
+    // 그림은 content-box라 받침 좌우 여백만큼 더 빼야 로고 칸(100%) 안에 들어간다.
+    assert.equal(declared(".brand-logo > img", ["max-width"], undefined, { width }), "calc(100% - 2 * var(--logo-pad-x))");
+    assert.equal(declared(".brand-logo > img", ["box-sizing"], undefined, { width }), "content-box");
+    assert.equal(declared(".brand-logo", ["max-width"], undefined, { width }), "100%");
+    assert.equal(declared(".brand-logo > img", ["object-fit"], undefined, { width }), "contain");
+    // 로고 칸은 넘침을 잘라 내고, 그 안의 두 갈래(로고 그림, 로고 실패 때의 학교 이름 글자)는 모두 칸 폭 아래로 줄 수 있다.
+    // 첫 화면(채팅이 아닌 화면)에서도 같은 규칙이다. 예전에는 그림만 고쳐 영어 이름 글자가 언어 버튼 쪽으로 넘쳤다.
+    assert.equal(declared(".brand", ["overflow"], undefined, { width }), "hidden");
+    for (const child of [".brand-logo", ".brand-name"]) {
+      assert.equal(declared(child, ["min-width"], undefined, { width }), "0", `${child} ${width}px`);
+      assert.equal(declared(child, ["max-width"], undefined, { width }), "100%", `${child} ${width}px`);
+    }
+    // 대체 이름은 자르지 않고 칸 안에서 줄을 바꾼다. 말줄임은 학생 이름·대화 제목에만 쓴다(motion_layout 검사와 같은 약속).
+    assert.equal(declared(".brand-name", ["white-space"], undefined, { width }), "normal");
+    assert.equal(declared(".brand-name", ["overflow-wrap"], undefined, { width }), "anywhere");
+    assert.equal(find(".brand-name", ["text-overflow"], { width }), undefined);
+    // 버튼 묶음과 로그인 상자는 버튼들의 최소 폭 아래로 줄지 않는다.
+    assert.equal(declared(".masthead-actions", ["min-width"], undefined, { width }), "min-content");
+    assert.equal(declared(".demo-account", ["min-width"], undefined, { width }), "min-content");
+  }
+  // 받침 여백은 라이트 9px, 다크 0이고 받침 전체 값은 이 여백을 쓴다.
+  assert.equal(resolve("var(--logo-pad-x)", lightEnv), "9px");
+  assert.equal(resolve("var(--logo-pad)", lightEnv), "5px 9px");
+  assert.equal(resolve("var(--logo-pad-x)", darkEnv), "0px");
+  assert.equal(find('[id$="theme-button"] .lang-pill-label', ["clip-path"], { width: 481 }), undefined);
+  assert.equal(declared(".brand", ["flex"], undefined, { width: 481 }), "none");
+  // 머리글 언어·테마 알약은 테마의 불투명 면 위에 경계를 그린다. 뒤 바탕(사진, 사진을 못 받았을 때의 남색 대체 바탕)과 상관없이
+  // 경계 대비가 정해진다. 투명했을 때는 사진 대체 바탕과 합성해 약 2.9:1까지 내려갔다.
+  assert.equal(declared(".lang-pill", ["background"]), "var(--surface)");
+  for (const look of themes) {
+    const fill = colors("var(--surface)", look)[0];
+    assert.equal(fill[3], 1, themeName(look));
+    assert.ok(contrast(colors(declared(".lang-pill", ["border"]), look)[0].slice(0, 3), fill.slice(0, 3)) >= 3, themeName(look));
+  }
+  // 로그인 화면 사진 위 알약은 남색 면을 그대로 쓴다.
+  assert.equal(declared(".login-lang", ["background"]), "var(--glass-pill)");
+  assert.equal(declared(".login-lang .lang-pill", ["background"]), "var(--glass-pill)");
+  // 대화 목록 아래 학교 링크는 BISKIT처럼 짧은 이름이어도 가로 44px다.
+  for (const width of [1280, 390]) assert.equal(declared(".campus-site-link", ["min-width"], undefined, { width }), "44px");
+  // 재시도 버튼은 두 글자(重试)여도 가로 44px다.
+  for (const name of ["min-width", "min-height"]) assert.equal(declared(".retry", [name]), "44px", name);
+  // 출처 링크는 답 아래 따로 놓인 조작 요소라 높이·너비 모두 44px 이상이다(제목이 한 글자여도).
+  for (const selector of [".source-link", ".evidence .source-link", ".graduation .source-link", ".poster-result .source-link"]) {
+    for (const name of ["min-height", "min-width"]) assert.equal(declared(selector, [name]), "44px", `${selector} ${name}`);
+  }
+  // 대화 목록 아래 학교 링크도 한 줄 글자보다 높은 44px 누름 영역이다.
+  for (const width of [1280, 390]) assert.equal(declared(".campus-site-link", ["min-height"], undefined, { width }), "44px");
+  assert.equal(declared(".thinking summary", ["min-height"]), "44px");
+});
+
+test("상태 표시와 열린 상태 테두리는 밝은 면에서도 3:1을 넘는다", () => {
+  const ratioOn = (paint, surface, look) => contrast(colors(paint, look)[0].slice(0, 3), colors(surface, look)[0].slice(0, 3));
+  for (const look of themes) {
+    const name = themeName(look);
+    // 현재 대화 선·대기 표시(라이트 파랑, 다크 노랑)는 고른 대화 바탕과 목록 면 위에서 보인다.
+    assert.equal(declared('.conversation-item[aria-current="true"]', ["border-inline-start-color"]), "var(--current-mark)");
+    assert.equal(declared(".conversation-pending", ["border-top-color"]), "var(--current-mark)");
+    for (const surface of ["var(--surface)", "var(--bg)"]) assert.ok(ratioOn("var(--current-mark)", surface, look) >= 3, `${name} 현재 대화 선`);
+    // 읽지 않은 점: 다크는 코랄 채움 자체가, 라이트는 남색 테두리가 3:1 경계다.
+    const ring = resolve("var(--unread-ring)", look);
+    const edge = ring === "transparent" ? "var(--coral)" : "var(--unread-ring)";
+    for (const surface of ["var(--surface)", "var(--bg)"]) assert.ok(ratioOn(edge, surface, look) >= 3, `${name} 읽지 않은 점`);
+    // 깊이 모드에서 메뉴를 열면 세 색 고리 대신 열린 상태 테두리색이 3:1 경계가 된다.
+    assert.ok(ratioOn("var(--focus-ink)", "var(--raised)", look) >= 3, `${name} 깊이 모드 열림`);
+    // 닫힌 깊이 모드는 고리 안쪽 1px 경계선이 3:1 경계다. 고리 색(하늘·밝은 하늘·노랑)은 흰 면과 3:1에 못 미치는 장식이다.
+    assert.ok(ratioOn("var(--edge-strong)", "var(--raised)", look) >= 3, `${name} 깊이 모드 닫힘`);
+    if (!isDark(look)) for (const ring of ["var(--sky)", "var(--deep-sky)", "var(--deep-gold)"]) assert.ok(ratioOn(ring, "var(--raised)", look) < 3, ring);
+  }
+  assert.match(declared(".conversation-unread", ["border"]), /^1\.5px solid var\(--unread-ring\)$/);
+  assert.match(declared('.mode-pill[data-mode="deep"]', ["box-shadow"]), /^inset 0 0 0 1px var\(--edge-strong\), var\(--emboss\)$/);
+  assert.equal(declared('.mode-pill[data-mode="deep"][aria-expanded="true"]', ["box-shadow"]), "var(--deboss)");
+  assert.equal(declared('.mode-pill[data-mode="deep"][aria-expanded="true"]', ["border-color"]), "var(--focus-ink)");
+  const deep = rules.findIndex(rule => rule.selectors.includes('.mode-pill[data-mode="deep"]') && rule.declarations.some(([name]) => name === "border-color"));
+  const open = rules.findIndex(rule => rule.selectors.includes('.mode-pill[data-mode="deep"][aria-expanded="true"]'));
+  assert.ok(open > deep, "열린 깊이 모드 규칙이 고리 규칙 뒤에 와야 덮이지 않는다");
+});
+
+test("로그인 화면 언어·테마 묶음은 hover 바탕이 없고 안의 알약이 흰 글자를 쓴다", () => {
+  assert.equal(find(".login-lang:hover", ["background"]), undefined);
+  assert.equal(declared("button.login-lang:hover", ["background"]), "var(--navy)");
+  assert.equal(declared(".login-lang:not(button)", ["background"]), "transparent");
+  assert.equal(declared(".login-lang .lang-pill", ["color"]), "var(--white)");
+  assert.equal(declared(".login-lang .lang-pill", ["background"]), "var(--glass-pill)");
+  assert.equal(declared(".login-lang .lang-pill:hover", ["background"]), "var(--navy)");
+  // 사진 위 두 버튼의 초점은 테마색 고리가 아니라 흰 고리와 남색 띠다. 띠가 고리 뒤 바탕을 고정해 어느 사진·테마에서도 3:1을 넘는다.
+  for (const selector of ["button.login-lang:focus-visible", ".login-lang .lang-pill:focus-visible"]) {
+    assert.equal(declared(selector, ["outline"]), "2px solid var(--white)", selector);
+    assert.equal(declared(selector, ["outline-offset"]), "2px", selector);
+    assert.equal(declared(selector, ["box-shadow"]), "0 0 0 6px var(--navy)", selector);
+  }
+  for (const look of themes) {
+    assert.ok(contrast(colors("var(--white)", look)[0].slice(0, 3), colors("var(--navy)", look)[0].slice(0, 3)) >= 3, themeName(look));
+    // 근거: 라이트 남색 고리를 어두운 사진·위쪽 막 위에 바로 두면 3:1에 못 미친다.
+    if (!isDark(look)) {
+      const photoTop = blend(colors("var(--overlay-top)", look)[0], [4, 20, 38]);
+      assert.ok(contrast(colors("var(--focus-ring)", look)[0].slice(0, 3), photoTop) < 3);
+    }
+  }
+  // 대화 영역 초점은 안쪽 고리다. 윗변이 큰 판의 투명 띠에 걸리므로 안쪽 6px 남색 띠 위에 흰 고리(안쪽 2~4px)를 그린다.
+  assert.equal(declared(".transcript:focus-visible", ["outline"]), "2px solid var(--white)");
+  assert.equal(declared(".transcript:focus-visible", ["outline-offset"]), "-4px");
+  assert.equal(declared(".transcript:focus-visible", ["box-shadow"]), "inset 0 0 0 6px var(--navy)");
+  assert.ok(Math.abs(Number.parseFloat(declared(".transcript:focus-visible", ["outline-offset"]))) <= 6 - 2);
+  // 저장 대화를 다시 열면 출처 링크와 작성자 이름이 말풍선 밖(.turn 바로 아래)에 붙는다. 그 자리에도 말풍선 보강 면을 깐다.
+  const restoredParents = { ...chatParents, ".turn > .source-link": chatSurface, ".turn > .reply-author": chatSurface };
+  checkText([[".source-link", ".turn > .source-link"], [".turn > .reply-author", ".turn > .reply-author"]], restoredParents);
+  checkText([[".source-link", ".turn > .source-link"], [".turn > .reply-author", ".turn > .reply-author"]],
+    { ...parents, ".turn > .source-link": ".layout", ".turn > .reply-author": ".layout" });
+  // 테크모도 옮기면 판 없이 사진 위에 놓이므로 같은 흰 고리와 남색 띠를 쓴다.
+  assert.equal(declared(".pet:focus-visible", ["outline"]), "2px solid var(--white)");
+  assert.equal(declared(".pet:focus-visible", ["box-shadow"]), "0 0 0 6px var(--navy)");
+  // 아래쪽 사진 이름은 남색 받침 위 흰 글자다. 라이트 아래쪽 막은 밝아서 받침 없이는 흰 사진에서 묻힌다.
+  checkText([[".campus-caption", ".campus-caption-text"]]);
+  // 사진 위 본문 크기 글자(소개 문구·인사말)도 남색 받침 위 불투명 흰 글자다. 사진 위 막은 빼고 계산해 더 엄격하게 본다.
+  checkText([[".intro-description", ".intro-description"], [".main-welcome #main-greeting", ".main-welcome #main-greeting"]]);
+  // 대체 제목은 화면 높이 25% 안팎, 막이 옅어지는 자리에 놓인다. 막에 기대지 않고 남색 받침 위 흰 글자로 계산한다.
+  checkText([[".main-title-fallback", ".main-title-fallback"], [".login-intro", ".title-fallback"]]);
+  // 근거: 막 맨 위(.50)보다 옅은 25% 지점(약 .30)에서는 흰 사진 위 흰 글자가 큰 글자 기준 3:1에도 못 미친다.
+  const mid = colors("var(--overlay-top)", lightEnv)[0][3] - (colors("var(--overlay-top)", lightEnv)[0][3] - colors("var(--overlay-mid)", lightEnv)[0][3]) * 25 / 42;
+  assert.ok(contrast([255, 255, 255], blend([10, 37, 64, mid], [255, 255, 255])) < 3);
+  for (const look of themes) {
+    const top = blend(colors("var(--overlay-top)", look)[0], [255, 255, 255]);
+    if (!isDark(look)) assert.ok(contrast(colors("var(--yellow)", look)[0].slice(0, 3), top) < 3);
+  }
+  // 사진 위 설정 버튼 경계: 어두운 사진에서는 흰 테두리가, 흰 사진에서는 남색 면이 바깥과 3:1을 넘는다.
+  for (const selector of [".login-lang", ".login-lang .lang-pill"]) assert.equal(declared(selector, ["border-color"]), "var(--white)", selector);
+  for (const look of themes) {
+    const pillOnWhite = blend(colors("var(--glass-pill)", look)[0], [255, 255, 255]);
+    assert.ok(contrast([255, 255, 255], pillOnWhite) >= 3, `${themeName(look)} 흰 사진 위 알약 면`);
+    assert.ok(contrast([255, 255, 255], [4, 20, 38]) >= 3);
+  }
+  // 근거: 받침 없이 흰 .88 글자를 라이트 위쪽 막(.50)과 흰 사진 위에 두면 4.5:1에 못 미친다.
+  const washed = blend(colors("var(--overlay-top)", lightEnv)[0], [255, 255, 255]);
+  assert.ok(contrast(blend(colors("var(--intro-ink)")[0], washed), washed) < 4.5);
+  // 흰 글자는 남색 알약(흰 사진 가정)과 hover 남색 모두에서 4.5:1을 넘는다.
+  for (const look of themes) {
+    assert.ok(contrast([255, 255, 255], blend(colors("var(--glass-pill)", look)[0], [255, 255, 255])) >= 4.5);
+    assert.ok(contrast([255, 255, 255], colors("var(--navy)", look)[0].slice(0, 3)) >= 4.5);
+  }
 });
 
 test("글이 많은 영역과 예시 질문은 밝고 어두운 사진에서 4.5 이상이다", () => {
@@ -243,36 +547,45 @@ test("글이 많은 영역과 예시 질문은 밝고 어두운 사진에서 4.5
   ]);
 });
 
-test("내용 구분선과 상태색은 지정 변수를 사용하고 글 상자는 어둡다", () => {
-  for (const [name, value] of Object.entries({
-    "--content-line": "rgba(140,220,255,.28)", "--good": "#7be0a6", "--bad": "#ffb4a8",
-    "--warn": "#ffd97a", "--muted": "rgba(214,232,245,.82)",
-  })) assert.equal(variables.get(name), value);
+test("내용 구분선과 상태색은 지정 변수를 쓰고, 글 상자는 라이트에서 밝고 다크에서 어둡다", () => {
+  for (const [name, value] of Object.entries({ "--content-line": "rgba(10,37,64,.16)", "--control-line": "#6E8098" })) assert.equal(variables.get(name), value);
+  for (const [name, value] of Object.entries({ "--content-line": "rgba(140,220,255,.28)", "--control-line": "rgba(140,220,255,.78)" })) assert.equal(darkAttrVariables.get(name), value);
+  for (const [name, light, dark] of [["--good", "#0F7A43", "#4ADE80"], ["--bad", "#C62F2F", "#F87171"], ["--warn", "#9A5B00", "#FBBF24"]]) {
+    assert.equal(resolve(`var(${name})`), light, name);
+    assert.equal(resolve(`var(${name})`, darkEnv), dark, name);
+  }
   for (const selector of [".evidence", ".graduation th", ".graduation td"]) {
     assert.equal(declared(selector, ["border-color"]), "var(--content-line)");
   }
-  const dark = color => color[0] <= 8 && color[1] <= 28 && color[2] <= 50;
-  // 말풍선·카드: .60~.68. 큰 판(.50) 위에 놓여 합성 불투명도는 약 .83이다.
-  for (const selector of [".reply", ".question", ".card", ".feature-panel", ".site-footer", ".status:not(:empty)"]) {
-    for (const color of colors(declared(selector, ["background", "background-color"]))) {
-      assert.ok(dark(color) && color[3] >= .60 && color[3] <= .68, selector);
+  // 라이트 면은 흰색 쪽, 다크 면은 바탕색(#0B1626) 쪽이다.
+  const tone = (color, look) => isDark(look) ? luminance(color.slice(0, 3)) < .02 : luminance(color.slice(0, 3)) > .8;
+  for (const look of themes) {
+    const name = themeName(look);
+    // 말풍선·카드: 큰 판 위에 놓여 합성 불투명도는 라이트 .94, 다크 .88이다.
+    for (const selector of [".reply", ".question", ".card", ".feature-panel", ".site-footer", ".status:not(:empty)"]) {
+      for (const color of colors(declared(selector, ["background", "background-color"]), look)) {
+        assert.ok(tone(color, look) && color[3] >= .60 && color[3] <= .85, `${name} ${selector}`);
+      }
     }
-  }
-  // 말풍선 안의 상자는 옅은 덧판만 깐다. 진하게 겹치면 말풍선 안이 다시 벽이 된다.
-  for (const selector of [".evidence", ".fallback", ".reading", ".biskit .program", ".poster-result", "[data-panel-content] > .panel-action", ".graduation thead th", ".graduation .item td"]) {
-    for (const color of colors(declared(selector, ["background", "background-color"]))) {
-      assert.ok(dark(color) && color[3] <= .35, selector);
+    // 말풍선 안의 상자는 옅은 덧판만 깐다. 진하게 겹치면 말풍선 안이 다시 벽이 된다.
+    for (const selector of [".evidence", ".fallback", ".reading", ".biskit .program", ".poster-result", "[data-panel-content] > .panel-action", ".graduation thead th", ".graduation .item td"]) {
+      for (const color of colors(declared(selector, ["background", "background-color"]), look)) {
+        assert.ok(tone(color, look) && color[3] <= .55, `${name} ${selector}`);
+      }
     }
-  }
-  // 작은 상태 상자와 입력칸, 사진 바로 위의 안내 줄은 진한 면을 유지한다.
-  for (const selector of [".error", ".poster-result.unconfirmed", ".card.soon", "textarea", ".composer-meta"]) {
-    for (const color of colors(declared(selector, ["background", "background-color"]))) {
-      assert.ok(dark(color) && color[3] >= .80, selector);
+    // 작은 상태 상자와 입력칸, 사진 바로 위의 안내 줄은 진한 면을 유지한다.
+    for (const selector of [".error", ".poster-result.unconfirmed", ".card.soon", "textarea", ".composer-meta"]) {
+      for (const color of colors(declared(selector, ["background", "background-color"]), look)) {
+        assert.ok(tone(color, look) && color[3] >= .80, `${name} ${selector}`);
+      }
     }
   }
   // 테크모 말풍선은 패널과 나눈 불투명 크림 면이고(#128), 일시정지 버튼은 불투명 남색 면이다.
   assert.equal(declared(".pet-says", ["background"]), "var(--pet-bubble)");
   assert.deepEqual(colors("var(--pet-bubble)"), [[255, 246, 214, 1]]);
+  assert.deepEqual(colors("var(--pet-bubble)", darkEnv), [[243, 231, 191, 1]]);
+  assert.deepEqual(colors("var(--pet-bubble)", systemDarkEnv), [[243, 231, 191, 1]]);
+  assert.deepEqual(colors("var(--pet-bubble)", { theme: "light", scheme: "dark" }), [[255, 246, 214, 1]]);
   assert.equal(declared("#campus-motion-toggle", ["background"]), "var(--navy)");
 });
 
@@ -308,10 +621,16 @@ test("말풍선 글자는 라이트·다크 크림 모두에서, 일시정지 �
   }
 });
 
-test("큰 면은 .45~.55에 blur(16px) saturate(1.3), 말풍선·카드는 .60~.68에 blur(10px)이고 -webkit- 접두사를 함께 적는다", () => {
-  const alpha = name => colors(`var(${name})`)[0][3];
-  assert.ok(alpha("--main-surface") >= .45 && alpha("--main-surface") <= .55);
-  for (const name of ["--main-bubble", "--main-bubble-hover", "--main-bubble-active"]) assert.ok(alpha(name) >= .60 && alpha(name) <= .68, name);
+test("큰 면은 사진이 비치는 반투명에 blur(16px) saturate(1.3), 말풍선·카드는 blur(10px)이고 -webkit- 접두사를 함께 적는다", () => {
+  const alpha = (name, look) => colors(`var(${name})`, look)[0][3];
+  // 라이트는 흰 큰 면 .70, 다크는 바탕색 큰 면 .50이다. 큰 면과 말풍선을 겹쳐도 완전히 막히지는 않는다.
+  assert.equal(alpha("--main-surface", lightEnv), .70);
+  assert.equal(alpha("--main-surface", darkEnv), .50);
+  for (const look of themes) {
+    for (const name of ["--main-bubble", "--main-bubble-hover", "--main-bubble-active"]) assert.ok(alpha(name, look) >= .60 && alpha(name, look) <= .90, name);
+    const stacked = 1 - (1 - alpha("--main-surface", look)) * (1 - alpha("--main-bubble", look));
+    assert.ok(stacked >= .85 && stacked < .95, `${themeName(look)} ${stacked}`);
+  }
   const big = "blur(16px) saturate(1.3)";
   for (const selector of [".layout::before", "#conversation-sidebar", chatSurface]) {
     assert.equal(declared(selector, ["backdrop-filter"]), big, selector);
@@ -372,17 +691,22 @@ test("흰 사진 가정에서 채팅 화면·대화 목록·답변 모드 메뉴
     [".choice-menu-check", '.choice-menu-item[aria-checked="true"]'],
     [".mode-pill", ".mode-pill"], [".mode-pill", ".mode-pill:hover"],
   ]);
-  // 깊이 모드 버튼은 테두리만 그라데이션이고 글자 뒤는 흰색 한 겹이다.
-  assert.match(declared('.mode-pill[data-mode="deep"]', ["background"]), /^linear-gradient\(var\(--white\), var\(--white\)\) padding-box, linear-gradient\(/);
-  assert.ok(contrast(colors(declared(".mode-pill", ["color"]))[0].slice(0, 3), [255, 255, 255]) >= 4.5);
+  // 깊이 모드 버튼은 테두리만 그라데이션이고 글자 뒤는 버튼 면(--raised) 한 겹이다.
+  assert.match(declared('.mode-pill[data-mode="deep"]', ["background"]), /^linear-gradient\(var\(--raised\), var\(--raised\)\) padding-box, linear-gradient\(/);
+  for (const look of themes) {
+    const ink = colors(declared(".mode-pill", ["color"]), look)[0].slice(0, 3);
+    assert.ok(contrast(ink, colors("var(--raised)", look)[0].slice(0, 3)) >= 4.5, themeName(look));
+  }
 });
 
-test("흐림을 지원하지 않으면 지금까지의 진한 값을 그대로 쓴다", () => {
+test("흐림을 지원하지 않으면 큰 판은 불투명 바탕, 글이 놓이는 면은 진한 면을 쓴다", () => {
   assert.match(styles, /@supports not \(\(backdrop-filter: blur\(1px\)\) or \(-webkit-backdrop-filter: blur\(1px\)\)\) \{/);
   const old = { supports: false };
   const panel = "linear-gradient(180deg, transparent, var(--panel-surface) 56px)";
   assert.equal(declared(".layout", ["background"], undefined, old), panel);
-  assert.equal(declared('body[data-view="chat"] .layout', ["background"], undefined, old), panel);
+  // 채팅 화면 판은 투명 띠 없이 불투명하다. 색 읽기 함수는 그라데이션 안의 transparent를 색으로 세지 않으므로 글자로 따로 막는다.
+  assert.equal(declared('body[data-view="chat"] .layout', ["background"], undefined, old), "var(--panel-surface)");
+  assert.doesNotMatch(declared('body[data-view="chat"] .layout', ["background"], undefined, old), /transparent/);
   assert.equal(declared(".layout::before", ["display"], undefined, old), "none");
   assert.equal(declared(chatSurface, ["background"], undefined, old), "transparent");
   for (const selector of ["#conversation-sidebar", ".reply", ".question", ".card", ".feature-panel", ".composer-meta"]) {
@@ -390,16 +714,28 @@ test("흐림을 지원하지 않으면 지금까지의 진한 값을 그대로 �
   }
   assert.equal(declared("button.card:hover:not([data-restored])", ["background"], undefined, old), "var(--feature-hover)");
   assert.equal(declared(".site-footer", ["background"], undefined, old), "var(--panel-surface)");
-  checkText([[".reply", ".reply"], [".card-text", ".card"], [".status", ".status:not(:empty)"], [".composer .composer-hint", ".composer-meta"]], parents, old);
+  checkText([[".reply", ".reply"], [".card-text", ".card"], [".status", ".status:not(:empty)"], [".composer .composer-hint", ".composer-meta"],
+    [".evidence .source-link", ".evidence"], [".graduation .shortfall", ".graduation table"], ["#conversation-sidebar button", ".conversation-item"],
+    [".site-footer p", ".site-footer"], [".campus-site-link", ".site-footer"]], parents, old);
+  checkText([[".reply", ".reply"], [".status", ".status:not(:empty)"]], { ...chatParents, [chatSurface]: 'body[data-view="chat"] .layout' }, old);
+  // 불투명 바탕은 테마의 바탕색이다.
+  assert.deepEqual(colors("var(--panel-surface)", lightEnv), [[245, 248, 252, 1]]);
+  assert.deepEqual(colors("var(--panel-surface)", darkEnv), [[11, 22, 38, 1]]);
 });
 
-test("로그인 화면의 유리 값과 흐림은 그대로다", () => {
-  for (const [name, value] of Object.entries({
-    "--glass-card": "rgba(12,44,78,.90)", "--glass-band": "rgba(8,30,54,.72)", "--glass-panel": "rgba(10,36,64,.84)",
-    "--glass-feature": "rgba(255,255,255,.10)", "--glass-composer": "rgba(255,255,255,.94)", "--glass-account": "rgba(255,255,255,.08)",
-    "--glass-dense": "rgba(8,28,50,.82)", "--glass-pill": "rgba(255,255,255,.14)", "--glass-edge": "rgba(255,255,255,.28)",
-    "--card-end": "rgba(6,24,44,.82)", "--panel-surface": "#0a2440",
-  })) assert.equal(variables.get(name), value, name);
+test("로그인 화면은 같은 유리 구조에 테마별 값을 쓰고 흐림은 그대로다", () => {
+  for (const [name, light, dark] of [
+    ["--glass-card", "rgba(255,255,255,.95)", "rgba(19,35,58,.94)"], ["--card-end", "rgba(255,255,255,.93)", "rgba(11,22,38,.88)"],
+    ["--glass-band", "rgba(255,255,255,.92)", "rgba(11,22,38,.76)"], ["--glass-dense", "rgba(255,255,255,.94)", "rgba(11,22,38,.84)"],
+    ["--panel-surface", "#F5F8FC", "#0B1626"],
+  ]) {
+    assert.equal(variables.get(name), light, name);
+    assert.equal(darkAttrVariables.get(name), dark, name);
+  }
+  // 사진 위 알약(언어 버튼·소개 배지)은 두 테마 모두 남색 반투명에 흰 글자다.
+  assert.equal(variables.get("--glass-pill"), "rgba(10,37,64,.62)");
+  assert.equal(darkAttrVariables.get("--glass-pill"), "rgba(10,37,64,.62)");
+  assert.ok(contrast([255, 255, 255], blend(colors("var(--glass-pill)")[0], [255, 255, 255])) >= 4.5);
   assert.equal(declared(".login-card", ["background"]), "linear-gradient(160deg, var(--glass-card), var(--card-end))");
   assert.equal(declared("#login-site-footer", ["background"]), "var(--glass-dense)");
   assert.equal(find(".login-card", ["-webkit-backdrop-filter"]), undefined);
@@ -437,14 +773,20 @@ test("답변 모드 버튼과 메뉴: 480px 이하 아이콘만, 메뉴 너비·
   assert.ok(layer(".choice-menu") < layer(".confirm-scrim"));
   assert.equal(declared(".choice-menu-check", ["visibility"]), "hidden");
   assert.equal(declared('.choice-menu-item[aria-checked="true"] .choice-menu-check', ["visibility"]), "visible");
-  assert.match(declared(".choice-menu-item:focus-visible", ["outline"]), /^2px solid var\(--focus-ink\)$/);
+  assert.match(declared(".choice-menu-item:focus-visible", ["outline"]), /^2px solid var\(--focus-ring\)$/);
   assert.equal(declared(".choice-menu-item", ["min-height"]), "52px");
 });
 
 test("깊이 모드: 고정 테두리는 상태만으로 그리고, 효과는 효과 클래스에만 걸며 움직임 줄이기에서 모두 끈다", () => {
   assert.equal(variables.get("--sky"), "#00A3D9");
   assert.equal(variables.get("--deep-gold"), "#F7C500");
-  const gradient = /linear-gradient\(90deg, var\(--sky\), var\(--deep-violet\), var\(--deep-gold\)/;
+  // 깊이 생각 반짝임은 하늘색 계열이다. 예전 보라(--deep-violet)는 남기지 않는다.
+  assert.equal(variables.get("--deep-sky"), "#38BDF8");
+  assert.equal(variables.get("--deep-shine"), "rgba(0,163,217,.22)");
+  assert.doesNotMatch(styles, /deep-violet|#6A4BD8|106,75,216/i);
+  const [red, , blue] = colors("var(--deep-sky)")[0];
+  assert.ok(blue > red * 2);
+  const gradient = /linear-gradient\(90deg, var\(--sky\), var\(--deep-sky\), var\(--deep-gold\)/;
   assert.match(declared('.mode-pill[data-mode="deep"]', ["background"]), gradient);
   assert.match(declared(".composer-row.is-deep::before", ["background"]), gradient);
   assert.equal(declared(".composer-row.is-deep::before", ["padding"]), "1px");
@@ -491,7 +833,7 @@ test("깊이 모드: 고정 테두리는 상태만으로 그리고, 효과는 �
     }
     return result;
   };
-  const fixedRing = /linear-gradient\(90deg, var\(--sky\), var\(--deep-violet\), var\(--deep-gold\)\) 0 0 \/ 100% 100% border-box$/;
+  const fixedRing = /linear-gradient\(90deg, var\(--sky\), var\(--deep-sky\), var\(--deep-gold\)\) 0 0 \/ 100% 100% border-box$/;
   for (const state of [['[data-mode="deep"]'], ['[data-mode="deep"]', ".is-flowing"], ['[data-mode="deep"]', ".is-flowing", ".is-bursting"]]) {
     for (const env of [{ motion: false }, { motion: true }]) {
       const paint = pillBackground(state, env);
@@ -510,7 +852,7 @@ test("깊이 모드: 고정 테두리는 상태만으로 그리고, 효과는 �
   assert.equal(find(".thinking.is-waiting > summary", ["color"], { supports: false }), undefined);
 });
 
-test("전체 CSS에서 남은 밝은 바탕은 입력 줄과 상태 표시이며 글자 대비를 확인한다", () => {
+test("다크 테마에서 남은 밝은 바탕은 말풍선·노랑 표시·깊이 모드 장식이며 글자 대비를 확인한다", () => {
   const backgrounds = new Map();
   for (const rule of rules) {
     // 글자 모양으로 오려 칠하는 배경(background-clip: text)은 면이 아니라 글자색이다.
@@ -521,14 +863,15 @@ test("전체 CSS에서 남은 밝은 바탕은 입력 줄과 상태 표시이며
       }
     }
   }
-  const lightSurfaces = [...backgrounds].filter(([, value]) =>
-    colors(value).some(color => color[3] >= .8 && luminance(color.slice(0, 3)) > .5)
-  ).map(([selector]) => selector).sort();
-  assert.deepEqual(lightSurfaces, [
-    ".attach-button:hover", ".composer textarea", ".composer-row",
-    ".composer-row.is-deep-enter::after", ".composer-row.is-deep::before", ".conversation-unread", ".intro-badge::before",
-    ".login-safety::before", ".mode-pill.is-flowing::after", ".mode-pill:hover", '.mode-pill[data-mode="deep"]', ".mode-spark", ".pet-dock .pet-says::before", ".pet-dots span", ".pet-says", '[data-campus-step][data-current="true"]',
-  ]);
+  for (const look of [darkEnv, systemDarkEnv]) {
+    const lightSurfaces = [...backgrounds].filter(([, value]) =>
+      colors(value, look).some(color => color[3] >= .8 && luminance(color.slice(0, 3)) > .5)
+    ).map(([selector]) => selector).sort();
+    assert.deepEqual(lightSurfaces, [
+      ".composer-row.is-deep-enter::after", ".composer-row.is-deep::before", ".intro-badge::before",
+      ".login-safety::before", ".mode-pill.is-flowing::after", '.mode-pill[data-mode="deep"]', ".mode-spark", ".pet-dock .pet-says::before", ".pet-says", '[data-campus-step][data-current="true"]',
+    ], themeName(look));
+  }
   checkText([
     [".composer-row", ".composer-row"], [".composer textarea", ".composer textarea"],
     [".composer textarea::placeholder", ".composer textarea"], [".attach-button", ".attach-button:hover"],
@@ -559,13 +902,36 @@ test("로그인 유리 흐림은 1.5px 이하이고 큰 판 자체에는 흐림�
   assert.equal(declared(".chat",["background"]),"transparent");
 });
 
-test("두 로고는 받침과 테두리 없이 밝은 그림을 표시한다", () => {
+test("두 로고 자리는 테두리 없이 밝은 그림을 표시하고, 라이트에서만 그림에 남색 받침을 깐다", () => {
   for (const selector of [".brand-logo", ".login-brand"]) {
     assert.ok(["block", "inline-block"].includes(declared(selector, ["display"])), selector);
     assert.equal(declared(selector, ["padding"]), "0");
     assert.equal(declared(selector, ["background"]), "transparent");
     assert.equal(declared(selector, ["border"]), "0");
     assert.equal(declared(selector, ["box-shadow"]), "none");
+  }
+  // 밝은 로고는 흰 글자다. 라이트의 흰 띠·카드 위에서는 남색 받침, 다크에서는 받침 없이 어두운 유리 위에 놓는다.
+  for (const selector of [".brand-logo > img", ".login-brand > img"]) {
+    assert.equal(declared(selector, ["background"]), "var(--logo-plate)");
+    assert.equal(declared(selector, ["padding"]), "var(--logo-pad)");
+    // 높이 선언(30px·22px)은 그림 내용 높이로 남는다.
+    assert.equal(declared(selector, ["box-sizing"]), "content-box");
+  }
+  assert.deepEqual(colors("var(--logo-plate)", lightEnv), [[10, 37, 64, 1]]);
+  assert.ok(contrast([255, 255, 255], colors("var(--logo-plate)", lightEnv)[0].slice(0, 3)) >= 4.5);
+  for (const look of [darkEnv, systemDarkEnv]) {
+    assert.equal(resolve("var(--logo-plate)", look), "transparent");
+    assert.equal(resolve("var(--logo-pad)", look), "0");
+  }
+  // 제목 그림(흰 글자 조각)은 두 테마 모두 사진 위 남색 막과 테마별 그림자 받침 위에 놓는다.
+  for (const selector of [".title-lettering > img", ".main-lettering > img"]) {
+    assert.equal(declared(selector, ["filter"]), "drop-shadow(0 2px 12px var(--lettering-shadow))");
+  }
+  assert.notEqual(resolve("var(--lettering-shadow)", lightEnv), resolve("var(--lettering-shadow)", darkEnv));
+  for (const look of themes) assert.ok(colors("var(--overlay-top)", look)[0][3] >= .5, themeName(look));
+  // 사진 위 글자(소개·인사말·제목 대체 글자)는 테마와 상관없이 흰 계열이다.
+  for (const selector of [".login-intro", ".main-welcome", ".main-welcome #main-greeting", ".main-title-fallback"]) {
+    assert.match(declared(selector, ["color"]), /^var\(--(white|intro-ink)\)$/, selector);
   }
 });
 
