@@ -3027,31 +3027,42 @@ const handwritingStatusMessages = { 413: "tooLarge", 422: "unreadable", 503: "un
 function handwritingWidth(stroke, point) {
   return stroke.type === "pen" ? 1.2 + 4 * point.p : 3;
 }
-// 획 하나를 그린다. from을 주면 그 점부터 이어 그린다(움직이는 동안 새 조각만 그리기).
-// 획마다 그을 때 보이던 칸(stroke.clip)을 캔버스 clip()으로 걸고 그린다. 화면과 보내는 그림이 같은 칸으로 잘리므로,
-// 그 뒤 칸이 넓어져도 그을 때 보이지 않던 픽셀(둥근 끝, 굵기 절반이 경계 밖으로 나간 부분 포함)은 나타나지 않는다.
-function drawHandwritingStroke(context, stroke, from = 0) {
-  if (!stroke.clip) { drawHandwritingStrokeInside(context, stroke, from); return; }
-  context.save();
-  context.beginPath();
-  context.rect(0, 0, stroke.clip.width, stroke.clip.height);
-  context.clip();
-  drawHandwritingStrokeInside(context, stroke, from);
-  context.restore();
+// 점마다 그 점을 찍을 때 보이던 칸(point.clip, 없으면 stroke.clip)을 둔다. 칸은 늘 캔버스 왼쪽 위(0,0)에서 시작한다.
+const handwritingClipOf = (stroke, point) => point.clip ?? stroke.clip ?? null;
+// 두 칸이 겹치는 부분. 긋는 도중 칸 크기가 바뀌면 앞 점과 잇는 선분은 두 칸 모두에서 보이던 곳만 그린다.
+function handwritingClipMeet(a, b) {
+  if (a === b || !b) return a;
+  if (!a) return b;
+  return { width: Math.min(a.width, b.width), height: Math.min(a.height, b.height) };
 }
-function drawHandwritingStrokeInside(context, stroke, from) {
+// 획 하나를 그린다. from을 주면 그 점부터 이어 그린다(움직이는 동안 새 조각만 그리기).
+// 선분마다 그을 때 보이던 칸을 캔버스 clip()으로 걸고 그린다. 화면과 보내는 그림이 같은 칸으로 잘리므로,
+// 그 뒤 칸이 넓어져도(긋는 도중이어도) 그을 때 보이지 않던 픽셀(둥근 끝, 굵기 절반이 경계 밖으로 나간 부분 포함)은 나타나지 않는다.
+// 첫 점과 gap 점(다시 시작한 자리)은 그 점의 굵기로 점을 찍는다. 펜을 세게 눌러 시작하면 첫 점이 뒤 선보다 굵기 때문이다.
+function drawHandwritingStroke(context, stroke, from = 0) {
   const points = stroke.points;
-  if (points.length === 1) {
-    const [point] = points;
+  let current, saved = false;
+  const use = clip => {
+    if (clip === current) return;
+    if (saved) context.restore();
+    saved = false; current = clip;
+    if (!clip) return;
+    context.save(); saved = true;
     context.beginPath();
-    context.arc(point.x, point.y, handwritingWidth(stroke, point) / 2, 0, Math.PI * 2);
-    context.fill();
-    return;
-  }
-  for (let index = Math.max(1, from); index < points.length; index++) {
-    const before = points[index - 1], point = points[index];
-    // gap 점은 칸 밖에 나갔다가 다시 들어온 자리다. 앞 점과 잇지 않고 여기서 새로 시작한다.
-    if (point.gap) continue;
+    context.rect(0, 0, clip.width, clip.height);
+    context.clip();
+  };
+  for (let index = from; index < points.length; index++) {
+    const point = points[index];
+    if (index === 0 || point.gap) {
+      use(handwritingClipOf(stroke, point));
+      context.beginPath();
+      context.arc(point.x, point.y, handwritingWidth(stroke, point) / 2, 0, Math.PI * 2);
+      context.fill();
+      continue;
+    }
+    const before = points[index - 1];
+    use(handwritingClipMeet(handwritingClipOf(stroke, before), handwritingClipOf(stroke, point)));
     // 좌표는 그대로이고 압력만 바뀐 신호는 길이 0인 선이다. 캔버스는 길이 0인 선을 그리지 않으므로 점으로 찍는다.
     if (before.x === point.x && before.y === point.y) {
       context.beginPath();
@@ -3065,6 +3076,7 @@ function drawHandwritingStrokeInside(context, stroke, from) {
     context.lineTo(point.x, point.y);
     context.stroke();
   }
+  if (saved) context.restore();
 }
 // 잉크 범위(굵기 절반 포함)에 여백을 더한 상자. 좌표는 캔버스의 CSS 픽셀이다.
 // area(보이는 필기 칸)를 주면 그 안의 잉크만 센다. 획이 칸 밖으로 나갔다 돌아와도 화면에서 잘린 부분은 보내지 않는다.
@@ -3083,7 +3095,7 @@ function clipHandwritingSegment(from, to, area, half = 0) {
 }
 function handwritingBounds(strokes, area = null) {
   let left = Infinity, top = Infinity, right = -Infinity, bottom = -Infinity;
-  // 획마다 그을 때 보이던 칸(stroke.clip) 안으로 범위를 가둔다. 그릴 때 그 칸으로 clip()하므로 범위도 같은 칸을 넘지 않는다.
+  // 점·선분마다 그을 때 보이던 칸 안으로 범위를 가둔다. 그릴 때 같은 칸으로 clip()하므로 범위도 같은 칸을 넘지 않는다.
   let clip = null;
   // 점의 잉크 상자(굵기 절반)가 칸과 닿으면 칸 안으로 눌러 넣어 센다. 경계에 정확히 닿은 점(경계에서 잘라 저장한 점)은
   // 폭이 0이 되어도 범위를 경계까지 늘려야 하므로 빼지 않는다. 칸과 전혀 겹치지 않는 점만 뺀다.
@@ -3098,20 +3110,22 @@ function handwritingBounds(strokes, area = null) {
     right = Math.max(right, x1); bottom = Math.max(bottom, y1);
   };
   for (const stroke of strokes) {
-    clip = stroke.clip || null;
     const points = stroke.points;
-    if (!area || points.length === 1) {
-      for (const point of points) {
+    for (let index = 0; index < points.length; index++) {
+      const point = points[index];
+      // 첫 점과 gap 점은 그 점의 굵기로 찍은 점이다.
+      if (index === 0 || point.gap) {
+        clip = handwritingClipOf(stroke, point);
         const half = handwritingWidth(stroke, point) / 2;
         const inside = !area || (point.x >= -half && point.y >= -half && point.x <= area.width + half && point.y <= area.height + half);
         if (inside) add(point, half);
+        continue;
       }
-      continue;
-    }
-    for (let index = 1; index < points.length; index++) {
-      if (points[index].gap) continue;
-      const half = Math.max(handwritingWidth(stroke, points[index - 1]), handwritingWidth(stroke, points[index])) / 2;
-      for (const point of clipHandwritingSegment(points[index - 1], points[index], area, half) ?? []) add(point, half);
+      const before = points[index - 1];
+      clip = handwritingClipMeet(handwritingClipOf(stroke, before), handwritingClipOf(stroke, point));
+      const half = Math.max(handwritingWidth(stroke, before), handwritingWidth(stroke, point)) / 2;
+      const piece = area ? clipHandwritingSegment(before, point, area, half) : [before, point];
+      for (const end of piece ?? []) add(end, half);
     }
   }
   if (area) {
@@ -3152,7 +3166,7 @@ function setupHandwriting() {
   const undo = find("undo"), clear = find("clear"), cancel = find("cancel"), insert = find("insert");
   if (![button, pad, canvas, status, undo, clear, cancel, insert].every(node => typeof node?.addEventListener === "function")) return;
   let opened = false, strokes = [], penSeen = false, reading = null, session = 0, selection = null, context = null, box = null, origin = null, ink = null, owner = null;
-  let base = null, scale = 1, undoRanges = [], redoRanges = [], side = "above";
+  let area = null, undoRanges = [], redoRanges = [], side = "above";
   const active = new Map();
   function controls() {
     const blank = strokes.length === 0, waiting = Boolean(reading);
@@ -3175,49 +3189,31 @@ function setupHandwriting() {
     context.strokeStyle = ink; context.fillStyle = ink;
     context.lineCap = "round"; context.lineJoin = "round";
   }
-  // 보이는 칸을 기준 좌표로 옮긴 크기. 배율(scale)로 나눈 값이라 늘 기준 좌표 단위다.
-  const visibleArea = () => box?.width > 0 && box?.height > 0 ? { width: box.width / scale, height: box.height / scale } : null;
+  // 지금 보이는 필기 칸(CSS 픽셀). 크기가 같으면 같은 객체를 돌려줘, 같은 칸에서 찍은 점끼리 clip()을 한 번만 건다.
+  const visibleArea = () => area;
   function redraw() {
     if (!context) return;
-    const area = visibleArea();
     context.clearRect(0, 0, area?.width || canvas.width, area?.height || canvas.height);
     paint();
     for (const stroke of strokes) drawHandwritingStroke(context, stroke);
   }
-  // 획은 기준 좌표(base)로 저장하고, 저장한 점은 바꾸지 않는다. 기준 칸은 이번 패드에서 본 가장 큰 칸 크기라 넓어지기만 한다.
-  // 화면에 그릴 때만 배율(기준 칸이 지금 칸에 다 들어가는 비율, 1 이하)을 곱한다.
-  // 그래서 600→400→600처럼 오가도 획은 처음 크기로 돌아오고, 400→600에서 오른쪽 끝에 쓴 점도 400으로 줄면 함께 줄어 보인다.
-  // 왕복할수록 작아지지 않는다. 캔버스 화소는 보이는 크기 × 기기 화소 비율이다.
-  // 칸 크기가 바뀌어도 그리던 획은 끝내지 않는다. 점이 기준 좌표라 그대로 이어지고,
-  // 그 뒤 브라우저가 포인터를 취소하면(pointercancel) 그 획을 찾아 버릴 수 있어야 하기 때문이다.
+  // 점은 캔버스 왼쪽 위 기준 CSS 픽셀로 저장하고 바꾸지 않는다. 칸 크기가 바뀌어도 배율을 곱하지 않아,
+  // 600px 칸의 x=110 점은 400px로 줄여도 x=110에 그대로 있고, 지금 칸 밖으로 나간 부분만 잘려 보이지 않는다(보내지도 않는다).
+  // 칸을 다시 넓히면 그을 때 보이던 부분까지만 다시 보인다(점마다 저장한 칸으로 clip()).
+  // 긋는 도중 칸이 넓어져도 이미 저장한 점의 칸은 넓히지 않는다. 그 뒤에 찍는 점부터 새 칸을 쓴다.
+  // 칸 크기가 바뀌어도 그리던 획은 끝내지 않는다. 그 뒤 브라우저가 포인터를 취소하면(pointercancel) 그 획을 찾아 버릴 수 있어야 한다.
+  // 캔버스 화소는 보이는 크기 × 기기 화소 비율이다.
   function prepare() {
     box = canvas.getBoundingClientRect?.() ?? null;
     if (box?.width > 0 && box?.height > 0) {
-      // 기준 칸은 본 적 있는 가장 큰 칸 크기와, 쓸 때 칸 안에 있던 잉크의 범위 중 큰 쪽이다.
-      // 높이만 줄어 가로에 여유가 생긴 칸에서 쓴 획(기준 칸 밖 좌표)도 크기를 되돌린 뒤 기준 칸 안에 남는다.
-      // 칸 밖으로 끌고 나간 점(쓸 때 칸 밖)은 넓히는 데 쓰지 않아, 보이지 않던 잉크가 다시 나타나거나 서버로 가지 않는다.
-      // 저장한 점은 쓰는 순간 칸 경계에서 잘라 두었으므로(pointermove) 모두 그때 보이던 잉크다.
-      // 잉크 범위는 획마다 그을 때 보이던 칸(clip) 안으로 가둬 센다. 경계에 걸친 굵기 절반만큼 기준 칸이 넓어지지 않는다.
-      let width = box.width, height = box.height;
-      for (const stroke of strokes) for (const point of stroke.points) {
-        const half = handwritingWidth(stroke, point) / 2;
-        width = Math.max(width, Math.min(point.x + half, stroke.clip?.width ?? Infinity));
-        height = Math.max(height, Math.min(point.y + half, stroke.clip?.height ?? Infinity));
-      }
-      base = { width: Math.max(base?.width || 0, width), height: Math.max(base?.height || 0, height) };
-    }
-    scale = base && box?.width > 0 && box?.height > 0 ? Math.min(1, box.width / base.width, box.height / base.height) : 1;
-    // 긋는 도중 칸이 바뀌면 그리던 획은 이제 보이는 칸까지 그릴 수 있다. 이미 그은 부분은 그때 이미 보였으므로 잘라 낼 것이 없다.
-    const area = visibleArea();
-    if (area) for (const stroke of active.values()) {
-      if (stroke.clip) stroke.clip = { width: Math.max(stroke.clip.width, area.width), height: Math.max(stroke.clip.height, area.height) };
-    }
+      if (area?.width !== box.width || area?.height !== box.height) area = { width: box.width, height: box.height };
+    } else area = null;
     origin = box ? { left: box.left, top: box.top } : null;
     const ratio = window.devicePixelRatio || 1;
     canvas.width = Math.max(1, Math.round((box?.width || 0) * ratio));
     canvas.height = Math.max(1, Math.round((box?.height || 0) * ratio));
     context = canvas.getContext?.("2d") ?? null;
-    context?.setTransform(ratio * scale, 0, 0, ratio * scale, 0, 0);
+    context?.setTransform(ratio, 0, 0, ratio, 0, 0);
     redraw();
   }
   // 넓은 화면에서 입력 줄 바로 위에 놓는다(자세한 규칙은 아래). 좁은 화면은 CSS가 아래 시트로 덮어쓴다.
@@ -3262,7 +3258,7 @@ function setupHandwriting() {
   function openPad() {
     if (opened) { canvas.focus(); return; }
     opened = true; session++;
-    strokes = []; active.clear(); penSeen = false; reading = null; box = null; base = null; scale = 1;
+    strokes = []; active.clear(); penSeen = false; reading = null; box = null; area = null;
     selection = caret();
     undoRanges = []; redoRanges = []; side = "above";
     // 패드는 연 순간의 계정·대화에 묶인다. 그 뒤 대화가 바뀌면(사진을 붙여 새 대화로 보낸 경우 등) 넣기 전에 버린다.
@@ -3473,8 +3469,8 @@ function setupHandwriting() {
   }
   function point(event) {
     const pressure = typeof event.pressure === "number" && event.pressure > 0 ? Math.min(1, event.pressure) : .5;
-    // 화면 좌표를 기준 좌표로 바꾼다(배율로 나눈다).
-    return { x: (event.clientX - (origin?.left || 0)) / scale, y: (event.clientY - (origin?.top || 0)) / scale, p: pressure };
+    // 화면 좌표를 캔버스 왼쪽 위 기준 CSS 픽셀로 바꾼다.
+    return { x: event.clientX - (origin?.left || 0), y: event.clientY - (origin?.top || 0), p: pressure };
   }
   function dropStroke(stroke) {
     const index = strokes.indexOf(stroke);
@@ -3506,9 +3502,9 @@ function setupHandwriting() {
     canvas.setPointerCapture?.(event.pointerId);
     const first = point(event);
     // last는 잘라 내기 전의 마지막 포인터 자리다. 다음 선분을 칸 경계에서 자를 때 쓴다.
-    // clip은 이 획을 그을 때 보이던 칸(기준 좌표)이다. 화면에 그릴 때와 보낼 그림을 만들 때 이 칸으로 자른다.
-    const area = visibleArea();
-    const stroke = { type, points: [first], last: first, broken: false, clip: area && { width: area.width, height: area.height } };
+    // 점마다 clip에 그 점을 찍을 때 보이던 칸을 적는다. 화면에 그릴 때와 보낼 그림을 만들 때 이 칸으로 자른다.
+    first.clip = visibleArea();
+    const stroke = { type, points: [first], last: first, broken: false };
     strokes.push(stroke); active.set(event.pointerId, stroke);
     if (context) { paint(); drawHandwritingStroke(context, stroke); }
     controls();
@@ -3533,9 +3529,17 @@ function setupHandwriting() {
       if (!piece) { stroke.broken = true; continue; }
       const [enter, leave] = piece;
       const tail = stroke.points[stroke.points.length - 1];
-      if (stroke.broken || enter.x !== tail.x || enter.y !== tail.y) stroke.points.push({ x: enter.x, y: enter.y, p: next.p, gap: true });
+      if (stroke.broken || enter.x !== tail.x || enter.y !== tail.y) stroke.points.push({ x: enter.x, y: enter.y, p: next.p, gap: true, clip: area });
+      else if (tail.clip && area && tail.clip !== area) {
+        // 긋는 도중 칸이 바뀐 뒤의 첫 선분이다. 앞 점(옛 칸 소속)과 잇는 선분은 두 칸이 겹치는 곳만 그리므로,
+        // 옛 칸 경계에서 나눠 그 뒤는 새 칸에서 다시 시작한다. 앞 점의 둥근 끝이 새 칸에서 되살아나지 않고, 이어 그은 선도 끊기지 않는다.
+        const kept = clipHandwritingSegment(enter, leave, tail.clip, 0);
+        const cut = kept ? kept[1] : enter;
+        if (kept && (cut.x !== enter.x || cut.y !== enter.y)) stroke.points.push({ x: cut.x, y: cut.y, p: next.p, clip: tail.clip });
+        if (cut.x !== leave.x || cut.y !== leave.y) stroke.points.push({ x: cut.x, y: cut.y, p: next.p, gap: true, clip: area });
+      }
       stroke.broken = false;
-      stroke.points.push({ x: leave.x, y: leave.y, p: next.p });
+      stroke.points.push({ x: leave.x, y: leave.y, p: next.p, clip: area });
     }
     if (context) { paint(); drawHandwritingStroke(context, stroke, from); }
   });

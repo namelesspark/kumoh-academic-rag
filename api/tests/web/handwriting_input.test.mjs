@@ -875,40 +875,95 @@ test("패드를 열기 전 글로 실행 취소했다가 다시 실행해도 열
   assert.equal(page.input.value, "ABCDfake");
 });
 
-test("높이만 줄인 칸의 가로 여유 자리에 쓴 점도 크기를 되돌린 뒤 보이고 그대로 보낸다", async () => {
+test("높이만 줄인 칸에 쓴 점은 크기를 되돌려도 같은 자리에 같은 크기로 보이고 그대로 보낸다", async () => {
   const page = loadPad();
   Object.assign(page.canvasRect, { height: 240, bottom: 640 });
   page.button.click();
-  // 600×240 → 600×160. 높이 기준 배율 2/3이라 가로로는 기준 좌표 900까지 보인다.
   Object.assign(page.canvasRect, { height: 160, bottom: 560 });
   page.resize();
-  // 화면 550px 지점 = 기준 좌표 825.
   page.pointer("pointerdown", { x: 550, y: 50 });
   page.pointer("pointerup", { x: 550, y: 50 });
   Object.assign(page.canvasRect, { height: 240, bottom: 640 });
   page.resize();
-  // 기준 칸이 점(825 + 굵기 절반 1.5)까지 넓어져, 600px 칸에 600/826.5 배율로 모두 보인다.
-  const transform = page.canvas.log.filter(call => call[0] === "setTransform").at(-1);
-  assert.ok(Math.abs(transform[1] - 2 * 600 / 826.5) < 1e-9, String(transform));
+  page.resize();
+  // 배율을 곱하지 않는다. 기기 화소 비율 2만 반영하고, 점은 x=550 그대로다.
+  assert.deepEqual(page.canvas.log.filter(call => call[0] === "setTransform").at(-1).slice(1), [2, 0, 0, 2, 0, 0]);
+  assert.deepEqual(page.canvas.log.filter(call => call[0] === "arc").at(-1).slice(1, 3), [550, 50]);
   page.respond(ok("가상"));
   page.insert.click();
   await settle();
   assert.equal(page.requests.length, 1, "the dot is still inside the visible area");
   assert.notEqual(page.status.textContent, messages.unreadable);
+});
 
-  // 크기는 그대로 두고 다시 크기 신호가 와도 배율은 더 줄지 않는다.
-  const again = loadPad();
-  Object.assign(again.canvasRect, { height: 240, bottom: 640 });
-  again.button.click();
-  Object.assign(again.canvasRect, { height: 160, bottom: 560 });
-  again.resize();
-  again.pointer("pointerdown", { x: 550, y: 50 });
-  again.pointer("pointerup", { x: 550, y: 50 });
-  Object.assign(again.canvasRect, { height: 240, bottom: 640 });
-  again.resize();
-  again.resize();
-  const steady = again.canvas.log.filter(call => call[0] === "setTransform").at(-1);
-  assert.ok(Math.abs(steady[1] - 2 * 600 / 826.5) < 1e-9, String(steady));
+test("600px 칸의 x=110 점은 400px로 줄여도 x=110에 그대로 있다", () => {
+  const page = loadPad();
+  page.button.click();
+  page.pointer("pointerdown", { x: 110, y: 50 });
+  page.pointer("pointerup", { x: 110, y: 50 });
+  Object.assign(page.canvasRect, { width: 400, right: 500 });
+  const before = page.canvas.log.length;
+  page.resize();
+  const redrawn = page.canvas.log.slice(before);
+  assert.deepEqual(redrawn.filter(call => call[0] === "setTransform").at(-1).slice(1), [2, 0, 0, 2, 0, 0]);
+  // 예전에는 2/3 배율로 x≈73.3에 밀려 보였다.
+  assert.deepEqual(redrawn.filter(call => call[0] === "arc").at(-1).slice(1, 3), [110, 50]);
+});
+
+test("포인터를 떼기 전에 칸을 넓혀도 그리던 획의 잘린 잉크는 되살아나지 않는다", async () => {
+  const page = loadPad();
+  page.button.click();
+  // 폭 600px에서 (590,100)부터 오른쪽 바깥 (700,100)까지 긋고, 떼기 전에 750px로 넓힌다.
+  page.pointer("pointerdown", { x: 590, y: 100 });
+  page.pointer("pointermove", { x: 700, y: 100 });
+  Object.assign(page.canvasRect, { width: 750, right: 850 });
+  page.resize();
+  page.pointer("pointerup", { x: 700, y: 100 });
+  page.respond(ok("가상"));
+  page.insert.click();
+  await settle();
+  // 이미 저장한 점은 그을 때의 600px 칸으로 잘린다: 588.5~600 = 11.5 + 32 = 43.5, 배율 2 → 87(결함에서는 93).
+  assert.equal(page.exports[0].canvas.width, 87);
+  assert.ok(page.exports[0].canvas.log.some(call => call.join() === "rect,0,0,600,200"));
+});
+
+test("넓힌 뒤 이어 그은 부분은 새 칸에서 보이고, 잇는 선분은 두 칸이 겹치는 곳만 그린다", async () => {
+  const page = loadPad();
+  page.button.click();
+  page.pointer("pointerdown", { x: 500, y: 100 });
+  page.pointer("pointermove", { x: 550, y: 100 });
+  Object.assign(page.canvasRect, { width: 750, right: 850 });
+  page.resize();
+  page.pointer("pointermove", { x: 700, y: 100 });
+  page.pointer("pointerup", { x: 700, y: 100 });
+  page.respond(ok("가상"));
+  page.insert.click();
+  await settle();
+  // 550→700 선분은 옛 칸 경계 600에서 나뉜다. 600까지는 600 칸, 그 뒤는 750 칸에서 다시 시작해 끊기지 않는다.
+  // 498.5~701.5 = 203 + 32 = 235, 배율 2 → 470.
+  const { log, width } = page.exports[0].canvas;
+  assert.equal(width, 470);
+  const lines = log.filter(call => call[0] === "lineTo").map(call => call[1]);
+  assert.deepEqual(lines, [550, 600, 700]);
+  assert.ok(log.some(call => call.join() === "rect,0,0,750,200"), "the part drawn after widening uses the new area");
+});
+
+test("세게 눌러 시작한 펜 획의 첫 점은 보내는 그림과 테마를 바꿔 다시 그린 화면에도 남는다", async () => {
+  const page = loadPad();
+  page.button.click();
+  page.pointer("pointerdown", { id: 5, kind: "pen", x: 50, y: 50, pressure: 1 });
+  page.pointer("pointermove", { id: 5, kind: "pen", x: 100, y: 50, pressure: 0.1 });
+  page.pointer("pointerup", { id: 5, kind: "pen", x: 100, y: 50 });
+  // 압력 1의 굵기는 1.2 + 4 = 5.2px, 반지름 2.6px다.
+  const firstDot = log => log.some(call => call[0] === "arc" && call[1] === 50 && call[2] === 50 && Math.abs(call[3] - 2.6) < 1e-9);
+  const before = page.canvas.log.length;
+  page.state.ink = "rgb(232, 238, 246)";
+  page.systemThemeChanged();
+  assert.ok(firstDot(page.canvas.log.slice(before)), "redrawn screen keeps the first dot");
+  page.respond(ok("가상"));
+  page.insert.click();
+  await settle();
+  assert.ok(firstDot(page.exports[0].canvas.log), "the image keeps the first dot");
 });
 
 test("칸 밖으로 그어 잘린 부분은 실패 뒤 칸을 넓혀 다시 넣어도 되살아나지 않는다", async () => {
@@ -1014,7 +1069,7 @@ test("브라우저가 취소한 포인터의 획은 버려, 되돌리기 한 번
   assert.equal(page.undo.disabled, true);
 });
 
-test("400→600으로 넓힌 칸의 오른쪽 끝에 쓴 점은 다시 400으로 좁혀도 함께 줄어 보이고 그대로 보낸다", async () => {
+test("400→600으로 넓힌 칸의 오른쪽 끝에 쓴 점은 400으로 좁히면 칸 밖이라 보내지 않고, 다시 넓히면 보낸다", async () => {
   const page = loadPad();
   Object.assign(page.canvasRect, { width: 400, right: 500 });
   page.button.click();
@@ -1024,13 +1079,19 @@ test("400→600으로 넓힌 칸의 오른쪽 끝에 쓴 점은 다시 400으로
   page.pointer("pointerup", { x: 550, y: 100 });
   Object.assign(page.canvasRect, { width: 400, right: 500 });
   page.resize();
-  // 기준 칸이 600px로 넓어졌으므로 400px 칸에는 2/3로 그린다.
-  const transform = page.canvas.log.filter(call => call[0] === "setTransform").at(-1);
-  assert.ok(Math.abs(transform[1] - 4 / 3) < 1e-9, String(transform));
+  // 배율을 곱하지 않아 점은 x=550 그대로이고, 400px 칸 밖이라 보이지 않는다.
+  assert.deepEqual(page.canvas.log.filter(call => call[0] === "setTransform").at(-1).slice(1), [2, 0, 0, 2, 0, 0]);
+  page.insert.click();
+  await settle();
+  assert.equal(page.requests.length, 0, "ink outside the current area is not sent");
+  assert.equal(page.status.textContent, messages.unreadable);
+  // 다시 넓히면 그을 때 보이던 점이 돌아와 보낼 수 있다.
+  Object.assign(page.canvasRect, { width: 600, right: 700 });
+  page.resize();
   page.respond(ok("가상"));
   page.insert.click();
   await settle();
-  assert.equal(page.requests.length, 1, "the dot is still inside the visible area");
+  assert.equal(page.requests.length, 1);
   assert.notEqual(page.status.textContent, messages.unreadable);
 });
 
@@ -1214,9 +1275,8 @@ test("칸 크기가 600→400→600으로 오가도 획은 처음 크기로 돌�
   for (let round = 0; round < 2; round++) {
     Object.assign(page.canvasRect, { width: 400, right: 500 });
     page.resize();
-    // 좁아진 칸에서는 2/3 배율로 그린다(기기 화소 비율 2 × 2/3).
-    const shrunk = page.canvas.log.filter(call => call[0] === "setTransform").at(-1);
-    assert.ok(Math.abs(shrunk[1] - 4 / 3) < 1e-9, String(shrunk));
+    // 좁아진 칸에서도 배율은 곱하지 않는다(기기 화소 비율 2만).
+    assert.deepEqual(page.canvas.log.filter(call => call[0] === "setTransform").at(-1).slice(1), [2, 0, 0, 2, 0, 0]);
     Object.assign(page.canvasRect, { width: 600, right: 700 });
     page.resize();
     assert.deepEqual(page.canvas.log.filter(call => call[0] === "setTransform").at(-1).slice(1), [2, 0, 0, 2, 0, 0]);
