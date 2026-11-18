@@ -819,6 +819,25 @@ test("뒤로 지우기는 직전 삭제가 끝난 커서에서 이어 지울 때
   assert.equal(page.input.value, "ABfake");
 });
 
+test("Delete로 지운 뒤 다시 골라 지운 두 삭제 중 두 번째만 되돌리면 그 직전 범위로 돌아온다", async () => {
+  const page = loadPad();
+  page.input.value = "ABCDE";
+  // 「E」를 고른다.
+  page.input.selectionStart = 4; page.input.selectionEnd = 5;
+  page.button.click();
+  // D 앞에서 Delete로 D를 지운다(커서 3).
+  page.type("ABCE", 3, "deleteContentForward");
+  // E를 다시 골라 지운다.
+  page.type("ABC", 3, "deleteContentBackward");
+  // 두 번째 삭제만 되돌린다.
+  page.type("ABCE", 4, "historyUndo");
+  page.stroke([10, 10], [60, 60]);
+  page.respond(ok("fake"));
+  page.insert.click();
+  await settle();
+  assert.equal(page.input.value, "ABCfake");
+});
+
 test("보통 편집으로 전에 본 글이 다시 나와도 실행 취소로 보지 않고 편집을 따라간다", async () => {
   const page = loadPad();
   page.input.value = "AA";
@@ -929,14 +948,37 @@ test("넓은 화면에서 문서가 스크롤되면 패드를 입력 줄 바로 
   page.scroll();
   assert.equal(page.pad.style.properties.get("--handwriting-bottom"), "238px");
   assert.equal(page.pad.style.properties.get("--handwriting-top"), "auto");
-  // 학생이 스크롤해 입력 줄이 화면 위로 사라지면 패드도 입력 줄 위에 머물러 접힌다(줄 아래로 내리지 않는다).
-  // 아래 끝은 화면 안에 가두고, 스크롤 중에는 문서를 대신 굴리지 않는다. 스크롤해 돌아오면 다시 펼쳐진다.
+  // 연 뒤 학생이 스크롤해 입력 줄이 화면 위로 사라지면 위쪽 자리가 없으므로 줄 아래(화면 안 위쪽 8px)로 옮겨 접히지 않게 한다.
+  // 스크롤 중에는 문서를 대신 굴리지 않는다.
   Object.assign(page.rowRect, { top: -200, bottom: -140 });
   page.scroll();
-  assert.equal(page.pad.style.properties.get("--handwriting-top"), "auto");
-  assert.equal(page.pad.style.properties.get("--handwriting-bottom"), "792px");
-  assert.equal(page.pad.style.properties.get("--handwriting-max-height"), "0px");
+  assert.equal(page.pad.style.properties.get("--handwriting-top"), "8px");
+  assert.equal(page.pad.style.properties.get("--handwriting-bottom"), "auto");
+  assert.equal(page.pad.style.properties.get("--handwriting-max-height"), "784px");
   assert.deepEqual(page.state.scrolls, []);
+  // 다시 스크롤해 입력 줄 위에 자리가 나면 위로 돌아온다.
+  Object.assign(page.rowRect, { top: 650, bottom: 710 });
+  page.scroll();
+  assert.equal(page.pad.style.properties.get("--handwriting-bottom"), "158px");
+  assert.equal(page.pad.style.properties.get("--handwriting-top"), "auto");
+});
+
+test("연 뒤 스크롤해 입력 줄 상단이 화면 위 15px에 오면 패드가 0px로 접히지 않고 줄 아래로 옮겨 간다", () => {
+  const page = loadPad();
+  page.button.click();
+  assert.equal(page.pad.style.properties.get("--handwriting-top"), "auto");
+  Object.assign(page.rowRect, { top: 15, bottom: 75 });
+  page.scroll();
+  assert.equal(page.pad.style.properties.get("--handwriting-top"), "83px");
+  assert.equal(page.pad.style.properties.get("--handwriting-bottom"), "auto");
+  assert.equal(page.pad.style.properties.get("--handwriting-max-height"), "709px");
+  // 줄 아래에 있는 동안 상태 줄이 바뀌어도 그 자리를 지킨다.
+  page.stroke([10, 10], [60, 60]);
+  page.respond(refused(503));
+  page.insert.click();
+  return settle().then(() => {
+    assert.equal(page.pad.style.properties.get("--handwriting-top"), "83px");
+  });
 });
 
 test("넓은 화면에서는 위쪽이 패드보다 낮아도 입력 줄 위에 열고, 위쪽 남은 높이 안에서 스크롤한다", () => {

@@ -3127,7 +3127,7 @@ function setupHandwriting() {
   const undo = find("undo"), clear = find("clear"), cancel = find("cancel"), insert = find("insert");
   if (![button, pad, canvas, status, undo, clear, cancel, insert].every(node => typeof node?.addEventListener === "function")) return;
   let opened = false, strokes = [], penSeen = false, reading = null, session = 0, selection = null, context = null, box = null, origin = null, ink = null, owner = null;
-  let base = null, scale = 1, undoRanges = [], redoRanges = [], lastEditType = null, lastEditCaret = null;
+  let base = null, scale = 1, undoRanges = [], redoRanges = [], side = "above";
   const active = new Map();
   function controls() {
     const blank = strokes.length === 0, waiting = Boolean(reading);
@@ -3180,19 +3180,29 @@ function setupHandwriting() {
     redraw();
   }
   // 넓은 화면에서 입력 줄 바로 위에 놓는다(자세한 규칙은 아래). 좁은 화면은 CSS가 아래 시트로 덮어쓴다.
-  function place() {
+  // allowBelow는 학생이 패드를 연 뒤 스크롤·창 크기·입력 줄 크기를 바꿔 자리를 다시 잴 때만 참이다.
+  function place(allowBelow = side === "below") {
     const row = document.querySelector(".composer-row")?.getBoundingClientRect?.();
     const height = window.innerHeight || 0;
     if (!row || !(row.width > 0) || !height) return;
     pad.style?.setProperty("--handwriting-x", `${Math.max(8, row.left)}px`);
     pad.style?.setProperty("--handwriting-width", `${row.width}px`);
-    // 수용 조건대로 넓은 화면에서는 언제나 입력 줄 위(8px 띄움)에 연다. 줄 아래로 여는 경로는 없다.
-    // 아래 끝(bottom)을 입력 줄 위 8px에 묶되 화면 안(위아래 8px)으로 가둔다. 입력 줄이 스크롤로 화면 아래로 내려가도
-    // 패드는 화면 아래 끝에 머물러 버튼이 화면 밖으로 나가지 않는다.
-    // 최대 높이는 입력 줄 위쪽 남은 높이와 화면 안 남은 높이 중 작은 쪽이다. 그래서 상태 줄이 생겨 커져도 입력 줄을 덮지 않고 패드 안에서 스크롤한다.
-    // 위쪽이 필기 칸 최소 높이(160px)보다 좁으면 열 때 문서를 위로 굴려 자리를 만든다(makeRoom).
-    // 실제 화면에서는 입력 줄 위에 머리글(76px 이상)이 있어, 문서 맨 위에서 위쪽이 그보다 좁아지는 일은 없다.
-    const above = row.top - 16;
+    // 수용 조건대로 넓은 화면에서는 패드를 입력 줄 위(8px 띄움)에 연다. 위쪽이 필기 칸 최소 높이(160px)보다 좁으면
+    // 열 때 문서를 위로 굴려 자리를 만든다(makeRoom). 실제 화면에서는 입력 줄 위에 머리글(76px 이상)이 있어 대개 자리가 난다.
+    // 위에 놓을 때는 아래 끝(bottom)을 입력 줄 위 8px에 묶되 화면 안(위아래 8px)에 가두고,
+    // 최대 높이는 입력 줄 위쪽 남은 높이와 화면 안 남은 높이 중 작은 쪽이다. 상태 줄이 생겨 커져도 입력 줄을 덮지 않는다.
+    // 연 뒤 학생이 스크롤해 입력 줄이 화면 위쪽에 붙어 위쪽이 최소 높이보다 좁아지고 아래쪽이 더 넓으면, 그때만 줄 아래(top 고정)로 옮긴다.
+    // 스크롤 중에 문서를 대신 굴리면 학생의 스크롤과 다투므로, 패드를 옮겨 필기 칸과 버튼이 0px로 접히지 않게 한다.
+    const above = row.top - 16, below = height - row.bottom - 16;
+    if (allowBelow && above < handwritingMinRoom && below > above) {
+      side = "below";
+      const top = Math.min(height - 8, Math.max(8, row.bottom + 8));
+      pad.style?.setProperty("--handwriting-bottom", "auto");
+      pad.style?.setProperty("--handwriting-top", `${top}px`);
+      pad.style?.setProperty("--handwriting-max-height", `${Math.max(0, height - top - 8)}px`);
+      return;
+    }
+    side = "above";
     const bottom = Math.min(height - 8, Math.max(8, height - row.top + 8));
     pad.style?.setProperty("--handwriting-top", "auto");
     pad.style?.setProperty("--handwriting-bottom", `${bottom}px`);
@@ -3213,7 +3223,7 @@ function setupHandwriting() {
     opened = true; session++;
     strokes = []; active.clear(); penSeen = false; reading = null; box = null; base = null; scale = 1;
     selection = caret();
-    undoRanges = []; redoRanges = []; lastEditType = null; lastEditCaret = null;
+    undoRanges = []; redoRanges = []; side = "above";
     // 패드는 연 순간의 계정·대화에 묶인다. 그 뒤 대화가 바뀌면(사진을 붙여 새 대화로 보낸 경우 등) 넣기 전에 버린다.
     owner = { account: historyAccount, conversation: activeConversation };
     pad.hidden = false;
@@ -3286,7 +3296,7 @@ function setupHandwriting() {
   // 커서 뒤 글자는 이번 편집에서 그대로이므로 공통 끝 부분을 커서 뒤까지만 인정하고, 공통 앞 부분은 그 나머지 안에서만 센다.
   // 실행 취소·다시 실행은 브라우저가 알려 주는 입력 종류(inputType의 historyUndo·historyRedo)로만 알아본다.
   // 같은 글이 다시 나왔다는 것만으로 되돌리면, 앞에 A를 붙이고 끝의 A를 지운 보통 편집도 실행 취소로 잘못 본다.
-  // 보통 편집 때마다 직전 범위를 실행 취소 목록에 쌓고(50개까지), 실행 취소는 거기서 꺼내 다시 실행 목록으로 옮긴다.
+  // 보통 편집 때마다 직전 범위를 실행 취소 목록에 쌓고(아래 noteEdit 끝), 실행 취소는 거기서 꺼내 다시 실행 목록으로 옮긴다.
   // 브라우저는 이어 친 삭제처럼 여러 편집을 한 번에 되돌리기도 하므로, 맨 위 하나가 아니라 지금 글과 같은 기록을
   // 위에서부터 찾아 그 범위로 돌아간다. 건너뛴 중간 기록은 브라우저도 다시 실행으로 들르지 않으므로 버린다.
   // 같은 글이 없으면 아래 보통 방식으로 옮긴다.
@@ -3303,7 +3313,6 @@ function setupHandwriting() {
         from.length = index;
         to.push({ ...selection });
         selection = { ...saved };
-        lastEditType = null;
         return;
       }
     }
@@ -3328,20 +3337,12 @@ function setupHandwriting() {
     const start = move(selection.start, "start");
     const previous = selection;
     selection = { start, end: collapsed ? start : Math.max(start, move(selection.end, "end")), value: after };
-    if (history) { lastEditType = null; return; }
-    // 브라우저처럼 같은 종류의 편집이 같은 자리에서 이어지면(이어 친 삭제·입력) 한 묶음으로 보고, 묶음이 시작될 때의 범위만 쌓는다.
-    // "같은 자리"는 이번 편집이 직전 편집이 끝난 커서에서 시작하거나(입력) 끝나는(뒤로 지우기) 경우다.
-    // 커서를 옮겨 다른 곳을 지우면 브라우저도 실행 취소 묶음을 새로 시작하므로 여기서도 새 묶음이다.
-    // 묶음 수만 세므로 기록 상한(200)은 맨 앞(패드를 열 때의 범위)을 남긴 채 가장 오래된 중간 묶음부터 버린다.
-    // 뒤로 지우기는 이번 삭제가 직전 커서에서 끝나야(editEnd), 입력과 앞으로 지우기는 직전 커서에서 시작해야(prefix) 이어진 편집이다.
-    const backward = /Backward$/.test(inputType || "");
-    const contiguous = inputType && inputType === lastEditType && (backward ? editEnd === lastEditCaret : prefix === lastEditCaret);
-    if (!contiguous || !undoRanges.length) {
-      undoRanges.push({ ...previous });
-      if (undoRanges.length > 200) undoRanges.splice(1, 1);
-    }
-    lastEditType = inputType || null;
-    lastEditCaret = caretAt;
+    if (history) return;
+    // 편집마다 직전 글과 범위를 모두 쌓는다. 브라우저가 실행 취소를 어떻게 묶는지(이어 친 삭제, 커서 이동, Delete·Backspace)는
+    // 추측하지 않는다. 브라우저가 몇 개를 한 번에 되돌려도 돌아간 글은 반드시 이 기록 가운데 하나라, 위에서 같은 글을 찾으면 된다.
+    // 상한(1,000개)을 넘으면 맨 앞(패드를 열 때의 범위)은 남기고 가장 오래된 중간 기록부터 버린다.
+    undoRanges.push({ ...previous });
+    if (undoRanges.length > 1000) undoRanges.splice(1, 1);
     redoRanges = [];
   }
   function placeText(text) {
@@ -3514,11 +3515,11 @@ function setupHandwriting() {
   button.addEventListener("click", openPad);
   // 넓은 화면의 패드는 화면에 고정돼 있어, 문서나 안쪽 칸이 스크롤되면 입력 줄 바로 위로 다시 옮긴다.
   // 캡처 단계로 들어 안쪽 칸의 스크롤도 받는다. 좁은 화면 시트는 CSS가 화면 아래에 두므로 좌표 변수가 쓰이지 않는다.
-  document.addEventListener?.("scroll", () => { if (opened) place(); }, { capture: true, passive: true });
+  document.addEventListener?.("scroll", () => { if (opened) place(true); }, { capture: true, passive: true });
   // 질문 칸을 세로로 늘리는 등 입력 줄 크기만 바뀌면 scroll·resize 신호가 없다. 입력 줄 크기를 지켜보다가 자리를 다시 잰다.
   const composerRow = document.querySelector(".composer-row");
-  if (typeof ResizeObserver === "function" && composerRow) new ResizeObserver(() => { if (opened) place(); }).observe(composerRow);
-  refreshHandwritingPad.run = () => { if (opened) { place(); prepare(); } };
+  if (typeof ResizeObserver === "function" && composerRow) new ResizeObserver(() => { if (opened) place(true); }).observe(composerRow);
+  refreshHandwritingPad.run = () => { if (opened) { place(true); prepare(); } };
   closeHandwritingPad.run = closePad;
   redrawHandwritingPad.run = () => { if (opened) redraw(); };
   noteHandwritingEdit.run = noteEdit;
