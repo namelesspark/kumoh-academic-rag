@@ -1162,6 +1162,26 @@ test("마지막 이동 뒤 다른 자리에서 펜을 떼도 떼는 자리까지
   assert.deepEqual([page.exports[0].canvas.width, page.exports[0].canvas.height], [274, 74]);
 });
 
+test("펜을 누른 채 패드가 스크롤된 뒤 같은 화면 자리에서 떼면 선을 더하지 않는다", async () => {
+  const page = loadPad();
+  page.button.click();
+  page.pointer("pointerdown", { id: 23, kind: "pen", x: 100, y: 30, pressure: 0.5 });
+  page.pointer("pointermove", { id: 23, kind: "pen", x: 110, y: 30, pressure: 0.5 });
+  // 펜은 화면 (210, 430)에 그대로 있고 캔버스만 20px 위로 스크롤됐다. 캔버스 기준으로는 (110,50)이다.
+  Object.assign(page.canvasRect, { top: 380, bottom: 580 });
+  page.scroll();
+  const before = page.canvas.log.length;
+  page.pointer("pointerup", { id: 23, kind: "pen", x: 110, y: 50, pressure: 0 });
+  const fake = log => log.some(call => call[0] === "lineTo" && call[2] === 50);
+  assert.equal(fake(page.canvas.log.slice(before)), false, "no fake line on screen");
+  page.respond(ok("가상"));
+  page.insert.click();
+  await settle();
+  const image = page.exports[0].canvas.log;
+  assert.equal(fake(image), false, "no fake line in the image");
+  assert.deepEqual(image.filter(call => call[0] === "lineTo").at(-1).slice(1), [110, 30]);
+});
+
 test("오류 문구가 보이는 채 캔버스 위쪽을 찍어도 첫 점은 누른 자리에 찍히고, 문구는 펜을 뗀 뒤 지운다", async () => {
   const page = loadPad();
   page.button.click();

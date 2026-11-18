@@ -3590,7 +3590,9 @@ function setupHandwriting() {
     // 점마다 clip에 그 점을 찍을 때 보이던 칸을 적는다. 화면에 그릴 때와 보낼 그림을 만들 때 이 칸으로 자른다.
     first.clip = visibleArea();
     // lastArea·lastInside는 앞 포인터 자리를 잴 때의 칸과, 그 자리가 그 칸 안이었는지다(pointermove 참고).
-    const stroke = { type, points: [first], last: first, broken: false, lastArea: first.clip, lastInside: handwritingInside(first, first.clip) };
+    // lastClient는 마지막 신호의 화면 좌표다. 펜을 뗀 자리가 화면에서 그대로인지 가를 때 쓴다(extend 참고).
+    const stroke = { type, points: [first], last: first, broken: false, lastArea: first.clip, lastInside: handwritingInside(first, first.clip),
+      lastClient: { x: event.clientX, y: event.clientY } };
     first.w = handwritingWidth(stroke, first);
     strokes.push(stroke); active.set(event.pointerId, stroke);
     if (context) { paint(); drawHandwritingStroke(context, stroke); }
@@ -3615,12 +3617,14 @@ function setupHandwriting() {
     // 칸 밖에 나갔다 다시 들어오면 들어온 자리를 gap 점으로 넣어 앞 조각과 잇지 않는다.
     const area = visibleArea();
     for (const each of samples) {
-      const next = point(each);
       if (release) {
-        // 떼는 자리가 마지막 이동 자리와 같으면 더할 것이 없다(같은 자리에 점을 한 번 더 찍지 않는다).
-        if (next.x === stroke.last.x && next.y === stroke.last.y) continue;
-        next.p = stroke.last.p;
+        // 떼는 자리가 마지막 신호와 화면에서 같은 자리면 펜은 움직이지 않은 것이라 더할 것이 없다.
+        // 캔버스 좌표로 비교하면, 펜을 누른 채 패드가 스크롤됐을 때 캔버스만 움직였는데도 가짜 선이 붙는다.
+        if (stroke.lastClient && each.clientX === stroke.lastClient.x && each.clientY === stroke.lastClient.y) continue;
       }
+      stroke.lastClient = { x: each.clientX, y: each.clientY };
+      const next = point(each);
+      if (release) next.p = stroke.last.p;
       // 자르기 전 선분(앞 포인터 자리 → 새 자리)의 굵기를 한 번 정해, 잘라 낸 조각의 모든 점에 w로 적는다.
       // 자른 점에 새 압력만 붙여 굵기를 다시 계산하면, 세게 누르다 약하게 경계 밖으로 이어 간 선이 가늘어져 칸 안 잉크가 사라진다.
       const w = handwritingDrawnWidth(stroke, next, stroke.last);
