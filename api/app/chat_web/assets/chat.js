@@ -3600,17 +3600,27 @@ function setupHandwriting() {
     const stroke = active.get(event.pointerId);
     if (!stroke) return;
     event.preventDefault?.();
-    // 획을 긋는 동안 휠·스크롤로 패드가 움직일 수 있어, 움직일 때마다 캔버스의 화면 위치를 다시 잰다.
+    const coalesced = typeof event.getCoalescedEvents === "function" ? event.getCoalescedEvents() : [];
+    extend(stroke, coalesced?.length ? coalesced : [event]);
+  });
+  // 포인터 신호(이동·떼기)의 좌표를 획에 잇는다. release는 펜을 뗀 신호다. 펜은 뗄 때 압력이 0으로 오므로
+  // 그 신호에는 앞 신호의 압력을 그대로 써 끝 굵기가 바뀌지 않게 한다.
+  function extend(stroke, samples, release = false) {
+    // 획을 긋는 동안 휠·스크롤로 패드가 움직일 수 있어, 신호마다 캔버스의 화면 위치를 다시 잰다.
     const rect = canvas.getBoundingClientRect?.();
     if (rect) { origin = { left: rect.left, top: rect.top }; box = rect; if (measureArea()) redraw(); }
-    const coalesced = typeof event.getCoalescedEvents === "function" ? event.getCoalescedEvents() : [];
     const from = stroke.points.length;
     // 선분마다 쓰는 순간의 보이는 칸 경계(굵기 절반만큼 넓힌 상자)에서 잘라 그 안의 조각만 저장한다.
     // 칸 밖으로 나간 부분은 기록하지 않으므로, 나중에 칸이 넓어져도 처음 잘린 잉크가 되살아나거나 서버로 가지 않는다.
     // 칸 밖에 나갔다 다시 들어오면 들어온 자리를 gap 점으로 넣어 앞 조각과 잇지 않는다.
     const area = visibleArea();
-    for (const each of coalesced?.length ? coalesced : [event]) {
+    for (const each of samples) {
       const next = point(each);
+      if (release) {
+        // 떼는 자리가 마지막 이동 자리와 같으면 더할 것이 없다(같은 자리에 점을 한 번 더 찍지 않는다).
+        if (next.x === stroke.last.x && next.y === stroke.last.y) continue;
+        next.p = stroke.last.p;
+      }
       // 자르기 전 선분(앞 포인터 자리 → 새 자리)의 굵기를 한 번 정해, 잘라 낸 조각의 모든 점에 w로 적는다.
       // 자른 점에 새 압력만 붙여 굵기를 다시 계산하면, 세게 누르다 약하게 경계 밖으로 이어 간 선이 가늘어져 칸 안 잉크가 사라진다.
       const w = handwritingDrawnWidth(stroke, next, stroke.last);
@@ -3645,10 +3655,14 @@ function setupHandwriting() {
       add(leave, bridge);
       restart();
     }
-    if (context) { paint(); drawHandwritingStroke(context, stroke, from); }
-  });
+    if (context && stroke.points.length > from) { paint(); drawHandwritingStroke(context, stroke, from); }
+  }
   // 펜을 뗀 뒤에야 이전 오류 문구를 지운다(pointerdown 참고). 모든 획이 끝났을 때만 지워, 다른 손가락이 긋는 중에 캔버스가 움직이지 않는다.
+  // 떼기(pointerup)에도 좌표가 있다. 마지막 이동 신호 뒤 떼는 자리까지 움직였으면 그 선분을 더해 획 끝이 잘리지 않게 한다.
+  // 포인터 잡기를 잃은 신호(lostpointercapture)는 떼기 뒤에도 오므로 좌표를 더하지 않는다.
   for (const name of ["pointerup", "lostpointercapture"]) canvas.addEventListener(name, event => {
+    const stroke = active.get(event.pointerId);
+    if (stroke && name === "pointerup" && Number.isFinite(event.clientX) && Number.isFinite(event.clientY)) extend(stroke, [event], true);
     const ended = active.delete(event.pointerId);
     if (ended && !active.size && !reading && status.classList?.contains("is-error")) show("");
   });

@@ -1137,6 +1137,31 @@ test("보이는 띠가 겹치지 않게 바뀐 뒤 그은 선분은 두 띠 사�
   assert.equal(negative(image), false);
 });
 
+test("마지막 이동 뒤 다른 자리에서 펜을 떼도 떼는 자리까지 그리고, 뗄 때 압력 0은 끝 굵기를 바꾸지 않는다", async () => {
+  const page = loadPad();
+  page.button.click();
+  page.pointer("pointerdown", { id: 22, kind: "pen", x: 20, y: 30, pressure: 1 });
+  page.pointer("pointermove", { id: 22, kind: "pen", x: 40, y: 30, pressure: 1 });
+  const before = page.canvas.log.length;
+  // 떼기 신호만 (120,30)에서 온다. 펜은 뗄 때 압력을 0으로 보낸다.
+  page.pointer("pointerup", { id: 22, kind: "pen", x: 120, y: 30, pressure: 0 });
+  const lastLine = log => {
+    const at = log.findLastIndex(call => call[0] === "lineTo");
+    return { to: log[at]?.slice(1), width: log.slice(0, at).findLast(call => call[0] === "set" && call[1] === "lineWidth")?.[2] };
+  };
+  const screen = lastLine(page.canvas.log.slice(before));
+  assert.deepEqual(screen.to, [120, 30], "the stroke reaches the release point on screen");
+  // 압력 1의 굵기 5.2가 그대로다(압력 0을 쓰면 더 가늘어진다).
+  assert.ok(Math.abs(screen.width - 5.2) < 1e-9, String(screen.width));
+  page.respond(ok("가상"));
+  page.insert.click();
+  await settle();
+  const image = lastLine(page.exports[0].canvas.log);
+  assert.deepEqual(image.to, [120, 30], "the stroke reaches the release point in the image");
+  // 가로 17.4~122.6 = 105.2 + 32 = 137.2 → 274, 세로 27.4~32.6 = 5.2 + 32 = 37.2 → 74(배율 2).
+  assert.deepEqual([page.exports[0].canvas.width, page.exports[0].canvas.height], [274, 74]);
+});
+
 test("오류 문구가 보이는 채 캔버스 위쪽을 찍어도 첫 점은 누른 자리에 찍히고, 문구는 펜을 뗀 뒤 지운다", async () => {
   const page = loadPad();
   page.button.click();
