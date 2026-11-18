@@ -750,7 +750,9 @@ html:has(body[data-feature-direction="back"])::view-transition-new(feature-morph
   background: var(--paper);
 }
 .error { color: var(--bad); background: var(--bad-bg); border-color: var(--bad-line); }
+/* 중국어 「重试」처럼 두 글자 이름이어도 누름 영역은 가로·세로 44px다. */
 .retry {
+  min-width: 44px;
   min-height: 44px;
   margin-top: 3px;
   padding: 0;
@@ -1670,6 +1672,17 @@ button.login-lang:focus-visible, .login-lang .lang-pill:focus-visible { outline:
 @media (max-width: 480px) {
   .masthead-actions > .lang-pill { gap: 3px; padding: 0 8px; font-size: .74rem; }
   .masthead-actions > .lang-pill .lang-pill-globe { width: 15px; height: 15px; }
+  /* 480px 이하 머리글은 320px 로그인 채팅 화면(목록·홈 버튼을 빼면 약 196px)에 언어·테마·로그아웃 버튼이 함께 서야 한다.
+     언어 버튼은 현재 언어 이름(#116)을 남기고 지구본만 뺀다. 테마 버튼은 아이콘과 꺾쇠만 남기고 이름은 화면 낭독기용으로 둔다
+     (버튼 이름 aria-label이 「테마: 시스템」처럼 현재 값을 읽는다). */
+  .masthead-actions > .lang-pill:not([id$="theme-button"]) .lang-pill-globe { display: none; }
+  [id$="theme-button"] .lang-pill-label { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  /* 오른쪽 버튼 묶음은 자기 내용 폭을 지키고 로고가 남은 폭에 맞춰 줄어든다. 로고는 비율을 지킨 채 왼쪽에 붙는다.
+     예전에는 로고가 줄지 않아 390px 첫 화면에서 버튼 묶음이 로고 위로 겹쳤다. */
+  .brand { flex: 0 1 auto; min-width: 0; }
+  .masthead-actions { flex: 0 1 auto; }
+  .brand-logo, .brand-logo > img { max-width: 100%; }
+  .brand-logo > img { object-fit: contain; object-position: left center; }
 }
 /* 채팅 화면 머리글은 대화 목록·홈 버튼과 언어·테마 버튼 두 개가 한 줄에 선다. 680px 이하(머리글 약 656px 이하)에서 로고(약 140px)까지 두면
    영어처럼 긴 버튼 이름에서 설정 버튼이 홈 버튼 자리로 밀린다(481px 머리글 457px에 약 500px 필요). 그래서 채팅 화면에서만 로고 그림을 감춘다.

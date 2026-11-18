@@ -374,6 +374,21 @@ test("조작 영역은 44px 이상이다", () => {
   assert.equal(find('body[data-view="chat"] .brand-logo', ["display"], { width: 681 }), undefined);
   assert.equal(find('body[data-view="chat"] .brand-name', ["clip-path"], { width: 681 }), undefined);
   assert.equal(find(".brand-logo", ["display"], { width: 390 }), "inline-block");
+  // 480px 이하 머리글: 언어 이름은 남기고 지구본만, 테마는 이름을 낭독기용으로 빼서 320px 로그인 채팅 머리글에도 들어간다.
+  // 오른쪽 묶음은 내용 폭을 지키고 로고가 줄어 390px 첫 화면에서도 겹치지 않는다.
+  for (const width of [320, 390, 480]) {
+    assert.equal(declared('.masthead-actions > .lang-pill:not([id$="theme-button"]) .lang-pill-globe', ["display"], undefined, { width }), "none");
+    assert.equal(declared('[id$="theme-button"] .lang-pill-label', ["clip-path"], undefined, { width }), "inset(50%)");
+    assert.equal(declared(".brand", ["flex"], undefined, { width }), "0 1 auto");
+    assert.equal(declared(".brand", ["min-width"], undefined, { width }), "0");
+    assert.equal(declared(".masthead-actions", ["flex"], undefined, { width }), "0 1 auto");
+    assert.equal(declared(".brand-logo > img", ["max-width"], undefined, { width }), "100%");
+    assert.equal(declared(".brand-logo > img", ["object-fit"], undefined, { width }), "contain");
+  }
+  assert.equal(find('[id$="theme-button"] .lang-pill-label', ["clip-path"], { width: 481 }), undefined);
+  assert.equal(declared(".brand", ["flex"], undefined, { width: 481 }), "none");
+  // 재시도 버튼은 두 글자(重试)여도 가로 44px다.
+  for (const name of ["min-width", "min-height"]) assert.equal(declared(".retry", [name]), "44px", name);
   // 출처 링크는 답 아래 따로 놓인 조작 요소라 높이·너비 모두 44px 이상이다(제목이 한 글자여도).
   for (const selector of [".source-link", ".evidence .source-link", ".graduation .source-link", ".poster-result .source-link"]) {
     for (const name of ["min-height", "min-width"]) assert.equal(declared(selector, [name]), "44px", `${selector} ${name}`);
