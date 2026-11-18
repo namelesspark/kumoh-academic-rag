@@ -232,9 +232,13 @@ test("모든 색은 세 이름표 블록에만 선언하고, 라이트·다크 �
   for (const rule of rules) for (const [name, value] of rule.declarations) {
     if (["color", "border", "border-color", "outline", "outline-color", "stroke"].includes(name) || name.startsWith("border-")) assert.doesNotMatch(value, /var\(--sky\)/, rule.selectors.join(","));
   }
-  // 노랑은 남색 면이나 그림 장식에만 글자색으로 쓴다. 흰 바탕 위 노란 글자는 없다.
+  // 노란 글자는 불투명 남색 면 위 준비 중 표시뿐이다. 사진 위 제목 강조는 흰 글자에 노란 밑줄이다.
   const yellowText = rules.filter(rule => rule.declarations.some(([name, value]) => name === "color" && value === "var(--yellow)")).flatMap(rule => rule.selectors);
-  assert.deepEqual(yellowText, [".soon-label", ".login-intro em", ".main-title-fallback em"]);
+  assert.deepEqual(yellowText, [".soon-label"]);
+  for (const selector of [".login-intro em", ".main-title-fallback em"]) {
+    assert.equal(declared(selector, ["color"]), "var(--white)", selector);
+    assert.match(declared(selector, ["text-decoration"]), /var\(--yellow\)/, selector);
+  }
   assert.equal(declared(".soon-label", ["background"]), "var(--navy)");
 });
 
@@ -358,6 +362,11 @@ test("조작 영역은 44px 이상이다", () => {
     assert.ok(Number.parseFloat(declared(selector, ["min-width"], undefined, { width: 390 })) >= 44, selector);
   }
   for (const selector of ["#conversation-toggle", "#home-button"]) assert.equal(declared(selector, ["min-width"]), "44px", selector);
+  // 390px 채팅 머리글: 대화 목록(44)·홈(44)·언어·테마 알약 두 개가 한 줄이다. 로고(약 140px)를 두면 자리가 모자라
+  // 채팅 화면에서만 480px 이하에서 로고 그림을 감춘다. 첫 화면과 넓은 화면에서는 그대로 보인다.
+  assert.equal(declared('body[data-view="chat"] .brand-logo', ["display"], undefined, { width: 390 }), "none");
+  assert.equal(find('body[data-view="chat"] .brand-logo', ["display"], { width: 481 }), undefined);
+  assert.equal(find(".brand-logo", ["display"], { width: 390 }), "inline-block");
   // 대화 목록 아래 학교 링크도 한 줄 글자보다 높은 44px 누름 영역이다.
   for (const width of [1280, 390]) assert.equal(declared(".campus-site-link", ["min-height"], undefined, { width }), "44px");
   assert.equal(declared(".thinking summary", ["min-height"]), "44px");
@@ -418,6 +427,19 @@ test("로그인 화면 언어·테마 묶음은 hover 바탕이 없고 안의 �
   checkText([[".campus-caption", ".campus-caption-text"]]);
   // 사진 위 본문 크기 글자(소개 문구·인사말)도 남색 받침 위 불투명 흰 글자다. 사진 위 막은 빼고 계산해 더 엄격하게 본다.
   checkText([[".intro-description", ".intro-description"], [".main-welcome #main-greeting", ".main-welcome #main-greeting"]]);
+  // 대체 제목(큰 글자)은 위쪽 막 위 흰 글자라 흰 사진 가정에서도 큰 글자 기준 3:1을 넘는다. 노랑이었으면 못 넘는다.
+  for (const look of themes) {
+    const top = blend(colors("var(--overlay-top)", look)[0], [255, 255, 255]);
+    assert.ok(contrast([255, 255, 255], top) >= 3, `${themeName(look)} 대체 제목`);
+    if (!isDark(look)) assert.ok(contrast(colors("var(--yellow)", look)[0].slice(0, 3), top) < 3);
+  }
+  // 사진 위 설정 버튼 경계: 어두운 사진에서는 흰 테두리가, 흰 사진에서는 남색 면이 바깥과 3:1을 넘는다.
+  for (const selector of [".login-lang", ".login-lang .lang-pill"]) assert.equal(declared(selector, ["border-color"]), "var(--white)", selector);
+  for (const look of themes) {
+    const pillOnWhite = blend(colors("var(--glass-pill)", look)[0], [255, 255, 255]);
+    assert.ok(contrast([255, 255, 255], pillOnWhite) >= 3, `${themeName(look)} 흰 사진 위 알약 면`);
+    assert.ok(contrast([255, 255, 255], [4, 20, 38]) >= 3);
+  }
   // 근거: 받침 없이 흰 .88 글자를 라이트 위쪽 막(.50)과 흰 사진 위에 두면 4.5:1에 못 미친다.
   const washed = blend(colors("var(--overlay-top)", lightEnv)[0], [255, 255, 255]);
   assert.ok(contrast(blend(colors("var(--intro-ink)")[0], washed), washed) < 4.5);

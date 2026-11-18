@@ -84,7 +84,8 @@ test("화면 전환은 transform과 opacity만 움직이고 서랍도 transform�
 test("제목 그림과 대체 제목은 같은 축에서 로드 상태에 맞춰 보인다", () => {
   assert.match(body(".main-lettering img"), /height: 72px/);
   assert.match(css, /\.main-lettering img \{ height: 48px; \}/);
-  assert.match(css, /\.main-title-fallback em \{[^}]*color: var\(--yellow\)/);
+  // 강조 글자는 흰색이고 노랑은 밑줄로만 쓴다(#131). 흰 사진 위에서 노란 글자는 큰 글자 기준 3:1에 못 미친다.
+  assert.match(css, /\.main-title-fallback em \{[^}]*color: var\(--white\);[^}]*text-decoration: underline \.12em var\(--yellow\)/);
   assert.match(
     css,
     /\.main-lettering:not\(\[hidden\]\) \+ \.main-title-fallback \{ display: none; \}/,

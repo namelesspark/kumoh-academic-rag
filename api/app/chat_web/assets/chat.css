@@ -888,7 +888,8 @@ body[data-conversation-drawer="open"] .campus-caption, body:has(#conversation-to
 .intro-badge { gap: 8px; font-size: .9rem; }
 .intro-badge::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--yellow); }
 .login-intro h1 { margin: 18px 0; font-size: clamp(34px,4.6vw,58px); font-weight: 800; line-height: 1.22; letter-spacing: -.045em; word-break: keep-all; }
-.login-intro em { color: var(--yellow); font-style: normal; }
+/* 대체 제목의 강조 글자는 흰색이고 노랑은 굵은 밑줄로만 쓴다. 노란 글자는 흰 사진 위 막과 약 2.2:1이라 큰 글자 기준 3:1에도 못 미친다. */
+.login-intro em { color: var(--white); font-style: normal; text-decoration: underline .12em var(--yellow); text-underline-offset: .16em; }
 .title-lettering { display: block; width: clamp(280px, 40vw, 507px); max-width: 100%; margin: 18px 0; }
 .title-lettering img { display: block; width: 100%; height: auto; }
 .title-fallback span { display: block; padding-left: 0; }
@@ -1142,7 +1143,7 @@ button.card:hover:not([data-restored]) { border-color: var(--focus-ink); backgro
 .main-lettering { display: block; max-width: 100%; }
 .main-lettering img { display: block; width: auto; max-width: 100%; height: 72px; object-fit: contain; margin-inline: auto; }
 .main-title-fallback { color: var(--white); }
-.main-title-fallback em { color: var(--yellow); font-style: normal; }
+.main-title-fallback em { color: var(--white); font-style: normal; text-decoration: underline .12em var(--yellow); text-underline-offset: .16em; }
 .main-lettering:not([hidden]) + .main-title-fallback { display: none; }
 .main-welcome #main-greeting { width: fit-content; max-width: 100%; margin: 0 auto; padding: 6px 12px; border-radius: 10px; background: var(--glass-pill); color: var(--white); font-size: 16px; line-height: 1.6; }
 .main-welcome #main-greeting:empty { display: none; }
@@ -1632,12 +1633,13 @@ html:lang(zh) { font-family: "PingFang SC", "Microsoft YaHei", "Noto Sans SC", P
 .lang-pill-chevron { flex: none; width: 12px; height: 12px; }
 .lang-pill[aria-expanded="true"] .lang-pill-chevron { transform: rotate(180deg); }
 .login-screen { position: relative; }
-.login-lang { position: absolute; top: 16px; right: 0; z-index: 2; border-color: var(--glass-edge); background: var(--glass-pill); color: var(--white); }
+/* 사진 위 설정 버튼의 테두리는 불투명 흰색이다. 어두운 사진에서는 흰 선이, 흰 사진에서는 남색 면이 3:1 경계가 된다. */
+.login-lang { position: absolute; top: 16px; right: 0; z-index: 2; border-color: var(--white); background: var(--glass-pill); color: var(--white); }
 button.login-lang:hover { background: var(--navy); }
 /* 로그인 화면 언어·테마 버튼을 한 묶음(.login-lang 그룹)에 담는 경우. 묶음 자체는 판이 아니라 줄이라 바탕·테두리·hover가 없고,
    안의 알약 버튼이 각자 사진 위 남색 반투명 면과 흰 글자를 쓴다. 묶음에 hover 바탕을 주면 남색 바탕 위 라이트 남색 글자가 1:1이 된다. */
 .login-lang:not(button) { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; padding: 0; border: 0; background: transparent; }
-.login-lang .lang-pill { border-color: var(--glass-edge); background: var(--glass-pill); color: var(--white); }
+.login-lang .lang-pill { border-color: var(--white); background: var(--glass-pill); color: var(--white); }
 .login-lang .lang-pill:hover { background: var(--navy); }
 /* 로그인 언어·테마 버튼은 판 없이 사진 위에 놓인다. 테마별 초점색(라이트 남색)은 어두운 사진·남색 막 위에서 묻히므로
    배경 일시정지 버튼과 같이 흰 2px 고리 뒤에 남색 6px 띠를 깐다. 고리는 띠와 항상 3:1을 넘는다. */
@@ -1652,4 +1654,8 @@ button.login-lang:focus-visible, .login-lang .lang-pill:focus-visible { outline:
 @media (max-width: 480px) {
   .masthead-actions > .lang-pill { gap: 3px; padding: 0 8px; font-size: .74rem; }
   .masthead-actions > .lang-pill .lang-pill-globe { width: 15px; height: 15px; }
+  /* 채팅 화면 머리글은 대화 목록·홈 버튼과 언어·테마 버튼 두 개가 한 줄에 선다. 390px에서 로고(약 140px)까지 두면
+     설정 버튼이 홈 버튼 자리로 밀리므로 채팅 화면에서만 로고 그림을 감춘다. 글자 이름은 화면 낭독기용으로 그대로 남고,
+     홈 버튼이 첫 화면으로 돌아가는 길이다. */
+  body[data-view="chat"] .brand-logo { display: none; }
 }
