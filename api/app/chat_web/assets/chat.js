@@ -3010,6 +3010,8 @@ const handwritingMaxBytes = 2_000_000;
 const handwritingMaxSide = 1024;
 const handwritingMargin = 16;
 const handwritingTimeoutMs = 30_000;
+// 넓은 화면에서 입력 줄 위에 패드를 둘 때 필요한 최소 높이. 필기 칸의 최소 높이(chat.css의 160px)와 같다.
+const handwritingMinRoom = 160;
 const handwritingMessages = {
   reading: "글씨를 읽는 중…",
   unreadable: "글씨를 읽지 못했어요. 또박또박 다시 쓰거나 고쳐 쓴 뒤 다시 넣어 주세요.",
@@ -3177,21 +3179,41 @@ function setupHandwriting() {
     context?.setTransform(ratio * scale, 0, 0, ratio * scale, 0, 0);
     redraw();
   }
-  // 넓은 화면에서 입력 줄 바로 위에 놓는다. 위에 자리가 모자라면 입력 줄 아래로 연다. 좁은 화면은 CSS가 아래 시트로 덮어쓴다.
+  // 넓은 화면에서 입력 줄 바로 위에 놓는다(자세한 규칙은 아래). 좁은 화면은 CSS가 아래 시트로 덮어쓴다.
   function place() {
     const row = document.querySelector(".composer-row")?.getBoundingClientRect?.();
     const height = window.innerHeight || 0;
     if (!row || !(row.width > 0) || !height) return;
     pad.style?.setProperty("--handwriting-x", `${Math.max(8, row.left)}px`);
     pad.style?.setProperty("--handwriting-width", `${row.width}px`);
-    // 수용 조건대로 넓은 화면에서는 늘 입력 줄 위(8px 띄움)에 연다. 줄 아래로는 열지 않는다.
-    // 아래 끝(bottom)을 입력 줄 위 8px에 묶고 위쪽 남은 높이(위 8px 여백 포함)를 최대 높이로 주므로,
-    // 위쪽이 패드보다 낮으면 패드 안에서 스크롤하고, 상태 줄이 생겨 커져도 입력 줄을 덮지 않는다.
-    // 입력 줄이 스크롤로 화면 위쪽에 붙으면 남은 높이도 줄어든다. 스크롤해 돌아오면 다시 넓어진다.
-    const bottom = Math.min(height - 8, Math.max(8, height - row.top + 8));
-    pad.style?.setProperty("--handwriting-top", "auto");
-    pad.style?.setProperty("--handwriting-bottom", `${bottom}px`);
-    pad.style?.setProperty("--handwriting-max-height", `${Math.max(0, height - bottom - 8)}px`);
+    // 수용 조건대로 넓은 화면에서는 입력 줄 위(8px 띄움)에 연다. 아래 끝(bottom)을 입력 줄 위 8px에 묶고
+    // 위쪽 남은 높이를 최대 높이로 주므로, 위쪽이 패드보다 낮으면 패드 안에서 스크롤하고 상태 줄이 생겨도 입력 줄을 덮지 않는다.
+    // 위쪽이 필기 칸 최소 높이(160px)보다 좁으면 최대 높이가 0에 가까워 필기 칸과 버튼이 잘린다.
+    // 그래서 열 때 문서를 먼저 위로 굴려 자리를 만들고(makeRoom), 그래도 모자라면 그때만 줄 아래(top 고정)로 연다.
+    // 최대 높이로 잘려 있을 수 있으므로 내용 전체 높이(scrollHeight)와 견줘 큰 쪽을 패드 높이로 본다.
+    const own = Math.max(pad.getBoundingClientRect?.().height || 0, Number(pad.scrollHeight) || 0);
+    const above = row.top - 16;
+    if (above >= Math.min(own, handwritingMinRoom)) {
+      const bottom = height - row.top + 8;
+      pad.style?.setProperty("--handwriting-top", "auto");
+      pad.style?.setProperty("--handwriting-bottom", `${bottom}px`);
+      pad.style?.setProperty("--handwriting-max-height", `${Math.max(0, above)}px`);
+    } else {
+      const top = Math.max(8, row.bottom + 8);
+      pad.style?.setProperty("--handwriting-bottom", "auto");
+      pad.style?.setProperty("--handwriting-top", `${top}px`);
+      pad.style?.setProperty("--handwriting-max-height", `${Math.max(0, height - top - 8)}px`);
+    }
+  }
+  // 넓은 화면에서 입력 줄 위쪽이 최소 높이보다 좁고 문서가 아래로 굴러가 있으면, 모자란 만큼 위로 굴려 입력 줄 위에 자리를 만든다.
+  // 여는 순간에만 한 번 한다(스크롤할 때마다 하면 학생의 스크롤과 다툰다). 좁은 화면 시트는 화면 아래에 붙으므로 하지 않는다.
+  function makeRoom() {
+    if ((window.innerWidth || 0) <= 680) return;
+    const row = document.querySelector(".composer-row")?.getBoundingClientRect?.();
+    const scrolled = Number(window.scrollY) || 0;
+    if (!row || scrolled <= 0) return;
+    const deficit = handwritingMinRoom - (row.top - 16);
+    if (deficit > 0) window.scrollBy?.(0, -Math.min(deficit, scrolled));
   }
   function openPad() {
     if (opened) { canvas.focus(); return; }
@@ -3204,7 +3226,7 @@ function setupHandwriting() {
     pad.hidden = false;
     button.setAttribute("aria-expanded", "true");
     show("");
-    place(); prepare(); controls();
+    makeRoom(); place(); prepare(); controls();
     canvas.focus();
   }
   // 닫으면 읽던 요청을 끊고, 늦게 온 응답은 회차(session)가 달라 버린다.
@@ -3314,7 +3336,9 @@ function setupHandwriting() {
     selection = { start, end: collapsed ? start : Math.max(start, move(selection.end, "end")), value: after };
     if (!history) {
       undoRanges.push({ ...previous });
-      if (undoRanges.length > 50) undoRanges.shift();
+      // 50개를 넘으면 가장 오래된 중간 기록부터 버린다. 맨 앞(패드를 열 때의 범위)은 버리지 않아,
+      // 아무리 여러 번 고친 뒤 한 번에 처음 글로 되돌려도 원래 범위를 찾는다.
+      if (undoRanges.length > 50) undoRanges.splice(1, 1);
       redoRanges = [];
     }
   }
