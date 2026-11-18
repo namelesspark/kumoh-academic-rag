@@ -237,6 +237,7 @@ def create_app(
     application.state.chunk_count = chunk_count
     # AI 답변은 기본으로 꺼 둔다. 배포 진입점(api/serve.py)이 설정 세 개를 확인한 뒤에만 켠다.
     application.state.ai_chat = None
+    application.state.handwriting = None
 
     # /api/v1 접두사는 라우터 쪽(app/api/v1/__init__.py)에서 붙인다.
     application.include_router(api_v1_router)

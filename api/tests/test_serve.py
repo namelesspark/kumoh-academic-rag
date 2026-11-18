@@ -268,8 +268,11 @@ class ServeTests(unittest.TestCase):
 
     def test_ai_is_off_unless_all_three_settings_exist(self):
         self.assertEqual(set(SETTING_NAMES), set(AI_ENVIRON))
-        self.assertIsNone(self.serve.create_app({}).state.ai_chat)
+        unconfigured_app = self.serve.create_app({})
+        self.assertIsNone(unconfigured_app.state.ai_chat)
         self.assertIsNone(default_app.state.ai_chat)
+        self.assertIsNone(unconfigured_app.state.handwriting)
+        self.assertIsNone(default_app.state.handwriting)
         for name in AI_ENVIRON:
             partial = {key: value for key, value in AI_ENVIRON.items() if key != name}
             with self.subTest(missing=name):
@@ -283,6 +286,7 @@ class ServeTests(unittest.TestCase):
                 application = self.serve.create_app(environ)
                 self.assertEqual(type(application.state.ai_chat).__name__, AiChat.__name__)
                 self.assertNotIn(AI_ENVIRON["AI_API_KEY"], repr(application.state.ai_chat))
+                self.assertIsInstance(application.state.handwriting, self.serve.HandwritingReader)
                 self.assert_health(application, chunks)
 
     def test_import_with_ai_settings_exports_ai_app(self):

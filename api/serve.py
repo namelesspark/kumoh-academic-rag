@@ -19,6 +19,7 @@ from api.regulation_app import chunk_articles as chunk_articles, create_regulati
 # api.regulation_app이 `app` 패키지를 불러올 경로를 잡은 뒤에 불러온다.
 from app.main import cors_origins_from_environ, install_cors
 from app.services.ai_chat import AiChat, settings_from_environ
+from app.services.handwriting import HandwritingReader
 
 
 MAX_CHARS = 20
@@ -43,6 +44,7 @@ def create_app(environ: Mapping[str, str]) -> FastAPI:
         application = create_demo_app(SOURCE)
     settings = settings_from_environ(environ)
     application.state.ai_chat = AiChat(settings) if settings is not None else None
+    application.state.handwriting = HandwritingReader(settings) if settings is not None else None
     install_cors(application, origins)
     return application
 
