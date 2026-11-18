@@ -394,8 +394,10 @@ test("조작 영역은 44px 이상이다", () => {
       assert.equal(declared(child, ["min-width"], undefined, { width }), "0", `${child} ${width}px`);
       assert.equal(declared(child, ["max-width"], undefined, { width }), "100%", `${child} ${width}px`);
     }
-    assert.equal(declared(".brand-name", ["text-overflow"], undefined, { width }), "ellipsis");
-    assert.equal(declared(".brand-name", ["overflow"], undefined, { width }), "hidden");
+    // 대체 이름은 자르지 않고 칸 안에서 줄을 바꾼다. 말줄임은 학생 이름·대화 제목에만 쓴다(motion_layout 검사와 같은 약속).
+    assert.equal(declared(".brand-name", ["white-space"], undefined, { width }), "normal");
+    assert.equal(declared(".brand-name", ["overflow-wrap"], undefined, { width }), "anywhere");
+    assert.equal(find(".brand-name", ["text-overflow"], { width }), undefined);
     // 버튼 묶음과 로그인 상자는 버튼들의 최소 폭 아래로 줄지 않는다.
     assert.equal(declared(".masthead-actions", ["min-width"], undefined, { width }), "min-content");
     assert.equal(declared(".demo-account", ["min-width"], undefined, { width }), "min-content");
