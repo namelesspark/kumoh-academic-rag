@@ -1137,6 +1137,42 @@ test("보이는 띠가 겹치지 않게 바뀐 뒤 그은 선분은 두 띠 사�
   assert.equal(negative(image), false);
 });
 
+test("오류 문구가 보이는 채 캔버스 위쪽을 찍어도 첫 점은 누른 자리에 찍히고, 문구는 펜을 뗀 뒤 지운다", async () => {
+  const page = loadPad();
+  page.button.click();
+  page.stroke([100, 100], [160, 100]);
+  page.respond(refused(503));
+  page.insert.click();
+  await settle();
+  assert.equal(page.status.textContent, messages.unavailable);
+  // 실제 화면처럼 오류 줄이 사라지면 패드 높이가 줄어 캔버스가 20px 아래로 내려가게 한다.
+  let text = page.status.textContent;
+  Object.defineProperty(page.status, "textContent", {
+    get: () => text,
+    set: value => {
+      if (text && !value) Object.assign(page.canvasRect, { top: page.canvasRect.top + 20, bottom: page.canvasRect.bottom + 20 });
+      text = value;
+    },
+  });
+  const before = page.canvas.log.length;
+  // 캔버스 위쪽 5px(화면 y 405)을 펜으로 찍는다.
+  page.pointer("pointerdown", { id: 21, kind: "pen", x: 100, y: 5, pressure: 0.5 });
+  const near = (a, b) => Math.abs(a - b) < 1e-6;
+  const dotAt = (log, y) => log.some(call => call[0] === "arc" && near(call[1], 100) && near(call[2], y));
+  assert.ok(dotAt(page.canvas.log.slice(before), 5), "the first point is where the pen touched");
+  assert.equal(dotAt(page.canvas.log, -15), false);
+  // 긋는 동안에는 오류 문구가 남아 캔버스가 움직이지 않고, 펜을 떼면 지운다.
+  assert.equal(page.status.textContent, messages.unavailable);
+  page.pointer("pointerup", { id: 21, kind: "pen", x: 100, y: 5 });
+  assert.equal(page.status.textContent, "");
+  page.respond(ok("가상"));
+  page.insert.click();
+  await settle();
+  // 첫 그림(exports[0])은 503으로 실패한 앞선 시도의 것이다. 다시 넣어 만든 마지막 그림을 본다.
+  assert.equal(page.exports.length, 2);
+  assert.ok(dotAt(page.exports.at(-1).canvas.log, 5), "the first point is in the image");
+});
+
 // 새 칸의 첫 점이 지금 칸으로 clip()한 채 제 굵기로 찍혔는지 본다. 좌표는 부동소수점 오차를 허용한다.
 function newAreaTip(log, x, y, radius, rect) {
   const near = (a, b) => Math.abs(a - b) < 1e-6;

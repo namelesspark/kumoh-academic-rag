@@ -3577,7 +3577,9 @@ function setupHandwriting() {
     }
     if (type === "touch" && penSeen) return;
     event.preventDefault?.();
-    if (status.classList?.contains("is-error")) show("");
+    // 오류 문구는 여기서 지우지 않는다. 지우면 상태 줄이 사라져 패드 높이가 줄고 캔버스가 화면에서 움직이는데,
+    // 그 뒤에 잰 위치로 이미 누른 점을 바꾸면 첫 점이 엉뚱한 자리(위로 20px 밀린 y=−15 등)에 찍힌다.
+    // 문구는 펜을 뗀 뒤(pointerup) 지운다. 그러면 긋는 동안에는 캔버스가 움직이지 않는다.
     // 좁은 화면 시트는 안에서 스크롤될 수 있어, 획을 시작할 때마다 캔버스의 화면 위치를 다시 잰다.
     const rect = canvas.getBoundingClientRect?.();
     if (rect) { origin = { left: rect.left, top: rect.top }; box = rect; if (measureArea()) redraw(); }
@@ -3645,7 +3647,11 @@ function setupHandwriting() {
     }
     if (context) { paint(); drawHandwritingStroke(context, stroke, from); }
   });
-  for (const name of ["pointerup", "lostpointercapture"]) canvas.addEventListener(name, event => { active.delete(event.pointerId); });
+  // 펜을 뗀 뒤에야 이전 오류 문구를 지운다(pointerdown 참고). 모든 획이 끝났을 때만 지워, 다른 손가락이 긋는 중에 캔버스가 움직이지 않는다.
+  for (const name of ["pointerup", "lostpointercapture"]) canvas.addEventListener(name, event => {
+    const ended = active.delete(event.pointerId);
+    if (ended && !active.size && !reading && status.classList?.contains("is-error")) show("");
+  });
   // 브라우저가 포인터를 취소하면(손바닥·스크롤 몸짓으로 판정한 경우 등) 그 획은 쓰다 만 것이라 버린다.
   canvas.addEventListener("pointercancel", event => {
     const stroke = active.get(event.pointerId);
