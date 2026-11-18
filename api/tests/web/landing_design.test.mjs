@@ -276,9 +276,9 @@ test("라이트·다크와 밝고 어두운 사진 양쪽에서 글자 대비가
 
 test("테두리와 초점 고리는 네 테마에서 바탕과 3 이상이고, 초점은 어디서나 2px 실선 고리 하나다", () => {
   const selectors=[".login-card",".card","button.card:hover:not([data-restored])",".feature-panel","#demo-student-list button","#demo-student-list button:hover","#login-form input","#login-form input:focus",".reset",".login",".panel-close",".login-submit",".primary",".primary:not(:disabled):hover",".login-safety",".attach-button","textarea",".composer textarea",".composer textarea:hover",".composer-row",".mode-pill",'.mode-pill[aria-expanded="true"]',".choice-menu",'.choice-menu-item[aria-checked="true"]',".quicklink-nav",".pet-says","#campus-motion-toggle",
-    ".quicklink-card","#home-button","#conversation-toggle"];
+    ".quicklink-card","#home-button","#conversation-toggle",".lang-pill"];
   const edgeParents = { ...parents, '.mode-pill[aria-expanded="true"]': ".composer-row", '.choice-menu-item[aria-checked="true"]': ".choice-menu", ".quicklink-nav": ".site-footer",
-    ".quicklink-card": ".site-footer", "#home-button": ".masthead", "#conversation-toggle": ".masthead" };
+    ".quicklink-card": ".site-footer", "#home-button": ".masthead", "#conversation-toggle": ".masthead", ".lang-pill": ".masthead" };
   const surfaceOf = selector => selector === '.mode-pill[aria-expanded="true"]' ? ".mode-pill" : selector === ".quicklink-nav" ? ".quicklink-nav" : selector;
   const failures=[];
   for (const look of themes) {
@@ -408,6 +408,19 @@ test("조작 영역은 44px 이상이다", () => {
   assert.equal(resolve("var(--logo-pad-x)", darkEnv), "0px");
   assert.equal(find('[id$="theme-button"] .lang-pill-label', ["clip-path"], { width: 481 }), undefined);
   assert.equal(declared(".brand", ["flex"], undefined, { width: 481 }), "none");
+  // 머리글 언어·테마 알약은 테마의 불투명 면 위에 경계를 그린다. 뒤 바탕(사진, 사진을 못 받았을 때의 남색 대체 바탕)과 상관없이
+  // 경계 대비가 정해진다. 투명했을 때는 사진 대체 바탕과 합성해 약 2.9:1까지 내려갔다.
+  assert.equal(declared(".lang-pill", ["background"]), "var(--surface)");
+  for (const look of themes) {
+    const fill = colors("var(--surface)", look)[0];
+    assert.equal(fill[3], 1, themeName(look));
+    assert.ok(contrast(colors(declared(".lang-pill", ["border"]), look)[0].slice(0, 3), fill.slice(0, 3)) >= 3, themeName(look));
+  }
+  // 로그인 화면 사진 위 알약은 남색 면을 그대로 쓴다.
+  assert.equal(declared(".login-lang", ["background"]), "var(--glass-pill)");
+  assert.equal(declared(".login-lang .lang-pill", ["background"]), "var(--glass-pill)");
+  // 대화 목록 아래 학교 링크는 BISKIT처럼 짧은 이름이어도 가로 44px다.
+  for (const width of [1280, 390]) assert.equal(declared(".campus-site-link", ["min-width"], undefined, { width }), "44px");
   // 재시도 버튼은 두 글자(重试)여도 가로 44px다.
   for (const name of ["min-width", "min-height"]) assert.equal(declared(".retry", [name]), "44px", name);
   // 출처 링크는 답 아래 따로 놓인 조작 요소라 높이·너비 모두 44px 이상이다(제목이 한 글자여도).

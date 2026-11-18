@@ -1023,7 +1023,7 @@ button.card:hover:not([data-restored]) { border-color: var(--focus-ink); backgro
 #main-site-footer { align-self: end; }
 .campus-site-links { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px 20px; min-width: 0; margin: 8px 0 12px; }
 .site-footer .campus-site-label { color: var(--ink); font-weight: 700; }
-.campus-site-link { display: inline-flex; align-items: center; gap: 4px; min-width: 0; min-height: 44px; color: var(--link-ink); font-size: .82rem; text-underline-offset: 3px; }
+.campus-site-link { display: inline-flex; align-items: center; gap: 4px; min-width: 44px; min-height: 44px; color: var(--link-ink); font-size: .82rem; text-underline-offset: 3px; }
 .external-link-icon { flex: none; width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 .campus-site-links--compact { justify-content: flex-start; flex: none; gap: 6px 10px; margin: 0; }
 .campus-site-links--compact .campus-site-link { font-size: .65rem; gap: 2px; }
@@ -1641,7 +1641,9 @@ html:lang(zh) { font-family: "PingFang SC", "Microsoft YaHei", "Noto Sans SC", P
   padding: 0 12px;
   border: 1px solid var(--edge);
   border-radius: 999px;
-  background: transparent;
+  /* 알약은 테마의 불투명 면 위에 #6E8098 경계를 그린다. 투명하면 머리글 유리 뒤 사진(사진을 못 받으면 남색 대체 바탕)에 따라
+     경계 대비가 3:1 아래로 내려간다. 로그인 화면 사진 위 알약은 아래 .login-lang 규칙이 남색 면으로 덮는다. */
+  background: var(--surface);
   color: var(--ink);
   font-size: .86rem;
   font-weight: 700;
