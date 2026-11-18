@@ -271,14 +271,21 @@ test("라이트·다크와 밝고 어두운 사진 양쪽에서 글자 대비가
 });
 
 test("테두리와 초점 고리는 네 테마에서 바탕과 3 이상이고, 초점은 어디서나 2px 실선 고리 하나다", () => {
-  const selectors=[".login-card",".card","button.card:hover:not([data-restored])",".feature-panel","#demo-student-list button","#demo-student-list button:hover","#login-form input","#login-form input:focus",".reset",".login",".panel-close",".login-submit",".primary",".primary:not(:disabled):hover",".login-safety",".attach-button","textarea",".composer textarea",".composer textarea:hover",".composer-row",".mode-pill",'.mode-pill[aria-expanded="true"]',".choice-menu",'.choice-menu-item[aria-checked="true"]',".quicklink-nav",".pet-says","#campus-motion-toggle"];
-  const edgeParents = { ...parents, '.mode-pill[aria-expanded="true"]': ".composer-row", '.choice-menu-item[aria-checked="true"]': ".choice-menu", ".quicklink-nav": ".site-footer" };
+  const selectors=[".login-card",".card","button.card:hover:not([data-restored])",".feature-panel","#demo-student-list button","#demo-student-list button:hover","#login-form input","#login-form input:focus",".reset",".login",".panel-close",".login-submit",".primary",".primary:not(:disabled):hover",".login-safety",".attach-button","textarea",".composer textarea",".composer textarea:hover",".composer-row",".mode-pill",'.mode-pill[aria-expanded="true"]',".choice-menu",'.choice-menu-item[aria-checked="true"]',".quicklink-nav",".pet-says","#campus-motion-toggle",
+    ".quicklink-card","#home-button","#conversation-toggle"];
+  const edgeParents = { ...parents, '.mode-pill[aria-expanded="true"]': ".composer-row", '.choice-menu-item[aria-checked="true"]': ".choice-menu", ".quicklink-nav": ".site-footer",
+    ".quicklink-card": ".site-footer", "#home-button": ".masthead", "#conversation-toggle": ".masthead" };
   const surfaceOf = selector => selector === '.mode-pill[aria-expanded="true"]' ? ".mode-pill" : selector === ".quicklink-nav" ? ".quicklink-nav" : selector;
   const failures=[];
   for (const look of themes) {
     for(const photo of [[4,20,38],[255,255,255]]) for(const selector of selectors) for(const back of fills(surfaceOf(selector),photo,edgeParents,look)) {
       const edge=colors(declared(selector,["border","border-color"],undefined,look),look)[0]; const ratio=contrast(blend(edge,back),back);
       if(ratio<3) failures.push(themeName(look)+" "+selector+" "+ratio.toFixed(2));
+    }
+    // 로그인 화면 바닥의 바로가기 카드도 같은 경계를 쓴다.
+    for (const photo of [[4,20,38],[255,255,255]]) for (const back of fills(".quicklink-card",photo,{ ...parents, ".quicklink-card": "#login-site-footer" },look)) {
+      const ratio = contrast(blend(colors(declared(".quicklink-card",["border"],undefined,look),look)[0],back),back);
+      if (ratio < 3) failures.push(themeName(look)+" login .quicklink-card "+ratio.toFixed(2));
     }
     for (const photo of [[4,20,38],[255,255,255]]) {
       for (const back of fills(".masthead",photo,parents,look)) {
@@ -351,6 +358,8 @@ test("조작 영역은 44px 이상이다", () => {
     assert.ok(Number.parseFloat(declared(selector, ["min-width"], undefined, { width: 390 })) >= 44, selector);
   }
   for (const selector of ["#conversation-toggle", "#home-button"]) assert.equal(declared(selector, ["min-width"]), "44px", selector);
+  // 대화 목록 아래 학교 링크도 한 줄 글자보다 높은 44px 누름 영역이다.
+  for (const width of [1280, 390]) assert.equal(declared(".campus-site-link", ["min-height"], undefined, { width }), "44px");
   assert.equal(declared(".thinking summary", ["min-height"]), "44px");
 });
 
@@ -397,6 +406,11 @@ test("로그인 화면 언어·테마 묶음은 hover 바탕이 없고 안의 �
       assert.ok(contrast(colors("var(--focus-ring)", look)[0].slice(0, 3), photoTop) < 3);
     }
   }
+  // 테크모도 옮기면 판 없이 사진 위에 놓이므로 같은 흰 고리와 남색 띠를 쓴다.
+  assert.equal(declared(".pet:focus-visible", ["outline"]), "2px solid var(--white)");
+  assert.equal(declared(".pet:focus-visible", ["box-shadow"]), "0 0 0 6px var(--navy)");
+  // 아래쪽 사진 이름은 남색 받침 위 흰 글자다. 라이트 아래쪽 막은 밝아서 받침 없이는 흰 사진에서 묻힌다.
+  checkText([[".campus-caption", ".campus-caption-text"]]);
   // 흰 글자는 남색 알약(흰 사진 가정)과 hover 남색 모두에서 4.5:1을 넘는다.
   for (const look of themes) {
     assert.ok(contrast([255, 255, 255], blend(colors("var(--glass-pill)", look)[0], [255, 255, 255])) >= 4.5);

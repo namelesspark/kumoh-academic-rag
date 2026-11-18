@@ -856,6 +856,8 @@ body { background: var(--navy); isolation: isolate; }
    z-index 21은 옮겨 놓은 테크모(20) 위라, 테크모를 버튼 자리에 놓아도 버튼을 누를 수 있다. 대화 메뉴(30)·확인 창(40)보다는 아래다.
    대화 목록 서랍(11)·가림막(10)과 답변 도착 알림(12)보다는 위라서, 아래 규칙이 그 둘이 떠 있는 동안 캡션을 숨긴다. */
 .campus-caption { position: fixed; left: 28px; bottom: 22px; z-index: 21; display: flex; align-items: center; gap: 12px; pointer-events: none; color: var(--white); text-shadow: 0 2px 18px var(--shadow-text); font-size: .82rem; }
+/* 사진 이름은 화면 아래쪽에 있고, 라이트의 아래쪽 막은 밝다. 흰 글자 뒤에 사진 위 알약과 같은 남색 반투명 받침을 깐다. */
+.campus-caption-text { padding: 6px 10px; border-radius: 8px; background: var(--glass-pill); }
 #campus-progress { display: flex; gap: 5px; margin-top: 8px; }
 /* 배경 움직임 일시정지(WCAG 2.2.2). 불투명 남색 판과 흰 선이라 어떤 사진 위에서도 버튼 경계가 보인다.
    이름은 고정이고 멈춘 상태는 aria-pressed로 알린다. 아이콘만 그 값에 따라 일시정지 ↔ 재생으로 바뀐다. */
@@ -1004,7 +1006,7 @@ button.card:hover:not([data-restored]) { border-color: var(--focus-ink); backgro
 #main-site-footer { align-self: end; }
 .campus-site-links { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px 20px; min-width: 0; margin: 8px 0 12px; }
 .site-footer .campus-site-label { color: var(--ink); font-weight: 700; }
-.campus-site-link { display: inline-flex; align-items: center; gap: 4px; min-width: 0; color: var(--link-ink); font-size: .82rem; text-underline-offset: 3px; }
+.campus-site-link { display: inline-flex; align-items: center; gap: 4px; min-width: 0; min-height: 44px; color: var(--link-ink); font-size: .82rem; text-underline-offset: 3px; }
 .external-link-icon { flex: none; width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 .campus-site-links--compact { justify-content: flex-start; flex: none; gap: 6px 10px; margin: 0; }
 .campus-site-links--compact .campus-site-link { font-size: .65rem; gap: 2px; }
@@ -1024,7 +1026,7 @@ button.card:hover:not([data-restored]) { border-color: var(--focus-ink); backgro
 .quicklink-track { display: flex; gap: 10px; margin: 0; padding: 6px; list-style: none; overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x mandatory; scroll-padding-inline: 6px; scrollbar-width: none; }
 .quicklink-track::-webkit-scrollbar { display: none; }
 .quicklink-item { flex: none; scroll-snap-align: start; }
-.quicklink-card { position: relative; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: start; gap: 10px; width: 200px; height: 100%; min-height: 78px; padding: 12px; border: 1px solid var(--content-line); border-radius: 14px; background: var(--glass-account); color: var(--ink); text-align: left; text-decoration: none; }
+.quicklink-card { position: relative; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: start; gap: 10px; width: 200px; height: 100%; min-height: 78px; padding: 12px; border: 1px solid var(--control-line); border-radius: 14px; background: var(--glass-account); color: var(--ink); text-align: left; text-decoration: none; }
 .quicklink-card:hover { border-color: var(--focus-ink); background: var(--feature-hover); }
 .quicklink-icon { width: 24px; height: 24px; color: var(--link-ink); stroke-width: 1.6; }
 .quicklink-text { display: grid; gap: 3px; min-width: 0; }
@@ -1177,7 +1179,7 @@ body[data-view="chat"] .composer { order: 1; flex: none; margin: 0; padding: 8px
 body[data-view="chat"] .status { order: 2; flex: none; margin: 0; padding: 4px 12px; }
 body[data-view="chat"] .composer textarea { height: 44px; min-height: 44px; max-height: 44px; resize: none; }
 #conversation-sidebar { align-self: stretch; min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 12px; padding: 16px; border: 1px solid var(--content-line); border-radius: 16px; background: var(--main-surface); color: var(--ink); -webkit-backdrop-filter: blur(16px) saturate(1.3); backdrop-filter: blur(16px) saturate(1.3); }
-#conversation-sidebar button, #conversation-toggle, #home-button, #conversation-toast button { border: 1px solid var(--content-line); border-radius: 8px; background: transparent; color: var(--ink); min-width: 44px; min-height: 44px; padding: 8px 10px; }
+#conversation-sidebar button, #conversation-toggle, #home-button, #conversation-toast button { border: 1px solid var(--control-line); border-radius: 8px; background: transparent; color: var(--ink); min-width: 44px; min-height: 44px; padding: 8px 10px; }
 #conversation-sidebar button:hover, #conversation-toggle:hover, #home-button:hover, #conversation-toast button:hover { background: var(--feature-hover); }
 /* 목록 판(.50) 위에 글자를 바로 두면 밝은 사진 위에서 대비가 3.3:1까지 떨어진다. 글자가 놓이는 자리에만 보강 면을 깐다. */
 #conversation-sidebar > button, #conversation-sidebar .conversation-archive-toggle, .conversation-item, .conversation-note, .campus-site-links--compact { background: var(--main-bubble); }
@@ -1262,6 +1264,8 @@ body[data-view="chat"] .composer textarea { height: 44px; min-height: 44px; max-
 
 /* 이동은 바깥 상자, 바라보는 방향은 안쪽 상자, 프레임은 배경이 맡는다. */
 .pet { touch-action: none; }
+/* 테크모는 어디로든 옮겨져 판 없이 사진 위에 놓일 수 있다. 테마색 고리 대신 흰 2px 고리 뒤에 남색 6px 띠를 깔아 어느 사진에서도 3:1을 넘긴다. */
+.pet:focus-visible { outline: 2px solid var(--white); outline-offset: 2px; box-shadow: 0 0 0 6px var(--navy); }
 body[data-techmo-dragging="true"] { user-select: none; }
 .pet-dock[data-placed="true"], body[data-view="chat"] .pet-dock[data-placed="true"] {
   position: fixed;
