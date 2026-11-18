@@ -291,6 +291,14 @@ test("말풍선 글자는 라이트·다크 크림 모두에서, 일시정지 �
   for (const name of ["width", "height", "min-width", "min-height"]) assert.equal(declared("#campus-motion-toggle", [name]), "44px", name);
   assert.equal(declared("#campus-motion-toggle", ["pointer-events"]), "auto");
   assert.equal(declared(".campus-caption", ["pointer-events"]), "none");
+  // 옮겨 놓은 테크모(20)가 버튼을 덮지 않고, 대화 메뉴(30)·확인 창(40)보다는 아래다.
+  const layer = selector => Number(declared(selector, ["z-index"]));
+  assert.ok(layer(".campus-caption") > layer('.pet-dock[data-placed="true"]'));
+  assert.ok(layer(".campus-caption") < layer(".conversation-menu"));
+  // 서랍과 답변 도착 알림이 떠 있는 동안에는 그림·초점·낭독에서 모두 빠진다.
+  for (const selector of ['body[data-conversation-drawer="open"] .campus-caption', "body:has(#conversation-toast:not([hidden])) .campus-caption"]) {
+    assert.equal(declared(selector, ["visibility"]), "hidden", selector);
+  }
 });
 
 test("큰 면은 .45~.55에 blur(16px) saturate(1.3), 말풍선·카드는 .60~.68에 blur(10px)이고 -webkit- 접두사를 함께 적는다", () => {

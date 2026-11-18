@@ -335,7 +335,7 @@ test("펫의 움직임 네 가지는 서로 다른 요소·속성에 걸고, 움
     [".login-card", "login-rise .8s ease-out"],
     [".login-techmo", "login-float 3.6s ease-in-out infinite"],
     // #128: 말풍선이 나타날 때 커지는 움직임과, 프레임 재생과 같은 움직임 줄이기 묶음에서 그것을 끄는 규칙.
-    ['.pet-dock[data-bubble-visible="true"] .pet-says', "pet-says-in .2s ease-out"],
+    ['.pet-dock[data-bubble-visible="true"] .pet-says', "pet-says-fade .2s ease-out, pet-says-grow .18s ease-out .02s"],
     ['.pet-dock .pet-says, .pet-dock[data-bubble-visible="true"] .pet-says', "none !important"],
   ]);
   // 움직임 줄이기 묶음은 하나뿐이고, 펫·대기 점·도형과 카드 전환을 함께 끈다.
@@ -1317,8 +1317,12 @@ test("끄는 동안 말풍선을 숨기고 꼬리 방향은 위아래 배치에 
   assert.match(first(".pet-dock .pet-says"), /position: fixed;/);
   assert.match(rules.find(([name, body]) => name === ".pet-dock .pet-says" && body.startsWith("transform-origin"))?.[1] ?? "", /^transform-origin: var\(--techmo-bubble-tail-x\) calc\(100% \+ 10px\);$/);
   assert.match(first('.pet-dock[data-bubble-below="true"] .pet-says'), /transform-origin: var\(--techmo-bubble-tail-x\) -10px;/);
-  assert.match(first('.pet-dock[data-bubble-visible="true"] .pet-says'), /animation: pet-says-in \.2s ease-out;/);
-  assert.match(styles, /@keyframes pet-says-in \{\s*from \{ opacity: 0; transform: scale\(\.92\); \}\s*to \{ opacity: 1; transform: scale\(1\); \}\s*\}/);
+  // chat.js는 data-bubble-visible을 바꾼 바로 그 순간 말풍선 높이를 잰다. 커짐은 .02초 늦게 시작해
+  // 그 순간에는 transform이 없고(채움 모드 없음), 투명도만 0에서 시작한다.
+  assert.match(first('.pet-dock[data-bubble-visible="true"] .pet-says'), /^animation: pet-says-fade \.2s ease-out, pet-says-grow \.18s ease-out \.02s;$/);
+  assert.match(styles, /@keyframes pet-says-fade \{\s*0%, 10% \{ opacity: 0; \}\s*100% \{ opacity: 1; \}\s*\}/);
+  assert.match(styles, /@keyframes pet-says-grow \{\s*from \{ transform: scale\(\.92\); \}\s*to \{ transform: scale\(1\); \}\s*\}/);
+  assert.doesNotMatch(styles, /pet-says-(?:fade|grow)[^;]*\b(?:both|backwards)\b/);
   assert.match(styles, /@media \(prefers-reduced-motion: reduce\) \{[^{}]*\{[^{}]*\}\s*\.pet-dock \.pet-says, \.pet-dock\[data-bubble-visible="true"\] \.pet-says \{ animation: none !important; \}\s*\}/);
   const page = loadAssistant();
   page.context.techmoBubble();
