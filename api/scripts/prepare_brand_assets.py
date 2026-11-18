@@ -89,7 +89,6 @@ class TitleImage(NamedTuple):
 
 OFFICIAL_HOST = "www.kumoh.ac.kr"
 FONT_HOST = "raw.githubusercontent.com"
-MAX_FONT_DOWNLOAD = 2 * 1024 * 1024
 TITLE_FONT_SIZE = 172
 TITLE_LINE_HEIGHT = 1.12  # 글자 크기의 배수
 TITLE_MARGIN = 16
@@ -110,11 +109,16 @@ TITLE_FONT_URL = ("https://raw.githubusercontent.com/google/fonts/16680f8688ffcd
                   "/ofl/gugi/Gugi-Regular.ttf")
 TITLE_FONT_BYTES = 990856
 TITLE_FONT_HASH = "c0b1f979979cfc309fb2438fa9464f96173353e0c4842cc7a5919658184ed9d3"
-# 두 그림은 글꼴 주소가 같다. main()이 주소마다 한 번만 받으므로 글꼴도 한 번만 받는다.
+# 한국어·영어 그림 네 장은 같은 Gugi 글꼴을 한 번 받아 함께 쓴다.
 TITLE_IMAGES = (
     TitleImage("title-lettering.png", TITLE_FONT_URL, TITLE_FONT_BYTES, TITLE_FONT_HASH),
     TitleImage("main-lettering.png", TITLE_FONT_URL, TITLE_FONT_BYTES, TITLE_FONT_HASH,
                MAIN_TITLE_LINES),
+    TitleImage("title-lettering-en.png", TITLE_FONT_URL, TITLE_FONT_BYTES, TITLE_FONT_HASH,
+               ((("To graduation,", TITLE_WHITE),),
+                (("with ", TITLE_WHITE), ("Techmo", TITLE_YELLOW)))),
+    TitleImage("main-lettering-en.png", TITLE_FONT_URL, TITLE_FONT_BYTES, TITLE_FONT_HASH,
+               ((("Ask ", TITLE_WHITE), ("Techmo", TITLE_YELLOW)),)),
 )
 
 
@@ -159,12 +163,13 @@ def download(url, *, opener=None, clock=monotonic, limit=None):
     로고 요청은 전과 같다.
     """
     is_photo = any(url == photo.url for photo in CAMPUS_PHOTOS)
-    is_font = any(url == title.url for title in TITLE_IMAGES)
+    font_source = next((title for title in TITLE_IMAGES if title.url == url), None)
+    is_font = font_source is not None
     if not is_photo and not is_font and url != LOGO_URL:
         raise AssetError("허용하지 않은 원본")
     host = FONT_HOST if is_font else OFFICIAL_HOST
     if limit is None:
-        limit = MAX_FONT_DOWNLOAD if is_font else MAX_DOWNLOAD
+        limit = font_source.size if is_font else MAX_DOWNLOAD
     request_timeout, total_timeout = (
         (PHOTO_REQUEST_TIMEOUT, PHOTO_TOTAL_TIMEOUT) if is_photo else (REQUEST_TIMEOUT, TOTAL_TIMEOUT)
     )
@@ -349,6 +354,14 @@ def render_title(font, lines=None):
     모양(농도)만 먼저 그린 뒤, 단색 판의 투명도로 끼워 넣는다.
     """
     lines = TITLE_LINES if lines is None else lines
+    missing = font.getmask("\U0010ffff")
+    missing_shape = (missing.size, bytes(missing))
+    for character in set("".join(text for line in lines for text, _ in line)):
+        if character.isspace():
+            continue
+        glyph = font.getmask(character)
+        if (glyph.size, bytes(glyph)) == missing_shape:
+            raise AssetError("글꼴에 제목 글자가 없음")
     size = font.size
     pad = size  # 획이 글자 칸 밖으로 나가도 잘리지 않게 넉넉히 둔 뒤 잘라 낸다.
     widths = [sum(font.getlength(text) for text, _ in line) for line in lines]
@@ -449,7 +462,7 @@ def main(*, downloader=download, writer=atomic_write, report=print,
            lambda data, photo=photo: campus_jpeg(data, photo.size, photo.sha256))
           for photo in CAMPUS_PHOTOS),
         # 제목은 글꼴을 받아 그림으로 그린다. 글꼴 파일은 저장하지 않는다.
-        # 두 제목의 글꼴 주소가 같아 아래 `sources`가 한 번 받은 바이트를 함께 쓴다.
+        # 같은 글꼴 주소는 아래 `sources`가 한 번 받은 바이트를 함께 쓴다.
         *((title.name, title.url,
            lambda data, title=title: title_png(data, title.size, title.sha256, title.lines))
           for title in TITLE_IMAGES),
