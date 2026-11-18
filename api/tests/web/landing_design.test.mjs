@@ -387,6 +387,15 @@ test("조작 영역은 44px 이상이다", () => {
     assert.equal(declared(".brand-logo > img", ["box-sizing"], undefined, { width }), "content-box");
     assert.equal(declared(".brand-logo", ["max-width"], undefined, { width }), "100%");
     assert.equal(declared(".brand-logo > img", ["object-fit"], undefined, { width }), "contain");
+    // 로고 칸은 넘침을 잘라 내고, 그 안의 두 갈래(로고 그림, 로고 실패 때의 학교 이름 글자)는 모두 칸 폭 아래로 줄 수 있다.
+    // 첫 화면(채팅이 아닌 화면)에서도 같은 규칙이다. 예전에는 그림만 고쳐 영어 이름 글자가 언어 버튼 쪽으로 넘쳤다.
+    assert.equal(declared(".brand", ["overflow"], undefined, { width }), "hidden");
+    for (const child of [".brand-logo", ".brand-name"]) {
+      assert.equal(declared(child, ["min-width"], undefined, { width }), "0", `${child} ${width}px`);
+      assert.equal(declared(child, ["max-width"], undefined, { width }), "100%", `${child} ${width}px`);
+    }
+    assert.equal(declared(".brand-name", ["text-overflow"], undefined, { width }), "ellipsis");
+    assert.equal(declared(".brand-name", ["overflow"], undefined, { width }), "hidden");
     // 버튼 묶음과 로그인 상자는 버튼들의 최소 폭 아래로 줄지 않는다.
     assert.equal(declared(".masthead-actions", ["min-width"], undefined, { width }), "min-content");
     assert.equal(declared(".demo-account", ["min-width"], undefined, { width }), "min-content");

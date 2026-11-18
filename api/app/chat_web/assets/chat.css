@@ -1680,7 +1680,10 @@ button.login-lang:focus-visible, .login-lang .lang-pill:focus-visible { outline:
   [id$="theme-button"] .lang-pill-label { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   /* 오른쪽 버튼 묶음은 자기 내용 폭을 지키고 로고가 남은 폭에 맞춰 줄어든다. 로고는 비율을 지킨 채 왼쪽에 붙는다.
      예전에는 로고가 줄지 않아 390px 첫 화면에서 버튼 묶음이 로고 위로 겹쳤다. */
-  .brand { flex: 0 1 auto; min-width: 0; }
+  /* 로고 칸은 남은 폭만큼만 차지하고, 안의 내용(로고 그림이나 로고 실패 때 보이는 학교 이름 글자)은 그 칸을 넘지 않는다.
+     예전에는 바깥 칸만 줄어 그림·이름이 버튼 쪽으로 넘쳤다. 이름 글자는 말줄임으로 줄이고 전체 이름은 그대로 읽힌다. */
+  .brand { flex: 0 1 auto; min-width: 0; overflow: hidden; }
+  .brand-name { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   /* 버튼 묶음과 로그인 상자는 자기 버튼들의 최소 폭(min-content) 아래로 줄지 않는다. 학생 이름만 말줄임으로 줄어든다.
      최소 폭이 0이면 줄바꿈하지 않는 로그인·로그아웃 버튼이 이웃 버튼 위로 넘친다. */
   .masthead-actions { flex: 0 1 auto; min-width: min-content; }
