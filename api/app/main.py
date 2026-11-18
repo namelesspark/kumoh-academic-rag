@@ -16,20 +16,26 @@
 3. 채팅과 시연 로그인 주소의 자동 생성 설명서(OpenAPI 문서)에서 422를 뺀다. OpenAPI는 서버가 받는
    주소와 형식을 기계가 읽을 수 있게 적는 표준이다. 위 처리 때문에 두 주소는 422를 내지 않는다.
 
+앱용 출처 허용(CORS)은 `install_cors`로 따로 단다. 배포 진입점(api/serve.py)이 환경 변수를
+읽어 앱을 만든 뒤 부르고, 모듈 수준 `app`에는 달지 않는다.
+
 실행 방법(수동 기동, 선택):
     uvicorn app.main:app --app-dir api --reload
 """
 
 import json
+from collections.abc import Mapping
 from hashlib import sha256
 from html import escape
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from fastapi import FastAPI, Request
 from fastapi.exception_handlers import http_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse, Response
 from starlette.exceptions import HTTPException
+from starlette.middleware.cors import CORSMiddleware
 
 from app.api.v1 import router as api_v1_router
 from app.services.chat_retrieval import ChatRetrieval
@@ -69,6 +75,73 @@ FINGERPRINTED_IMAGES = (
 # 배치 파일은 서버가 읽어 화면에 넣을 뿐, `/chat-assets/` 주소로 내주지 않는다.
 TECHMO_LAYOUT_SLOT = "__TECHMO_LAYOUT__"
 TECHMO_LAYOUT_FILE = "techmo_layout.json"
+
+
+# 다른 주소에서 띄운 앱(kumoh-aio/aio-app)이 이 API를 부르도록 허용할 출처 목록(CORS, 이슈 #125).
+# 환경 변수는 배포 진입점(api/serve.py)이 읽어 아래 함수에 건넨다. 이 모듈은 환경 변수를 읽지 않는다.
+CORS_ENV = "CORS_ALLOW_ORIGINS"
+# 안드로이드 앱 껍데기(Capacitor)의 출처와 로컬 미리보기 주소.
+DEFAULT_CORS_ORIGINS = ("https://localhost", "http://127.0.0.1:5173")
+CORS_METHODS = ("GET", "POST")
+CORS_HEADERS = ("Content-Type",)
+
+
+def _check_origin(origin: str) -> None:
+    """출처 하나가 브라우저가 보내는 `Origin` 헤더 모양과 글자까지 같은지 본다.
+
+    끝 슬래시나 대문자가 붙으면 브라우저 값과 달라 조용히 막히므로 시작할 때 멈춘다.
+    오류 문구에는 설정 이름과 이유만 담고 입력값은 넣지 않는다.
+    """
+
+    if origin == "*":
+        raise ValueError(f"{CORS_ENV}: *는 쓸 수 없고 출처를 하나씩 적어야 합니다.")
+    parts = urlsplit(origin)
+    if parts.scheme not in ("http", "https"):
+        raise ValueError(f"{CORS_ENV}: http:// 또는 https:// 로 시작하는 출처가 아닙니다.")
+    if not parts.hostname:
+        raise ValueError(f"{CORS_ENV}: 출처에 호스트가 없습니다.")
+    if "@" in parts.netloc:
+        raise ValueError(f"{CORS_ENV}: 출처에 사용자 정보를 넣을 수 없습니다.")
+    try:
+        parts.port
+    except ValueError:
+        raise ValueError(f"{CORS_ENV}: 출처의 포트가 올바르지 않습니다.") from None
+    if parts.netloc.endswith(":"):
+        raise ValueError(f"{CORS_ENV}: 출처의 포트가 올바르지 않습니다.")
+    if origin != f"{parts.scheme}://{parts.netloc}":
+        raise ValueError(f"{CORS_ENV}: 출처에 경로·끝 슬래시·질의·조각을 붙일 수 없습니다.")
+    if origin != origin.lower():
+        raise ValueError(f"{CORS_ENV}: 출처는 소문자로 적어야 합니다.")
+
+
+def cors_origins_from_environ(environ: Mapping[str, str]) -> tuple[str, ...]:
+    """쉼표로 나눈 출처를 공백·빈 칸·중복 없이 돌려준다. 값이 없거나 비면 기본 출처를 쓴다."""
+
+    origins = []
+    for piece in (environ.get(CORS_ENV) or "").split(","):
+        origin = piece.strip()
+        if not origin or origin in origins:
+            continue
+        _check_origin(origin)
+        origins.append(origin)
+    return tuple(origins) or DEFAULT_CORS_ORIGINS
+
+
+def install_cors(application: FastAPI, origins: tuple[str, ...]) -> None:
+    """허용 출처에만 응답 헤더를 붙이는 Starlette 부품을 단다. 조각 전송(SSE) 응답에도 붙는다.
+
+    메서드는 GET·POST, 요청 헤더는 Content-Type만 허용하고 자격 증명(쿠키)은 허용하지 않는다.
+    """
+
+    for origin in origins:
+        _check_origin(origin)
+    application.add_middleware(
+        CORSMiddleware,
+        allow_origins=list(origins),
+        allow_methods=list(CORS_METHODS),
+        allow_headers=list(CORS_HEADERS),
+        allow_credentials=False,
+    )
 
 
 def parse_techmo_layout(text: str) -> dict:

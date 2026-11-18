@@ -725,7 +725,8 @@ class GuidanceTests(unittest.TestCase):
                     messages = transport.calls[0]["body"]["messages"]
                     self.assertNotIn("<조문>", str(messages))
                     self.assertEqual(messages[1]["content"], "<질문>\n" + "가" * size + "\n</질문>")
-                    for rule in ("테크모", "한두 문장", "졸업 요건", "학사 일정", "규정 질문", "학사지원실", "숫자", "날짜", "기간", "마크다운"):
+                    self.assertNotIn("테크모", messages[0]["content"])
+                    for rule in ("아이오", "한두 문장", "졸업 요건", "학사 일정", "규정 질문", "학사지원실", "숫자", "날짜", "기간", "마크다운"):
                         self.assertIn(rule, messages[0]["content"])
         for transport in (FakeTransport(error=OSError()), FakeTransport([sse(delta(content=" "))]),
                           FakeTransport([sse(delta(content=ai_chat.REFUSAL_PREFIX + ". 다시 물어보세요."))])):
@@ -1104,7 +1105,9 @@ class ForeignQualityTests(unittest.TestCase):
                 self.assertIs(events[-1][1]["answered"], False)
                 self.assertEqual(answer_text(events), "Hello! Ask me about graduation.")
                 system = transport.calls[1]["messages"][0]["content"]
-                self.assertIn("테크모", system)
+                self.assertEqual(system.splitlines()[0], (
+                    "You are AIO, the academic administration AI of Kumoh National Institute of Technology."))
+                self.assertNotIn("테크모", system)
                 self.assertIn("Kumoh National Institute of Technology", system)
                 self.assertEqual(transport.calls[1]["messages"][1]["content"], "<질문>\nhi\n</질문>")
                 self.assertEqual(ai.available_slots, 4)
@@ -1220,6 +1223,63 @@ class FinishAnswerTests(unittest.TestCase):
         body = run_without_sockets(AiChat(SETTINGS, transport=FakeTransport(error=OSError())).complete(result, QUESTION, "fast"))
         self.assertEqual(body["answer"], long_article)
         self.assertEqual(body["notice"], NOTICE_TEXT)
+
+
+class AioIdentityTests(unittest.TestCase):
+    """이슈 #125: AI 이름은 아이오(AIO)이고 테크모는 캐릭터 그림 이름이다. 기대 문장은 글자로 고정한다."""
+
+    FIRST_LINES = {
+        "ko": "당신은 국립금오공과대학교 학사 행정 AI '아이오'입니다.",
+        "en": "You are AIO, the academic administration AI of Kumoh National Institute of Technology.",
+        "zh": "你是国立金乌工科大学的学务 AI「AIO」。",
+    }
+
+    def test_sent_system_message_starts_with_identity_of_language(self):
+        held = {**RESULT, "answered": False, "citations": []}
+        for result in (RESULT, held):
+            for lang, first in self.FIRST_LINES.items():
+                with self.subTest(answered=result["answered"], lang=lang):
+                    transport = FakeTransport([ANSWER_STREAM])
+                    chat = AiChat(SETTINGS, transport=transport)
+
+                    async def run():
+                        return [e async for e in chat.events(result, QUESTION, "fast", lang=lang)]
+
+                    run_without_sockets(run())
+                    system = transport.calls[0]["body"]["messages"][0]["content"]
+                    self.assertEqual(system.splitlines()[0], first)
+                    self.assertNotIn("테크모", system)
+                    self.assertNotIn("금오AI", system)
+                    self.assertNotIn("안내 도우미", system)
+                    others = [line for key, line in self.FIRST_LINES.items() if key != lang]
+                    for other in others:
+                        self.assertNotIn(other, system)
+
+    def test_name_is_said_only_when_introducing(self):
+        self.assertIn("이름은 자기소개가 필요할 때만 말하고 답마다 붙이지 않습니다.", ai_chat.SYSTEM_PROMPT)
+        self.assertIn("이름은 인사나 자기소개 때만 말한다.", ai_chat.GUIDANCE_PROMPT)
+        # 규칙 아홉 개의 번호와 1번 한국어 규칙은 그대로다.
+        rules = [line for line in ai_chat.SYSTEM_PROMPT.splitlines() if line[:1].isdigit()]
+        self.assertEqual(len(rules), 9)
+        self.assertEqual(rules[0], "1. 한국어로 답합니다.")
+
+    def test_ko_format_and_refusal_literals_are_unchanged(self):
+        self.assertEqual(ai_chat.REFUSAL_PREFIX, "규정 문서에서 근거를 찾지 못했어요")
+        self.assertIn(
+            "4. 아래 조문 어느 것으로도 답할 수 없을 때만 정확히 이 문장만 씁니다: 규정 문서에서 근거를 찾지 못했어요. "
+            "질문에 맞는 조문이 하나라도 있으면 그 조문으로 답하고, 답 끝에 이 문장을 붙이지 않습니다.",
+            ai_chat.SYSTEM_PROMPT,
+        )
+        self.assertEqual(ai_chat.ANSWER_FORMAT, (
+            "답 형식: 「제N조에 따르면 …입니다.」처럼 마침표로 끝나는 완결된 문장 한두 개. "
+            "대학원 기준을 덧붙일 때만 한 문장 더."
+        ))
+        self.assertEqual(ai_chat.language_prompt(ai_chat.SYSTEM_PROMPT, "ko"), ai_chat.SYSTEM_PROMPT)
+
+    def test_prompt_without_identity_line_is_rejected_for_foreign_language(self):
+        for lang in ("en", "zh"):
+            with self.subTest(lang=lang), self.assertRaises(ValueError):
+                ai_chat.language_prompt("가상 지침\n1. 한국어로 답합니다.", lang)
 
 
 if __name__ == "__main__":
