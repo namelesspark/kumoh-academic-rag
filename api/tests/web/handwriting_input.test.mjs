@@ -1084,6 +1084,48 @@ test("두 폭 모두에서 바깥인 (800,30)에서 칸을 넓힌 뒤 돌아와�
   assert.deepEqual([page.exports[0].canvas.width, page.exports[0].canvas.height], [87, 270]);
 });
 
+test("위쪽에 쓴 뒤 넣기 버튼까지 패드를 스크롤해 그 획이 가려져도 그대로 보낸다", async () => {
+  const page = loadPad();
+  page.button.click();
+  page.stroke([100, 20], [150, 20]);
+  // 패드 안쪽을 스크롤해 캔버스가 100px 올라갔다. 캔버스 위 78px(y 0~78)는 패드 위쪽(322)에 가려진다.
+  Object.assign(page.canvasRect, { top: 300, bottom: 500 });
+  page.scroll();
+  page.respond(ok("가상"));
+  page.insert.click();
+  await settle();
+  assert.equal(page.requests.length, 1);
+  assert.notEqual(page.status.textContent, messages.unreadable);
+  // 쓸 때 보이던 획이 그대로 간다: 가로 98.5~151.5 = 53 + 32 = 85 → 170, 세로 18.5~21.5 = 3 + 32 = 35 → 70.
+  assert.deepEqual([page.exports[0].canvas.width, page.exports[0].canvas.height], [170, 70]);
+});
+
+test("보이는 띠가 겹치지 않게 바뀐 뒤 그은 선분은 두 띠 사이 틈에 그리지 않는다", async () => {
+  const page = loadPad();
+  page.button.click();
+  // 처음에는 캔버스 y 0~50만 보인다(패드 안쪽 아래 끝 450, 캔버스 위 400).
+  Object.assign(page.padRect, { bottom: 450, height: 128 });
+  page.scroll();
+  page.pointer("pointerdown", { id: 18, kind: "pen", x: 100, y: 45, pressure: 1 });
+  page.pointer("pointermove", { id: 18, kind: "pen", x: 100, y: 55, pressure: 1 });
+  // 펜을 댄 채 스크롤해 보이는 띠가 y 52~100으로 바뀐다(캔버스 위 270, 패드 안쪽 322~370).
+  Object.assign(page.padRect, { bottom: 370, height: 48 });
+  Object.assign(page.canvasRect, { top: 270, bottom: 470 });
+  page.scroll();
+  const before = page.canvas.log.length;
+  page.pointer("pointermove", { id: 18, kind: "pen", x: 100, y: 52.4, pressure: 1 });
+  page.pointer("pointerup", { id: 18, kind: "pen", x: 100, y: 52.4 });
+  const negative = log => log.some(call => call[0] === "rect" && (call[3] < 0 || call[4] < 0));
+  const bridged = log => log.some(call => call[0] === "lineTo" && call[2] === 52.4);
+  assert.equal(bridged(page.canvas.log.slice(before)), false, "no ink in the gap on screen");
+  assert.equal(negative(page.canvas.log), false);
+  page.respond(ok("가상"));
+  page.insert.click();
+  await settle();
+  assert.equal(bridged(page.exports[0].canvas.log), false, "no ink in the gap in the image");
+  assert.equal(negative(page.exports[0].canvas.log), false);
+});
+
 // 크기가 바뀐 뒤 첫 선분: 옛 경계(x ≤ 601.6)에서 시작하고 600×200 칸으로 clip()한 채 (590,130)에서 끝난다.
 function checkBridge(page, from, log = page.canvas.log) {
   const part = log.slice(from);

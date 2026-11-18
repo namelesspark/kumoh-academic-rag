@@ -3044,6 +3044,9 @@ function handwritingDrawnWidth(stroke, point, before = null) {
 // 가리면 보이는 칸은 캔버스 전체가 아니라 가운데 띠가 된다(가로는 캔버스 폭이 100%라 가려지지 않는다).
 const handwritingClipOf = (stroke, point) => point.clip ?? stroke.clip ?? null;
 const handwritingTop = rect => rect?.y ?? 0;
+// 넓이가 없는 칸(겹치지 않는 두 띠의 교집합 등). 이런 칸에는 아무것도 그리지 않는다.
+// 높이가 음수인 사각형을 그대로 clip()에 넘기면 캔버스가 위아래를 뒤집어 그 틈에 잉크를 그린다.
+const handwritingEmpty = rect => Boolean(rect) && (rect.width <= 0 || rect.height <= handwritingTop(rect));
 // 두 칸이 겹치는 부분.
 function handwritingClipMeet(a, b) {
   if (a === b || !b) return a;
@@ -3064,7 +3067,7 @@ function drawHandwritingStroke(context, stroke, from = 0) {
     if (!clip) return;
     context.save(); saved = true;
     context.beginPath();
-    context.rect(0, handwritingTop(clip), clip.width, clip.height - handwritingTop(clip));
+    context.rect(0, handwritingTop(clip), Math.max(0, clip.width), Math.max(0, clip.height - handwritingTop(clip)));
     context.clip();
   };
   for (let index = from; index < points.length; index++) {
@@ -3099,6 +3102,7 @@ function drawHandwritingStroke(context, stroke, from = 0) {
 // 칸 밖으로 나간 선분은 잘라 보이는 부분만 센다(Liang–Barsky 선분 자르기). 바깥 점이 범위를 늘리지 않는다.
 // 잉크는 중심선에서 굵기 절반(half)만큼 퍼지므로, 칸을 그만큼 넓힌 상자로 자른다. 중심선이 칸 바로 밖이어도 칸 안에 보이는 잉크는 남는다.
 function clipHandwritingSegment(from, to, area, half = 0) {
+  if (handwritingEmpty(area)) return null;
   const dx = to.x - from.x, dy = to.y - from.y;
   let enter = 0, leave = 1;
   const y0 = handwritingTop(area);
@@ -3121,6 +3125,7 @@ function handwritingRectDistance(point, rect) {
 // 보이지 않는 잉크도 있다고 보므로, 칸까지의 실제 거리가 반지름보다 짧을 때만 보인다고 본다.
 function handwritingInkVisible(from, to, half, rect) {
   if (!rect) return true;
+  if (handwritingEmpty(rect)) return false;
   if (clipHandwritingSegment(from, to, rect, 0)) return true;
   if (handwritingRectDistance(from, rect) < half || handwritingRectDistance(to, rect) < half) return true;
   const dx = to.x - from.x, dy = to.y - from.y, length = dx * dx + dy * dy;
@@ -3142,6 +3147,7 @@ function handwritingBounds(strokes, area = null) {
   const add = (point, half) => {
     let x0 = point.x - half, y0 = point.y - half, x1 = point.x + half, y1 = point.y + half;
     if (clip) {
+      if (handwritingEmpty(clip)) return;
       const clipTop = handwritingTop(clip);
       if (x0 > clip.width || y0 > clip.height || x1 < 0 || y1 < clipTop) return;
       x0 = clamp(x0, 0, clip.width); x1 = clamp(x1, 0, clip.width); y0 = clamp(y0, clipTop, clip.height); y1 = clamp(y1, clipTop, clip.height);
@@ -3188,7 +3194,7 @@ function handwritingImage(strokes, pixelRatio = 1, area = null) {
   context.setTransform(scale, 0, 0, scale, -box.x * scale, -box.y * scale);
   if (area) {
     context.beginPath();
-    context.rect(0, handwritingTop(area), area.width, area.height - handwritingTop(area));
+    context.rect(0, handwritingTop(area), Math.max(0, area.width), Math.max(0, area.height - handwritingTop(area)));
     context.clip();
   }
   context.fillStyle = "#000000"; context.strokeStyle = "#000000";
@@ -3478,7 +3484,10 @@ function setupHandwriting() {
     // 그리던 획을 여기서 끝내, 화면의 획과 보내는 그림이 어긋나지 않게 한다. 읽는 동안에는 새 획도 받지 않는다.
     for (const id of active.keys()) if (canvas.hasPointerCapture?.(id)) canvas.releasePointerCapture?.(id);
     active.clear();
-    const area = visibleArea();
+    // 보내는 그림은 지금 캔버스 전체(크기)로 자른다. 지금 스크롤로 가려진 띠는 자르지 않는다. 넣기 버튼까지 패드를 스크롤하면
+    // 캔버스 위쪽이 가려지는데, 그곳 잉크도 쓸 때는 보였던 것이다(쓸 때 보이지 않던 잉크는 점마다 저장한 칸이 이미 잘라 둔다).
+    // 캔버스를 줄여 칸 밖으로 나간 잉크는 지금처럼 빼고 보낸다.
+    const area = box?.width > 0 && box?.height > 0 ? { width: box.width, height: box.height } : null;
     if (!handwritingBounds(strokes, area)) {
       // 모든 잉크가 보이는 칸 밖에 있으면 보낼 글씨가 없다.
       show(handwritingMessages.unreadable, true);
