@@ -361,14 +361,14 @@ class TestChatWeb(unittest.TestCase):
         (image,) = slot["children"]
         # 그림 크기는 배포 준비 때 정해지므로 가로·세로 값을 적지 않는다.
         # 영어 그림 주소는 data-lettering-en에 둔다. 바꿔 끼우는 일은 chat.js가 한다. 중국어 그림은 아직 없다.
-        self.assertEqual(image["attrs"], {"src": MAIN_LETTERING, "alt": "물어봐요, 테크모",
+        self.assertEqual(image["attrs"], {"src": MAIN_LETTERING, "alt": "물어봐요, 아이오",
                                           "data-lettering-en": "/chat-assets/main-lettering-en.png"})
 
         self.assertEqual((fallback["tag"], fallback["attrs"].get("class")),
                          ("span", "main-title-fallback"))
         self.assertEqual(fallback["text"], "물어봐요, ")
         self.assertEqual([(child["tag"], child["text"]) for child in fallback["children"]],
-                         [("em", "테크모")])
+                         [("em", "아이오")])
         self.assertEqual(title["text"].strip(), "")
 
         # 인사 줄은 비운 채 시작한다. 로그인했을 때만 스크립트가 채운다.
@@ -843,12 +843,12 @@ class TestChatWeb(unittest.TestCase):
         html = call_app(app, "GET", "/", allow_wait=True).text()
         pet = by_id(parse_page(html), "pet")
         self.assertEqual((pet["tag"], pet["attrs"].get("type")), ("button", "button"))
-        self.assertEqual(pet["attrs"].get("aria-label"), "테크모 · 새 대화 시작")
-        self.assertEqual(html.count('aria-label="테크모 · 새 대화 시작"'), 1)
+        self.assertEqual(pet["attrs"].get("aria-label"), "아이오와 새 대화")
+        self.assertEqual(html.count('aria-label="아이오와 새 대화"'), 1)
         self.assertNotIn("테크모에게 묻기", html)
-        # 그림과 안쪽 요소는 손대지 않았다.
+        # 버튼은 새 대화를, 그림은 캐릭터를 가리킨다.
         image, floater = pet["children"]
-        self.assertEqual(image["attrs"], {"src": "/chat-assets/techmo-sprite.png", "alt": "",
+        self.assertEqual(image["attrs"], {"src": "/chat-assets/techmo-sprite.png", "alt": "테크모",
                                           "width": "960", "height": "192"})
         self.assertEqual(floater["attrs"].get("class"), "pet-float")
         self.assertNotIn("data-action", pet["attrs"])
