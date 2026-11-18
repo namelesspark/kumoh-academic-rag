@@ -3127,7 +3127,7 @@ function setupHandwriting() {
   const undo = find("undo"), clear = find("clear"), cancel = find("cancel"), insert = find("insert");
   if (![button, pad, canvas, status, undo, clear, cancel, insert].every(node => typeof node?.addEventListener === "function")) return;
   let opened = false, strokes = [], penSeen = false, reading = null, session = 0, selection = null, context = null, box = null, origin = null, ink = null, owner = null;
-  let base = null, scale = 1, undoRanges = [], redoRanges = [], lastEditType = null;
+  let base = null, scale = 1, undoRanges = [], redoRanges = [], lastEditType = null, lastEditCaret = null;
   const active = new Map();
   function controls() {
     const blank = strokes.length === 0, waiting = Boolean(reading);
@@ -3220,7 +3220,7 @@ function setupHandwriting() {
     opened = true; session++;
     strokes = []; active.clear(); penSeen = false; reading = null; box = null; base = null; scale = 1;
     selection = caret();
-    undoRanges = []; redoRanges = []; lastEditType = null;
+    undoRanges = []; redoRanges = []; lastEditType = null; lastEditCaret = null;
     // 패드는 연 순간의 계정·대화에 묶인다. 그 뒤 대화가 바뀌면(사진을 붙여 새 대화로 보낸 경우 등) 넣기 전에 버린다.
     owner = { account: historyAccount, conversation: activeConversation };
     pad.hidden = false;
@@ -3336,14 +3336,17 @@ function setupHandwriting() {
     const previous = selection;
     selection = { start, end: collapsed ? start : Math.max(start, move(selection.end, "end")), value: after };
     if (history) { lastEditType = null; return; }
-    // 브라우저처럼 같은 종류의 편집이 이어지면(연속 삭제, 연속 입력) 한 묶음으로 보고, 묶음이 시작될 때의 범위만 쌓는다.
-    // 브라우저도 이어 친 삭제를 실행 취소 한 번에 되돌리므로, 몇 번을 이어 지우든 기록은 하나만 늘어난다.
+    // 브라우저처럼 같은 종류의 편집이 같은 자리에서 이어지면(이어 친 삭제·입력) 한 묶음으로 보고, 묶음이 시작될 때의 범위만 쌓는다.
+    // "같은 자리"는 이번 편집이 직전 편집이 끝난 커서에서 시작하거나(입력) 끝나는(뒤로 지우기) 경우다.
+    // 커서를 옮겨 다른 곳을 지우면 브라우저도 실행 취소 묶음을 새로 시작하므로 여기서도 새 묶음이다.
     // 묶음 수만 세므로 기록 상한(200)은 맨 앞(패드를 열 때의 범위)을 남긴 채 가장 오래된 중간 묶음부터 버린다.
-    if (!inputType || inputType !== lastEditType || !undoRanges.length) {
+    const contiguous = inputType && inputType === lastEditType && (prefix === lastEditCaret || editEnd === lastEditCaret);
+    if (!contiguous || !undoRanges.length) {
       undoRanges.push({ ...previous });
       if (undoRanges.length > 200) undoRanges.splice(1, 1);
     }
     lastEditType = inputType || null;
+    lastEditCaret = caretAt;
     redoRanges = [];
   }
   function placeText(text) {

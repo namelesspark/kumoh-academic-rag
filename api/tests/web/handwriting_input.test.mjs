@@ -781,6 +781,25 @@ test("획을 긋는 도중 패드가 스크롤로 움직여도 지금 캔버스 
   assert.deepEqual([page.exports[0].canvas.width, page.exports[0].canvas.height], [70, 190]);
 });
 
+test("커서를 옮겨 따로 지운 두 삭제는 다른 묶음이라, 마지막 삭제만 되돌리면 그 직전 범위로 돌아온다", async () => {
+  const page = loadPad();
+  page.input.value = "ABCD";
+  // 「B」를 고른다.
+  page.input.selectionStart = 1; page.input.selectionEnd = 2;
+  page.button.click();
+  // 커서를 끝으로 옮겨 D를 지운다.
+  page.type("ABC", 3, "deleteContentBackward");
+  // 커서를 B 뒤로 옮겨 B를 지운다. 직전 삭제가 끝난 자리(3)가 아니므로 새 묶음이다.
+  page.type("AC", 1, "deleteContentBackward");
+  // 마지막 삭제만 되돌린다.
+  page.type("ABC", 2, "historyUndo");
+  page.stroke([10, 10], [60, 60]);
+  page.respond(ok("fake"));
+  page.insert.click();
+  await settle();
+  assert.equal(page.input.value, "AfakeC");
+});
+
 test("보통 편집으로 전에 본 글이 다시 나와도 실행 취소로 보지 않고 편집을 따라간다", async () => {
   const page = loadPad();
   page.input.value = "AA";
