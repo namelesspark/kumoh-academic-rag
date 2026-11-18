@@ -11,7 +11,15 @@
   <div class="campus-backdrop" aria-hidden="true">
     <canvas id="campus-canvas" aria-hidden="true" hidden></canvas>
     <div class="campus-overlay"></div>
-    <div id="campus-caption" class="campus-caption" hidden><span id="campus-name"></span><div id="campus-progress"></div></div>
+  </div>
+  <!-- 캠퍼스 사진 캡션(#128). 배경이 실제로 움직일 때만 chat.js가 hidden을 푼다. 사진 이름과 진행 표시는 장식이라 낭독기에서 숨기고,
+       버튼만 읽힌다. 버튼 이름은 고정이고 멈춘 상태는 aria-pressed로 알린다. 영어·중국어 이름은 chat.js가 t()로 넣는다. -->
+  <div id="campus-caption" class="campus-caption" hidden>
+    <div class="campus-caption-text" aria-hidden="true"><span id="campus-name"></span><div id="campus-progress"></div></div>
+    <button type="button" id="campus-motion-toggle" aria-pressed="false" aria-label="배경 움직임 일시정지">
+      <svg class="motion-icon motion-icon-pause" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>
+      <svg class="motion-icon motion-icon-play" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.4-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z"/></svg>
+    </button>
   </div>
   <section id="login-screen" class="login-screen" aria-labelledby="login-title">
     <!-- 언어 선택 알약. 머리글의 같은 버튼과 함께 chat.js가 글자와 aria-label을 바꾸고, 누르면 언어 메뉴를 연다. -->
@@ -265,6 +273,8 @@
         <p class="pet-says">
           <span id="pet-line">궁금한 점을 물어보세요</span>
           <span class="pet-dots" id="pet-dots" aria-hidden="true" hidden><span></span><span></span><span></span></span>
+          <!-- 말풍선 꼬리. 채움이 말풍선 선을 덮고 두 빗변만 선을 그어 외곽선이 이어진다. 위치와 방향은 chat.css가 정한다. -->
+          <svg class="pet-tail" viewBox="0 0 20 12" aria-hidden="true" focusable="false"><path class="pet-tail-fill" d="M0 0 L10 11.5 L20 0 Z"/><path class="pet-tail-line" d="M0 0 L10 11.5 L20 0"/></svg>
         </p>
         <button type="button" class="pet" id="pet" aria-label="아이오와 새 대화" data-brand-slot hidden>
           <img src="/chat-assets/techmo-sprite.png" alt="테크모" width="960" height="192">
