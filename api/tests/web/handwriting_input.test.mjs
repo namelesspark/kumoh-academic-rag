@@ -911,6 +911,32 @@ test("높이만 줄인 칸의 가로 여유 자리에 쓴 점도 크기를 되�
   assert.ok(Math.abs(steady[1] - 2 * 600 / 826.5) < 1e-9, String(steady));
 });
 
+test("칸 밖으로 그어 잘린 부분은 실패 뒤 칸을 넓혀 다시 넣어도 되살아나지 않는다", async () => {
+  const page = loadPad();
+  page.button.click();
+  // 폭 600px 칸에서 (590, 100)부터 오른쪽 경계 밖 (700, 100)까지 긋는다.
+  page.stroke([590, 100], [700, 100]);
+  page.respond(refused(503));
+  page.insert.click();
+  await settle();
+  assert.equal(page.status.textContent, messages.unavailable);
+  // 칸을 750px로 넓힌 뒤 다시 넣는다.
+  Object.assign(page.canvasRect, { width: 750, right: 850 });
+  page.resize();
+  page.respond(ok("가상"));
+  page.insert.click();
+  await settle();
+  // 저장한 잉크는 쓸 때의 경계(600 + 굵기 절반 1.5)까지다. 가로 588.5~603 = 14.5 + 32 = 46.5, 배율 2.
+  const [first, second] = page.exports;
+  assert.equal(first.canvas.width, 87);
+  assert.equal(second.canvas.width, 93, "the clipped part does not come back (it was 290px)");
+  const xs = second.canvas.log.filter(call => call[0] === "lineTo").map(call => call[1]);
+  assert.ok(xs.every(x => x <= 601.5 + 1e-9), String(xs));
+  // 화면에 다시 그린 획도 경계를 넘지 않는다.
+  const drawn = page.canvas.log.filter(call => call[0] === "lineTo").map(call => call[1]);
+  assert.ok(drawn.every(x => x <= 601.5 + 1e-9), String(drawn));
+});
+
 test("창 크기 신호 없이 입력 줄과 필기 칸 폭만 바뀌어도 그리기 버퍼를 새 폭에 맞춘다", () => {
   const page = loadPad();
   page.button.click();

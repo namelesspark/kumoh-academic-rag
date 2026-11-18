@@ -3039,6 +3039,8 @@ function drawHandwritingStroke(context, stroke, from = 0) {
   }
   for (let index = Math.max(1, from); index < points.length; index++) {
     const before = points[index - 1], point = points[index];
+    // gap 점은 칸 밖에 나갔다가 다시 들어온 자리다. 앞 점과 잇지 않고 여기서 새로 시작한다.
+    if (point.gap) continue;
     // 좌표는 그대로이고 압력만 바뀐 신호는 길이 0인 선이다. 캔버스는 길이 0인 선을 그리지 않으므로 점으로 찍는다.
     if (before.x === point.x && before.y === point.y) {
       context.beginPath();
@@ -3085,6 +3087,7 @@ function handwritingBounds(strokes, area = null) {
       continue;
     }
     for (let index = 1; index < points.length; index++) {
+      if (points[index].gap) continue;
       const half = Math.max(handwritingWidth(stroke, points[index - 1]), handwritingWidth(stroke, points[index])) / 2;
       for (const point of clipHandwritingSegment(points[index - 1], points[index], area, half) ?? []) add(point, half);
     }
@@ -3171,9 +3174,9 @@ function setupHandwriting() {
       // 기준 칸은 본 적 있는 가장 큰 칸 크기와, 쓸 때 칸 안에 있던 잉크의 범위 중 큰 쪽이다.
       // 높이만 줄어 가로에 여유가 생긴 칸에서 쓴 획(기준 칸 밖 좌표)도 크기를 되돌린 뒤 기준 칸 안에 남는다.
       // 칸 밖으로 끌고 나간 점(쓸 때 칸 밖)은 넓히는 데 쓰지 않아, 보이지 않던 잉크가 다시 나타나거나 서버로 가지 않는다.
+      // 저장한 점은 쓰는 순간 칸 경계에서 잘라 두었으므로(pointermove) 모두 그때 보이던 잉크다.
       let width = box.width, height = box.height;
       for (const stroke of strokes) for (const point of stroke.points) {
-        if (!point.inside) continue;
         const half = handwritingWidth(stroke, point) / 2;
         width = Math.max(width, point.x + half); height = Math.max(height, point.y + half);
       }
@@ -3441,11 +3444,8 @@ function setupHandwriting() {
   }
   function point(event) {
     const pressure = typeof event.pressure === "number" && event.pressure > 0 ? Math.min(1, event.pressure) : .5;
-    // 화면 좌표를 기준 좌표로 바꿔 저장한다(배율로 나눈다). 쓸 때 보이는 칸 안이었는지도 함께 적는다.
-    const x = (event.clientX - (origin?.left || 0)) / scale, y = (event.clientY - (origin?.top || 0)) / scale;
-    const area = visibleArea();
-    const inside = !area || (x >= 0 && y >= 0 && x <= area.width && y <= area.height);
-    return { x, y, p: pressure, inside };
+    // 화면 좌표를 기준 좌표로 바꾼다(배율로 나눈다).
+    return { x: (event.clientX - (origin?.left || 0)) / scale, y: (event.clientY - (origin?.top || 0)) / scale, p: pressure };
   }
   function dropStroke(stroke) {
     const index = strokes.indexOf(stroke);
@@ -3475,7 +3475,9 @@ function setupHandwriting() {
     if (rect) origin = { left: rect.left, top: rect.top };
     if (context && inkColor() !== ink) redraw();
     canvas.setPointerCapture?.(event.pointerId);
-    const stroke = { type, points: [point(event)] };
+    const first = point(event);
+    // last는 잘라 내기 전의 마지막 포인터 자리다. 다음 선분을 칸 경계에서 자를 때 쓴다.
+    const stroke = { type, points: [first], last: first, broken: false };
     strokes.push(stroke); active.set(event.pointerId, stroke);
     if (context) { paint(); drawHandwritingStroke(context, stroke); }
     controls();
@@ -3489,7 +3491,21 @@ function setupHandwriting() {
     if (rect) origin = { left: rect.left, top: rect.top };
     const coalesced = typeof event.getCoalescedEvents === "function" ? event.getCoalescedEvents() : [];
     const from = stroke.points.length;
-    for (const each of coalesced?.length ? coalesced : [event]) stroke.points.push(point(each));
+    // 선분마다 쓰는 순간의 보이는 칸 경계(굵기 절반만큼 넓힌 상자)에서 잘라 그 안의 조각만 저장한다.
+    // 칸 밖으로 나간 부분은 기록하지 않으므로, 나중에 칸이 넓어져도 처음 잘린 잉크가 되살아나거나 서버로 가지 않는다.
+    // 칸 밖에 나갔다 다시 들어오면 들어온 자리를 gap 점으로 넣어 앞 조각과 잇지 않는다.
+    const area = visibleArea();
+    for (const each of coalesced?.length ? coalesced : [event]) {
+      const next = point(each);
+      const piece = area ? clipHandwritingSegment(stroke.last, next, area, handwritingWidth(stroke, next) / 2) : [stroke.last, next];
+      stroke.last = next;
+      if (!piece) { stroke.broken = true; continue; }
+      const [enter, leave] = piece;
+      const tail = stroke.points[stroke.points.length - 1];
+      if (stroke.broken || enter.x !== tail.x || enter.y !== tail.y) stroke.points.push({ x: enter.x, y: enter.y, p: next.p, gap: true });
+      stroke.broken = false;
+      stroke.points.push({ x: leave.x, y: leave.y, p: next.p });
+    }
     if (context) { paint(); drawHandwritingStroke(context, stroke, from); }
   });
   for (const name of ["pointerup", "lostpointercapture"]) canvas.addEventListener(name, event => { active.delete(event.pointerId); });
