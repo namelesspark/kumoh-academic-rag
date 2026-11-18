@@ -3125,7 +3125,7 @@ function setupHandwriting() {
   const undo = find("undo"), clear = find("clear"), cancel = find("cancel"), insert = find("insert");
   if (![button, pad, canvas, status, undo, clear, cancel, insert].every(node => typeof node?.addEventListener === "function")) return;
   let opened = false, strokes = [], penSeen = false, reading = null, session = 0, selection = null, context = null, box = null, origin = null, ink = null, owner = null;
-  let base = null, scale = 1;
+  let base = null, scale = 1, editHistory = [];
   const active = new Map();
   function controls() {
     const blank = strokes.length === 0, waiting = Boolean(reading);
@@ -3157,16 +3157,18 @@ function setupHandwriting() {
     paint();
     for (const stroke of strokes) drawHandwritingStroke(context, stroke);
   }
-  // 획은 패드를 연 뒤 처음 잰 칸 크기(base)를 기준 좌표로 저장하고, 저장한 점은 바꾸지 않는다.
-  // 회전·창 크기 변화로 칸이 바뀌면 배율만 다시 정해(가로·세로 비율 중 작은 쪽) 화면에 그릴 때만 늘리거나 줄인다.
-  // 그래서 600→400→600처럼 오가도 획은 처음 크기로 돌아오고, 왕복할수록 작아지지 않는다. 그리던 획은 그때 끝낸다.
-  // 캔버스 화소는 보이는 크기 × 기기 화소 비율이다.
+  // 획은 기준 좌표(base)로 저장하고, 저장한 점은 바꾸지 않는다. 기준 칸은 이번 패드에서 본 가장 큰 칸 크기라 넓어지기만 한다.
+  // 화면에 그릴 때만 배율(기준 칸이 지금 칸에 다 들어가는 비율, 1 이하)을 곱한다.
+  // 그래서 600→400→600처럼 오가도 획은 처음 크기로 돌아오고, 400→600에서 오른쪽 끝에 쓴 점도 400으로 줄면 함께 줄어 보인다.
+  // 왕복할수록 작아지지 않는다. 칸 크기가 바뀌면 그리던 획은 끝낸다. 캔버스 화소는 보이는 크기 × 기기 화소 비율이다.
   function prepare() {
     const before = box;
     box = canvas.getBoundingClientRect?.() ?? null;
-    if (!base && box?.width > 0 && box?.height > 0) base = { width: box.width, height: box.height };
+    if (box?.width > 0 && box?.height > 0) {
+      base = { width: Math.max(base?.width || 0, box.width), height: Math.max(base?.height || 0, box.height) };
+    }
     if (before && box && (before.width !== box.width || before.height !== box.height)) active.clear();
-    scale = base && box?.width > 0 && box?.height > 0 ? Math.min(box.width / base.width, box.height / base.height) : 1;
+    scale = base && box?.width > 0 && box?.height > 0 ? Math.min(1, box.width / base.width, box.height / base.height) : 1;
     origin = box ? { left: box.left, top: box.top } : null;
     const ratio = window.devicePixelRatio || 1;
     canvas.width = Math.max(1, Math.round((box?.width || 0) * ratio));
@@ -3184,12 +3186,11 @@ function setupHandwriting() {
     pad.style?.setProperty("--handwriting-width", `${row.width}px`);
     // 최대 높이로 잘려 있을 수 있으므로 내용 전체 높이(scrollHeight)와 견줘 큰 쪽을 패드 높이로 본다.
     const own = Math.max(pad.getBoundingClientRect?.().height || 0, Number(pad.scrollHeight) || 0);
-    // 와이어프레임대로 입력 줄 위(8px 띄움)가 기본이다. 위에는 모자라고 아래에는 다 들어갈 때만 줄 아래로 연다.
-    // 둘 다 모자라면 위에 두고 패드 안에서 스크롤한다.
-    // 위에 놓을 때는 아래 끝(bottom)을, 아래에 놓을 때는 위 끝(top)을 입력 줄에서 8px 띄워 묶고,
-    // 그 쪽 남은 높이를 최대 높이로 준다. 상태 줄이 생겨 커져도 입력 줄 쪽으로 밀려나지 않는다.
+    // 수용 조건대로 넓은 화면에서는 입력 줄 위(8px 띄움)에 연다. 위쪽이 패드보다 낮으면 최대 높이를 위쪽 남은 높이로 줄여
+    // 패드 안에서 스크롤한다. 아래 끝(bottom)을 입력 줄 위 8px에 묶으므로 상태 줄이 생겨 커져도 입력 줄을 덮지 않는다.
+    // 입력 줄이 스크롤로 화면 맨 위에 붙거나 밖으로 나가 위쪽이 120px도 안 남을 때만 줄 아래(top 고정)로 연다.
     const room = { above: row.top - 16, below: height - row.bottom - 16 };
-    const up = room.above >= own || room.below < own;
+    const up = room.above >= Math.min(own, 120);
     if (up) {
       pad.style?.setProperty("--handwriting-top", "auto");
       pad.style?.setProperty("--handwriting-bottom", `${Math.max(8, height - row.top + 8)}px`);
@@ -3206,6 +3207,7 @@ function setupHandwriting() {
     opened = true; session++;
     strokes = []; active.clear(); penSeen = false; reading = null; box = null; base = null; scale = 1;
     selection = caret();
+    editHistory = [{ ...selection }];
     // 패드는 연 순간의 계정·대화에 묶인다. 그 뒤 대화가 바뀌면(사진을 붙여 새 대화로 보낸 경우 등) 넣기 전에 버린다.
     owner = { account: historyAccount, conversation: activeConversation };
     pad.hidden = false;
@@ -3276,10 +3278,14 @@ function setupHandwriting() {
   // 패드가 열린 동안 질문 칸에서 글이 바뀔 때마다(키보드·Scribble 모두 input 이벤트) 적어 둔 자리를 옮긴다.
   // 글자 비교만으로는 같은 글을 앞에 붙였는지 뒤에 붙였는지 가를 수 없어, 고친 직후의 커서를 기준으로 삼는다.
   // 커서 뒤 글자는 이번 편집에서 그대로이므로 공통 끝 부분을 커서 뒤까지만 인정하고, 공통 앞 부분은 그 나머지 안에서만 센다.
+  // 실행 취소·다시 실행으로 전에 본 글이 그대로 돌아오면, 그 글일 때 적어 둔 범위로 되돌린다.
+  // 지운 범위는 다시 만들 수 없으므로 이렇게 해야 실행 취소 뒤 원래 선택이 살아난다. 패드를 열 때마다 비우고 50개까지만 둔다.
   function noteEdit() {
     if (!opened || !selection) return;
     const before = selection.value, after = input.value;
     if (before === after) return;
+    const seen = editHistory.findLast?.(entry => entry.value === after) ?? [...editHistory].reverse().find(entry => entry.value === after);
+    if (seen) { selection = { ...seen }; return; }
     const caretAt = Number.isInteger(input.selectionEnd) ? Math.min(input.selectionEnd, after.length) : after.length;
     let suffix = 0;
     while (suffix < before.length && suffix < after.length - caretAt &&
@@ -3300,6 +3306,8 @@ function setupHandwriting() {
     const collapsed = selection.start === selection.end;
     const start = move(selection.start, "start");
     selection = { start, end: collapsed ? start : Math.max(start, move(selection.end, "end")), value: after };
+    editHistory.push({ ...selection });
+    if (editHistory.length > 50) editHistory.shift();
   }
   function placeText(text) {
     const spot = savedRange();
@@ -3443,16 +3451,15 @@ function setupHandwriting() {
   });
   cancel.addEventListener("click", () => closePad(true));
   insert.addEventListener("click", () => { void read(); });
-  // 패드는 문서에서 <main> 뒤에 있다. 열린 동안 Tab을 이어 주어 펜 버튼 → 캔버스 → 되돌리기 → 지우기 → 취소 → 넣기 → 질문 칸 순서로 돈다.
-  const lastControl = () => [insert, cancel].find(control => !control.disabled);
+  // 패드는 문서에서 <main> 뒤, 테크모 앞에 있다. 열린 동안 펜 버튼의 Tab만 캔버스로 이어 주어
+  // 펜 버튼 → 캔버스 → 되돌리기 → 지우기 → 취소 → 넣기 순서가 되고, 캔버스의 Shift+Tab은 펜 버튼으로 돌아간다.
+  // 넣기 다음은 문서 순서 그대로 테크모 쪽으로 나간다. 질문 칸으로 되돌리면 Tab이 패드와 입력 줄 사이를 맴돌아 그 뒤로 갈 수 없다.
   pad.addEventListener("keydown", event => {
     if (event.key === "Escape") {
       event.preventDefault?.(); event.stopPropagation?.();
       closePad(true);
     } else if (event.key === "Tab" && event.shiftKey && document.activeElement === canvas) {
       event.preventDefault?.(); button.focus();
-    } else if (event.key === "Tab" && !event.shiftKey && document.activeElement === lastControl()) {
-      event.preventDefault?.(); input.focus();
     }
   });
   // 초점이 패드 밖(질문 칸 등)에 있어도 열린 동안 Esc는 패드를 닫고 읽던 요청을 끊는다.

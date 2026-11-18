@@ -691,6 +691,41 @@ test("고른 범위 바로 앞이나 바로 뒤에 쓴 글은 범위 밖이라 �
   assert.equal(back.input.value, "XfakeZW");
 });
 
+test("고른 글자를 지웠다가 실행 취소로 되살리면 원래 범위로 돌아온다", async () => {
+  const page = loadPad();
+  page.input.value = "XXY";
+  page.input.selectionStart = 2; page.input.selectionEnd = 3;
+  page.button.click();
+  page.type("XX", 2);
+  // 실행 취소는 지운 글자를 되살리고 그 글자를 다시 고른다. 커서가 어디에 있든 전에 본 글이면 그때 범위를 쓴다.
+  page.type("XXY", 3);
+  page.stroke([10, 10], [60, 60]);
+  page.respond(ok("fake"));
+  page.insert.click();
+  await settle();
+  assert.equal(page.input.value, "XXfake");
+});
+
+test("400→600으로 넓힌 칸의 오른쪽 끝에 쓴 점은 다시 400으로 좁혀도 함께 줄어 보이고 그대로 보낸다", async () => {
+  const page = loadPad();
+  Object.assign(page.canvasRect, { width: 400, right: 500 });
+  page.button.click();
+  Object.assign(page.canvasRect, { width: 600, right: 700 });
+  page.resize();
+  page.pointer("pointerdown", { x: 550, y: 100 });
+  page.pointer("pointerup", { x: 550, y: 100 });
+  Object.assign(page.canvasRect, { width: 400, right: 500 });
+  page.resize();
+  // 기준 칸이 600px로 넓어졌으므로 400px 칸에는 2/3로 그린다.
+  const transform = page.canvas.log.filter(call => call[0] === "setTransform").at(-1);
+  assert.ok(Math.abs(transform[1] - 4 / 3) < 1e-9, String(transform));
+  page.respond(ok("가상"));
+  page.insert.click();
+  await settle();
+  assert.equal(page.requests.length, 1, "the dot is still inside the visible area");
+  assert.notEqual(page.status.textContent, messages.unreadable);
+});
+
 test("여러 번 나눠 고쳐도 고칠 때마다 고른 범위를 따라간다", async () => {
   const page = loadPad();
   page.input.value = "휴학 신청은 언제까지?";
@@ -742,24 +777,33 @@ test("넓은 화면에서 문서가 스크롤되면 패드를 입력 줄 바로 
   assert.equal(page.pad.style.properties.get("--handwriting-bottom"), "auto");
 });
 
-test("입력 줄 위 자리가 모자라 줄 아래로 열린 패드는 위 끝을 묶어, 상태 줄이 생겨도 입력 줄을 덮지 않는다", async () => {
+test("넓은 화면에서는 위쪽이 패드보다 낮아도 입력 줄 위에 열고, 위쪽 남은 높이 안에서 스크롤한다", () => {
   const page = loadPad();
-  // 화면 높이 800px, 입력 줄 190~250px. 위쪽 182px에는 320px 패드가 들어가지 않는다.
+  // 화면 높이 800px, 입력 줄 190~250px, 패드 320px. 위쪽은 174px만 남지만 줄 아래로 내리지 않는다.
   Object.assign(page.rowRect, { top: 190, bottom: 250 });
   page.button.click();
-  assert.equal(page.pad.style.properties.get("--handwriting-top"), "258px");
+  assert.equal(page.pad.style.properties.get("--handwriting-bottom"), "618px");
+  assert.equal(page.pad.style.properties.get("--handwriting-top"), "auto");
+  assert.equal(page.pad.style.properties.get("--handwriting-max-height"), "174px");
+});
+
+test("입력 줄이 화면 맨 위에 붙어 위쪽이 120px도 안 남을 때만 줄 아래로 열고 위 끝을 묶어 아래로만 자란다", async () => {
+  const page = loadPad();
+  // 입력 줄 100~160px. 위쪽은 84px다.
+  Object.assign(page.rowRect, { top: 100, bottom: 160 });
+  page.button.click();
+  assert.equal(page.pad.style.properties.get("--handwriting-top"), "168px");
   assert.equal(page.pad.style.properties.get("--handwriting-bottom"), "auto");
   page.stroke([10, 10], [60, 60]);
-  // 넣기를 누르면 상태 줄이 생겨 패드가 13px 커진다. 위 끝은 그대로라 아래로만 자란다.
+  // 넣기를 누르면 상태 줄이 생겨 패드가 13px 커진다. 위 끝은 그대로라 입력 줄을 덮지 않는다.
   page.padRect.height = 333;
   page.respond(refused(503));
   page.insert.click();
   await settle();
   assert.equal(page.status.textContent, messages.unavailable);
-  assert.equal(page.pad.style.properties.get("--handwriting-top"), "258px");
-  assert.equal(page.pad.style.properties.get("--handwriting-bottom"), "auto");
-  // 아래쪽 남은 높이(800 - 258 - 8)가 최대 높이다.
-  assert.equal(page.pad.style.properties.get("--handwriting-max-height"), "534px");
+  assert.equal(page.pad.style.properties.get("--handwriting-top"), "168px");
+  // 아래쪽 남은 높이(800 - 168 - 8)가 최대 높이다.
+  assert.equal(page.pad.style.properties.get("--handwriting-max-height"), "624px");
 });
 
 test("입력 줄 위아래 어느 쪽에도 패드가 다 들어가지 않으면 와이어프레임대로 위에 두고, 커져도 그 높이 안에서 스크롤한다", async () => {
@@ -783,14 +827,14 @@ test("입력 줄 위아래 어느 쪽에도 패드가 다 들어가지 않으면
 
 test("질문 칸을 늘려 입력 줄 크기만 바뀌어도 패드를 다시 놓아 입력 줄을 덮지 않는다", () => {
   const page = loadPad();
-  // 위쪽 234px에는 320px 패드가 들어가지 않고 아래쪽 474px에는 들어가므로 줄 아래로 연다.
   Object.assign(page.rowRect, { top: 250, bottom: 310 });
   page.button.click();
-  assert.equal(page.pad.style.properties.get("--handwriting-top"), "318px");
-  // 질문 칸을 세로로 늘려 입력 줄 아래 끝이 366px가 됐다. scroll·resize 신호 없이 크기 변화 신호만 온다.
-  page.rowRect.bottom = 366;
+  assert.equal(page.pad.style.properties.get("--handwriting-bottom"), "558px");
+  // 질문 칸이 위로 늘어나 입력 줄 위 끝이 200px가 됐다. scroll·resize 신호 없이 크기 변화 신호만 온다.
+  page.rowRect.top = 200;
   page.rowResized();
-  assert.equal(page.pad.style.properties.get("--handwriting-top"), "374px");
+  assert.equal(page.pad.style.properties.get("--handwriting-bottom"), "608px");
+  assert.equal(page.pad.style.properties.get("--handwriting-max-height"), "184px");
 });
 
 test("다른 손가락으로 넣기를 누를 때 펜이 닿아 있어도 그 획을 끝내, 화면과 보내는 그림이 같다", async () => {
@@ -952,10 +996,8 @@ test("읽는 중 초점이 질문 칸으로 나가도 Esc는 패드를 닫고 �
   const held = page.hold();
   page.insert.click();
   await settle();
-  // 취소에서 Tab으로 질문 칸에 나간다.
-  page.state.focused = page.cancel;
-  page.pad.fire("keydown", { key: "Tab" });
-  assert.equal(page.state.focused, page.input);
+  // 질문 칸을 눌러 초점이 패드 밖으로 나간다.
+  page.input.focus();
   const escape = page.documentKey("Escape");
   assert.equal(escape.defaultPrevented, true);
   assert.equal(page.pad.hidden, true);
@@ -1044,7 +1086,7 @@ test("캔버스 밖으로 나갔다 돌아온 획은 보이는 칸 안만 잘라
   assert.equal(outside.status.textContent, messages.unreadable);
 });
 
-test("열린 동안 Tab은 펜 버튼 → 캔버스, 캔버스 Shift+Tab → 펜 버튼, 마지막 버튼 Tab → 질문 칸으로 잇는다", () => {
+test("열린 동안 Tab은 펜 버튼 → 캔버스, 캔버스 Shift+Tab → 펜 버튼이고, 마지막 버튼 뒤는 문서 순서대로 테크모로 나간다", () => {
   const page = loadPad();
   page.button.click();
   page.button.focus();
@@ -1052,16 +1094,14 @@ test("열린 동안 Tab은 펜 버튼 → 캔버스, 캔버스 Shift+Tab → 펜
   assert.equal(page.state.focused, page.canvas);
   assert.equal(page.pad.fire("keydown", { key: "Tab", shiftKey: true }).prevented, true);
   assert.equal(page.state.focused, page.button);
-  // 획이 없어 넣기가 잠기면 취소가 마지막 버튼이다.
+  // 마지막 버튼(넣기, 잠겼으면 취소)의 Tab은 가로채지 않아 패드 뒤의 테크모 버튼으로 간다. 질문 칸으로 돌려보내지 않는다.
   page.cancel.focus();
-  assert.equal(page.pad.fire("keydown", { key: "Tab" }).prevented, true);
-  assert.equal(page.state.focused, page.input);
+  assert.equal(page.pad.fire("keydown", { key: "Tab" }).prevented, false);
   page.stroke([10, 10], [60, 60]);
-  page.cancel.focus();
-  assert.equal(page.pad.fire("keydown", { key: "Tab" }).prevented, false, "Insert still follows Cancel");
   page.insert.focus();
-  assert.equal(page.pad.fire("keydown", { key: "Tab" }).prevented, true);
-  assert.equal(page.state.focused, page.input);
+  assert.equal(page.pad.fire("keydown", { key: "Tab" }).prevented, false);
+  // 문서 순서상 패드는 테크모 바로 앞이다.
+  assert.ok(html.indexOf('id="handwriting-insert"') < html.indexOf('id="pet"'));
   // 닫힌 뒤 펜 버튼의 Tab은 원래 순서를 따른다.
   page.cancel.click();
   assert.equal(page.button.fire("keydown", { key: "Tab" }).prevented, false);
