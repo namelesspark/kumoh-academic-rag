@@ -334,6 +334,9 @@ test("펫의 움직임 네 가지는 서로 다른 요소·속성에 걸고, 움
     ["::view-transition-new(feature-cards)", "feature-cards-out .2s ease reverse both"],
     [".login-card", "login-rise .8s ease-out"],
     [".login-techmo", "login-float 3.6s ease-in-out infinite"],
+    // #128: 말풍선이 나타날 때 커지는 움직임과, 프레임 재생과 같은 움직임 줄이기 묶음에서 그것을 끄는 규칙.
+    ['.pet-dock[data-bubble-visible="true"] .pet-says', "pet-says-in .2s ease-out"],
+    ['.pet-dock .pet-says, .pet-dock[data-bubble-visible="true"] .pet-says', "none !important"],
   ]);
   // 움직임 줄이기 묶음은 하나뿐이고, 펫·대기 점·도형과 카드 전환을 함께 끈다.
   assert.ok(styles.split("prefers-reduced-motion").length >= 3);
