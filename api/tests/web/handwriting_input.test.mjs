@@ -1137,6 +1137,54 @@ test("보이는 띠가 겹치지 않게 바뀐 뒤 그은 선분은 두 띠 사�
   assert.equal(negative(image), false);
 });
 
+// 새 칸의 첫 점이 지금 칸으로 clip()한 채 제 굵기로 찍혔는지 본다. 좌표는 부동소수점 오차를 허용한다.
+function newAreaTip(log, x, y, radius, rect) {
+  const near = (a, b) => Math.abs(a - b) < 1e-6;
+  const at = log.findLastIndex(call => call[0] === "arc" && near(call[1], x) && near(call[2], y) && near(call[3], radius));
+  if (at < 0) return false;
+  return log.slice(0, at).findLast(call => call[0] === "rect").join() === ["rect", ...rect].join();
+}
+
+test("넓힌 직후 옛 폭 밖 새 칸에 약하게 옮긴 첫 점은 새 칸에서 보인다", async () => {
+  const page = loadPad();
+  page.button.click();
+  page.pointer("pointerdown", { id: 19, kind: "pen", x: 590, y: 30, pressure: 1 });
+  page.pointer("pointermove", { id: 19, kind: "pen", x: 700, y: 30, pressure: 1 });
+  Object.assign(page.canvasRect, { width: 750, right: 850 });
+  page.resize();
+  const before = page.canvas.log.length;
+  // 압력 0.1로 (601.5,130)에 옮긴다. 잇는 선은 겹치는 600 칸에서 잘리지만, 이 점(반지름 0.8)은 새 750 칸에서 보여야 한다.
+  page.pointer("pointermove", { id: 19, kind: "pen", x: 601.5, y: 130, pressure: 0.1 });
+  page.pointer("pointerup", { id: 19, kind: "pen", x: 601.5, y: 130 });
+  assert.ok(newAreaTip(page.canvas.log.slice(before), 601.5, 130, 0.8, [0, 0, 750, 200]), "on screen");
+  page.respond(ok("가상"));
+  page.insert.click();
+  await settle();
+  assert.ok(newAreaTip(page.exports[0].canvas.log, 601.5, 130, 0.8, [0, 0, 750, 200]), "in the image");
+});
+
+test("스크롤 직후 옛 끝 점과 같은 자리에 다시 놓아도 새 띠의 첫 점은 보인다", async () => {
+  const page = loadPad();
+  page.button.click();
+  Object.assign(page.padRect, { bottom: 450, height: 128 });
+  page.scroll();
+  // y 0~50이 보일 때 (100,45)→(100,52.4). 끝 점은 띠 밖이라 잉크가 50에서 잘린다.
+  page.pointer("pointerdown", { id: 20, kind: "pen", x: 100, y: 45, pressure: 1 });
+  page.pointer("pointermove", { id: 20, kind: "pen", x: 100, y: 52.4, pressure: 1 });
+  // 펜을 댄 채 y 52~100이 보이도록 스크롤하고 캔버스 기준 같은 자리 (100,52.4)에 다시 놓는다.
+  Object.assign(page.padRect, { bottom: 370, height: 48 });
+  Object.assign(page.canvasRect, { top: 270, bottom: 470 });
+  page.scroll();
+  const before = page.canvas.log.length;
+  page.pointer("pointermove", { id: 20, kind: "pen", x: 100, y: 52.4, pressure: 1 });
+  page.pointer("pointerup", { id: 20, kind: "pen", x: 100, y: 52.4 });
+  assert.ok(newAreaTip(page.canvas.log.slice(before), 100, 52.4, 2.6, [0, 52, 600, 48]), "on screen");
+  page.respond(ok("가상"));
+  page.insert.click();
+  await settle();
+  assert.ok(newAreaTip(page.exports[0].canvas.log, 100, 52.4, 2.6, [0, 52, 600, 48]), "in the image");
+});
+
 // 크기가 바뀐 뒤 첫 선분: 옛 경계(x ≤ 601.6)에서 시작하고 600×200 칸으로 clip()한 채 (590,130)에서 끝난다.
 function checkBridge(page, from, log = page.canvas.log) {
   const part = log.slice(from);

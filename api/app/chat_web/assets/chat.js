@@ -3620,12 +3620,13 @@ function setupHandwriting() {
       const bridge = !stroke.lastInside && !same(stroke.lastArea, area) ? handwritingClipMeet(stroke.lastArea, area) : area;
       const piece = bridge ? clipHandwritingSegment(stroke.last, next, bridge, w / 2) : [stroke.last, next];
       stroke.last = next; stroke.lastArea = area; stroke.lastInside = handwritingInside(next, area);
-      // 칸이 바뀐 직후 선분이 겹치는 칸에서 잘려 끝 점까지 닿지 못했는데(겹치는 칸이 비었을 때 포함) 끝 점은 지금 칸에서 보이면,
-      // 그 자리에서 펜을 새로 댄 것처럼 제 굵기로 점을 찍는다. 선은 겹치는 칸에서만 그리되 지금 보이는 자리의 잉크는 빠지지 않는다.
+      // 칸이 바뀐 직후 선분(bridge가 지금 칸과 다를 때)은 겹치는 칸으로만 그리므로, 끝 점이 지금 칸에서 보여도 그 점의 잉크가
+      // 겹치는 칸 밖이면 잘린다. 그래서 이런 선분 끝에는 좌표를 따지지 않고 늘 지금 칸으로 끝 점을 새로 찍어 다시 시작한다.
+      // "선이 끝 점에 닿았나·앞 점과 좌표가 같나"로 가르면, 그리는 칸과 따지는 칸이 달라 새 칸의 첫 점이 되풀이해 빠졌다.
+      // 이미 같은 자리에 선 끝이 있어도 같은 잉크 위에 한 번 더 찍을 뿐이라 모양이 바뀌지 않는다.
       const restart = () => {
+        if (bridge === area) return false;
         const own = handwritingWidth(stroke, next);
-        const tip = stroke.points[stroke.points.length - 1];
-        if (bridge === area || (tip && !stroke.broken && tip.x === next.x && tip.y === next.y)) return false;
         if (!handwritingInkVisible(next, next, own / 2, area)) return false;
         stroke.points.push({ x: next.x, y: next.y, p: next.p, w: own, clip: area, gap: true });
         stroke.broken = false;
@@ -3640,7 +3641,7 @@ function setupHandwriting() {
       if (stroke.broken || enter.x !== tail.x || enter.y !== tail.y) add(enter, bridge, true);
       stroke.broken = false;
       add(leave, bridge);
-      if (leave.x !== next.x || leave.y !== next.y) restart();
+      restart();
     }
     if (context) { paint(); drawHandwritingStroke(context, stroke, from); }
   });
