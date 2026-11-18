@@ -208,6 +208,20 @@ const uiText = {
     "안내를 찾는 중…": "Looking it up…",
     "서버가 안내를 불러오지 못했어요.": "The server could not load the guide.",
     "서버 안내의 형식이 맞지 않아요.": "The server's guide data is malformed.",
+    "손글씨로 입력": "Handwriting input",
+    "필기 영역": "Writing area",
+    "되돌리기": "Undo",
+    "지우기": "Clear",
+    "넣기": "Insert",
+    "펜이나 손가락으로 쓰고 넣기를 누르면 읽은 글자가 입력창 커서 자리에 들어가요. 바로 보내지는 않아요.":
+      "Write with a pen or finger, then press Insert to put the recognized text at the cursor in the question box. It is not sent automatically.",
+    "글씨를 읽는 중…": "Reading your handwriting…",
+    "글씨를 읽지 못했어요. 또박또박 다시 쓰거나 고쳐 쓴 뒤 다시 넣어 주세요.": "Could not read the handwriting. Write more clearly or fix it, then press Insert again.",
+    "글씨 그림이 너무 커요. 일부를 지우고 다시 넣어 주세요.": "The handwriting image is too large. Erase part of it and press Insert again.",
+    "지금은 손글씨를 읽을 수 없어요. 잠시 뒤 다시 넣어 주세요.": "Handwriting cannot be read right now. Press Insert again in a moment.",
+    "읽는 시간이 너무 오래 걸렸어요. 다시 넣어 주세요.": "Reading took too long. Press Insert again.",
+    "서버에 연결하지 못했어요. 네트워크를 확인한 뒤 다시 넣어 주세요.": "Could not reach the server. Check your network and press Insert again.",
+    "서버가 글씨를 처리하지 못했어요. 다시 넣어 주세요.": "The server could not process the handwriting. Press Insert again.",
   },
   zh: {
     "테마": "主题",
@@ -407,6 +421,20 @@ const uiText = {
     "안내를 찾는 중…": "正在查找…",
     "서버가 안내를 불러오지 못했어요.": "服务器无法加载指南。",
     "서버 안내의 형식이 맞지 않아요.": "服务器指南数据格式不正确。",
+    "손글씨로 입력": "手写输入",
+    "필기 영역": "书写区域",
+    "되돌리기": "撤销",
+    "지우기": "清除",
+    "넣기": "插入",
+    "펜이나 손가락으로 쓰고 넣기를 누르면 읽은 글자가 입력창 커서 자리에 들어가요. 바로 보내지는 않아요.":
+      "用笔或手指书写后点击「插入」，识别出的文字会放到输入框的光标处，不会自动发送。",
+    "글씨를 읽는 중…": "正在识别手写内容…",
+    "글씨를 읽지 못했어요. 또박또박 다시 쓰거나 고쳐 쓴 뒤 다시 넣어 주세요.": "未能识别手写内容。请写得更工整或修改后再次点击「插入」。",
+    "글씨 그림이 너무 커요. 일부를 지우고 다시 넣어 주세요.": "手写图片过大。请擦除一部分后再次点击「插入」。",
+    "지금은 손글씨를 읽을 수 없어요. 잠시 뒤 다시 넣어 주세요.": "目前无法识别手写内容。请稍后再次点击「插入」。",
+    "읽는 시간이 너무 오래 걸렸어요. 다시 넣어 주세요.": "识别时间过长。请再次点击「插入」。",
+    "서버에 연결하지 못했어요. 네트워크를 확인한 뒤 다시 넣어 주세요.": "无法连接服务器。请检查网络后再次点击「插入」。",
+    "서버가 글씨를 처리하지 못했어요. 다시 넣어 주세요.": "服务器未能处理手写内容。请再次点击「插入」。",
   },
 };
 let uiLang = "ko";
@@ -740,6 +768,7 @@ function closeDrawer(restoreFocus = true) {
 }
 function openDrawer() {
   if (window.matchMedia?.("(max-width: 960px)")?.matches === false) return;
+  if (typeof closeHandwritingPad === "function") closeHandwritingPad(false);
   drawerOpen = true;
   if (sidebar) sidebar.inert = false;
   if (sidebar) sidebar.hidden = false;
@@ -762,6 +791,8 @@ function setChatView(next, push = true) {
   if (confirmRequest || menuRecord) focusInputAfterView = true;
   if (confirmRequest) closeConfirm(false, false);
   closeMenu(false);
+  // 입력 줄 자리가 바뀌므로 열린 필기 패드는 닫는다(#134).
+  if (next !== requestedChatView && typeof closeHandwritingPad === "function") closeHandwritingPad(false);
   requestedChatView = next;
   const sequence = ++screenSequence;
   const changed = next !== chatView;
@@ -2547,7 +2578,7 @@ const staticSources = new WeakMap();
 // 문서에 적힌 고정 문구만 바꾼다. 아래 자리는 스크립트가 직접 그리거나(메뉴·확인 창·제목), 서버 글과 사용자 글이 들어간다.
 const staticSkip = [".turn", "#conversation-list", "[data-panel-content]", ".title-fallback", ".main-title-fallback",
   "#ai-mode-button", ".lang-pill", ".choice-menu", ".conversation-menu", ".confirm-scrim", "#campus-caption",
-  "#demo-label", "#conversation-toast-open", "#conversation-announce", ".quicklink-track"].join(", ");
+  "#demo-label", "#conversation-toast-open", "#conversation-announce", ".quicklink-track", "#handwriting-status"].join(", ");
 function langChoice(value) {
   return langChoices.find(choice => choice.value === value) ?? langChoices[0];
 }
@@ -2945,6 +2976,325 @@ for (const control of landingControls) {
   });
 }
 
+// 손글씨 입력(#134). 펜 버튼이 form 밖의 필기 패드를 연다. 넓은 화면은 입력 줄 바로 위, 좁은 화면은 아래 시트다(chat.css).
+// 질문 칸(textarea)에는 처리기·덮개·touch-action을 붙이지 않는다. iPad 기본 손글씨 입력(Scribble)이 그 칸에서 그대로 동작해야 한다.
+// 이 패드를 연 동안 펜 입력을 한 번 보면 진행 중인 손가락 획을 지우고 이후 손가락은 무시한다(손바닥 거부).
+// 넣기는 잉크 범위에 여백을 두고 잘라 흰 바탕 PNG(긴 변 1024px 이하)로 서버에 보낸다. 그림은 저장하지 않는다.
+// 받은 글자는 패드를 열기 전 커서 자리에 넣기만 하고 보내지 않는다. 실패하면 획을 그대로 두어 다시 넣을 수 있다.
+const handwritingPath = "/api/v1/handwriting";
+const handwritingMaxBytes = 2_000_000;
+const handwritingMaxSide = 1024;
+const handwritingMargin = 16;
+const handwritingTimeoutMs = 30_000;
+const handwritingMessages = {
+  reading: "글씨를 읽는 중…",
+  unreadable: "글씨를 읽지 못했어요. 또박또박 다시 쓰거나 고쳐 쓴 뒤 다시 넣어 주세요.",
+  tooLarge: "글씨 그림이 너무 커요. 일부를 지우고 다시 넣어 주세요.",
+  unavailable: "지금은 손글씨를 읽을 수 없어요. 잠시 뒤 다시 넣어 주세요.",
+  timeout: "읽는 시간이 너무 오래 걸렸어요. 다시 넣어 주세요.",
+  offline: "서버에 연결하지 못했어요. 네트워크를 확인한 뒤 다시 넣어 주세요.",
+  failed: "서버가 글씨를 처리하지 못했어요. 다시 넣어 주세요.",
+};
+const handwritingStatusMessages = { 413: "tooLarge", 422: "unreadable", 503: "unavailable", 504: "timeout" };
+// 펜은 압력(0~1)으로 굵기를 바꾼다. 압력을 주지 않는 손가락·마우스는 같은 굵기다.
+function handwritingWidth(stroke, point) {
+  return stroke.type === "pen" ? 1.2 + 4 * point.p : 3;
+}
+// 획 하나를 그린다. from을 주면 그 점부터 이어 그린다(움직이는 동안 새 조각만 그리기).
+function drawHandwritingStroke(context, stroke, from = 0) {
+  const points = stroke.points;
+  if (points.length === 1) {
+    const [point] = points;
+    context.beginPath();
+    context.arc(point.x, point.y, handwritingWidth(stroke, point) / 2, 0, Math.PI * 2);
+    context.fill();
+    return;
+  }
+  for (let index = Math.max(1, from); index < points.length; index++) {
+    const before = points[index - 1], point = points[index];
+    context.lineWidth = (handwritingWidth(stroke, before) + handwritingWidth(stroke, point)) / 2;
+    context.beginPath();
+    context.moveTo(before.x, before.y);
+    context.lineTo(point.x, point.y);
+    context.stroke();
+  }
+}
+// 잉크 범위(굵기 절반 포함)에 여백을 더한 상자. 좌표는 캔버스의 CSS 픽셀이다.
+function handwritingBounds(strokes) {
+  let left = Infinity, top = Infinity, right = -Infinity, bottom = -Infinity;
+  for (const stroke of strokes) for (const point of stroke.points) {
+    const half = handwritingWidth(stroke, point) / 2;
+    left = Math.min(left, point.x - half); top = Math.min(top, point.y - half);
+    right = Math.max(right, point.x + half); bottom = Math.max(bottom, point.y + half);
+  }
+  if (!Number.isFinite(left)) return null;
+  return { x: left - handwritingMargin, y: top - handwritingMargin,
+    width: right - left + 2 * handwritingMargin, height: bottom - top + 2 * handwritingMargin };
+}
+// 흰 바탕에 검은 잉크로 다시 그려 PNG로 만든다. 화면 테마와 상관없이 같은 그림이 나간다.
+// 배율은 기기 화소 비율을 따르되 긴 변이 1024px를 넘지 않게 줄인다.
+function handwritingImage(strokes, pixelRatio = 1) {
+  const box = handwritingBounds(strokes);
+  if (!box) return Promise.resolve(null);
+  const scale = Math.min(pixelRatio, handwritingMaxSide / Math.max(box.width, box.height));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.min(handwritingMaxSide, Math.max(1, Math.round(box.width * scale)));
+  canvas.height = Math.min(handwritingMaxSide, Math.max(1, Math.round(box.height * scale)));
+  const context = canvas.getContext?.("2d");
+  if (!context || typeof canvas.toBlob !== "function") return Promise.resolve(null);
+  context.fillStyle = "#ffffff";
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  context.setTransform(scale, 0, 0, scale, -box.x * scale, -box.y * scale);
+  context.fillStyle = "#000000"; context.strokeStyle = "#000000";
+  context.lineCap = "round"; context.lineJoin = "round";
+  for (const stroke of strokes) drawHandwritingStroke(context, stroke);
+  return new Promise(resolve => canvas.toBlob(resolve, "image/png"));
+}
+function setupHandwriting() {
+  const find = id => document.querySelector(`#handwriting-${id}`);
+  const button = find("button"), pad = find("pad"), canvas = find("canvas"), status = find("status");
+  const undo = find("undo"), clear = find("clear"), cancel = find("cancel"), insert = find("insert");
+  if (![button, pad, canvas, status, undo, clear, cancel, insert].every(node => typeof node?.addEventListener === "function")) return;
+  let opened = false, strokes = [], penSeen = false, reading = null, session = 0, selection = null, context = null, box = null, origin = null, ink = null;
+  const active = new Map();
+  function controls() {
+    const blank = strokes.length === 0, waiting = Boolean(reading);
+    undo.disabled = blank || waiting;
+    clear.disabled = blank || waiting;
+    insert.disabled = blank || waiting;
+    pad.setAttribute("aria-busy", String(waiting));
+  }
+  function show(message, error = false) {
+    say(status, message || "");
+    status.classList?.toggle("is-error", Boolean(message) && error);
+  }
+  // 화면 잉크는 캔버스 글자색(--ink)이다. 테마가 바뀌어 색이 달라지면 이미 쓴 획도 새 색으로 다시 그린다.
+  const inkColor = () => window.getComputedStyle?.(canvas)?.color || "#0A2540";
+  function paint() {
+    if (!context) return;
+    ink = inkColor();
+    context.strokeStyle = ink; context.fillStyle = ink;
+    context.lineCap = "round"; context.lineJoin = "round";
+  }
+  function redraw() {
+    if (!context) return;
+    context.clearRect(0, 0, box?.width || canvas.width, box?.height || canvas.height);
+    paint();
+    for (const stroke of strokes) drawHandwritingStroke(context, stroke);
+  }
+  // 캔버스 화소를 보이는 크기 × 기기 화소 비율로 맞추고, 획은 CSS 픽셀 좌표로 다시 그린다.
+  // 회전·창 크기 변화로 캔버스가 바뀌면 그리던 획을 끝내고, 모든 점을 같은 비율로 옮겨 보이는 칸 안에 남긴다.
+  function prepare() {
+    const before = box;
+    box = canvas.getBoundingClientRect?.() ?? null;
+    if (before?.width > 0 && before?.height > 0 && box?.width > 0 && box?.height > 0 &&
+      (before.width !== box.width || before.height !== box.height)) {
+      const scale = Math.min(box.width / before.width, box.height / before.height);
+      active.clear();
+      for (const stroke of strokes) for (const point of stroke.points) { point.x *= scale; point.y *= scale; }
+    }
+    origin = box ? { left: box.left, top: box.top } : null;
+    const ratio = window.devicePixelRatio || 1;
+    canvas.width = Math.max(1, Math.round((box?.width || 0) * ratio));
+    canvas.height = Math.max(1, Math.round((box?.height || 0) * ratio));
+    context = canvas.getContext?.("2d") ?? null;
+    context?.setTransform(ratio, 0, 0, ratio, 0, 0);
+    redraw();
+  }
+  // 넓은 화면에서 입력 줄 바로 위에 놓는다. 위에 자리가 모자라면 입력 줄 아래로 연다. 좁은 화면은 CSS가 아래 시트로 덮어쓴다.
+  function place() {
+    const row = document.querySelector(".composer-row")?.getBoundingClientRect?.();
+    const height = window.innerHeight || 0;
+    if (!row || !(row.width > 0) || !height) return;
+    pad.style?.setProperty("--handwriting-x", `${Math.max(8, row.left)}px`);
+    pad.style?.setProperty("--handwriting-width", `${row.width}px`);
+    const own = pad.getBoundingClientRect?.().height || 0;
+    const bottom = row.top - 8 >= own + 8 ? height - row.top + 8 : Math.max(8, height - row.bottom - 8 - own);
+    pad.style?.setProperty("--handwriting-bottom", `${bottom}px`);
+  }
+  function openPad() {
+    if (opened) { canvas.focus(); return; }
+    opened = true; session++;
+    strokes = []; active.clear(); penSeen = false; reading = null; box = null;
+    selection = caret();
+    pad.hidden = false;
+    button.setAttribute("aria-expanded", "true");
+    show("");
+    place(); prepare(); controls();
+    canvas.focus();
+  }
+  // 닫으면 읽던 요청을 끊고, 늦게 온 응답은 회차(session)가 달라 버린다.
+  function closePad(restore = true) {
+    if (!opened) return;
+    opened = false; session++;
+    reading?.abort(); reading = null;
+    for (const id of active.keys()) if (canvas.hasPointerCapture?.(id)) canvas.releasePointerCapture?.(id);
+    active.clear(); strokes = []; penSeen = false;
+    context?.clearRect(0, 0, box?.width || canvas.width, box?.height || canvas.height);
+    pad.hidden = true;
+    button.setAttribute("aria-expanded", "false");
+    show(""); controls();
+    if (restore) button.focus();
+  }
+  // 커서 자리. 패드를 열기 전에 적어 두어, 패드로 초점이 옮겨 가도 그 자리에 넣는다.
+  function caret() {
+    const length = input.value.length;
+    const start = Number.isInteger(input.selectionStart) ? input.selectionStart : length;
+    const end = Number.isInteger(input.selectionEnd) ? input.selectionEnd : start;
+    return { start, end, value: input.value };
+  }
+  function placeText(text) {
+    // 패드를 연 사이 질문 칸의 글이 바뀌었으면 적어 둔 자리는 낡았다. 그때는 질문 칸의 지금 커서를 쓴다.
+    const spot = selection?.value === input.value ? selection : caret();
+    const length = input.value.length;
+    const start = Math.min(spot.start, length);
+    const end = Math.min(Math.max(spot.end, start), length);
+    if (typeof input.setRangeText === "function") input.setRangeText(text, start, end, "end");
+    else {
+      input.value = input.value.slice(0, start) + text + input.value.slice(end);
+      input.setSelectionRange?.(start + text.length, start + text.length);
+    }
+    // 입력 이벤트로 보내기 버튼 상태를 다시 맞춘다. 보내지는 않는다.
+    if (typeof input.dispatchEvent === "function" && typeof Event === "function") input.dispatchEvent(new Event("input", { bubbles: true }));
+    else updateSend();
+  }
+  async function read() {
+    if (!opened || reading || !strokes.length) return;
+    const ticket = session;
+    const controller = new AbortController();
+    reading = controller;
+    let timedOut = false, message = null, text = "";
+    const timer = setTimeout(() => { timedOut = true; controller.abort(); }, handwritingTimeoutMs);
+    show(handwritingMessages.reading); controls();
+    // 넣기 버튼이 잠기면 브라우저가 초점을 문서 밖으로 놓친다. 그 전에 취소로 옮겨 두어 Esc·취소가 계속 듣게 한다.
+    cancel.focus();
+    try {
+      const image = await handwritingImage(strokes, window.devicePixelRatio || 1);
+      if (ticket !== session) return;
+      if (!image) message = handwritingMessages.failed;
+      else if (image.size > handwritingMaxBytes) message = handwritingMessages.tooLarge;
+      else {
+        const form = new FormData();
+        form.append("image", image, "handwriting.png");
+        form.append("lang", uiLang);
+        const response = await fetch(handwritingPath, { method: "POST", headers: { Accept: "application/json" }, body: form, signal: controller.signal });
+        if (ticket !== session) return;
+        if (response.ok) {
+          // 본문이 JSON이 아니면 연결 문제가 아니라 서버 응답 문제다.
+          const payload = await response.json().catch(() => null);
+          if (ticket !== session) return;
+          text = typeof payload?.text === "string" ? payload.text.trim() : "";
+          if (payload === null) message = handwritingMessages.failed;
+          else if (!text) message = handwritingMessages.unreadable;
+        } else message = handwritingMessages[handwritingStatusMessages[response.status] ?? "failed"];
+      }
+    } catch {
+      if (ticket !== session) return;
+      message = timedOut ? handwritingMessages.timeout : handwritingMessages.offline;
+    } finally {
+      clearTimeout(timer);
+      if (reading === controller) reading = null;
+    }
+    if (ticket !== session) return;
+    if (message) {
+      // 획은 그대로 둔다. 고쳐 쓰거나 바로 다시 넣을 수 있다.
+      show(message, true); controls();
+      insert.focus();
+      return;
+    }
+    placeText(text);
+    closePad(false);
+    input.focus();
+  }
+  function point(event) {
+    const pressure = typeof event.pressure === "number" && event.pressure > 0 ? Math.min(1, event.pressure) : .5;
+    return { x: event.clientX - (origin?.left || 0), y: event.clientY - (origin?.top || 0), p: pressure };
+  }
+  function dropStroke(stroke) {
+    const index = strokes.indexOf(stroke);
+    if (index >= 0) strokes.splice(index, 1);
+  }
+  canvas.addEventListener("pointerdown", event => {
+    if (!opened || reading || event.button > 0) return;
+    const type = event.pointerType || "mouse";
+    if (type === "pen" && !penSeen) {
+      penSeen = true;
+      for (const [id, stroke] of active) {
+        if (stroke.type !== "touch") continue;
+        active.delete(id); dropStroke(stroke);
+        if (canvas.hasPointerCapture?.(id)) canvas.releasePointerCapture?.(id);
+      }
+      redraw();
+    }
+    if (type === "touch" && penSeen) return;
+    event.preventDefault?.();
+    if (status.classList?.contains("is-error")) show("");
+    // 좁은 화면 시트는 안에서 스크롤될 수 있어, 획을 시작할 때마다 캔버스의 화면 위치를 다시 잰다.
+    const rect = canvas.getBoundingClientRect?.();
+    if (rect) origin = { left: rect.left, top: rect.top };
+    if (context && inkColor() !== ink) redraw();
+    canvas.setPointerCapture?.(event.pointerId);
+    const stroke = { type, points: [point(event)] };
+    strokes.push(stroke); active.set(event.pointerId, stroke);
+    if (context) { paint(); drawHandwritingStroke(context, stroke); }
+    controls();
+  });
+  canvas.addEventListener("pointermove", event => {
+    const stroke = active.get(event.pointerId);
+    if (!stroke) return;
+    event.preventDefault?.();
+    const coalesced = typeof event.getCoalescedEvents === "function" ? event.getCoalescedEvents() : [];
+    const from = stroke.points.length;
+    for (const each of coalesced?.length ? coalesced : [event]) stroke.points.push(point(each));
+    if (context) { paint(); drawHandwritingStroke(context, stroke, from); }
+  });
+  for (const name of ["pointerup", "pointercancel", "lostpointercapture"]) canvas.addEventListener(name, event => { active.delete(event.pointerId); });
+  undo.addEventListener("click", () => {
+    if (reading || !strokes.length) return;
+    const last = strokes.pop();
+    for (const [id, stroke] of active) if (stroke === last) active.delete(id);
+    show(""); redraw(); controls();
+    if (!strokes.length) canvas.focus();
+  });
+  clear.addEventListener("click", () => {
+    if (reading || !strokes.length) return;
+    strokes = []; active.clear();
+    show(""); redraw(); controls();
+    canvas.focus();
+  });
+  cancel.addEventListener("click", () => closePad(true));
+  insert.addEventListener("click", () => { void read(); });
+  // 패드는 문서에서 <main> 뒤에 있다. 열린 동안 Tab을 이어 주어 펜 버튼 → 캔버스 → 되돌리기 → 지우기 → 취소 → 넣기 → 질문 칸 순서로 돈다.
+  const lastControl = () => [insert, cancel].find(control => !control.disabled);
+  pad.addEventListener("keydown", event => {
+    if (event.key === "Escape") {
+      event.preventDefault?.(); event.stopPropagation?.();
+      closePad(true);
+    } else if (event.key === "Tab" && event.shiftKey && document.activeElement === canvas) {
+      event.preventDefault?.(); button.focus();
+    } else if (event.key === "Tab" && !event.shiftKey && document.activeElement === lastControl()) {
+      event.preventDefault?.(); input.focus();
+    }
+  });
+  button.addEventListener("keydown", event => {
+    if (!opened || event.key !== "Tab" || event.shiftKey) return;
+    event.preventDefault?.(); canvas.focus();
+  });
+  button.addEventListener("click", openPad);
+  refreshHandwritingPad.run = () => { if (opened) { place(); prepare(); } };
+  closeHandwritingPad.run = closePad;
+}
+// 창 크기 신호는 테크모 resize 처리기 하나가 받아 이 함수를 부른다. 처리기를 따로 늘리지 않는다.
+// 두 함수는 초기화 순서와 상관없이 부를 수 있게 함수 속성에 실제 동작을 단다.
+function refreshHandwritingPad() {
+  refreshHandwritingPad.run?.();
+}
+// 서랍을 열거나 첫 화면·채팅 화면을 오가면 입력 줄 자리가 바뀌므로 패드를 닫는다(초점은 옮기지 않는다).
+function closeHandwritingPad(restore = false) {
+  closeHandwritingPad.run?.(restore);
+}
+setupHandwriting();
+
 // 좌표는 버튼 테두리의 왼쪽 위를 기준으로 한다. 저장할 때만 화면 크기로 나눈다.
 function techmoClampPosition(position, viewport, size) {
   return {
@@ -3149,6 +3499,8 @@ window.addEventListener?.("resize", () => {
   techmoBubble();
   // ResizeObserver가 없는 브라우저에서도 퀵링크 캐러셀 버튼 상태를 다시 잰다.
   if (typeof measureQuickLinks === "function") measureQuickLinks();
+  // 열린 필기 패드는 입력 줄 자리와 캔버스 화소를 다시 잰다(#134).
+  if (typeof refreshHandwritingPad === "function") refreshHandwritingPad();
 });
 try {
   const saved = historyStorage()?.getItem(techmoPositionKey);

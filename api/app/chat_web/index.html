@@ -128,10 +128,13 @@
       <h2 id="chat-heading" class="sr-only">학사 규정에 질문하기</h2>
       <form id="composer" class="composer">
         <label for="question" class="sr-only">질문</label>
-        <!-- 밝은 상자(.composer-row)에는 클립 버튼·입력창·답변 모드·보내기를 둔다. 파일 입력은 숨기고 클립 버튼이 대신 연다.
-             클립 버튼에는 data-action을 주지 않는다. 요청 중 잠금은 chat.js가 파일 입력과 함께 건다. -->
+        <!-- 밝은 상자(.composer-row)에는 클립 버튼·펜 버튼·입력창·답변 모드·보내기를 둔다. 파일 입력은 숨기고 클립 버튼이 대신 연다.
+             클립 버튼에는 data-action을 주지 않는다. 요청 중 잠금은 chat.js가 파일 입력과 함께 건다.
+             펜 버튼은 form 밖의 필기 패드(#handwriting-pad)를 연다(#134). 질문 칸은 진짜 textarea 그대로 두고
+             덮개·포인터 처리기·touch-action을 붙이지 않는다. iPad 기본 손글씨 입력(Scribble)이 이 칸에서 동작해야 한다. -->
         <div class="composer-row">
           <button type="button" class="attach-button" id="photo-attach" aria-label="사진 첨부" aria-describedby="photo-hint"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M16.5 6.5v10a4.5 4.5 0 0 1-9 0V6a3 3 0 0 1 6 0v9.5a1.5 1.5 0 0 1-3 0V7"/></svg></button>
+          <button type="button" class="attach-button pen-button" id="handwriting-button" aria-label="손글씨로 입력" aria-haspopup="dialog" aria-controls="handwriting-pad" aria-expanded="false"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 20h4L19 9a2.83 2.83 0 0 0-4-4L4 16Z"/><path d="m13.5 6.5 4 4"/></svg></button>
           <textarea id="question" rows="1" enterkeyhint="send" placeholder="아이오에게 물어보세요 · 사진만 보내도 돼요"></textarea>
           <button type="button" id="ai-mode-button" class="mode-pill" data-mode="fast" aria-haspopup="menu" aria-expanded="false" aria-label="답변 모드: 빠르게">
             <svg class="mode-icon" data-icon="fast" viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true" focusable="false"><path d="m13 2-9 12h7l-1 8 10-13h-7z"/></svg>
@@ -272,6 +275,21 @@
       <p class="site-footer-note">교내 대회 출품작 · 가상 학생 데이터로 동작하는 시연입니다</p>
     </footer>
   </main>
+      <!-- 손글씨 필기 패드(#134). 질문 폼 밖의 대화 상자다. 넓은 화면은 입력 줄 바로 위, 좁은 화면은 아래 시트로 chat.css가 놓는다.
+           유리 판의 backdrop-filter가 고정 위치의 기준을 바꾸지 않게 <main> 밖에 둔다. 전환 효과 없이 열고 닫는다.
+           touch-action: none은 캔버스에만 준다. 상태 줄은 읽는 중이거나 오류일 때만 글이 들어간다. -->
+      <section class="handwriting-pad" id="handwriting-pad" role="dialog" aria-labelledby="handwriting-title" aria-describedby="handwriting-help" hidden>
+        <h2 class="handwriting-title" id="handwriting-title">손글씨로 입력</h2>
+        <p class="sr-only" id="handwriting-help">펜이나 손가락으로 쓰고 넣기를 누르면 읽은 글자가 입력창 커서 자리에 들어가요. 바로 보내지는 않아요.</p>
+        <canvas class="handwriting-canvas" id="handwriting-canvas" tabindex="0" role="img" aria-label="필기 영역"></canvas>
+        <p class="handwriting-status" id="handwriting-status" role="status" aria-live="polite"></p>
+        <div class="handwriting-actions">
+          <button type="button" id="handwriting-undo" disabled>되돌리기</button>
+          <button type="button" id="handwriting-clear" disabled>지우기</button>
+          <button type="button" id="handwriting-cancel">취소</button>
+          <button type="button" class="handwriting-insert" id="handwriting-insert" disabled>넣기</button>
+        </div>
+      </section>
       <!-- 테크모 펫과 말풍선. chat.js는 이 줄의 data-pose·data-state만 바꾸고, chat.css가 그 값으로 그림 칸과 움직임을 고른다.
            펫 버튼은 숨긴 채 시작하고, 안에 든 그림이 로드에 성공해야 보인다. 그림이 없어도 말풍선은 남는다.
            data-action을 주지 않아 답변을 기다리는 동안에도 눌린다. 진행 알림은 #status가 읽어 주므로 여기에는 알림 역할을 두지 않는다. -->

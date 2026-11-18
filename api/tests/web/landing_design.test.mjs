@@ -170,6 +170,8 @@ const parents = {
   "#login-form input":".login-card", "#login-form input:focus":".login-card", "#demo-student-list button":".login-card", "#demo-student-list button:hover":".login-card", ".login-safety":".login-card", ".login-submit":".login-card",
   ".card":".layout", "button.card:hover:not([data-restored])":".layout", ".feature-panel":".layout", ".chat":".layout", ".composer":".layout", "textarea":".composer", ".primary":".composer", ".primary:not(:disabled):hover":".composer", ".reply":".layout", ".question":".layout",
   ".reset":".masthead", ".reset:not(:disabled):hover":".masthead", ".login":".masthead", ".panel-close":".feature-panel", ".panel-close:hover":".feature-panel", ".cta":".feature-panel", ".cta:hover":".feature-panel", ".check":".reply", ".check:not(:disabled):hover":".reply", ".evidence":".reply", ".graduation table":".reply", ".error":".reply", ".badge.met":".reply", ".badge.short":".reply", ".badge.needs-check":".reply", ".reading":".reply", ".reading textarea":".reading", ".biskit .program":".reply", ".poster-result":".reply",
+  // 손글씨 필기 패드(#134)는 불투명 면이라 사진 위에 바로 놓아도 결과가 같다.
+  ".handwriting-canvas":".handwriting-pad", ".handwriting-actions button":".handwriting-pad", ".handwriting-actions .handwriting-insert":".handwriting-pad",
 };
 // 채팅 화면에서는 큰 판 대신 대화 영역이 말풍선·상태 줄·안내 줄 뒤의 큰 면이다.
 const chatParents = { ...parents, ".reply": chatSurface, ".question": chatSurface, ".status:not(:empty)": chatSurface, ".composer-meta": chatSurface };
@@ -271,12 +273,14 @@ test("라이트·다크와 밝고 어두운 사진 양쪽에서 글자 대비가
     [".site-footer .campus-site-label", ".site-footer"], [".site-footer .campus-site-label", "#login-site-footer"],
     [".site-footer p", ".site-footer"], [".site-footer p", "#login-site-footer"],
     [".login-submit",".login-submit"],[".primary",".primary"],[".primary:not(:disabled):hover",".primary:not(:disabled):hover"],[".pet-says",".pet-says"],["#login-pet-line","#login-pet-line"],
+    [".handwriting-pad",".handwriting-pad"],[".handwriting-title",".handwriting-pad"],[".handwriting-status",".handwriting-pad"],[".handwriting-status.is-error",".handwriting-pad"],
+    [".handwriting-actions button",".handwriting-actions button"],[".handwriting-actions .handwriting-insert",".handwriting-actions .handwriting-insert"],
   ]);
 });
 
 test("테두리와 초점 고리는 네 테마에서 바탕과 3 이상이고, 초점은 어디서나 2px 실선 고리 하나다", () => {
   const selectors=[".login-card",".card","button.card:hover:not([data-restored])",".feature-panel","#demo-student-list button","#demo-student-list button:hover","#login-form input","#login-form input:focus",".reset",".login",".panel-close",".login-submit",".primary",".primary:not(:disabled):hover",".login-safety",".attach-button","textarea",".composer textarea",".composer textarea:hover",".composer-row",".mode-pill",'.mode-pill[aria-expanded="true"]',".choice-menu",'.choice-menu-item[aria-checked="true"]',".quicklink-nav",".pet-says","#campus-motion-toggle",
-    ".quicklink-card","#home-button","#conversation-toggle",".lang-pill"];
+    ".quicklink-card","#home-button","#conversation-toggle",".lang-pill",".handwriting-pad",".handwriting-canvas",".handwriting-actions button"];
   const edgeParents = { ...parents, '.mode-pill[aria-expanded="true"]': ".composer-row", '.choice-menu-item[aria-checked="true"]': ".choice-menu", ".quicklink-nav": ".site-footer",
     ".quicklink-card": ".site-footer", "#home-button": ".masthead", "#conversation-toggle": ".masthead", ".lang-pill": ".masthead" };
   const surfaceOf = selector => selector === '.mode-pill[aria-expanded="true"]' ? ".mode-pill" : selector === ".quicklink-nav" ? ".quicklink-nav" : selector;

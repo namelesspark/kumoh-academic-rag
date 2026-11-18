@@ -176,8 +176,8 @@ test("패널은 자리를 차지하는 상자라 펫·말풍선·입력창 위�
     assert.doesNotMatch(body, /(?:^|; )(?:position|z-index|inset|top|bottom|transform): /, selector);
   }
   assert.match(first(".feature-panel"), /^display: grid;/);
-  // 고정 말풍선도 펫과 함께 화면 좌표로 배치한다.
-  assert.deepEqual(rules.filter(([, body]) => body.includes("position: fixed")).map(([selector]) => selector), [".pet-dock", ".campus-backdrop", ".campus-caption", 'body[data-view="chat"] .layout', "#conversation-toast", 'body[data-view="chat"] .pet-dock', "#conversation-sidebar", "#conversation-backdrop", '.pet-dock[data-placed="true"], body[data-view="chat"] .pet-dock[data-placed="true"]', ".pet-dock .pet-says", ".conversation-menu", ".confirm-scrim", ".choice-menu"]);
+  // 고정 말풍선도 펫과 함께 화면 좌표로 배치한다. 손글씨 필기 패드(#134)는 입력 줄 위에 뜨는 대화 상자라 화면 좌표를 쓴다.
+  assert.deepEqual(rules.filter(([, body]) => body.includes("position: fixed")).map(([selector]) => selector), [".pet-dock", ".campus-backdrop", ".campus-caption", 'body[data-view="chat"] .layout', "#conversation-toast", 'body[data-view="chat"] .pet-dock', "#conversation-sidebar", "#conversation-backdrop", '.pet-dock[data-placed="true"], body[data-view="chat"] .pet-dock[data-placed="true"]', ".pet-dock .pet-says", ".conversation-menu", ".confirm-scrim", ".choice-menu", ".handwriting-pad"]);
 
   // 닫기와 시작 버튼은 손가락으로 누를 만한 높이다.
   assert.equal(value(first(".panel-close"), "min-height"), "44px");
