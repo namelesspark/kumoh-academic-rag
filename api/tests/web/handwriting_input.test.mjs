@@ -1055,19 +1055,68 @@ test("칸 밖까지 그은 뒤 떼지 않고 칸을 넓혀 안으로 돌아와�
   const before = page.canvas.log.length;
   page.pointer("pointermove", { id: 13, kind: "pen", x: 590, y: 130, pressure: 0.5 });
   page.pointer("pointerup", { id: 13, kind: "pen", x: 590, y: 130 });
-  // (700,30)→(590,130) 대각선은 그리지 않는다. 대신 새 칸 안의 마지막 점 (590,130)은 펜을 새로 댄 것처럼 점으로 남는다.
-  const after = page.canvas.log.slice(before);
-  const lastDot = log => log.some(call => call[0] === "arc" && call[1] === 590 && call[2] === 130);
-  assert.equal(after.some(call => call[0] === "lineTo"), false, "no diagonal on screen");
-  assert.ok(lastDot(after), "the last point is on screen");
+  // (700,30)→(590,130) 선분은 옛 600 칸과 새 750 칸이 겹치는 600 칸 안에서만 그린다. (700,30)에서 출발하는 선은 없고,
+  // 옛 경계(x 601.6)에서 시작해 (590,130)으로 돌아온 부분과 끝 점은 남는다.
+  checkBridge(page, before);
   page.respond(ok("가상"));
   page.insert.click();
   await settle();
-  const { log, width, height } = page.exports[0].canvas;
-  assert.ok(log.filter(call => call[0] === "lineTo").every(call => call[2] === 30), "no diagonal in the image");
-  assert.ok(lastDot(log), "the last point is in the image");
+  checkBridge(page, 0, page.exports[0].canvas.log);
   // 압력 0.5의 굵기 3.2: 가로 588.4~600 = 11.6 + 32 = 43.6 → 87, 세로 28.4~131.6 = 103.2 + 32 = 135.2 → 270(배율 2).
-  assert.deepEqual([width, height], [87, 270]);
+  assert.deepEqual([page.exports[0].canvas.width, page.exports[0].canvas.height], [87, 270]);
+});
+
+test("두 폭 모두에서 바깥인 (800,30)에서 칸을 넓힌 뒤 돌아와도 새로 드러난 영역에는 선이 생기지 않는다", async () => {
+  const page = loadPad();
+  page.button.click();
+  page.pointer("pointerdown", { id: 17, kind: "pen", x: 590, y: 30, pressure: 0.5 });
+  page.pointer("pointermove", { id: 17, kind: "pen", x: 800, y: 30, pressure: 0.5 });
+  Object.assign(page.canvasRect, { width: 750, right: 850 });
+  page.resize();
+  const before = page.canvas.log.length;
+  page.pointer("pointermove", { id: 17, kind: "pen", x: 590, y: 130, pressure: 0.5 });
+  page.pointer("pointerup", { id: 17, kind: "pen", x: 590, y: 130 });
+  checkBridge(page, before);
+  page.respond(ok("가상"));
+  page.insert.click();
+  await settle();
+  checkBridge(page, 0, page.exports[0].canvas.log);
+  assert.deepEqual([page.exports[0].canvas.width, page.exports[0].canvas.height], [87, 270]);
+});
+
+// 크기가 바뀐 뒤 첫 선분: 옛 경계(x ≤ 601.6)에서 시작하고 600×200 칸으로 clip()한 채 (590,130)에서 끝난다.
+function checkBridge(page, from, log = page.canvas.log) {
+  const part = log.slice(from);
+  const last = part.findLastIndex(call => call[0] === "lineTo");
+  assert.deepEqual(part[last].slice(1), [590, 130]);
+  const start = part.slice(0, last).findLast(call => call[0] === "moveTo");
+  assert.ok(start[1] <= 601.6 + 1e-9, String(start));
+  assert.deepEqual(part.slice(0, last).findLast(call => call[0] === "rect"), ["rect", 0, 0, 600, 200]);
+}
+
+test("패드 스크롤 상자가 가린 캔버스 아래쪽에는 잉크를 기록하지 않아, 스크롤해도 나타나지 않고 보내지도 않는다", async () => {
+  const page = loadPad();
+  page.button.click();
+  // 패드 안쪽이 y 322~450까지만 보이고 캔버스(400~600)의 아래 150px는 스크롤 상자에 가려져 있다.
+  Object.assign(page.padRect, { bottom: 450, height: 128 });
+  page.scroll();
+  // 보이는 띠(캔버스 y 0~50)에서 펜을 대고, 댄 채 가려진 아래쪽(캔버스 y 120)까지 끈다.
+  page.pointer("pointerdown", { x: 100, y: 20 });
+  page.pointer("pointermove", { x: 100, y: 120 });
+  page.pointer("pointerup", { x: 100, y: 120 });
+  const ys = log => log.filter(call => call[0] === "lineTo").map(call => call[2]);
+  assert.ok(ys(page.canvas.log).every(y => y <= 51.5 + 1e-9), String(ys(page.canvas.log)));
+  // 패드를 스크롤해 캔버스가 60px 올라와도(가려졌던 곳이 보여도) 새 잉크는 나타나지 않는다.
+  Object.assign(page.canvasRect, { top: 340, bottom: 540 });
+  const before = page.canvas.log.length;
+  page.scroll();
+  assert.ok(ys(page.canvas.log.slice(before)).every(y => y <= 51.5 + 1e-9));
+  // 패드는 그대로 입력 줄 위다(입력 줄 자리가 바뀌지 않았다).
+  assert.equal(page.pad.style.properties.get("--handwriting-top"), "auto");
+  page.respond(ok("가상"));
+  page.insert.click();
+  await settle();
+  assert.ok(ys(page.exports[0].canvas.log).every(y => y <= 51.5 + 1e-9));
 });
 
 test("칸 밖까지 그은 뒤 칸을 줄였다가 같은 폭으로 되돌리고 안으로 돌아오면 복귀 선분을 그대로 그린다", async () => {

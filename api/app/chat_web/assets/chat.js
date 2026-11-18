@@ -3039,13 +3039,16 @@ function handwritingDrawnWidth(stroke, point, before = null) {
   const a = handwritingWidth(stroke, before), b = handwritingWidth(stroke, point);
   return before.x === point.x && before.y === point.y ? Math.max(a, b) : (a + b) / 2;
 }
-// 점마다 그 점을 찍을 때 보이던 칸(point.clip, 없으면 stroke.clip)을 둔다. 칸은 늘 캔버스 왼쪽 위(0,0)에서 시작한다.
+// 점마다 그 점을 찍을 때 보이던 칸(point.clip, 없으면 stroke.clip)을 둔다. 좌표는 캔버스 CSS 픽셀이다.
+// 칸은 왼쪽 0부터 오른쪽 끝 width까지, 위 y(없으면 0)부터 아래 끝 height까지다. 패드 스크롤 상자가 캔버스 위·아래를
+// 가리면 보이는 칸은 캔버스 전체가 아니라 가운데 띠가 된다(가로는 캔버스 폭이 100%라 가려지지 않는다).
 const handwritingClipOf = (stroke, point) => point.clip ?? stroke.clip ?? null;
-// 두 칸이 겹치는 부분. 긋는 도중 칸 크기가 바뀌면 앞 점과 잇는 선분은 두 칸 모두에서 보이던 곳만 그린다.
+const handwritingTop = rect => rect?.y ?? 0;
+// 두 칸이 겹치는 부분.
 function handwritingClipMeet(a, b) {
   if (a === b || !b) return a;
   if (!a) return b;
-  return { width: Math.min(a.width, b.width), height: Math.min(a.height, b.height) };
+  return { y: Math.max(handwritingTop(a), handwritingTop(b)), width: Math.min(a.width, b.width), height: Math.min(a.height, b.height) };
 }
 // 획 하나를 그린다. from을 주면 그 점부터 이어 그린다(움직이는 동안 새 조각만 그리기).
 // 선분마다 그을 때 보이던 칸을 캔버스 clip()으로 걸고 그린다. 화면과 보내는 그림이 같은 칸으로 잘리므로,
@@ -3061,7 +3064,7 @@ function drawHandwritingStroke(context, stroke, from = 0) {
     if (!clip) return;
     context.save(); saved = true;
     context.beginPath();
-    context.rect(0, 0, clip.width, clip.height);
+    context.rect(0, handwritingTop(clip), clip.width, clip.height - handwritingTop(clip));
     context.clip();
   };
   for (let index = from; index < points.length; index++) {
@@ -3098,7 +3101,8 @@ function drawHandwritingStroke(context, stroke, from = 0) {
 function clipHandwritingSegment(from, to, area, half = 0) {
   const dx = to.x - from.x, dy = to.y - from.y;
   let enter = 0, leave = 1;
-  for (const [p, q] of [[-dx, from.x + half], [dx, area.width + half - from.x], [-dy, from.y + half], [dy, area.height + half - from.y]]) {
+  const y0 = handwritingTop(area);
+  for (const [p, q] of [[-dx, from.x + half], [dx, area.width + half - from.x], [-dy, from.y - y0 + half], [dy, area.height + half - from.y]]) {
     if (p === 0) { if (q < 0) return null; continue; }
     const ratio = q / p;
     if (p < 0) { if (ratio > leave) return null; enter = Math.max(enter, ratio); }
@@ -3107,10 +3111,10 @@ function clipHandwritingSegment(from, to, area, half = 0) {
   return [{ x: from.x + enter * dx, y: from.y + enter * dy }, { x: from.x + leave * dx, y: from.y + leave * dy }];
 }
 // 중심 좌표가 칸 안(경계 포함)인지. 칸이 없으면 안으로 본다.
-const handwritingInside = (point, rect) => !rect || (point.x >= 0 && point.y >= 0 && point.x <= rect.width && point.y <= rect.height);
-// 점(원)과 칸 사이 거리. 칸 안이면 0이다. 칸은 (0,0)에서 시작한다.
+const handwritingInside = (point, rect) => !rect || (point.x >= 0 && point.y >= handwritingTop(rect) && point.x <= rect.width && point.y <= rect.height);
+// 점(원)과 칸 사이 거리. 칸 안이면 0이다.
 function handwritingRectDistance(point, rect) {
-  const dx = Math.max(-point.x, 0, point.x - rect.width), dy = Math.max(-point.y, 0, point.y - rect.height);
+  const dx = Math.max(-point.x, 0, point.x - rect.width), dy = Math.max(handwritingTop(rect) - point.y, 0, point.y - rect.height);
   return Math.hypot(dx, dy);
 }
 // 반지름 half로 그린 점·선분이 칸 안에 픽셀을 하나라도 남기는지. 굵기를 상자로 넓혀 따지면 모서리 근처의
@@ -3121,7 +3125,8 @@ function handwritingInkVisible(from, to, half, rect) {
   if (handwritingRectDistance(from, rect) < half || handwritingRectDistance(to, rect) < half) return true;
   const dx = to.x - from.x, dy = to.y - from.y, length = dx * dx + dy * dy;
   if (!length) return false;
-  for (const corner of [{ x: 0, y: 0 }, { x: rect.width, y: 0 }, { x: 0, y: rect.height }, { x: rect.width, y: rect.height }]) {
+  const y0 = handwritingTop(rect);
+  for (const corner of [{ x: 0, y: y0 }, { x: rect.width, y: y0 }, { x: 0, y: rect.height }, { x: rect.width, y: rect.height }]) {
     const t = Math.min(1, Math.max(0, ((corner.x - from.x) * dx + (corner.y - from.y) * dy) / length));
     if (Math.hypot(from.x + t * dx - corner.x, from.y + t * dy - corner.y) < half) return true;
   }
@@ -3133,12 +3138,13 @@ function handwritingBounds(strokes, area = null) {
   let clip = null;
   // 점의 잉크 상자(굵기 절반)가 칸과 닿으면 칸 안으로 눌러 넣어 센다. 경계에 정확히 닿은 점(경계에서 잘라 저장한 점)은
   // 폭이 0이 되어도 범위를 경계까지 늘려야 하므로 빼지 않는다. 칸과 전혀 겹치지 않는 점만 뺀다.
-  const clamp = (value, max) => Math.min(Math.max(value, 0), max);
+  const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
   const add = (point, half) => {
     let x0 = point.x - half, y0 = point.y - half, x1 = point.x + half, y1 = point.y + half;
     if (clip) {
-      if (x0 > clip.width || y0 > clip.height || x1 < 0 || y1 < 0) return;
-      x0 = clamp(x0, clip.width); x1 = clamp(x1, clip.width); y0 = clamp(y0, clip.height); y1 = clamp(y1, clip.height);
+      const clipTop = handwritingTop(clip);
+      if (x0 > clip.width || y0 > clip.height || x1 < 0 || y1 < clipTop) return;
+      x0 = clamp(x0, 0, clip.width); x1 = clamp(x1, 0, clip.width); y0 = clamp(y0, clipTop, clip.height); y1 = clamp(y1, clipTop, clip.height);
     }
     left = Math.min(left, x0); top = Math.min(top, y0);
     right = Math.max(right, x1); bottom = Math.max(bottom, y1);
@@ -3159,7 +3165,7 @@ function handwritingBounds(strokes, area = null) {
     }
   }
   if (area) {
-    left = Math.max(left, 0); top = Math.max(top, 0);
+    left = Math.max(left, 0); top = Math.max(top, handwritingTop(area));
     right = Math.min(right, area.width); bottom = Math.min(bottom, area.height);
   }
   if (!Number.isFinite(left) || right <= left || bottom <= top) return null;
@@ -3182,7 +3188,7 @@ function handwritingImage(strokes, pixelRatio = 1, area = null) {
   context.setTransform(scale, 0, 0, scale, -box.x * scale, -box.y * scale);
   if (area) {
     context.beginPath();
-    context.rect(0, 0, area.width, area.height);
+    context.rect(0, handwritingTop(area), area.width, area.height - handwritingTop(area));
     context.clip();
   }
   context.fillStyle = "#000000"; context.strokeStyle = "#000000";
@@ -3223,7 +3229,8 @@ function setupHandwriting() {
   const visibleArea = () => area;
   function redraw() {
     if (!context) return;
-    context.clearRect(0, 0, area?.width || canvas.width, area?.height || canvas.height);
+    // 보이는 칸이 캔버스보다 작을 수 있어(패드 스크롤) 캔버스 전체를 지운다.
+    context.clearRect(0, 0, box?.width || canvas.width, box?.height || canvas.height);
     paint();
     for (const stroke of strokes) drawHandwritingStroke(context, stroke);
   }
@@ -3233,11 +3240,24 @@ function setupHandwriting() {
   // 긋는 도중 칸이 넓어져도 이미 저장한 점의 칸은 넓히지 않는다. 그 뒤에 찍는 점부터 새 칸을 쓴다.
   // 칸 크기가 바뀌어도 그리던 획은 끝내지 않는다. 그 뒤 브라우저가 포인터를 취소하면(pointercancel) 그 획을 찾아 버릴 수 있어야 한다.
   // 캔버스 화소는 보이는 크기 × 기기 화소 비율이다.
+  // 보이는 칸 = 캔버스 ∩ 패드의 스크롤 상자 안쪽 ∩ 화면(세로). 패드 높이가 모자라 안쪽이 스크롤되면 캔버스 위·아래가 가려지는데,
+  // 그 부분에 쓴 잉크는 학생이 볼 수 없으므로 기록하지도 보내지도 않는다. 값이 같으면 같은 객체를 그대로 둔다.
+  // 캔버스가 화면 밖이거나 모두 가려지면 크기 0인 칸이 되어 어떤 잉크도 보이지 않는다.
+  function measureArea() {
+    if (!(box?.width > 0 && box?.height > 0)) { area = null; return false; }
+    const shell = pad.getBoundingClientRect?.();
+    const innerTop = shell ? shell.top + (Number(pad.clientTop) || 0) : -Infinity;
+    const innerBottom = shell ? (Number.isFinite(pad.clientHeight) && pad.clientHeight > 0 ? innerTop + pad.clientHeight : shell.bottom) : Infinity;
+    const screenBottom = window.innerHeight > 0 ? window.innerHeight : Infinity;
+    const y = Math.max(0, innerTop - box.top, -box.top);
+    const height = Math.max(y, Math.min(box.height, innerBottom - box.top, screenBottom - box.top));
+    if (area && handwritingTop(area) === y && area.width === box.width && area.height === height) return false;
+    area = y > 0 ? { y, width: box.width, height } : { width: box.width, height };
+    return true;
+  }
   function prepare() {
     box = canvas.getBoundingClientRect?.() ?? null;
-    if (box?.width > 0 && box?.height > 0) {
-      if (area?.width !== box.width || area?.height !== box.height) area = { width: box.width, height: box.height };
-    } else area = null;
+    measureArea();
     origin = box ? { left: box.left, top: box.top } : null;
     const ratio = window.devicePixelRatio || 1;
     canvas.width = Math.max(1, Math.round((box?.width || 0) * ratio));
@@ -3294,8 +3314,11 @@ function setupHandwriting() {
   // 질문 칸 입력·첨부 변화가 모두 여기로 온다. 입력 줄 자리·크기, 캔버스 크기, 창 크기가 마지막으로 잰 값과 같으면
   // 아무것도 하지 않는다. 신호마다 따로 비교를 붙이다 빠뜨리면, 바뀐 것 없이 패드가 줄 아래로 옮겨 가는 결함이 되풀이됐다.
   function relayout() {
-    if (!opened || !layoutChanged()) return;
-    place(true); prepare();
+    if (!opened) return;
+    if (layoutChanged()) { place(true); prepare(); return; }
+    // 자리는 그대로여도 패드 안쪽 스크롤로 캔버스의 보이는 띠가 바뀔 수 있다. 패드는 옮기지 않고 보이는 칸만 다시 잰다.
+    const rect = canvas.getBoundingClientRect?.();
+    if (rect) { box = rect; origin = { left: rect.left, top: rect.top }; if (measureArea()) redraw(); }
   }
   function makeRoom() {
     if ((window.innerWidth || 0) <= 680) return;
@@ -3548,7 +3571,7 @@ function setupHandwriting() {
     if (status.classList?.contains("is-error")) show("");
     // 좁은 화면 시트는 안에서 스크롤될 수 있어, 획을 시작할 때마다 캔버스의 화면 위치를 다시 잰다.
     const rect = canvas.getBoundingClientRect?.();
-    if (rect) origin = { left: rect.left, top: rect.top };
+    if (rect) { origin = { left: rect.left, top: rect.top }; box = rect; if (measureArea()) redraw(); }
     if (context && inkColor() !== ink) redraw();
     canvas.setPointerCapture?.(event.pointerId);
     const first = point(event);
@@ -3568,7 +3591,7 @@ function setupHandwriting() {
     event.preventDefault?.();
     // 획을 긋는 동안 휠·스크롤로 패드가 움직일 수 있어, 움직일 때마다 캔버스의 화면 위치를 다시 잰다.
     const rect = canvas.getBoundingClientRect?.();
-    if (rect) origin = { left: rect.left, top: rect.top };
+    if (rect) { origin = { left: rect.left, top: rect.top }; box = rect; if (measureArea()) redraw(); }
     const coalesced = typeof event.getCoalescedEvents === "function" ? event.getCoalescedEvents() : [];
     const from = stroke.points.length;
     // 선분마다 쓰는 순간의 보이는 칸 경계(굵기 절반만큼 넓힌 상자)에서 잘라 그 안의 조각만 저장한다.
@@ -3580,33 +3603,23 @@ function setupHandwriting() {
       // 자르기 전 선분(앞 포인터 자리 → 새 자리)의 굵기를 한 번 정해, 잘라 낸 조각의 모든 점에 w로 적는다.
       // 자른 점에 새 압력만 붙여 굵기를 다시 계산하면, 세게 누르다 약하게 경계 밖으로 이어 간 선이 가늘어져 칸 안 잉크가 사라진다.
       const w = handwritingDrawnWidth(stroke, next, stroke.last);
-      // 앞 포인터 자리가 그때 보이던 칸 밖이었고 그 뒤 칸이 바뀌었으면, 그 자리에서 시작하는 선분은 버린다.
-      // 칸을 넓혀 옛 칸 밖 자리(예: 600 칸의 x=700)가 새 칸 안에 들어와도, 화면에 그은 적 없는 선이 새로 생기지 않는다.
-      // 다음 신호부터는 칸 밖에서 들어온 것처럼(gap) 다시 시작한다.
-      // 칸이 바뀌었는지는 크기 값으로 비교한다. 600→400→600처럼 같은 크기로 돌아오면 바뀌지 않은 것으로 보고, 평소처럼 경계에서 잘라 잇는다.
-      const resized = (stroke.lastArea?.width ?? null) !== (area?.width ?? null) || (stroke.lastArea?.height ?? null) !== (area?.height ?? null);
-      // 버리는 것은 옛 칸 밖이던 앞 자리가 새 칸 안으로 들어온 경우뿐이다. 두 칸 모두에서 밖이면(왼쪽 경계 밖 등)
-      // 평소처럼 지금 칸 경계에서 잘라, 칸 안으로 돌아온 부분은 그린다.
-      const stale = resized && !stroke.lastInside && handwritingInside(stroke.last, area);
-      const piece = stale ? null : area ? clipHandwritingSegment(stroke.last, next, area, w / 2) : [stroke.last, next];
+      // 이 선분을 자를 칸. 보통은 지금 칸이다. 앞 포인터 자리가 그때 칸 밖이었고 그 사이 칸이 바뀌었으면(넓힘·줄임·패드 스크롤),
+      // 이 선분은 옛 칸과 지금 칸이 겹치는 곳에서만 그린다. 그 자리에서 출발한 선이 새로 드러난 영역(600→750의 600~750)에
+      // 나타나지 않고, 겹치는 곳으로 돌아온 부분과 끝 점은 남는다. 앞 자리가 칸 안이었으면(599.9 등) 지금 칸 전체를 쓴다.
+      // 칸이 바뀌었는지는 값으로 비교한다(600→400→600은 바뀌지 않음).
+      const same = (a, b) => (a?.width ?? null) === (b?.width ?? null) && (a?.height ?? null) === (b?.height ?? null) && handwritingTop(a) === handwritingTop(b);
+      const bridge = !stroke.lastInside && !same(stroke.lastArea, area) ? handwritingClipMeet(stroke.lastArea, area) : area;
+      const piece = bridge ? clipHandwritingSegment(stroke.last, next, bridge, w / 2) : [stroke.last, next];
       stroke.last = next; stroke.lastArea = area; stroke.lastInside = handwritingInside(next, area);
-      if (stale) {
-        // 연결선만 버리고 이 자리에서 펜을 새로 댄 것처럼 다시 시작한다. 새 칸 안의 이 점은 제 굵기로 찍어 화면과 그림에 남긴다.
-        const own = handwritingWidth(stroke, next);
-        const dot = { x: next.x, y: next.y, p: next.p, w: own, clip: area, gap: true };
-        if (handwritingInkVisible(dot, dot, own / 2, area)) { stroke.points.push(dot); stroke.broken = false; }
-        else stroke.broken = true;
-        continue;
-      }
       if (!piece) { stroke.broken = true; continue; }
       const [enter, leave] = piece;
       const tail = stroke.points[stroke.points.length - 1];
       const add = (at, clip, gap = false) => stroke.points.push({ x: at.x, y: at.y, p: next.p, w, clip, ...(gap ? { gap } : {}) });
-      // 선분은 끝 점(leave)의 칸, 곧 지금 칸으로 그린다. 긋는 도중 칸이 넓어져도 이미 저장한 점과 선분은 옛 칸 그대로라
+      // 선분은 끝 점(leave)의 칸으로 그린다. 긋는 도중 칸이 넓어져도 이미 저장한 점과 선분은 옛 칸 그대로라
       // 떼기 전에 넓혀도 잘린 잉크가 되살아나지 않고, 넓힌 뒤 새로 그은 선분은 경계 근처에서도 새 칸에서 온전히 보인다.
-      if (stroke.broken || enter.x !== tail.x || enter.y !== tail.y) add(enter, area, true);
+      if (stroke.broken || enter.x !== tail.x || enter.y !== tail.y) add(enter, bridge, true);
       stroke.broken = false;
-      add(leave, area);
+      add(leave, bridge);
     }
     if (context) { paint(); drawHandwritingStroke(context, stroke, from); }
   });
