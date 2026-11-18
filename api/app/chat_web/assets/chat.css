@@ -895,6 +895,37 @@ button.card:hover:not([data-restored]) { border-color: var(--focus-ink); backgro
 .campus-site-links--compact { justify-content: flex-start; flex: none; gap: 6px 10px; margin: 0; }
 .campus-site-links--compact .campus-site-link { font-size: .65rem; gap: 2px; }
 .campus-site-links--compact .external-link-icon { width: 10px; height: 10px; }
+/* 교내 주요 사이트 퀵링크 캐러셀(quick-link carousel, #122). 카드 줄은 브라우저 기본 가로 스크롤이고 멈출 자리는 카드 앞 끝이다.
+   ‹ › 버튼의 부드러운 이동은 chat.js의 scrollBy가 맡으므로 여기서는 스크롤 이동 방식을 정하지 않는다.
+   양 끝 흐림은 카드 위에 덮는 층이라 pointer-events: none으로 클릭을 통과시키고, 끝에 닿은 쪽은 지운다.
+   카드와 흐림에는 transition을 걸지 않는다. 움직임은 넘김 하나뿐이고, 움직임 줄이기 설정은 chat.js가 따른다. */
+.quicklink-carousel { display: flex; align-items: center; gap: 8px; max-width: 1072px; margin: 8px auto 12px; }
+.quicklink-viewport { position: relative; flex: 1 1 auto; min-width: 0; }
+.quicklink-viewport::before, .quicklink-viewport::after { content: ""; position: absolute; top: 0; bottom: 0; z-index: 1; width: 32px; pointer-events: none; }
+.quicklink-viewport::before { left: 0; background: linear-gradient(90deg, var(--main-bubble), transparent); }
+.quicklink-viewport::after { right: 0; background: linear-gradient(270deg, var(--main-bubble), transparent); }
+#login-site-footer .quicklink-viewport::before { background: linear-gradient(90deg, var(--glass-dense), transparent); }
+#login-site-footer .quicklink-viewport::after { background: linear-gradient(270deg, var(--glass-dense), transparent); }
+.quicklink-carousel[data-at-start="true"] .quicklink-viewport::before, .quicklink-carousel[data-at-end="true"] .quicklink-viewport::after { opacity: 0; }
+.quicklink-track { display: flex; gap: 10px; margin: 0; padding: 6px; list-style: none; overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x mandatory; scroll-padding-inline: 6px; scrollbar-width: none; }
+.quicklink-track::-webkit-scrollbar { display: none; }
+.quicklink-item { flex: none; scroll-snap-align: start; }
+.quicklink-card { position: relative; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: start; gap: 10px; width: 200px; height: 100%; min-height: 78px; padding: 12px; border: 1px solid var(--glass-edge); border-radius: 14px; background: var(--glass-account); color: var(--ink); text-align: left; text-decoration: none; }
+.quicklink-card:hover { border-color: var(--focus-ink); background: var(--feature-hover); }
+.quicklink-icon { width: 24px; height: 24px; color: var(--link-ink); stroke-width: 1.6; }
+.quicklink-text { display: grid; gap: 3px; min-width: 0; }
+.quicklink-name { color: var(--white); font-size: .86rem; font-weight: 700; line-height: 1.35; word-break: keep-all; }
+.quicklink-desc { color: var(--muted); font-size: .76rem; line-height: 1.4; word-break: keep-all; }
+.quicklink-badge { justify-self: start; margin-top: 3px; padding: 1px 7px; border: 1px solid var(--safety-edge); border-radius: 999px; color: var(--safety-ink); font-size: .68rem; font-weight: 700; }
+.quicklink-card .external-link-icon { margin-top: 3px; color: var(--muted); }
+.quicklink-nav { flex: none; display: inline-grid; place-items: center; width: 38px; height: 38px; padding: 0; border: 1px solid var(--glass-edge); border-radius: 50%; background: var(--input-wash); color: var(--white); }
+.quicklink-nav:hover { border-color: var(--focus-ink); background: var(--feature-hover); }
+.quicklink-nav[aria-disabled="true"], .quicklink-nav[aria-disabled="true"]:hover { border-color: var(--glass-edge); background: var(--input-wash); opacity: .4; cursor: default; }
+@media (max-width: 480px) {
+  .quicklink-carousel { gap: 4px; }
+  .quicklink-nav { width: 32px; height: 32px; }
+  .quicklink-card { width: 168px; }
+}
 .brand-logo, .login-brand { display: inline-block; width: fit-content; padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
 .login-brand:not([hidden]) + .login-brand-name { display: none; }
 .login-brand-name { color: var(--ink); font-size: .9rem; }

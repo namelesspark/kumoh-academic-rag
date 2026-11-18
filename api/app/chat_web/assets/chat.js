@@ -35,6 +35,32 @@ const uiText = {
     "학교 홈페이지": "University website",
     "포털(Onekit)": "Portal (Onekit)",
     "(새 창)": "(new window)",
+    "이전 사이트 보기": "Previous sites",
+    "다음 사이트 보기": "Next sites",
+    "외부 서비스": "External service",
+    "공지와 학교 소식": "Notices and campus news",
+    "수강신청·성적·학적": "Registration, grades, records",
+    "비교과·마일리지": "Extracurriculars and mileage",
+    "학습관리시스템(LMS)": "Learning system (LMS)",
+    "강의 자료와 과제": "Course materials and assignments",
+    "도서관": "Library",
+    "자료 검색·열람실": "Catalog search and reading rooms",
+    "생활관(기숙사)": "Dormitory",
+    "입사 신청과 생활 안내": "Move-in applications and dorm life",
+    "학사일정": "Academic calendar",
+    "학기 주요 날짜": "Key dates of the semester",
+    "식당 메뉴": "Cafeteria menu",
+    "오늘의 학식": "Today's campus meals",
+    "웹메일": "Webmail",
+    "학교 메일": "University email",
+    "학생상담센터": "Student Counseling Center",
+    "심리·진로 상담": "Personal and career counseling",
+    "국제교류·어학교육": "International exchange and languages",
+    "교환학생·한국어 과정": "Exchange programs and Korean courses",
+    "교내 전화번호": "Campus phone directory",
+    "부서 연락처": "Department contacts",
+    "에브리타임": "Everytime",
+    "학생 커뮤니티·시간표": "Student community and timetable",
     "교내 대회 출품작 · 가상 학생 데이터로 동작하는 시연입니다": "Campus contest entry · a demo running on fictional student data",
     "대화 목록": "Conversations",
     "홈": "Home",
@@ -198,6 +224,32 @@ const uiText = {
     "학교 홈페이지": "学校主页",
     "포털(Onekit)": "门户（Onekit）",
     "(새 창)": "（新窗口）",
+    "이전 사이트 보기": "上一组网站",
+    "다음 사이트 보기": "下一组网站",
+    "외부 서비스": "外部服务",
+    "공지와 학교 소식": "公告与学校新闻",
+    "수강신청·성적·학적": "选课·成绩·学籍",
+    "비교과·마일리지": "非学科活动·积分",
+    "학습관리시스템(LMS)": "学习管理系统（LMS）",
+    "강의 자료와 과제": "课程资料与作业",
+    "도서관": "图书馆",
+    "자료 검색·열람실": "资料检索·阅览室",
+    "생활관(기숙사)": "宿舍",
+    "입사 신청과 생활 안내": "入住申请与生活指南",
+    "학사일정": "学年日程",
+    "학기 주요 날짜": "学期重要日期",
+    "식당 메뉴": "食堂菜单",
+    "오늘의 학식": "今日学校餐",
+    "웹메일": "网页邮箱",
+    "학교 메일": "学校邮箱",
+    "학생상담센터": "学生咨询中心",
+    "심리·진로 상담": "心理·职业咨询",
+    "국제교류·어학교육": "国际交流·语言教育",
+    "교환학생·한국어 과정": "交换生·韩语课程",
+    "교내 전화번호": "校内电话号码",
+    "부서 연락처": "部门联系方式",
+    "에브리타임": "Everytime",
+    "학생 커뮤니티·시간표": "学生社区·课表",
     "교내 대회 출품작 · 가상 학생 데이터로 동작하는 시연입니다": "校内竞赛参赛作品 · 使用虚拟学生数据运行的演示",
     "대화 목록": "对话列表",
     "홈": "首页",
@@ -354,6 +406,43 @@ function tr(message) {
 function onLangChange(listener) {
   langListeners.push(listener);
 }
+
+// 교내 주요 사이트 퀵링크 캐러셀(quick-link carousel, #122). 로그인·메인 바닥이 이 목록 하나로 같은 카드를 그린다.
+// 주소는 운영자가 2026-11-17 학교 누리집에서 확인했다. 이름과 설명은 한국어 원문이 사전 열쇠다.
+// external은 학교 공식 사이트가 아니라는 표시다. 사이드바의 작은 링크 세 개는 index.html에 그대로 있다.
+const quickLinks = [
+  { name: "학교 홈페이지", description: "공지와 학교 소식", href: "https://www.kumoh.ac.kr/ko/index.do", icon: "home" },
+  { name: "포털(Onekit)", description: "수강신청·성적·학적", href: "https://onekit.kumoh.ac.kr/", icon: "portal" },
+  { name: "BISKIT", description: "비교과·마일리지", href: "https://biskit.kumoh.ac.kr/", icon: "badge" },
+  { name: "학습관리시스템(LMS)", description: "강의 자료와 과제", href: "https://lms.kumoh.ac.kr/", icon: "lms" },
+  { name: "도서관", description: "자료 검색·열람실", href: "https://library.kumoh.ac.kr/", icon: "library" },
+  { name: "생활관(기숙사)", description: "입사 신청과 생활 안내", href: "https://dorm.kumoh.ac.kr/", icon: "dorm" },
+  { name: "학사일정", description: "학기 주요 날짜", href: "https://www.kumoh.ac.kr/ko/schedule.do", icon: "calendar" },
+  { name: "식당 메뉴", description: "오늘의 학식", href: "https://www.kumoh.ac.kr/ko/restaurant02.do", icon: "meal" },
+  { name: "웹메일", description: "학교 메일", href: "https://mail.kumoh.ac.kr/", icon: "mail" },
+  { name: "학생상담센터", description: "심리·진로 상담", href: "https://consult.kumoh.ac.kr/", icon: "counsel" },
+  { name: "국제교류·어학교육", description: "교환학생·한국어 과정", href: "https://iplec.kumoh.ac.kr/", icon: "globe" },
+  { name: "교내 전화번호", description: "부서 연락처", href: "https://www.kumoh.ac.kr/ko/campusTel.do", icon: "phone" },
+  { name: "에브리타임", description: "학생 커뮤니티·시간표", href: "https://everytime.kr/", icon: "community", external: true },
+];
+// 카드 아이콘. 24칸 위에 선으로만 그린다(채움 없음). 그림 파일을 받지 않는다.
+const quickLinkIcons = {
+  home: ["M3.5 11.5 12 4.5l8.5 7", "M6 10v9.5h12V10", "M10 19.5v-5h4v5"],
+  portal: ["M4.5 4.5h6v6h-6Z", "M13.5 4.5h6v6h-6Z", "M4.5 13.5h6v6h-6Z", "M13.5 13.5h6v6h-6Z"],
+  badge: ["M12 3.5a5.5 5.5 0 1 1 0 11 5.5 5.5 0 0 1 0-11Z", "m9 13.8-1.5 6.7 4.5-2.5 4.5 2.5-1.5-6.7", "m10 9 1.4 1.4L14.2 7.6"],
+  lms: ["M4 5h16v11H4Z", "M2.5 19.5h19", "m10.5 8.2 4 2.3-4 2.3Z"],
+  library: ["M5 4.5h4v15H5Z", "M10.5 4.5h4v15h-4Z", "m15.8 5.6 3.4-.9 3 14-3.4.9Z"],
+  dorm: ["M3.5 20h17", "M5.5 20V9l6.5-4.5L18.5 9v11", "M9 12.5h6", "M9 16h6"],
+  calendar: ["M4.5 6h15v13.5h-15Z", "M4.5 10h15", "M8.5 3.5v4M15.5 3.5v4", "M8 14h3"],
+  meal: ["M7 3.5v17", "M4.5 3.5v4.5a2.5 2.5 0 0 0 5 0V3.5", "M17.5 20.5v-17c-2.2 1.6-3.5 4.4-3.5 8v2h3.5"],
+  mail: ["M3.5 6h17v12h-17Z", "m3.5 7 8.5 6 8.5-6"],
+  counsel: ["M4 5h16v11H10l-4.5 3.5V16H4Z", "M12 13.2 9.8 11a1.5 1.5 0 0 1 2.2-2 1.5 1.5 0 0 1 2.2 2Z"],
+  globe: ["M12 3a9 9 0 1 1 0 18 9 9 0 0 1 0-18Z", "M3 12h18", "M12 3c2.4 2.6 3.6 5.6 3.6 9s-1.2 6.4-3.6 9c-2.4-2.6-3.6-5.6-3.6-9S9.6 5.6 12 3Z"],
+  phone: ["M6 3.5h3.2l1.6 4.3-2.2 1.4a10.5 10.5 0 0 0 6.2 6.2l1.4-2.2 4.3 1.6V18a2 2 0 0 1-2 2A15.5 15.5 0 0 1 4 5.5a2 2 0 0 1 2-2Z"],
+  community: ["M9 11a3.2 3.2 0 1 0 0-6.4A3.2 3.2 0 0 0 9 11Z", "M3 20a6 6 0 0 1 12 0", "M15.5 4.8a3.2 3.2 0 0 1 0 6", "M17.5 14.3A6 6 0 0 1 21 20"],
+};
+// 바닥마다 { root, track, prev, next } 하나. 화면 전환(showScreen)과 첫 화면 복귀가 이 목록을 다시 잰다.
+const quickLinkCarousels = [];
 // 언어를 바꾸면 다시 그릴 줄. 줄마다 마지막으로 넣은 원문과 그린 글을 기억한다.
 // 다른 코드가 그 사이 글을 바꿨으면(그린 글과 다르면) 건드리지 않는다.
 const spokenLines = new Map();
@@ -665,6 +754,9 @@ function setChatView(next, push = true) {
     } else if (!next && chatView) transcript.replaceChildren(...(homeNodes || [empty]));
     chatView = next;
     document.body?.setAttribute("data-view", next ? "chat" : "home");
+    // 채팅 화면은 바닥을 숨긴다. 첫 화면으로 돌아오면 카드 줄을 다시 잰다.
+    // 화면 테스트는 이 함수 묶음만 떼어 돌리므로, 캐러셀 코드가 없을 때도 멈추지 않게 typeof로 확인한다.
+    if (!next && typeof measureQuickLinks === "function") measureQuickLinks();
     const welcome = document.querySelector(".main-welcome");
     if (welcome) welcome.hidden = next;
     if (sidebar) sidebar.hidden = !next;
@@ -1183,6 +1275,8 @@ function showScreen(main) {
   if (loginScreen) loginScreen.hidden = main;
   if (mainScreen) mainScreen.hidden = !main;
   document.body?.setAttribute("data-screen", main ? "main" : "login");
+  // 숨어 있던 바닥은 폭이 0이라 판정을 미뤄 두었다. 보이는 바닥의 카드 줄을 다시 잰다.
+  if (typeof measureQuickLinks === "function") measureQuickLinks();
   if (main) {
     restoreTechmoPosition();
     techmoBubble();
@@ -2365,7 +2459,7 @@ const staticSources = new WeakMap();
 // 문서에 적힌 고정 문구만 바꾼다. 아래 자리는 스크립트가 직접 그리거나(메뉴·확인 창·제목), 서버 글과 사용자 글이 들어간다.
 const staticSkip = [".turn", "#conversation-list", "[data-panel-content]", ".title-fallback", ".main-title-fallback",
   "#ai-mode-button", ".lang-pill", ".choice-menu", ".conversation-menu", ".confirm-scrim", "#campus-caption",
-  "#demo-label", "#conversation-toast-open", "#conversation-announce"].join(", ");
+  "#demo-label", "#conversation-toast-open", "#conversation-announce", ".quicklink-track"].join(", ");
 function langChoice(value) {
   return langChoices.find(choice => choice.value === value) ?? langChoices[0];
 }
@@ -2439,7 +2533,7 @@ function translateStatic() {
     }
   }
 }
-// 제목 그림에는 한국어 글씨가 들어 있다. 영어·중국어에서는 그림 자리를 숨기고 이 글자 제목을 보인다.
+// 그 언어의 제목 그림을 받기 전이거나 받지 못하면(404·깨짐) 그림 자리를 숨기고 이 글자 제목을 보인다.
 function renderTitles() {
   if (uiLang === "ko" && !titlesTouched) return;
   titlesTouched = true;
@@ -2960,6 +3054,8 @@ window.addEventListener?.("resize", () => {
   refreshTechmoBubbleVisibility();
   restoreTechmoPosition();
   techmoBubble();
+  // ResizeObserver가 없는 브라우저에서도 퀵링크 캐러셀 버튼 상태를 다시 잰다.
+  if (typeof measureQuickLinks === "function") measureQuickLinks();
 });
 try {
   const saved = historyStorage()?.getItem(techmoPositionKey);
@@ -2974,25 +3070,157 @@ try {
 // 펫은 스프라이트 시트를 배경으로 그리는데 배경 그림은 로드 신호를 주지 않아, 같은 주소의 그림을 버튼 안에 두고 그 신호를 본다.
 // complete와 naturalWidth를 함께 보므로 이 스크립트가 로드·실패 신호보다 늦게 실행돼도 결과가 같다.
 // 파일이 없거나(404) 깨졌으면 자리를 숨긴 채 두고, 다른 그림으로 바꾸지 않는다.
-// 두 제목 그림에는 한국어 글씨가 들어 있다. 한국어가 아닌 화면에서는 그림이 늦게 받아져도 자리를 숨긴 채 두어
-// 바로 뒤의 번역한 글자 제목이 보이게 한다. 언어를 바꾸면 같은 판정을 다시 한다.
+// 두 제목 그림은 언어마다 따로 있다(#122). 영어·중국어 주소는 그림의 data-lettering-en·zh 속성에 있고,
+// 서버가 준비된 그림에만 내용 지문을 붙여 둔다. lettering이 그 언어 그림으로 바꾸는 일을 맡는다.
 for (const slot of document.querySelectorAll?.("[data-brand-slot]") ?? []) {
   const image = slot.querySelector("img");
   if (!image) continue;
-  const lettering = /(^|\s)(title|main)-lettering(\s|$)/.test(typeof slot.className === "string" ? slot.className : "");
+  const isLettering = /(^|\s)(title|main)-lettering(\s|$)/.test(typeof slot.className === "string" ? slot.className : "");
+  const lettering = isLettering ? letteringSwitcher(image) : null;
   const settle = () => {
-    slot.hidden = !(image.complete && image.naturalWidth > 0) || (lettering && uiLang !== "ko");
+    lettering?.follow();
+    slot.hidden = !(image.complete && image.naturalWidth > 0) || (lettering ? !lettering.ready() : false);
     configureTechmoSprite(slot, image);
     if (slot === pet && !slot.hidden) {
       restoreTechmoPosition();
       techmoBubble();
     }
   };
+  if (lettering) lettering.onSwap = settle;
   image.addEventListener("load", settle);
   image.addEventListener("error", settle);
   if (lettering) onLangChange(settle);
   settle();
 }
+
+// 제목 그림 한 장을 지금 언어에 맞춘다. 한국어는 처음 주소를 그대로 쓴다.
+// 다른 언어는 별도 Image로 먼저 받아 보고, 받은 뒤 요청 번호와 현재 언어가 둘 다 맞을 때만 src·alt·크기를 바꾼다.
+// 받는 중이거나 404·깨짐이면 ready()가 거짓이라 자리를 숨기고, 바로 뒤의 번역한 글자 제목이 보인다.
+// 언어를 빠르게 바꾸면 요청 번호가 앞서 나가므로 늦게 도착한 이전 언어 그림은 버린다.
+function letteringSwitcher(image) {
+  const read = name => typeof image.getAttribute === "function" ? image.getAttribute(name) : null;
+  const original = { src: read("src"), alt: read("alt"), width: read("width"), height: read("height") };
+  let shown = "ko", wanted = "ko", request = 0;
+  const switcher = {
+    onSwap: null,
+    ready: () => shown === uiLang,
+    follow() {
+      const lang = uiLang;
+      if (lang === wanted) return;
+      wanted = lang;
+      const ticket = ++request;
+      if (lang === "ko") { restore(); return; }
+      const address = read(`data-lettering-${lang}`);
+      if (!address || typeof Image !== "function") return;
+      const probe = new Image();
+      const finish = ok => {
+        if (ticket !== request || uiLang !== lang || !ok || !(probe.naturalWidth > 0)) return;
+        image.setAttribute("src", address);
+        if (original.alt !== null) image.setAttribute("alt", t(original.alt));
+        // 처음 그림에 크기가 적혀 있으면(로그인 제목) 새 그림의 크기로 바꿔 비율을 맞춘다. 메인 제목은 높이를 CSS가 정한다.
+        if (original.width !== null) image.setAttribute("width", String(probe.naturalWidth));
+        if (original.height !== null) image.setAttribute("height", String(probe.naturalHeight));
+        shown = lang;
+        switcher.onSwap?.();
+      };
+      probe.addEventListener?.("load", () => finish(true));
+      probe.addEventListener?.("error", () => finish(false));
+      probe.setAttribute("src", address);
+    },
+  };
+  function restore() {
+    if (shown === "ko") return;
+    shown = "ko";
+    for (const name of ["src", "alt", "width", "height"]) {
+      if (original[name] === null) image.removeAttribute?.(name);
+      else image.setAttribute(name, original[name]);
+    }
+  }
+  return switcher;
+}
+
+// 퀵링크 카드 한 장. 읽기 이름은 「이름 설명 (외부 서비스) (새 창)」 순서이고 두 아이콘은 읽지 않는다.
+const svgNamespace = "http://www.w3.org/2000/svg";
+function quickLinkSvg(className, viewBox, paths) {
+  if (typeof document.createElementNS !== "function") return null;
+  const svg = document.createElementNS(svgNamespace, "svg");
+  for (const [name, value] of [["class", className], ["viewBox", viewBox], ["fill", "none"], ["stroke", "currentColor"],
+    ["stroke-linecap", "round"], ["stroke-linejoin", "round"], ["aria-hidden", "true"], ["focusable", "false"]]) {
+    svg.setAttribute(name, value);
+  }
+  for (const d of paths) {
+    const path = document.createElementNS(svgNamespace, "path");
+    path.setAttribute("d", d);
+    svg.append(path);
+  }
+  return svg;
+}
+function quickLinkCard(link) {
+  const item = element("li", "quicklink-item");
+  const anchor = element("a", "quicklink-card");
+  anchor.setAttribute("href", link.href);
+  anchor.setAttribute("target", "_blank");
+  anchor.setAttribute("rel", "noopener noreferrer");
+  const text = element("span", "quicklink-text");
+  text.append(element("span", "quicklink-name", t(link.name)), element("span", "quicklink-desc", t(link.description)));
+  if (link.external) text.append(element("span", "quicklink-badge", t("외부 서비스")));
+  anchor.append(...[
+    quickLinkSvg("quicklink-icon", "0 0 24 24", quickLinkIcons[link.icon] ?? []),
+    text,
+    element("span", "sr-only", ` ${t("(새 창)")}`),
+    quickLinkSvg("external-link-icon", "0 0 16 16", ["M9.5 2.5h4v4M13.5 2.5 7.5 8.5M11.5 9.5v4h-9v-9h4"]),
+  ].filter(Boolean));
+  item.append(anchor);
+  return item;
+}
+// 버튼 상태를 잰다. 숨은 화면처럼 폭이 0이면 판정을 미루고, 끝 판정에는 1px 오차를 허용한다.
+// 카드가 다 보이면 두 버튼을 숨기고, 끝에 닿은 쪽 버튼은 aria-disabled="true"로 둔다. 양 끝 흐림도 같은 값을 따른다.
+function measureQuickLink({ root, track, prev, next }) {
+  const width = Number(track.clientWidth) || 0;
+  if (width <= 0) return;
+  const overflow = (Number(track.scrollWidth) || 0) - width;
+  const fits = overflow <= 1;
+  const left = Math.max(0, Number(track.scrollLeft) || 0);
+  const atStart = fits || left <= 1;
+  const atEnd = fits || left >= overflow - 1;
+  prev.hidden = fits;
+  next.hidden = fits;
+  prev.setAttribute("aria-disabled", String(atStart));
+  next.setAttribute("aria-disabled", String(atEnd));
+  root.setAttribute("data-at-start", String(atStart));
+  root.setAttribute("data-at-end", String(atEnd));
+}
+function measureQuickLinks() {
+  for (const carousel of quickLinkCarousels) measureQuickLink(carousel);
+}
+// 보이는 폭만큼 넘기고, 멈출 자리는 CSS의 scroll-snap이 카드 앞 끝에 맞춘다.
+// CSS scroll-behavior는 쓰지 않는다. 움직임 줄이기 설정이면 즉시 옮긴다.
+function moveQuickLinks(carousel, direction) {
+  const { track } = carousel;
+  const button = direction < 0 ? carousel.prev : carousel.next;
+  if (button.getAttribute?.("aria-disabled") === "true" || typeof track.scrollBy !== "function") return;
+  track.scrollBy({ left: direction * (Number(track.clientWidth) || 0), behavior: reducedMotion() ? "auto" : "smooth" });
+  measureQuickLink(carousel);
+}
+function setupQuickLinks() {
+  for (const root of document.querySelectorAll?.("[data-quicklink-carousel]") ?? []) {
+    const find = selector => typeof root.querySelector === "function" ? root.querySelector(selector) : null;
+    const track = find(".quicklink-track"), prev = find(".quicklink-prev"), next = find(".quicklink-next");
+    if (!track || !prev || !next) continue;
+    const carousel = { root, track, prev, next };
+    quickLinkCarousels.push(carousel);
+    const render = () => track.replaceChildren(...quickLinks.map(quickLinkCard));
+    render();
+    onLangChange(() => { render(); measureQuickLink(carousel); });
+    prev.addEventListener("click", () => moveQuickLinks(carousel, -1));
+    next.addEventListener("click", () => moveQuickLinks(carousel, 1));
+    track.addEventListener?.("scroll", () => measureQuickLink(carousel), { passive: true });
+    if (typeof ResizeObserver === "function") new ResizeObserver(() => measureQuickLink(carousel)).observe(track);
+    measureQuickLink(carousel);
+  }
+  // 창 크기 신호는 테크모 위치를 고치는 resize 처리기 하나가 함께 받아 measureQuickLinks를 부른다.
+}
+setupQuickLinks();
 
 updateSend();
 refreshTechmoBubbleVisibility();
