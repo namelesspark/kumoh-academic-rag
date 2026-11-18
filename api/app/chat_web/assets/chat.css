@@ -1631,6 +1631,9 @@ button.login-lang:hover { background: var(--navy); }
 .login-lang:not(button) { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; padding: 0; border: 0; background: transparent; }
 .login-lang .lang-pill { border-color: var(--glass-edge); background: var(--glass-pill); color: var(--white); }
 .login-lang .lang-pill:hover { background: var(--navy); }
+/* 로그인 언어·테마 버튼은 판 없이 사진 위에 놓인다. 테마별 초점색(라이트 남색)은 어두운 사진·남색 막 위에서 묻히므로
+   배경 일시정지 버튼과 같이 흰 2px 고리 뒤에 남색 6px 띠를 깐다. 고리는 띠와 항상 3:1을 넘는다. */
+button.login-lang:focus-visible, .login-lang .lang-pill:focus-visible { outline: 2px solid var(--white); outline-offset: 2px; box-shadow: 0 0 0 6px var(--navy); }
 /* 인용 카드의 조문 원문은 번역하지 않는다. 한국어가 아닌 화면에서만 원문 위에 이 표시가 붙는다. */
 .evidence .original-lang { margin: 0 0 6px; color: var(--muted); font-size: .76rem; font-weight: 700; }
 @media (max-width: 680px) {

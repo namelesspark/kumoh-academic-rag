@@ -383,6 +383,20 @@ test("로그인 화면 언어·테마 묶음은 hover 바탕이 없고 안의 �
   assert.equal(declared(".login-lang .lang-pill", ["color"]), "var(--white)");
   assert.equal(declared(".login-lang .lang-pill", ["background"]), "var(--glass-pill)");
   assert.equal(declared(".login-lang .lang-pill:hover", ["background"]), "var(--navy)");
+  // 사진 위 두 버튼의 초점은 테마색 고리가 아니라 흰 고리와 남색 띠다. 띠가 고리 뒤 바탕을 고정해 어느 사진·테마에서도 3:1을 넘는다.
+  for (const selector of ["button.login-lang:focus-visible", ".login-lang .lang-pill:focus-visible"]) {
+    assert.equal(declared(selector, ["outline"]), "2px solid var(--white)", selector);
+    assert.equal(declared(selector, ["outline-offset"]), "2px", selector);
+    assert.equal(declared(selector, ["box-shadow"]), "0 0 0 6px var(--navy)", selector);
+  }
+  for (const look of themes) {
+    assert.ok(contrast(colors("var(--white)", look)[0].slice(0, 3), colors("var(--navy)", look)[0].slice(0, 3)) >= 3, themeName(look));
+    // 근거: 라이트 남색 고리를 어두운 사진·위쪽 막 위에 바로 두면 3:1에 못 미친다.
+    if (!isDark(look)) {
+      const photoTop = blend(colors("var(--overlay-top)", look)[0], [4, 20, 38]);
+      assert.ok(contrast(colors("var(--focus-ring)", look)[0].slice(0, 3), photoTop) < 3);
+    }
+  }
   // 흰 글자는 남색 알약(흰 사진 가정)과 hover 남색 모두에서 4.5:1을 넘는다.
   for (const look of themes) {
     assert.ok(contrast([255, 255, 255], blend(colors("var(--glass-pill)", look)[0], [255, 255, 255])) >= 4.5);
