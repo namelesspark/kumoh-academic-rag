@@ -3186,24 +3186,17 @@ function setupHandwriting() {
     if (!row || !(row.width > 0) || !height) return;
     pad.style?.setProperty("--handwriting-x", `${Math.max(8, row.left)}px`);
     pad.style?.setProperty("--handwriting-width", `${row.width}px`);
-    // 수용 조건대로 넓은 화면에서는 입력 줄 위(8px 띄움)에 연다. 아래 끝(bottom)을 입력 줄 위 8px에 묶고
-    // 위쪽 남은 높이를 최대 높이로 주므로, 위쪽이 패드보다 낮으면 패드 안에서 스크롤하고 상태 줄이 생겨도 입력 줄을 덮지 않는다.
-    // 위쪽이 필기 칸 최소 높이(160px)보다 좁으면 최대 높이가 0에 가까워 필기 칸과 버튼이 잘린다.
-    // 그래서 열 때 문서를 먼저 위로 굴려 자리를 만들고(makeRoom), 그래도 모자라면 그때만 줄 아래(top 고정)로 연다.
-    // 최대 높이로 잘려 있을 수 있으므로 내용 전체 높이(scrollHeight)와 견줘 큰 쪽을 패드 높이로 본다.
-    const own = Math.max(pad.getBoundingClientRect?.().height || 0, Number(pad.scrollHeight) || 0);
+    // 수용 조건대로 넓은 화면에서는 언제나 입력 줄 위(8px 띄움)에 연다. 줄 아래로 여는 경로는 없다.
+    // 아래 끝(bottom)을 입력 줄 위 8px에 묶되 화면 안(위아래 8px)으로 가둔다. 입력 줄이 스크롤로 화면 아래로 내려가도
+    // 패드는 화면 아래 끝에 머물러 버튼이 화면 밖으로 나가지 않는다.
+    // 최대 높이는 입력 줄 위쪽 남은 높이와 화면 안 남은 높이 중 작은 쪽이다. 그래서 상태 줄이 생겨 커져도 입력 줄을 덮지 않고 패드 안에서 스크롤한다.
+    // 위쪽이 필기 칸 최소 높이(160px)보다 좁으면 열 때 문서를 위로 굴려 자리를 만든다(makeRoom).
+    // 실제 화면에서는 입력 줄 위에 머리글(76px 이상)이 있어, 문서 맨 위에서 위쪽이 그보다 좁아지는 일은 없다.
     const above = row.top - 16;
-    if (above >= Math.min(own, handwritingMinRoom)) {
-      const bottom = height - row.top + 8;
-      pad.style?.setProperty("--handwriting-top", "auto");
-      pad.style?.setProperty("--handwriting-bottom", `${bottom}px`);
-      pad.style?.setProperty("--handwriting-max-height", `${Math.max(0, above)}px`);
-    } else {
-      const top = Math.max(8, row.bottom + 8);
-      pad.style?.setProperty("--handwriting-bottom", "auto");
-      pad.style?.setProperty("--handwriting-top", `${top}px`);
-      pad.style?.setProperty("--handwriting-max-height", `${Math.max(0, height - top - 8)}px`);
-    }
+    const bottom = Math.min(height - 8, Math.max(8, height - row.top + 8));
+    pad.style?.setProperty("--handwriting-top", "auto");
+    pad.style?.setProperty("--handwriting-bottom", `${bottom}px`);
+    pad.style?.setProperty("--handwriting-max-height", `${Math.max(0, Math.min(above, height - bottom - 8))}px`);
   }
   // 넓은 화면에서 입력 줄 위쪽이 최소 높이보다 좁고 문서가 아래로 굴러가 있으면, 모자란 만큼 위로 굴려 입력 줄 위에 자리를 만든다.
   // 여는 순간에만 한 번 한다(스크롤할 때마다 하면 학생의 스크롤과 다툰다). 좁은 화면 시트는 화면 아래에 붙으므로 하지 않는다.
@@ -3340,7 +3333,9 @@ function setupHandwriting() {
     // "같은 자리"는 이번 편집이 직전 편집이 끝난 커서에서 시작하거나(입력) 끝나는(뒤로 지우기) 경우다.
     // 커서를 옮겨 다른 곳을 지우면 브라우저도 실행 취소 묶음을 새로 시작하므로 여기서도 새 묶음이다.
     // 묶음 수만 세므로 기록 상한(200)은 맨 앞(패드를 열 때의 범위)을 남긴 채 가장 오래된 중간 묶음부터 버린다.
-    const contiguous = inputType && inputType === lastEditType && (prefix === lastEditCaret || editEnd === lastEditCaret);
+    // 뒤로 지우기는 이번 삭제가 직전 커서에서 끝나야(editEnd), 입력과 앞으로 지우기는 직전 커서에서 시작해야(prefix) 이어진 편집이다.
+    const backward = /Backward$/.test(inputType || "");
+    const contiguous = inputType && inputType === lastEditType && (backward ? editEnd === lastEditCaret : prefix === lastEditCaret);
     if (!contiguous || !undoRanges.length) {
       undoRanges.push({ ...previous });
       if (undoRanges.length > 200) undoRanges.splice(1, 1);
