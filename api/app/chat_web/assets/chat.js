@@ -3617,13 +3617,14 @@ function setupHandwriting() {
     // 칸 밖에 나갔다 다시 들어오면 들어온 자리를 gap 점으로 넣어 앞 조각과 잇지 않는다.
     const area = visibleArea();
     for (const each of samples) {
-      if (release) {
-        // 떼는 자리가 마지막 신호와 화면에서 같은 자리면 펜은 움직이지 않은 것이라 더할 것이 없다.
-        // 캔버스 좌표로 비교하면, 펜을 누른 채 패드가 스크롤됐을 때 캔버스만 움직였는데도 가짜 선이 붙는다.
-        if (stroke.lastClient && each.clientX === stroke.lastClient.x && each.clientY === stroke.lastClient.y) continue;
-      }
+      // 신호의 화면 좌표가 마지막 신호와 같으면 펜은 화면에서 움직이지 않은 것이다(압력만 바뀐 신호).
+      // 그 사이 패드가 스크롤돼 캔버스만 움직였어도 새 캔버스 좌표로 선을 긋지 않고, 마지막 획 좌표에서 굵기만 갱신한다.
+      // 떼기 신호라면 더할 것이 없다. 캔버스 좌표로 비교하면 움직이지 않은 펜에 가짜 선이 붙는다(이동·떼기 모두 같은 규칙).
+      const still = stroke.lastClient && each.clientX === stroke.lastClient.x && each.clientY === stroke.lastClient.y;
+      if (still && release) continue;
       stroke.lastClient = { x: each.clientX, y: each.clientY };
       const next = point(each);
+      if (still) { next.x = stroke.last.x; next.y = stroke.last.y; }
       if (release) next.p = stroke.last.p;
       // 자르기 전 선분(앞 포인터 자리 → 새 자리)의 굵기를 한 번 정해, 잘라 낸 조각의 모든 점에 w로 적는다.
       // 자른 점에 새 압력만 붙여 굵기를 다시 계산하면, 세게 누르다 약하게 경계 밖으로 이어 간 선이 가늘어져 칸 안 잉크가 사라진다.

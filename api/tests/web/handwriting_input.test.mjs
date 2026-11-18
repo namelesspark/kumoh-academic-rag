@@ -793,15 +793,16 @@ test("획을 긋는 도중 패드가 스크롤로 움직여도 지금 캔버스 
   const page = loadPad();
   page.button.click();
   page.pointer("pointerdown", { x: 10, y: 10 });
-  // 휠로 패드가 화면 위로 60px 움직였다. 실제 캔버스 안 좌표 (10, 70)을 지난다.
+  // 휠로 패드가 화면 위로 60px 움직였고, 펜도 화면에서 10px 내려갔다(화면 y 410 → 420). 지금 캔버스 기준으로는 (10, 80)이다.
+  // 펜이 화면에서 움직이지 않은 신호는 압력만 바뀐 것으로 보므로(다음 테스트들), 여기서는 실제로 움직인 신호를 쓴다.
   Object.assign(page.canvasRect, { top: 340, bottom: 540 });
-  page.pointer("pointermove", { x: 10, y: 70 });
-  page.pointer("pointerup", { x: 10, y: 70 });
+  page.pointer("pointermove", { x: 10, y: 80 });
+  page.pointer("pointerup", { x: 10, y: 80 });
   page.respond(ok("가상"));
   page.insert.click();
   await settle();
-  // 가로 굵기 3 + 여백 32 = 35, 세로 60 + 3 + 32 = 95, 배율 2.
-  assert.deepEqual([page.exports[0].canvas.width, page.exports[0].canvas.height], [70, 190]);
+  // 가로 굵기 3 + 여백 32 = 35, 세로 70 + 3 + 32 = 105, 배율 2.
+  assert.deepEqual([page.exports[0].canvas.width, page.exports[0].canvas.height], [70, 210]);
 });
 
 test("커서를 옮겨 따로 지운 두 삭제는 다른 묶음이라, 마지막 삭제만 되돌리면 그 직전 범위로 돌아온다", async () => {
@@ -1174,6 +1175,30 @@ test("펜을 누른 채 패드가 스크롤된 뒤 같은 화면 자리에서 �
   page.pointer("pointerup", { id: 23, kind: "pen", x: 110, y: 50, pressure: 0 });
   const fake = log => log.some(call => call[0] === "lineTo" && call[2] === 50);
   assert.equal(fake(page.canvas.log.slice(before)), false, "no fake line on screen");
+  page.respond(ok("가상"));
+  page.insert.click();
+  await settle();
+  const image = page.exports[0].canvas.log;
+  assert.equal(fake(image), false, "no fake line in the image");
+  assert.deepEqual(image.filter(call => call[0] === "lineTo").at(-1).slice(1), [110, 30]);
+});
+
+test("펜을 누른 채 패드가 스크롤된 뒤 같은 화면 자리에서 압력만 바꾸면 마지막 획 자리에서 굵기만 바뀐다", async () => {
+  const page = loadPad();
+  page.button.click();
+  page.pointer("pointerdown", { id: 24, kind: "pen", x: 100, y: 30, pressure: 0.5 });
+  page.pointer("pointermove", { id: 24, kind: "pen", x: 110, y: 30, pressure: 0.5 });
+  // 캔버스만 20px 위로 스크롤됐다. 펜은 화면 (210, 430)에 그대로 있고 압력만 0.5 → 0.7로 바뀐다.
+  Object.assign(page.canvasRect, { top: 380, bottom: 580 });
+  page.scroll();
+  const before = page.canvas.log.length;
+  page.pointer("pointermove", { id: 24, kind: "pen", x: 110, y: 50, pressure: 0.7 });
+  page.pointer("pointerup", { id: 24, kind: "pen", x: 110, y: 50, pressure: 0 });
+  const after = page.canvas.log.slice(before);
+  const fake = log => log.some(call => call[0] === "lineTo" && call[2] === 50);
+  assert.equal(fake(after), false, "no fake line on screen");
+  // 마지막 획 자리 (110,30)에 압력 0.7 굵기(1.2 + 2.8 = 4.0, 반지름 2.0)로 점을 찍는다.
+  assert.ok(after.some(call => call[0] === "arc" && call[1] === 110 && call[2] === 30 && Math.abs(call[3] - 2) < 1e-9), "thickness updated in place");
   page.respond(ok("가상"));
   page.insert.click();
   await settle();
