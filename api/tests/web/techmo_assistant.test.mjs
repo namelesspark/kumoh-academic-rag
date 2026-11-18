@@ -335,8 +335,9 @@ test("펫의 움직임 네 가지는 서로 다른 요소·속성에 걸고, 움
     [".login-card", "login-rise .8s ease-out"],
     [".login-techmo", "login-float 3.6s ease-in-out infinite"],
     // #128: 말풍선이 나타날 때 커지는 움직임과, 프레임 재생과 같은 움직임 줄이기 묶음에서 그것을 끄는 규칙.
-    ['.pet-dock[data-bubble-visible="true"] .pet-says', "pet-says-fade .2s ease-out, pet-says-grow .18s ease-out .02s"],
-    ['.pet-dock .pet-says, .pet-dock[data-bubble-visible="true"] .pet-says', "none !important"],
+    ['.pet-dock[data-bubble-visible="true"] .pet-says::before', "pet-says-grow .2s ease-out"],
+    ['.pet-dock[data-bubble-visible="true"] .pet-says > *', "pet-says-fade .2s ease-out"],
+    ['.pet-dock .pet-says::before, .pet-dock[data-bubble-visible="true"] .pet-says::before, .pet-dock[data-bubble-visible="true"] .pet-says > *', "none !important"],
   ]);
   // 움직임 줄이기 묶음은 하나뿐이고, 펫·대기 점·도형과 카드 전환을 함께 끈다.
   assert.ok(styles.split("prefers-reduced-motion").length >= 3);
@@ -1297,8 +1298,10 @@ test("창 크기 변경과 Home 복귀와 그림 로드가 기본 자리 말풍�
 
 test("끄는 동안 말풍선을 숨기고 꼬리 방향은 위아래 배치에 따라 바뀐다", () => {
   assert.match(first('.pet-dock[data-dragging="true"] .pet-says'), /visibility: hidden/);
-  // 꼬리는 #pet-line 밖의 장식 SVG 한 장이다(#128). 예전 삼각형 두 겹(::before·::after)은 남지 않는다.
-  assert.doesNotMatch(styles, /\.pet-says::(?:before|after)/);
+  // 꼬리는 #pet-line 밖의 장식 SVG 한 장이다(#128). 예전 삼각형 두 겹(테두리 색 칠하기)과 ::after는 남지 않는다.
+  // ::before는 이제 크림 판 한 장만 그린다.
+  assert.doesNotMatch(styles, /\.pet-says::after/);
+  assert.doesNotMatch(styles, /\.pet-says::before[^{}]*\{[^}]*border-width/);
   const bubble = /<p class="pet-says">([\s\S]*?)<\/p>/.exec(html)?.[1] ?? "";
   const tail = /<svg class="pet-tail" viewBox="0 0 20 12" aria-hidden="true" focusable="false">([\s\S]*?)<\/svg>/.exec(bubble);
   assert.ok(tail, "말풍선 꼬리 SVG");
@@ -1315,15 +1318,28 @@ test("끄는 동안 말풍선을 숨기고 꼬리 방향은 위아래 배치에 
   assert.match(first(".pet-tail-line"), /fill: none; stroke: var\(--navy\); stroke-width: 1\.5px;/);
   // 나타날 때 꼬리 끝을 기준으로 .92에서 1로 커지고, 움직임 줄이기에서는 끈다.
   assert.match(first(".pet-dock .pet-says"), /position: fixed;/);
-  assert.match(rules.find(([name, body]) => name === ".pet-dock .pet-says" && body.startsWith("transform-origin"))?.[1] ?? "", /^transform-origin: var\(--techmo-bubble-tail-x\) calc\(100% \+ 10px\);$/);
-  assert.match(first('.pet-dock[data-bubble-below="true"] .pet-says'), /transform-origin: var\(--techmo-bubble-tail-x\) -10px;/);
-  // chat.js는 data-bubble-visible을 바꾼 바로 그 순간 말풍선 높이를 잰다. 커짐은 .02초 늦게 시작해
-  // 그 순간에는 transform이 없고(채움 모드 없음), 투명도만 0에서 시작한다.
-  assert.match(first('.pet-dock[data-bubble-visible="true"] .pet-says'), /^animation: pet-says-fade \.2s ease-out, pet-says-grow \.18s ease-out \.02s;$/);
-  assert.match(styles, /@keyframes pet-says-fade \{\s*0%, 10% \{ opacity: 0; \}\s*100% \{ opacity: 1; \}\s*\}/);
-  assert.match(styles, /@keyframes pet-says-grow \{\s*from \{ transform: scale\(\.92\); \}\s*to \{ transform: scale\(1\); \}\s*\}/);
-  assert.doesNotMatch(styles, /pet-says-(?:fade|grow)[^;]*\b(?:both|backwards)\b/);
-  assert.match(styles, /@media \(prefers-reduced-motion: reduce\) \{[^{}]*\{[^{}]*\}\s*\.pet-dock \.pet-says, \.pet-dock\[data-bubble-visible="true"\] \.pet-says \{ animation: none !important; \}\s*\}/);
+  // chat.js가 getBoundingClientRect로 재는 .pet-says 자신은 어떤 규칙에서도 변형하지 않는다.
+  // 그 값은 요소와 조상의 transform만 반영하므로, 커지는 동안 다시 재도 원래 높이가 나온다.
+  for (const [selector, body] of rules) {
+    if (/\.pet-says$/.test(selector.split(", ").at(-1)) || selector.split(", ").some(part => /\.pet-says$/.test(part))) {
+      assert.doesNotMatch(body, /(?:^|; )(?:transform|scale|zoom): /, selector);
+      assert.doesNotMatch(body, /(?:^|; )animation: (?!none)/, selector);
+    }
+  }
+  assert.match(first(".pet-dock .pet-says"), /position: fixed;/);
+  assert.equal(rules.find(([name, body]) => name === ".pet-dock .pet-says" && body.startsWith("border-color"))?.[1],
+    "border-color: transparent; background: transparent; box-shadow: none;");
+  // 크림 판·선·그림자는 자식 층이 그리고, 그 층이 꼬리 끝을 기준으로 .92에서 1로 커진다.
+  const plate = first(".pet-dock .pet-says::before");
+  for (const part of ['content: "";', "position: absolute;", "inset: -1.5px;", "z-index: -1;", "border: 1.5px solid var(--navy);",
+    "background: var(--pet-bubble);", "box-shadow: 3px 3px 0 var(--navy);", "pointer-events: none;",
+    "transform-origin: var(--techmo-bubble-tail-x) calc(100% + 10px);"]) assert.ok(plate.includes(part), part);
+  assert.match(first('.pet-dock[data-bubble-below="true"] .pet-says::before'), /^transform-origin: var\(--techmo-bubble-tail-x\) -10px;$/);
+  assert.match(first('.pet-dock[data-bubble-visible="true"] .pet-says::before'), /^animation: pet-says-grow \.2s ease-out;$/);
+  assert.match(first('.pet-dock[data-bubble-visible="true"] .pet-says > *'), /^animation: pet-says-fade \.2s ease-out;$/);
+  assert.match(styles, /@keyframes pet-says-grow \{\s*from \{ opacity: 0; transform: scale\(\.92\); \}\s*to \{ opacity: 1; transform: scale\(1\); \}\s*\}/);
+  assert.match(styles, /@keyframes pet-says-fade \{\s*0%, 40% \{ opacity: 0; \}\s*100% \{ opacity: 1; \}\s*\}/);
+  assert.match(styles, /@media \(prefers-reduced-motion: reduce\) \{[^{}]*\{[^{}]*\}\s*\.pet-dock \.pet-says::before, \.pet-dock\[data-bubble-visible="true"\] \.pet-says::before, \.pet-dock\[data-bubble-visible="true"\] \.pet-says > \* \{ animation: none !important; \}\s*\}/);
   const page = loadAssistant();
   page.context.techmoBubble();
   const y = page.assistant.properties.get("--techmo-bubble-y");

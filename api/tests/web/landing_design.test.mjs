@@ -284,6 +284,13 @@ test("말풍선 글자는 라이트·다크 크림 모두에서, 일시정지 �
     assert.ok(contrast(navy.slice(0, 3), cream.slice(0, 3)) >= 3);
   }
   checkText([["#campus-motion-toggle", "#campus-motion-toggle"], ["#campus-motion-toggle", "#campus-motion-toggle:hover"]]);
+  // 펫 줄 말풍선은 상자 자신을 투명하게 두고 자식 층(::before)이 같은 크림 판·남색 선을 그린다.
+  assert.equal(declared(".pet-dock .pet-says::before", ["background"]), "var(--pet-bubble)");
+  checkText([[".pet-says", ".pet-dock .pet-says::before"]]);
+  const plateEdge = colors(declared(".pet-dock .pet-says::before", ["border"]))[0];
+  for (const cream of [colors("var(--pet-bubble)")[0], colors("var(--pet-bubble-dark)")[0]]) {
+    assert.ok(contrast(plateEdge.slice(0, 3), cream.slice(0, 3)) >= 3);
+  }
   // 초점 고리는 흰 2px 실선이고 그 뒤에 남색 띠를 깔아 밝은 사진에서도 3:1을 넘는다.
   assert.equal(declared("#campus-motion-toggle:focus-visible", ["outline"]), "2px solid var(--white)");
   assert.equal(declared("#campus-motion-toggle:focus-visible", ["box-shadow"]), "0 0 0 6px var(--navy)");
@@ -520,7 +527,7 @@ test("전체 CSS에서 남은 밝은 바탕은 입력 줄과 상태 표시이며
   assert.deepEqual(lightSurfaces, [
     ".attach-button:hover", ".composer textarea", ".composer-row",
     ".composer-row.is-deep-enter::after", ".composer-row.is-deep::before", ".conversation-unread", ".intro-badge::before",
-    ".login-safety::before", ".mode-pill.is-flowing::after", ".mode-pill:hover", '.mode-pill[data-mode="deep"]', ".mode-spark", ".pet-dots span", ".pet-says", '[data-campus-step][data-current="true"]',
+    ".login-safety::before", ".mode-pill.is-flowing::after", ".mode-pill:hover", '.mode-pill[data-mode="deep"]', ".mode-spark", ".pet-dock .pet-says::before", ".pet-dots span", ".pet-says", '[data-campus-step][data-current="true"]',
   ]);
   checkText([
     [".composer-row", ".composer-row"], [".composer textarea", ".composer textarea"],
