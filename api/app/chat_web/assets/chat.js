@@ -3578,7 +3578,9 @@ function setupHandwriting() {
       // 다음 신호부터는 칸 밖에서 들어온 것처럼(gap) 다시 시작한다.
       // 칸이 바뀌었는지는 크기 값으로 비교한다. 600→400→600처럼 같은 크기로 돌아오면 바뀌지 않은 것으로 보고, 평소처럼 경계에서 잘라 잇는다.
       const resized = (stroke.lastArea?.width ?? null) !== (area?.width ?? null) || (stroke.lastArea?.height ?? null) !== (area?.height ?? null);
-      const stale = resized && !stroke.lastInside;
+      // 버리는 것은 옛 칸 밖이던 앞 자리가 새 칸 안으로 들어온 경우뿐이다. 두 칸 모두에서 밖이면(왼쪽 경계 밖 등)
+      // 평소처럼 지금 칸 경계에서 잘라, 칸 안으로 돌아온 부분은 그린다.
+      const stale = resized && !stroke.lastInside && handwritingInside(stroke.last, area);
       const piece = stale ? null : area ? clipHandwritingSegment(stroke.last, next, area, w / 2) : [stroke.last, next];
       stroke.last = next; stroke.lastArea = area; stroke.lastInside = handwritingInside(next, area);
       if (!piece) { stroke.broken = true; continue; }
@@ -3651,7 +3653,9 @@ function setupHandwriting() {
   }
   refreshHandwritingPad.run = () => { if (opened) { place(true); prepare(); } };
   // 자리만 다시 잰다. 캔버스 크기는 그대로라 그리기 버퍼는 건드리지 않는다(질문 칸에 글을 쓸 때마다 불린다).
-  placeHandwritingPad.run = () => { if (opened) place(true); };
+  // 크기 감시 알림과 같이, 입력 줄의 자리·크기가 실제로 바뀌었을 때만 다시 놓는다. 그대로인데 다시 놓으면
+  // 위쪽이 좁은 화면에서 글자를 칠 때마다 패드가 줄 아래로 옮겨 간다.
+  placeHandwritingPad.run = () => { if (opened && layoutChanged()) place(true); };
   closeHandwritingPad.run = closePad;
   redrawHandwritingPad.run = () => { if (opened) redraw(); };
   noteHandwritingEdit.run = noteEdit;

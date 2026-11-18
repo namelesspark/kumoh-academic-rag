@@ -1089,6 +1089,38 @@ test("칸 밖까지 그은 뒤 칸을 줄였다가 같은 폭으로 되돌리고
   assert.deepEqual([page.exports[0].canvas.width, page.exports[0].canvas.height], [267, 270]);
 });
 
+test("왼쪽 경계 밖까지 그은 뒤 칸을 줄이고 돌아오면 칸 안에 들어온 복귀선은 그린다", async () => {
+  const page = loadPad();
+  page.button.click();
+  page.pointer("pointerdown", { id: 15, kind: "pen", x: 10, y: 30, pressure: 0.5 });
+  page.pointer("pointermove", { id: 15, kind: "pen", x: -100, y: 30, pressure: 0.5 });
+  // 펜을 댄 채 오른쪽 경계만 줄여 폭 400. (-100,30)은 두 폭 모두에서 칸 밖이다.
+  Object.assign(page.canvasRect, { width: 400, right: 500 });
+  page.resize();
+  const before = page.canvas.log.length;
+  page.pointer("pointermove", { id: 15, kind: "pen", x: 100, y: 130, pressure: 0.5 });
+  page.pointer("pointerup", { id: 15, kind: "pen", x: 100, y: 130 });
+  const hasReturn = log => log.some(call => call[0] === "lineTo" && call[1] === 100 && call[2] === 130);
+  assert.ok(hasReturn(page.canvas.log.slice(before)), "the return segment is on screen");
+  page.respond(ok("가상"));
+  page.insert.click();
+  await settle();
+  assert.ok(hasReturn(page.exports[0].canvas.log), "the return segment is in the image");
+  // 가로 0~101.6 = 101.6 + 32 = 133.6 → 267, 세로 28.4~131.6 = 103.2 + 32 = 135.2 → 270(배율 2).
+  assert.deepEqual([page.exports[0].canvas.width, page.exports[0].canvas.height], [267, 270]);
+});
+
+test("위쪽이 좁은 화면에서 입력 줄 자리가 그대로면 질문 칸에 글자를 쳐도 패드는 줄 위에 남는다", () => {
+  const page = loadPad({ innerWidth: 850, innerHeight: 360 });
+  Object.assign(page.rowRect, { top: 100, bottom: 160 });
+  page.button.click();
+  assert.equal(page.pad.style.properties.get("--handwriting-bottom"), "268px");
+  page.type("가");
+  page.type("가상");
+  assert.equal(page.pad.style.properties.get("--handwriting-bottom"), "268px");
+  assert.equal(page.pad.style.properties.get("--handwriting-top"), "auto");
+});
+
 test("패드를 열 때 들어오는 크기 감시 첫 알림만으로는 패드를 입력 줄 아래로 옮기지 않는다", () => {
   const page = loadPad({ innerWidth: 850, innerHeight: 360 });
   Object.assign(page.rowRect, { top: 100, bottom: 160 });
