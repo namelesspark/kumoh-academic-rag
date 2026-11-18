@@ -20,6 +20,7 @@ const messages = {
   timeout: "읽는 시간이 너무 오래 걸렸어요. 다시 넣어 주세요.",
   offline: "서버에 연결하지 못했어요. 네트워크를 확인한 뒤 다시 넣어 주세요.",
   failed: "서버가 글씨를 처리하지 못했어요. 다시 넣어 주세요.",
+  inserted: "읽은 글자를 입력창에 넣었어요. 확인한 뒤 보내 주세요.",
 };
 const pngBytes = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
@@ -446,7 +447,8 @@ test("읽는 동안 상태를 알리고 넣기·되돌리기·지우기와 새 �
   page.insert.click();
   await settle();
   assert.equal(page.status.textContent, messages.reading);
-  assert.equal(page.pad.getAttribute("aria-busy"), "true");
+  // 대화 상자 전체를 처리 중으로 묶지 않아 읽기 도구가 상태 줄 안내를 바로 읽는다.
+  assert.equal(page.pad.getAttribute("aria-busy"), null);
   assert.deepEqual([page.insert.disabled, page.undo.disabled, page.clear.disabled, page.cancel.disabled], [true, true, true, false]);
   // 잠긴 넣기 버튼에 초점이 남지 않게 취소로 옮겨 Esc·취소가 계속 듣는다.
   assert.equal(page.state.focused, page.cancel);
@@ -457,7 +459,10 @@ test("읽는 동안 상태를 알리고 넣기·되돌리기·지우기와 새 �
   assert.equal(page.requests.length, 1);
   held.resolve(ok("가상"));
   await settle();
-  assert.equal(page.pad.getAttribute("aria-busy"), "false");
+  assert.equal(page.pad.getAttribute("aria-busy"), null);
+  // 패드와 함께 사라지는 상태 줄 대신, 늘 있는 알림 줄이 넣었다고 알린다.
+  assert.equal(page.pad.hidden, true);
+  assert.equal(page.get("#conversation-announce").textContent, messages.inserted);
 });
 
 test("넣기가 실패하면 획을 남긴 채 오류를 알리고, 다시 넣으면 열기 전 커서 자리에 글자만 넣고 보내지 않는다", async () => {
@@ -553,6 +558,49 @@ test("고른 범위 앞쪽 글이 바뀌면 그만큼 밀린 같은 범위에 �
   assert.equal(page.input.value, "가상 휴학은 가상 날짜?");
 });
 
+test("고른 글자의 양끝 바깥을 함께 고쳐도 같은 글자를 새 글에서 찾아 바꾼다", async () => {
+  const page = loadPad();
+  page.input.value = "A middle Z";
+  page.input.selectionStart = 2; page.input.selectionEnd = 8;
+  page.button.click();
+  page.input.value = "B middle Y";
+  page.input.selectionStart = page.input.selectionEnd = page.input.value.length;
+  page.stroke([10, 10], [60, 60]);
+  page.respond(ok("fake"));
+  page.insert.click();
+  await settle();
+  assert.equal(page.input.value, "B fake Y");
+});
+
+test("커서만 두고 연 뒤 앞뒤를 고치면 커서 바로 앞 글자 묶음 뒤에 넣는다", async () => {
+  const page = loadPad();
+  page.input.value = "왼쪽 가운데 오른쪽";
+  page.input.selectionStart = page.input.selectionEnd = 6;
+  page.button.click();
+  page.input.value = "새 왼쪽 가운데 오른쪽!";
+  page.input.selectionStart = page.input.selectionEnd = 0;
+  page.stroke([10, 10], [60, 60]);
+  page.respond(ok("X"));
+  page.insert.click();
+  await settle();
+  assert.equal(page.input.value, "새 왼쪽 가운데X 오른쪽!");
+});
+
+test("읽는 중 사이드바에서 새 대화를 열면 패드를 닫고, 늦은 응답은 새 대화의 질문 칸에 넣지 않는다", async () => {
+  const page = loadPad();
+  page.button.click();
+  page.stroke([10, 10], [60, 60]);
+  const held = page.hold();
+  page.insert.click();
+  await settle();
+  page.get("#new-conversation").click();
+  assert.equal(page.pad.hidden, true);
+  assert.equal(held.request.options.signal.aborted, true);
+  held.resolve(ok("이전 대화의 가상 글자"));
+  await settle();
+  assert.equal(page.input.value, "");
+});
+
 test("읽는 중 초점이 질문 칸으로 나가도 Esc는 패드를 닫고 요청을 끊어 늦은 응답을 넣지 않는다", async () => {
   const page = loadPad();
   page.input.value = "가상 질문";
@@ -613,6 +661,16 @@ test("캔버스 밖으로 나갔다 돌아온 획은 보이는 칸 안만 잘라
   assert.ok(clip > 0, "drawing is clipped to the visible area");
   assert.deepEqual(canvas.log.find(call => call[0] === "rect"), ["rect", 0, 0, 600, 200]);
   assert.ok(clip < canvas.log.findIndex(call => call[0] === "lineTo"), "clip comes before the ink");
+
+  // 칸 오른쪽 끝(590,20)에서 바깥(900,180)으로 비스듬히 그으면 보이는 조각은 x 590~600, y 20~약 25.2뿐이다.
+  // 바깥 점(y 180)은 범위를 늘리지 않는다: 가로 11.5 + 32 = 43.5, 세로 약 8.16 + 32 = 40.16, 배율 2.
+  const slant = loadPad();
+  slant.button.click();
+  slant.stroke([590, 20], [900, 180]);
+  slant.respond(ok("가상"));
+  slant.insert.click();
+  await settle();
+  assert.deepEqual([slant.exports[0].canvas.width, slant.exports[0].canvas.height], [87, 80]);
 
   // 모든 잉크가 칸 밖이면 보내지 않고 읽을 글씨가 없다고 알린다.
   const outside = loadPad();

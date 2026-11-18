@@ -222,6 +222,7 @@ const uiText = {
     "읽는 시간이 너무 오래 걸렸어요. 다시 넣어 주세요.": "Reading took too long. Press Insert again.",
     "서버에 연결하지 못했어요. 네트워크를 확인한 뒤 다시 넣어 주세요.": "Could not reach the server. Check your network and press Insert again.",
     "서버가 글씨를 처리하지 못했어요. 다시 넣어 주세요.": "The server could not process the handwriting. Press Insert again.",
+    "읽은 글자를 입력창에 넣었어요. 확인한 뒤 보내 주세요.": "The recognized text is in the question box. Check it, then send.",
   },
   zh: {
     "테마": "主题",
@@ -435,6 +436,7 @@ const uiText = {
     "읽는 시간이 너무 오래 걸렸어요. 다시 넣어 주세요.": "识别时间过长。请再次点击「插入」。",
     "서버에 연결하지 못했어요. 네트워크를 확인한 뒤 다시 넣어 주세요.": "无法连接服务器。请检查网络后再次点击「插入」。",
     "서버가 글씨를 처리하지 못했어요. 다시 넣어 주세요.": "服务器未能处理手写内容。请再次点击「插入」。",
+    "읽은 글자를 입력창에 넣었어요. 확인한 뒤 보내 주세요.": "识别出的文字已放入输入框。请确认后再发送。",
   },
 };
 let uiLang = "ko";
@@ -858,6 +860,8 @@ function renderActiveConversation() {
 }
 function openConversation(record) {
   if (!conversations.includes(record)) return;
+  // 다른 대화로 옮기면 열린 필기 패드와 읽던 요청을 버린다. 인식 글자가 옮겨 간 대화의 질문 칸에 들어가지 않는다(#134).
+  if (record !== activeConversation && typeof closeHandwritingPad === "function") closeHandwritingPad(false);
   if (toastRecord === record) dismissConversationToast();
   activeConversation = record;
   record.unread = false;
@@ -1251,6 +1255,7 @@ document.querySelector("#conversation-close")?.addEventListener("click", () => c
 homeButton?.addEventListener("click", () => setChatView(false));
 document.querySelector(".brand")?.addEventListener("click", () => setChatView(false));
 function startNewConversation() {
+  if (typeof closeHandwritingPad === "function") closeHandwritingPad(false);
   activeConversation = null;
   input.value = "";
   photoFile.value = "";
@@ -2997,6 +3002,7 @@ const handwritingMessages = {
   timeout: "읽는 시간이 너무 오래 걸렸어요. 다시 넣어 주세요.",
   offline: "서버에 연결하지 못했어요. 네트워크를 확인한 뒤 다시 넣어 주세요.",
   failed: "서버가 글씨를 처리하지 못했어요. 다시 넣어 주세요.",
+  inserted: "읽은 글자를 입력창에 넣었어요. 확인한 뒤 보내 주세요.",
 };
 const handwritingStatusMessages = { 413: "tooLarge", 422: "unreadable", 503: "unavailable", 504: "timeout" };
 // 펜은 압력(0~1)으로 굵기를 바꾼다. 압력을 주지 않는 손가락·마우스는 같은 굵기다.
@@ -3024,12 +3030,37 @@ function drawHandwritingStroke(context, stroke, from = 0) {
 }
 // 잉크 범위(굵기 절반 포함)에 여백을 더한 상자. 좌표는 캔버스의 CSS 픽셀이다.
 // area(보이는 필기 칸)를 주면 그 안의 잉크만 센다. 획이 칸 밖으로 나갔다 돌아와도 화면에서 잘린 부분은 보내지 않는다.
+// 칸 밖으로 나간 선분은 칸 경계에서 잘라 보이는 부분만 센다(Liang–Barsky 선분 자르기). 바깥 점이 범위를 늘리지 않는다.
+function clipHandwritingSegment(from, to, area) {
+  const dx = to.x - from.x, dy = to.y - from.y;
+  let enter = 0, leave = 1;
+  for (const [p, q] of [[-dx, from.x], [dx, area.width - from.x], [-dy, from.y], [dy, area.height - from.y]]) {
+    if (p === 0) { if (q < 0) return null; continue; }
+    const ratio = q / p;
+    if (p < 0) { if (ratio > leave) return null; enter = Math.max(enter, ratio); }
+    else { if (ratio < enter) return null; leave = Math.min(leave, ratio); }
+  }
+  return [{ x: from.x + enter * dx, y: from.y + enter * dy }, { x: from.x + leave * dx, y: from.y + leave * dy }];
+}
 function handwritingBounds(strokes, area = null) {
   let left = Infinity, top = Infinity, right = -Infinity, bottom = -Infinity;
-  for (const stroke of strokes) for (const point of stroke.points) {
-    const half = handwritingWidth(stroke, point) / 2;
+  const add = (point, half) => {
     left = Math.min(left, point.x - half); top = Math.min(top, point.y - half);
     right = Math.max(right, point.x + half); bottom = Math.max(bottom, point.y + half);
+  };
+  for (const stroke of strokes) {
+    const points = stroke.points;
+    if (!area || points.length === 1) {
+      for (const point of points) {
+        const inside = !area || (point.x >= 0 && point.y >= 0 && point.x <= area.width && point.y <= area.height);
+        if (inside) add(point, handwritingWidth(stroke, point) / 2);
+      }
+      continue;
+    }
+    for (let index = 1; index < points.length; index++) {
+      const half = Math.max(handwritingWidth(stroke, points[index - 1]), handwritingWidth(stroke, points[index])) / 2;
+      for (const point of clipHandwritingSegment(points[index - 1], points[index], area) ?? []) add(point, half);
+    }
   }
   if (area) {
     left = Math.max(left, 0); top = Math.max(top, 0);
@@ -3075,7 +3106,7 @@ function setupHandwriting() {
     undo.disabled = blank || waiting;
     clear.disabled = blank || waiting;
     insert.disabled = blank || waiting;
-    pad.setAttribute("aria-busy", String(waiting));
+    // 대화 상자 전체에 aria-busy를 걸지 않는다. 걸면 읽기 도구가 안의 상태 줄 안내를 미룰 수 있다.
   }
   function show(message, error = false) {
     say(status, message || "");
@@ -3156,14 +3187,36 @@ function setupHandwriting() {
     const end = Number.isInteger(input.selectionEnd) ? input.selectionEnd : start;
     return { start, end, value: input.value };
   }
-  // 패드를 연 사이 질문 칸의 글이 바뀌었으면, 바뀐 구간을 앞뒤 공통 부분으로 찾아 열기 전 자리를 새 글 위로 옮긴다.
-  // 바뀐 구간 앞의 자리는 그대로, 뒤의 자리는 늘거나 준 길이만큼 밀고, 구간 안의 자리는 바뀐 구간 끝으로 보낸다.
-  // 지금 커서는 쓰지 않는다. 학생이 다른 곳을 눌렀어도 글자는 패드를 열 때 고른 자리에 들어간다.
+  // 패드를 연 사이 질문 칸의 글이 바뀌었으면 열기 전 자리를 새 글 위에서 다시 찾는다. 지금 커서는 쓰지 않는다.
+  // 1) 고른 글자가 있으면 새 글에서 같은 글자를 찾는다(원래 자리에 가장 가까운 곳). 양끝을 함께 고쳐도 범위가 남는다.
+  // 2) 커서만 있었으면 커서 바로 앞 글자 묶음(최대 16자, 없으면 바로 뒤 묶음)을 찾아 그 옆에 둔다.
+  // 3) 둘 다 못 찾으면 앞뒤 공통 부분으로 바뀐 구간을 정해, 앞쪽 자리는 그대로·뒤쪽은 길이 차만큼 밀고·구간 안은 구간 끝으로 보낸다.
+  function nearestIndex(text, needle, guess) {
+    let best = -1;
+    for (let at = text.indexOf(needle); at >= 0; at = text.indexOf(needle, at + 1)) {
+      if (best < 0 || Math.abs(at - guess) < Math.abs(best - guess)) best = at;
+    }
+    return best;
+  }
   function savedRange() {
     const before = selection?.value ?? input.value, after = input.value;
     const start = Math.min(selection?.start ?? after.length, before.length);
     const end = Math.min(Math.max(selection?.end ?? start, start), before.length);
     if (before === after) return { start, end };
+    const picked = before.slice(start, end);
+    if (picked) {
+      const at = nearestIndex(after, picked, start);
+      if (at >= 0) return { start: at, end: at + picked.length };
+    } else {
+      for (let size = Math.min(16, start); size > 0; size--) {
+        const at = nearestIndex(after, before.slice(start - size, start), start - size);
+        if (at >= 0) return { start: at + size, end: at + size };
+      }
+      for (let size = Math.min(16, before.length - end); size > 0; size--) {
+        const at = nearestIndex(after, before.slice(end, end + size), end);
+        if (at >= 0) return { start: at, end: at };
+      }
+    }
     let prefix = 0;
     while (prefix < before.length && prefix < after.length && before[prefix] === after[prefix]) prefix++;
     let suffix = 0;
@@ -3196,9 +3249,15 @@ function setupHandwriting() {
       show(handwritingMessages.unreadable, true);
       return;
     }
-    // 패드를 닫거나 계정이 바뀌면 회차가 달라져 늦은 응답을 버린다. 계정도 함께 견줘 다른 계정의 입력창에 넣지 않는다.
-    const ticket = session, account = historyAccount;
-    const stale = () => ticket !== session || account !== historyAccount;
+    // 패드를 닫으면 회차가 달라져 늦은 응답을 버린다. 계정이나 보고 있는 대화가 바뀌었는데 패드가 남아 있으면
+    // 그때 닫고 버린다. 그래서 인식 글자는 넣기를 누른 그 대화의 질문 칸에만 들어간다.
+    const ticket = session, account = historyAccount, conversation = activeConversation;
+    const stale = () => {
+      if (ticket !== session) return true;
+      if (account === historyAccount && conversation === activeConversation) return false;
+      closePad(false);
+      return true;
+    };
     const controller = new AbortController();
     reading = controller;
     let timedOut = false, message = null, text = "";
@@ -3242,6 +3301,8 @@ function setupHandwriting() {
     }
     placeText(text);
     closePad(false);
+    // 패드 안 상태 줄은 패드와 함께 사라지므로, 넣었다는 안내는 늘 문서에 있는 읽기 전용 알림 줄에 남긴다.
+    say(document.querySelector("#conversation-announce"), handwritingMessages.inserted);
     input.focus();
   }
   function point(event) {
