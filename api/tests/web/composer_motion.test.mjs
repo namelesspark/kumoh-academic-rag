@@ -642,11 +642,14 @@ test("선택 표시 곡선은 기본이 cubic-bezier이고 스프링 linear()는
   assert.ok(script.includes('"--choice-menu-indicator-y"') && script.includes('"--choice-menu-indicator-h"'));
 });
 
-test("깊이 생각 반짝임은 하늘색 계열로 한 번만 지나가고 별 조각에 글자 기호를 넣지 않는다", () => {
+test("깊이 생각 반짝임은 하늘색 빛줄기 하나가 240ms에 한 번만 지나가고 별 조각·회전·감싸는 빛은 없다", () => {
+  // CSS만 본다. 효과 클래스를 붙이고 떼는 시점은 chat_stream.test.mjs가 맡는다(#152).
   const css = chatStyles.replace(/\/\*[\s\S]*?\*\//g, "");
-  assert.match(css, /\.mode-pill\.is-flowing::before \{[^}]*animation: mode-sweep \.45s ease-out 1 both;/);
-  assert.match(css, /\.mode-spark \{[^}]*background: var\(--deep-sky\);/);
-  assert.match(css, /@keyframes mode-star-spin \{[^\n]*drop-shadow\(0 0 4px var\(--deep-sky\)\)/);
-  assert.ok(script.includes('element("span", "mode-spark")'));
-  assert.doesNotMatch(script, /✦|✨/);
+  const sweep = /\n\.mode-pill\.is-flowing::before \{([^}]*)\}/.exec(css)[1];
+  assert.match(sweep, /animation: mode-sweep \.24s ease-out 1 both;/);
+  assert.match(sweep, /var\(--deep-shine\)/);
+  assert.match(sweep, /pointer-events: none;/);
+  assert.doesNotMatch(sweep, /deep-gold|infinite/);
+  assert.doesNotMatch(css, /\.mode-spark|\.is-bursting|\.is-deep-enter|\.is-flowing::after|mode-star-spin|composer-deep-enter|mode-border-flow/);
+  assert.doesNotMatch(css, /✦|✨/);
 });

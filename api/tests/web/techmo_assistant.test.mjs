@@ -317,7 +317,7 @@ test("펫의 움직임 네 가지는 서로 다른 요소·속성에 걸고, 움
   // 그 내용은 motion_layout.test.mjs가 따로 확인한다.
   const allOff = ".pet-float, .pet-hop, .pet-frame, .pet-dots span, .hero-art::before, .login-card, .login-techmo, button.card:hover";
   const transitionOff = "::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*)";
-  // 답변 모드 효과(mode-·is-deep-enter·is-waiting)는 landing_design.test.mjs와 motion_layout.test.mjs가 따로 본다.
+  // 답변 모드 효과(mode-·is-waiting)는 landing_design.test.mjs와 motion_layout.test.mjs가 따로 본다.
   assert.deepEqual(animated.filter(([selector]) => !/chat-surface|chat-composer|conversation-pending|data-sprite-layout|data-facing|mode-|is-deep-enter|is-waiting/.test(selector)), [
     [".pet-dots span", "dot-hop 1s ease-in-out infinite"],
     [".pet-float", "pet-float 1.8s ease-in-out infinite alternate"],
