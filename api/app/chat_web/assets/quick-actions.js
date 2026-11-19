@@ -141,14 +141,17 @@
   // 방울 자리. 화면 좌표(px)로 돌려준다. 묶음이 화면 가장자리 8px 안쪽에 들어오도록 통째로 민다.
   // avoid는 방울이 덮으면 안 되는 상자다. 보통은 입력 줄 전체(질문 칸·클립·펜·답변 모드·보내기)이고,
   // 입력 줄 크기를 모를 때만 + 버튼 상자다. 방울이 그 위에 얹히면 그 자리를 누르려던 손가락을 방울이 가로챈다.
-  function layout(anchor, avoid, width, height, count) {
+  // others는 그 밖에 덮으면 안 되는 상자들이다(끌어 옮길 수 있는 테크모 버튼 등). 자리를 옮기는 계산은 avoid만 기준으로 하고,
+  // others는 마지막 확인과 격자 칸 고르기에서 걸러 낸다. 걸린 후보는 버리고 다음 후보를 본다.
+  function layout(anchor, avoid, width, height, count, others = []) {
     const narrow = width <= 480;
     const [from, to] = narrow ? [180, 0] : [210, -30];
     const shape = narrow ? "arc" : "radial";
     const shift = (low, high, size) => (low < edge ? edge - low : high > size - edge ? size - edge - high : 0);
     // 방울(반지름 size)과 avoid 상자 사이를 6px 띄운다.
     const away = size => size + 6;
-    const distance = (x, y) => Math.hypot(x - Math.min(Math.max(x, avoid.left), avoid.right), y - Math.min(Math.max(y, avoid.top), avoid.bottom));
+    const gapTo = (rect, x, y) => Math.hypot(x - Math.min(Math.max(x, rect.left), rect.right), y - Math.min(Math.max(y, rect.top), rect.bottom));
+    const distance = (x, y) => Math.min(gapTo(avoid, x, y), ...others.map(rect => gapTo(rect, x, y)));
     // 마지막 확인: 모든 방울이 화면 가장자리 8px 안에 있고, avoid 상자를 덮지 않는다. 모든 후보가 이 검사를 거친다.
     const valid = (points, size) => points.every(({ x, y }) => x - size >= edge - 0.5 && x + size <= width - edge + 0.5 &&
       y - size >= edge - 0.5 && y + size <= height - edge + 0.5 && distance(x, y) >= size + 4 - 0.5);
@@ -267,10 +270,15 @@
     const shown = visible();
     // 방울이 덮으면 안 되는 상자는 입력 줄 전체다. 크기를 모르면(그리기 전 등) + 버튼 상자로 대신한다.
     const rowBox = row.getBoundingClientRect?.();
-    const guard = rowBox && rowBox.width > 0 && rowBox.height > 0 ? rowBox : box;
-    const avoid = { left: guard.left - view.left, right: guard.left + guard.width - view.left,
-      top: guard.top - view.top, bottom: guard.top + guard.height - view.top };
-    const result = layout({ x: anchor.x - view.left, y: anchor.y - view.top }, avoid, width, height, shown.length);
+    const sized = rect => Boolean(rect) && rect.width > 0 && rect.height > 0;
+    const local = rect => ({ left: rect.left - view.left, right: rect.left + rect.width - view.left,
+      top: rect.top - view.top, bottom: rect.top + rect.height - view.top });
+    const avoid = local(sized(rowBox) ? rowBox : box);
+    // 테크모 버튼은 어디로든 끌어 옮길 수 있다. 보이는 동안에는 그 자리도 방울이 덮지 않는다(링이 테크모보다 위층이다).
+    const pet = doc.querySelector("#pet");
+    const petBox = pet && pet.hidden !== true ? pet.getBoundingClientRect?.() : null;
+    const others = sized(petBox) ? [local(petBox)] : [];
+    const result = layout({ x: anchor.x - view.left, y: anchor.y - view.top }, avoid, width, height, shown.length, others);
     // 화면이 너무 작아 방울을 잘리지 않고 +도 덮지 않게 놓을 수 없으면 false를 돌려준다. 여는 쪽이 링을 열지 않는다.
     if (!result) return false;
     const { kind } = result;
@@ -357,15 +365,17 @@
     show(null);
     if (restore) toggle.focus();
     if (hideTimer !== null) clearTimeout(hideTimer);
-    // 바깥의 초점을 받지 못하는 곳(빈 자리·글자)을 눌러 닫으면 초점이 숨는 방울에 남는다. 숨기기 전에 + 버튼으로 옮긴다.
-    const hide = () => {
-      hideTimer = null;
-      if (open) return;
-      if (ring.contains(doc.activeElement)) toggle.focus();
-      ring.hidden = true;
-    };
-    if (reduced()) { hide(); return; }
-    hideTimer = setTimeout(hide, closeMs);
+    if (reduced()) { finishHide(); return; }
+    hideTimer = setTimeout(finishHide, closeMs);
+  }
+  // 링을 숨기는 길은 이 함수 하나다. 닫힘 전환이 끝났을 때, 동작 줄이기로 바로 숨길 때, 닫히는 도중 동작 줄이기를 켰을 때
+  // 모두 여기를 거친다. 바깥의 초점을 받지 못하는 곳(빈 자리·글자)을 눌러 닫으면 초점이 숨는 방울에 남으므로,
+  // 숨기기 전에 + 버튼으로 옮긴다.
+  function finishHide() {
+    hideTimer = null;
+    if (open) return;
+    if (ring.contains(doc.activeElement)) toggle.focus();
+    ring.hidden = true;
   }
   // 채팅 화면에서 방울을 고르면 모두 홈으로 돌아간 뒤, 홈 화면이 적용되고 대상(카드는 문서에 다시 붙은 뒤)이 준비되면 누른다.
   // 기다리는 동안 학생이 화면을 옮기거나(뒤로 가기·다른 곳 누르기) 링을 다시 열면 실행하지 않는다.
@@ -488,7 +498,7 @@
   // 동작 줄이기를 켜는 순간: 닫히던 링은 바로 숨기고, 펼쳐지던 링은 바로 펼친 상태로 두고 누름도 받게 한다.
   window.matchMedia?.("(prefers-reduced-motion: reduce)")?.addEventListener?.("change", event => {
     if (!event.matches) return;
-    if (!open && hideTimer !== null) { clearTimeout(hideTimer); hideTimer = null; ring.hidden = true; }
+    if (!open && hideTimer !== null) { clearTimeout(hideTimer); finishHide(); }
     if (open) {
       if (settleTimer !== null) { clearTimeout(settleTimer); settleTimer = null; }
       ring.setAttribute("data-open", "true");

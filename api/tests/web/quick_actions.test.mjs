@@ -60,13 +60,15 @@ function ringPage({ width = 1280, height = 800, view = "home", reduced = false, 
   for (const id of locked) ({ "#photo-attach": photo, "#handwriting-button": pen })[id].disabled = true;
   const cards = Object.fromEntries(["graduation", "biskit", "calendar"].map(feature => [feature, button(`card-${feature}`)]));
   const home = button("home-button");
+  // 끌어 옮길 수 있는 테크모 버튼. 크기를 주지 않으면(rect 없음) 배치에 끼지 않는다.
+  const pet = button("pet");
   const screen = Object.assign(new El("div"), { id: "main-screen" });
   const body = new El("body");
   body.setAttribute("data-view", view);
   const root = new El("html");
   root.setAttribute("lang", lang);
   const nodes = {
-    ".composer-row": row, "#photo-attach": photo, "#handwriting-button": pen, "#home-button": home, "#main-screen": screen,
+    ".composer-row": row, "#photo-attach": photo, "#handwriting-button": pen, "#home-button": home, "#main-screen": screen, "#pet": pet,
     '[data-feature="graduation"]': cards.graduation, '[data-feature="biskit"]': cards.biskit, '[data-feature="calendar"]': cards.calendar,
   };
   const document = {
@@ -103,7 +105,7 @@ function ringPage({ width = 1280, height = 800, view = "home", reduced = false, 
   return {
     state, row, photo, pen, cards, home, body, root, toggle, ring, menu, items, timers, observers,
     item: id => items.find(item => item.dataset.quickAction === id),
-    screen, window,
+    screen, window, pet,
     reduce: () => { state.reduced = true; for (const listener of mediaListeners) listener({ matches: true }); },
     blobs: () => ring.all().filter(node => (node.getAttribute("class") ?? "").split(/\s+/).includes("quick-ring-blob")),
     frames: () => { const pending = frames; frames = []; for (const callback of pending) callback(16); return pending.length; },
@@ -392,6 +394,55 @@ test("방울은 + 버튼뿐 아니라 입력 줄 전체(질문 칸·다른 버�
     }
     for (const [i, a] of centers.entries()) for (const b of centers.slice(i + 1)) assert.ok(Math.hypot(a.x - b.x, a.y - b.y) >= size * 2, `${name}: bubbles overlap`);
   }
+});
+
+test("방울이 놓였던 자리에 테크모 버튼을 끌어 놓고 다시 열면 방울이 테크모를 비켜 테크모 누름을 가로채지 않는다", () => {
+  // 390×700 채팅. 입력 줄은 실제 크기로 둔다.
+  const rowBox = { left: 13, top: 592, width: 364, height: 60 };
+  const page = ringPage({ width: 390, height: 700, toggleRect: { left: 21, top: 600, width: 44, height: 44 } });
+  page.row.rect = rowBox;
+  page.toggle.click();
+  const anchor = { x: 43, y: 622 };
+  const first = page.items.map(page.position).map(spot => ({ x: anchor.x + spot.x, y: anchor.y + spot.y }));
+  page.toggle.click();
+  page.tick();
+  // 가운데 방울이 있던 자리에 80px 테크모 버튼을 놓는다.
+  const center = first[2];
+  const petBox = { left: center.x - 40, top: center.y - 40, width: 80, height: 80 };
+  page.pet.rect = petBox;
+  page.toggle.click();
+  assert.equal(page.toggle.getAttribute("aria-expanded"), "true");
+  const size = page.ring.getAttribute("data-compact") === "" ? 22 : 26;
+  const centers = page.items.map(page.position).map(spot => ({ x: anchor.x + spot.x, y: anchor.y + spot.y }));
+  const gap = (rect, { x, y }) => Math.hypot(x - Math.min(Math.max(x, rect.left), rect.left + rect.width), y - Math.min(Math.max(y, rect.top), rect.top + rect.height));
+  for (const spot of centers) {
+    assert.ok(gap(petBox, spot) >= size, `covers Techmo at ${spot.x},${spot.y}`);
+    assert.ok(gap(rowBox, spot) >= size, `covers the input row at ${spot.x},${spot.y}`);
+    assert.ok(spot.x - size >= 7.5 && spot.x + size <= 390 - 7.5 && spot.y - size >= 7.5 && spot.y + size <= 700 - 7.5, `off screen ${spot.x},${spot.y}`);
+  }
+  for (const [i, a] of centers.entries()) for (const b of centers.slice(i + 1)) assert.ok(Math.hypot(a.x - b.x, a.y - b.y) >= size * 2, "bubbles overlap");
+  // 테크모가 숨어 있으면(그림을 못 받음) 배치에 끼지 않는다.
+  page.toggle.click();
+  page.tick();
+  page.pet.hidden = true;
+  page.toggle.click();
+  assert.deepEqual(page.items.map(page.position).map(spot => ({ x: anchor.x + spot.x, y: anchor.y + spot.y })), first);
+});
+
+test("키보드로 연 링을 초점이 옮겨 가지 않는 바깥 누름으로 닫은 뒤, 닫히는 사이 동작 줄이기를 켜도 초점이 +로 돌아온다", () => {
+  const page = ringPage();
+  page.toggle.fire("keydown", { key: "ArrowDown" });
+  assert.equal(page.state.focused, page.item("calendar"));
+  // 빈 자리를 누른다. 그 자리는 초점을 받지 않아 초점은 방울에 남아 있다.
+  page.outside(page.body);
+  assert.equal(page.toggle.getAttribute("aria-expanded"), "false");
+  assert.equal(page.state.focused, page.item("calendar"));
+  assert.equal(page.ring.hidden, false, "still running the close transition");
+  // 닫히는 300ms 안에 동작 줄이기를 켠다. 바로 숨기면서도 숨는 방울에 초점을 남기지 않는다.
+  page.reduce();
+  assert.equal(page.ring.hidden, true);
+  assert.equal(page.state.focused, page.toggle);
+  assert.equal(page.timers.size, 0);
 });
 
 test("기본 반지름 호가 + 위·옆에 들지 않으면 + 옆 계산 호로 + 위쪽에 두고, 방울끼리도 겹치지 않는다", () => {
