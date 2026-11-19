@@ -99,6 +99,23 @@ const uiText = {
     "사진으로 묻기": "Ask with a photo",
     "규정 질문": "Regulation questions",
     "학사 일정": "Academic calendar",
+    "{year}학년도 {semester}학기": "Academic year {year}, semester {semester}",
+    "{scope}에 남은 일정이 없어요.": "No upcoming events for {scope}.",
+    "이전 달": "Previous month",
+    "다음 달": "Next month",
+    "목록 보기": "List view",
+    "월 보기": "Month view",
+    "일 월 화 수 목 금 토": "Sun Mon Tue Wed Thu Fri Sat",
+    "일요일 월요일 화요일 수요일 목요일 금요일 토요일": "Sunday Monday Tuesday Wednesday Thursday Friday Saturday",
+    "1월 2월 3월 4월 5월 6월 7월 8월 9월 10월 11월 12월": "January February March April May June July August September October November December",
+    "{year}년 {month}": "{month} {year}",
+    "{month} {day}일": "{month} {day}",
+    "{month} {day}일 일정": "Events for {month} {day}",
+    "고른 날에 일정이 없어요.": "No events on this date.",
+    "+{count}개": "+{count} more",
+    "출처": "Source",
+    " · 확인일 ": " · Checked on ",
+    "공식 페이지에서 다시 확인해 주세요.": "Please check the official page for updates.",
     "캠퍼스 안내": "Campus guide",
     "가상 학생의 이수 내역으로 남은 졸업 조건을 계산해요.": "Calculates the remaining graduation requirements from a fictional student's records.",
     "졸업 체크 결과 아래에 부족한 점수를 채울 프로그램이 함께 나와요.": "Programs that can fill missing points appear below the graduation check.",
@@ -322,6 +339,23 @@ const uiText = {
     "사진으로 묻기": "用照片提问",
     "규정 질문": "规定咨询",
     "학사 일정": "学年日程",
+    "{year}학년도 {semester}학기": "{year}学年 第{semester}学期",
+    "{scope}에 남은 일정이 없어요.": "{scope}没有剩余日程。",
+    "이전 달": "上个月",
+    "다음 달": "下个月",
+    "목록 보기": "列表视图",
+    "월 보기": "月历视图",
+    "일 월 화 수 목 금 토": "日 一 二 三 四 五 六",
+    "일요일 월요일 화요일 수요일 목요일 금요일 토요일": "星期日 星期一 星期二 星期三 星期四 星期五 星期六",
+    "1월 2월 3월 4월 5월 6월 7월 8월 9월 10월 11월 12월": "1月 2月 3月 4月 5月 6月 7月 8月 9月 10月 11月 12月",
+    "{year}년 {month}": "{year}年{month}",
+    "{month} {day}일": "{month}{day}日",
+    "{month} {day}일 일정": "{month}{day}日的日程",
+    "고른 날에 일정이 없어요.": "所选日期没有日程。",
+    "+{count}개": "+{count}项",
+    "출처": "来源",
+    " · 확인일 ": " · 核查日期 ",
+    "공식 페이지에서 다시 확인해 주세요.": "请在官方网站确认最新信息。",
     "캠퍼스 안내": "校园指南",
     "가상 학생의 이수 내역으로 남은 졸업 조건을 계산해요.": "根据虚拟学生的修读记录计算剩余毕业条件。",
     "졸업 체크 결과 아래에 부족한 점수를 채울 프로그램이 함께 나와요.": "毕业检查结果下方会列出可补足积分的项目。",
@@ -4746,6 +4780,9 @@ setupLang();
 void restoreStudent();
 
 const calendarScope = { year: 2027, semester: 1 };
+let translateCalendar;
+onLangChange(() => translateCalendar?.());
+
 function panelTodayInKorea() {
   return new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
 }
@@ -4760,30 +4797,261 @@ function panelSources(sources) {
     if (!source || typeof source.title !== "string") continue;
     const line = element("p", "hint");
     const checked = isPanelDate(source.checked_on);
-    line.append((checked && sourceLink(source.url, source.title, "출처")) || element("span", null, source.title));
-    if (checked) line.append(document.createTextNode(" · 확인일 "), dateNode(source.checked_on, true));
+    line.append((checked && sourceLink(source.url, source.title, t("출처"))) || element("span", null, source.title));
+    if (checked) line.append(document.createTextNode(t(" · 확인일 ")), calendarTime(source.checked_on));
     box.append(line);
   }
-  box.append(element("p", "hint", "공식 페이지에서 다시 확인해 주세요."));
+  box.append(element("p", "hint", t("공식 페이지에서 다시 확인해 주세요.")));
   return box;
 }
-function renderCalendar(content, result) {
+
+const calendarDayMs = 86_400_000;
+const calendarMonthNames = "1월 2월 3월 4월 5월 6월 7월 8월 9월 10월 11월 12월";
+const calendarKinds = [
+  ["enroll", /수강\s*신청/],
+  ["exam", /시험/],
+  ["holiday", /휴일/],
+  ["register", /등록/],
+];
+
+function calendarDate(value) {
+  return new Date(`${value}T00:00:00Z`);
+}
+function calendarDateLabel(date, key, withYear = false) {
+  const parts = {
+    year: date.getUTCFullYear(), month: t(calendarMonthNames).split(" ")[date.getUTCMonth()], day: date.getUTCDate(),
+  };
+  if (withYear) return t("{year}년 {month}", { ...parts, month: t(key, parts) });
+  return t(key, parts);
+}
+function calendarTime(value) {
+  const node = element("time", null, calendarDateLabel(calendarDate(value), "{month} {day}일", true));
+  node.dateTime = value;
+  return node;
+}
+function shiftCalendarMonth(date, amount) {
+  const target = new Date(date);
+  target.setUTCDate(1);
+  target.setUTCMonth(target.getUTCMonth() + amount + 1, 0);
+  target.setUTCDate(Math.min(date.getUTCDate(), target.getUTCDate()));
+  return target;
+}
+function calendarEventRow(event) {
+  const row = element("section", "evidence");
+  const dates = element("p");
+  dates.append(calendarTime(event.starts_on));
+  if (event.starts_on !== event.ends_on) dates.append(document.createTextNode(" ~ "), calendarTime(event.ends_on));
+  row.append(element("h5", null, event.audience), dates, panelSources(event.sources));
+  return row;
+}
+
+function renderCalendar(content, result, current) {
   if (!Array.isArray(result?.events) || result.events.some(event => !event || typeof event.audience !== "string" ||
     !isPanelDate(event.starts_on) || !isPanelDate(event.ends_on) || event.ends_on < event.starts_on)) throw new Error("format");
-  const scope = `${calendarScope.year}학년도 ${calendarScope.semester}학기 수강신청`;
-  content.replaceChildren(element("h5", null, scope));
   const today = panelTodayInKorea();
-  const events = result.events.filter(event => event.ends_on >= today).sort((a, b) => a.starts_on.localeCompare(b.starts_on));
-  if (!events.length) content.append(element("p", "hint", `${scope}에 남은 일정이 없어요.`));
-  for (const event of events) {
-    const row = element("section", "evidence");
-    const dates = element("p");
-    dates.append(dateNode(event.starts_on, true));
-    if (event.starts_on !== event.ends_on) dates.append(document.createTextNode(" ~ "), dateNode(event.ends_on, true));
-    row.append(element("h5", null, event.audience), dates, panelSources(event.sources));
-    content.append(row);
+  const events = result.events.map(event => ({
+    ...event, start: +calendarDate(event.starts_on), end: +calendarDate(event.ends_on),
+    kind: calendarKinds.find(([, keyword]) => keyword.test(event.audience))?.[0] ?? "neutral",
+  })).sort((a, b) => a.start - b.start);
+  const remaining = events.filter(event => event.ends_on >= today);
+  const now = calendarDate(today);
+  const monthStart = new Date(now);
+  monthStart.setUTCDate(1);
+  const nextMonth = shiftCalendarMonth(monthStart, 1);
+  const lastEnd = events.reduce((latest, event) => Math.max(latest, event.end), -Infinity);
+  let focused = events.some(event => event.start < nextMonth && event.end >= monthStart) ? +now :
+    remaining[0]?.start ?? (events.length ? lastEnd : +now);
+  let selected = focused;
+  let listView = false;
+  let days = new Map();
+
+  const root = element("div", "acal");
+  const scopeTitle = element("h5");
+  const header = element("div", "acal-header");
+  const title = element("h5", "acal-title");
+  title.setAttribute("aria-live", "polite");
+  const body = element("div", "acal-body");
+  const dayList = element("div", "acal-day-list");
+  dayList.setAttribute("aria-live", "polite");
+  const control = (text, action) => {
+    const button = element("button", null, text);
+    button.type = "button";
+    button.addEventListener("click", action);
+    return button;
+  };
+  const previous = control("‹", () => navigate(-1));
+  previous.dataset.acalNav = "prev";
+  const next = control("›", () => navigate(1));
+  next.dataset.acalNav = "next";
+  const toggle = control("", () => { listView = !listView; draw(); });
+  toggle.dataset.acalViewToggle = "";
+  header.append(previous, title, next, toggle);
+  root.append(scopeTitle, header, body, dayList);
+  content.replaceChildren(root);
+
+  function drawDayList() {
+    const matches = events.filter(event => event.start <= selected && event.end >= selected);
+    const heading = element("h5", null, calendarDateLabel(new Date(selected), "{month} {day}일 일정"));
+    const rows = matches.length ? matches.map(calendarEventRow) : [element("p", "hint", t("고른 날에 일정이 없어요."))];
+    dayList.replaceChildren(heading, ...rows);
   }
-  return events.length;
+
+  function select(day) {
+    days.get(selected)?.cell.setAttribute("aria-selected", "false");
+    selected = day;
+    days.get(day).cell.setAttribute("aria-selected", "true");
+    moveFocus(day);
+    drawDayList();
+  }
+
+  function moveFocus(day) {
+    const target = new Date(day);
+    if (target.getUTCFullYear() < 0 || target.getUTCFullYear() > 9999) return;
+    days.get(focused).button.tabIndex = -1;
+    focused = day;
+    if (!days.has(day)) draw();
+    const button = days.get(day).button;
+    button.tabIndex = 0;
+    button.focus();
+  }
+
+  function navigate(amount) {
+    const target = shiftCalendarMonth(new Date(focused), amount);
+    if (target.getUTCFullYear() < 0 || target.getUTCFullYear() > 9999) return;
+    focused = selected = +target;
+    draw();
+  }
+
+  function onDayKey(event, day) {
+    const date = new Date(day);
+    const weekday = date.getUTCDay();
+    const offsets = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -7, ArrowDown: 7, Home: -weekday, End: 6 - weekday };
+    if (Object.hasOwn(offsets, event.key)) {
+      event.preventDefault();
+      moveFocus(day + offsets[event.key] * calendarDayMs);
+    } else if (event.key === "PageUp" || event.key === "PageDown") {
+      event.preventDefault();
+      moveFocus(+shiftCalendarMonth(date, event.key === "PageUp" ? -1 : 1));
+    }
+  }
+
+  function drawWeek(weekStart, first, last) {
+    const week = element("div", "acal-week");
+    week.setAttribute("role", "row");
+    const weekEnd = weekStart + 6 * calendarDayMs;
+    const laneEnds = [-Infinity, -Infinity];
+    const bars = [];
+    const hidden = Array(7).fill(0);
+    for (const event of events) {
+      const start = Math.max(event.start, weekStart, first);
+      const end = Math.min(event.end, weekEnd, last);
+      if (start > end) continue;
+      const col = (start - weekStart) / calendarDayMs;
+      const span = (end - start) / calendarDayMs + 1;
+      const lane = laneEnds.findIndex(laneEnd => laneEnd < start);
+      if (lane === -1) {
+        for (let index = col; index < col + span; index++) hidden[index]++;
+        continue;
+      }
+      laneEnds[lane] = end;
+      const bar = element("span", "acal-bar", event.audience);
+      bar.setAttribute("aria-hidden", "true");
+      Object.assign(bar.dataset, { col: String(col + 1), span: String(span), lane: String(lane), kind: event.kind });
+      bars.push(bar);
+    }
+    for (let col = 0; col < 7; col++) {
+      const day = weekStart + col * calendarDayMs;
+      const date = new Date(day);
+      const cell = element("div", "acal-cell");
+      cell.dataset.col = String(col + 1);
+      cell.setAttribute("role", "gridcell");
+      cell.setAttribute("aria-selected", String(day === selected && day >= first && day <= last));
+      week.append(cell);
+      if (day < first || day > last) {
+        cell.dataset.outside = "";
+        cell.textContent = String(date.getUTCDate());
+        continue;
+      }
+      const button = control(undefined, () => select(day));
+      button.className = "acal-day";
+      button.tabIndex = day === focused ? 0 : -1;
+      button.append(element("span", "acal-day-number", String(date.getUTCDate())));
+      let label = calendarDateLabel(date, "{month} {day}일", true);
+      if (day === +now) button.setAttribute("aria-current", "date");
+      if (hidden[col]) {
+        button.dataset.more = String(hidden[col]);
+        const more = t("+{count}개", { count: hidden[col] });
+        const badge = element("span", "acal-more", more);
+        badge.setAttribute("aria-hidden", "true");
+        button.append(badge);
+        label += ` · ${more}`;
+      }
+      button.setAttribute("aria-label", label);
+      const dots = element("span", "acal-dots");
+      dots.setAttribute("aria-hidden", "true");
+      for (const event of events.filter(event => event.start <= day && event.end >= day).slice(0, 3)) {
+        const dot = element("span", "acal-dot");
+        dot.dataset.kind = event.kind;
+        dots.append(dot);
+      }
+      button.append(dots);
+      button.addEventListener("keydown", event => onDayKey(event, day));
+      cell.append(button);
+      days.set(day, { cell, button });
+    }
+    week.append(...bars);
+    return week;
+  }
+
+  function draw() {
+    const scope = t("{year}학년도 {semester}학기", calendarScope);
+    scopeTitle.textContent = scope;
+    root.dataset.view = listView ? "list" : "month";
+    dayList.hidden = listView;
+    previous.hidden = next.hidden = title.hidden = listView;
+    previous.setAttribute("aria-label", t("이전 달"));
+    next.setAttribute("aria-label", t("다음 달"));
+    toggle.textContent = t(listView ? "월 보기" : "목록 보기");
+    toggle.setAttribute("aria-pressed", String(listView));
+    if (listView) {
+      dayList.replaceChildren();
+      body.replaceChildren(...(remaining.length ? remaining.map(calendarEventRow) :
+        [element("p", "hint", t("{scope}에 남은 일정이 없어요.", { scope }))]));
+      return;
+    }
+    const first = new Date(focused);
+    first.setUTCDate(1);
+    const last = +shiftCalendarMonth(first, 1) - calendarDayMs;
+    const monthLabel = calendarDateLabel(first, "{year}년 {month}");
+    if (title.textContent !== monthLabel) title.textContent = monthLabel;
+
+    const weekdays = element("div", "acal-weekdays");
+    weekdays.setAttribute("aria-hidden", "true");
+    const names = t("일요일 월요일 화요일 수요일 목요일 금요일 토요일").split(" ");
+    for (const [index, name] of t("일 월 화 수 목 금 토").split(" ").entries()) {
+      const label = element("span", null, name);
+      label.title = names[index];
+      weekdays.append(label);
+    }
+    const grid = element("div", "acal-grid");
+    grid.setAttribute("role", "grid");
+    grid.setAttribute("aria-label", monthLabel);
+    days = new Map();
+    for (let week = +first - first.getUTCDay() * calendarDayMs; week <= last; week += 7 * calendarDayMs) {
+      grid.append(drawWeek(week, +first, last));
+    }
+    drawDayList();
+    body.replaceChildren(weekdays, grid);
+  }
+
+  translateCalendar = () => {
+    if (!current()) return;
+    const restoreDay = !listView && document.activeElement === days.get(focused)?.button;
+    draw();
+    if (restoreDay) days.get(focused).button.focus();
+  };
+  draw();
+  return remaining.length;
 }
 function renderCampus(content, result) {
   if (!Array.isArray(result?.places) || result.places.some(place => !place ||
@@ -4838,7 +5106,7 @@ async function loadFeaturePanel(panel, change) {
       return;
     }
     try {
-      const count = calendar ? renderCalendar(content, response.result) : renderCampus(content, response.result);
+      const count = calendar ? renderCalendar(content, response.result, current) : renderCampus(content, response.result);
       if (count) celebrate();
       else showAssistant("hold");
     } catch {
