@@ -1613,6 +1613,7 @@ node --test api/tests/web/campus_backdrop.test.mjs api/tests/web/chat_layout.tes
 - 긴 이름은 막대 끝에서 잘린다. 말줄임(`text-overflow`)은 전역 검사(`motion_layout.test.mjs`)가 두 요소 밖에서 막아 쓰지 않는다. 전체 이름은 고른 날 목록에 있다.
 - 좁은 패널 전환은 화면 폭이 아니라 `.acal`의 안쪽 폭으로 한다(`@container acal (width < 560px)`). 막대·점·고른 날 목록은 스크립트가 늘 함께 그리고,
   좁으면 막대를 숨기고 날짜 버튼 아래 줄에 점을 보인다. 고른 날 목록은 두 폭 모두 보인다.
+- 「+N개」(`.acal-more`)는 넓은 보기에서만 보인다. 막대 두 줄 기준으로 센 값이라 점만 남는 좁은 칸에서는 막대와 함께 숨긴다(#146).
 
 ### 색과 대비
 

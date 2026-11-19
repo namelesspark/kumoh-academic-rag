@@ -196,7 +196,7 @@ def dot_chain(kind):
 
 
 # 날짜 버튼 안 자식. 「+N개」는 바로 뒤 형제(점 묶음)가 점을 품고, 점 묶음은 마지막 자식이다.
-MORE_LABEL = element("span", states=["has:+ * .acal-dot"])
+MORE_LABEL = element("span", ["acal-more"], states=["has:+ * .acal-dot"])
 DOT_GROUP = element("span", states=["last-child", "has:.acal-dot", "has:> .acal-dot"])
 NUMBER = element("span", states=["first-child"])
 
@@ -842,6 +842,24 @@ class AcademicCalendarStyleTest(unittest.TestCase):
         narrow_cell = self.computed(week() + [cell(3)], NARROW)
         self.assertEqual(narrow_cell.get("flex-wrap"), "wrap")
         self.assertEqual(self.computed(day_chain(), NARROW).get("flex"), "1 1 100%", "날짜 버튼은 좁은 칸 폭을 채운다")
+
+    def test_more_label_shows_only_in_the_wide_panel(self):
+        """좁은 칸은 점만 보인다. 막대만 숨기고 「+N개」를 남겨 일정 세 건인 날에 점 옆 「+1개」가 같이 보이던 결함(#146)을 잰다.
+
+        「+N개」는 넓은 보기의 막대 두 줄 기준으로 센 값이라 좁은 보기에서는 뜻이 없다. 점 묶음과 숫자는 그대로 남는다.
+        """
+        for col in (1, 4, 7):
+            for today in (False, True):
+                chain = day_chain(col, today=today, more=True) + [MORE_LABEL]
+                with self.subTest(col=col, today=today):
+                    self.assertNotEqual(self.computed(chain).get("display"), "none", "넓은 패널에서는 「+N개」가 보인다")
+                    self.assertEqual(self.computed(chain, NARROW).get("display"), "none", "좁은 패널에서는 점만 남는다")
+        self.assertTrue(any(".acal-more" in split_top(head, ",") and decls.get("display") == "none"
+                            for head, decls, media in self.rules if media == NARROW), "실제 클래스 이름으로 숨긴다")
+        for label, child in (("점 묶음", DOT_GROUP), ("숫자", NUMBER)):
+            with self.subTest(child=label):
+                self.assertNotEqual(self.computed(day_chain(more=True) + [child], NARROW).get("display"), "none")
+        self.assertEqual(self.computed(dot_chain("exam"), NARROW).get("display"), "inline-block")
 
     def test_day_list_stays_in_both_widths(self):
         chain = day_list()
