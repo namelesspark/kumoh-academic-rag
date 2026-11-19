@@ -11,6 +11,8 @@ from pathlib import Path
 
 CSS_PATH = Path(__file__).resolve().parents[1] / "app" / "chat_web" / "assets" / "chat.css"
 MARKER = "/* 질문 수정·다시 답하기와 답변 버전 (#140)."
+# #140 절은 다음 절(#143 학사일정 달력) 머리 주석에서 끝난다. 뒤 절이 없으면 파일 끝까지다.
+NEXT_MARKER = "/* 학사일정 월 달력 (#143)."
 NARROW = "@media (max-width: 390px)"
 
 BUTTONS = (".turn-edit", ".turn-regenerate", ".version-prev", ".version-next",
@@ -178,7 +180,9 @@ class ChatVersionsStyleTest(unittest.TestCase):
     def setUpClass(cls):
         raw = CSS_PATH.read_text(encoding="utf-8")
         cls.raw = raw
-        cls.section = strip_comments(raw[raw.index(MARKER):])
+        start = raw.index(MARKER)
+        end = raw.find(NEXT_MARKER, start)
+        cls.section = strip_comments(raw[start:end if end >= 0 else len(raw)])
         cls.rules = rules(cls.section)
         plain = strip_comments(raw)
         light = tokens(block_after(plain, ":root {"))
