@@ -360,7 +360,6 @@ class AcademicCalendarStyleTest(unittest.TestCase):
         button_rows = split_top(button["grid-template-rows"], " ")
         more = self.computed(day_chain(more=True) + [MORE_LABEL])
         bar = self.computed(bar_chain(2, 5, 1, "exam"))
-        ring = self.computed(day_chain(today=True)[:-1] + [element("button", ["acal-day"], ['[aria-current="date"]'], ["before"])])
         self.assertEqual(len(button_rows), 3, "버튼은 숫자 행과 막대 두 행을 정하고 4행부터는 내용 높이다")
         self.assertTrue(week_rows[3].startswith("minmax(") and week_rows[3].endswith("auto)"), "4행은 「+N개」 높이만큼 는다")
         for base in (16, 24, 32):
@@ -374,11 +373,7 @@ class AcademicCalendarStyleTest(unittest.TestCase):
                 self.assertAlmostEqual(label_top, sum(rows), msg="버튼 4행과 주 줄 4행이 같은 높이에서 시작한다")
                 # 각 줄이 자기 행 안에 든다. 글꼴과 함께 커지는 rem이라 어느 크기에서도 맞는다.
                 self.assertLessEqual(length(button["line-height"], base), length(button_rows[0], base))
-                self.assertLessEqual(length(ring["height"], base), length(button_rows[0], base))
                 self.assertLessEqual(length(bar["line-height"], base) + 2 * bar_margin, rows[2] + 0.001)
-                ring_center = border + length(ring["top"], base) + length(ring["height"], base) / 2
-                number_center = border + length(button_rows[0], base) / 2
-                self.assertAlmostEqual(ring_center, number_center, msg="오늘 원이 숫자를 가운데로 감싼다")
                 if base == 32:
                     self.assertGreaterEqual(label_top, 79, "리뷰 재현: 두 번째 막대는 59~79px 구간이었다")
         self.assertIn("rem", more["line-height"])
@@ -452,14 +447,71 @@ class AcademicCalendarStyleTest(unittest.TestCase):
                     day_front, _ = self.ink(week() + [cell(col), element("button", ["acal-day"])], theme)
                     self.assertGreater(contrast(day_front, back), contrast(front, back), "이웃 달 숫자는 더 흐리다")
 
+    def today_ring(self, col=4):
+        """오늘 원(::before)이 받는 선언. 가상 요소에는 ::before 규칙만 걸린다.
+
+        판정기는 .acal-day 규칙도 가상 요소에 맞춰 버리므로(width: 100% 등), 선택자 끝이 ::before인 규칙만 모은다.
+        """
+        chain = day_chain(col, today=True)[:-1] + [element("button", ["acal-day"], ['[aria-current="date"]'], ["before"])]
+        result = {}
+        for head, decls, media in self.rules:
+            if media is None and any(sel.endswith("::before") and selector_matches(sel, chain) for sel in split_top(head, ",")):
+                result.update(decls)
+        return result
+
+    def ring_box(self, base, column):
+        """기본 글꼴 base px, 칸 폭 column px에서 오늘 원의 (왼쪽, 위, 지름)을 날짜 버튼 바깥 기준 px로 계산한다.
+
+        원은 절대 위치라 버튼 안쪽(테두리 안) 상자가 기준이다. 좌우 inset과 max-width, 정사각형 비율, translate -50%를 그대로 푼다.
+        """
+        ring = self.ring_decls
+        border = length(self.computed(day_chain(today=True))["border"].split(" ")[0], base)
+        inset = length(ring["inset-inline"], base)
+        inner = column - 2 * border
+        diameter = min(length(ring["max-width"], base), inner - 2 * inset)
+        left = border + inset + (inner - 2 * inset - diameter) / 2
+        top = border + length(ring["top"], base) - diameter / 2
+        return left, top, diameter
+
+    def test_today_circle_fits_the_cell_at_any_text_size(self):
+        """기본 글꼴 32px, 칸 44px에서 지름 56px(테두리 포함 60px) 오늘 원이 칸 밖으로 나가던 결함(교차 검토 지적)을 잰다."""
+        self.ring_decls = self.today_ring()
+        ring = self.ring_decls
+        self.assertEqual(ring.get("aspect-ratio"), "1", "높이는 폭을 따라 정사각형이다")
+        self.assertEqual(ring.get("margin-inline"), "auto")
+        self.assertEqual(ring.get("translate"), "0 -50%")
+        self.assertNotIn("width", ring, "지름은 inset과 max-width로만 정한다")
+        self.assertNotIn("height", ring)
+        button = self.computed(day_chain(today=True))
+        number_row = split_top(button["grid-template-rows"], " ")[0]
+        min_column = length(button["min-width"])
+        for base in (16, 24, 32):
+            for column in (min_column, 60, 80, 120):
+                with self.subTest(base_font=base, column=column):
+                    left, top, diameter = self.ring_box(base, column)
+                    border = length(button["border"].split(" ")[0], base)
+                    self.assertGreater(diameter, 0)
+                    self.assertGreaterEqual(left, border, "원이 버튼 테두리 왼쪽 밖으로 나가지 않는다")
+                    self.assertLessEqual(left + diameter, column - border, "원이 칸 오른쪽 끝을 넘지 않는다")
+                    row = length(number_row, base)
+                    self.assertGreaterEqual(top, border - 0.001, "원이 숫자 행 위로 나가지 않는다")
+                    self.assertLessEqual(top + diameter, border + row + 0.001, "원이 막대 줄로 내려가지 않는다")
+                    self.assertAlmostEqual(top + diameter / 2, border + row / 2, msg="원 중심이 숫자 행 중심이다")
+                    self.assertAlmostEqual(left + diameter / 2, column / 2, msg="원 중심이 칸 가운데다")
+        # 리뷰 재현: 32px·44px 칸. 예전 지름 56px는 칸 44px보다 컸다.
+        _, _, diameter = self.ring_box(32, min_column)
+        self.assertLessEqual(diameter, min_column - 8)
+        # 넓은 칸과 기본 글꼴에서는 1.75rem(28px) 그대로라 숫자를 넉넉히 감싼다.
+        self.assertAlmostEqual(self.ring_box(16, 80)[2], 28)
+
     def test_today_is_an_accent_circle(self):
         for col in (1, 4):
             chain = day_chain(col, today=True)
-            ring = self.computed(chain[:-1] + [element("button", ["acal-day"], ['[aria-current="date"]'], ["before"])])
+            ring = self.today_ring(col)
             self.assertEqual(ring.get("border-radius"), "50%")
             self.assertEqual(ring.get("border"), "2px solid var(--accent)")
-            self.assertGreaterEqual(length(ring["width"]), 24)
-            self.assertEqual(ring["width"], ring["height"])
+            self.ring_decls = ring
+            self.assertGreaterEqual(self.ring_box(16, 44)[2], 24, "기본 글꼴의 가장 좁은 칸에서도 숫자를 감싸는 크기다")
             for theme in self.themes:
                 with self.subTest(theme=theme, col=col):
                     cell_face = self.face(chain, theme)

@@ -1593,7 +1593,11 @@ node --test api/tests/web/campus_backdrop.test.mjs api/tests/web/chat_layout.tes
   날짜 칸은 네 행을 모두 덮고(`grid-row: 1 / 5`), 숫자는 1행, 막대는 2·3행, 「+N개」는 4행이다.
 - 날짜 버튼 안도 같은 행 격자다(`calc(2.25rem - 2px) 1.375rem 1.375rem`, 첫 행만 위 테두리 2px를 뺀다). 그래서 버튼 4행이 주 줄 4행과 같은 높이에서 시작하고,
   「+N개」(`grid-row: 4`)는 글꼴 크기와 상관없이 두 번째 막대 아래에 놓인다. 점 묶음은 5행이다. 「+N개」가 두 줄이면 버튼 내용이 늘고, 칸이 덮은 주 줄 4행(auto)이 함께 는다.
-- 행 높이·줄 높이·오늘 원 크기는 rem이라 브라우저 기본 글꼴을 키우면 함께 커진다. 처음에는 px 행에 flex 열 끝으로 「+N개」를 밀었는데(`margin-top: auto`),
+- 오늘 원 지름은 1.75rem과 칸 안쪽 폭(버튼 테두리 안에서 좌우 2px씩 띄운 폭) 가운데 작은 값이다. 좌우를 2px에 걸고(`inset-inline: 2px`)
+  `max-width: 1.75rem`과 `margin-inline: auto`로 가운데 두며, 높이는 `aspect-ratio: 1`로 폭을 따른다. 세로 중심은 숫자 행 가운데(`translate: 0 -50%`)다.
+  처음에는 지름이 1.75rem 고정이라 기본 글꼴 32px에서 56px(테두리 포함 60px)가 되어 44px 칸과 오른쪽 여백을 넘었다(교차 검토 지적).
+  `test_today_circle_fits_the_cell_at_any_text_size`가 기본 글꼴 16·24·32px와 칸 폭 44·60·80·120px에서 원이 칸과 숫자 행 안에 들고 가운데에 오는지 계산한다.
+- 행 높이·줄 높이·오늘 원 최대 크기는 rem이라 브라우저 기본 글꼴을 키우면 함께 커진다. 처음에는 px 행에 flex 열 끝으로 「+N개」를 밀었는데(`margin-top: auto`),
   칸 내용이 네 행보다 짧으면 4행이 늘지 않아, 기본 글꼴 32px의 영어 화면에서 두 줄 「+10 more」가 64px에서 시작해 두 번째 막대(59~79px)에 가렸다(교차 검토 지적).
   `test_more_label_never_overlaps_the_second_bar_at_any_text_size`가 기본 글꼴 16·24·32px에서 실제 선언의 px·rem·calc를 풀어 「+N개」 위 끝과 두 번째 막대 아래 끝을 비교한다.
 - 44px 칸에서 「+N개」가 쓸 수 있는 글 폭은 36px(좌우 안쪽 여백 2px·테두리 2px)다. 영어 「+10 more」는 약 57px라 칸 안에서 두 줄로 나누고,

@@ -2092,12 +2092,15 @@ form.turn-editor textarea {
   content: "";
   position: absolute;
   z-index: -1;
-  /* 1행(위 테두리 아래 calc(2.25rem - 2px)) 가운데에 놓는다. 숫자와 같은 rem이라 글꼴을 키워도 숫자를 감싼다. */
-  top: calc(.25rem - 1px);
-  left: 50%;
-  width: 1.75rem;
-  height: 1.75rem;
-  margin-left: -.875rem;
+  /* 지름은 1.75rem과 칸 안쪽 폭(좌우 2px씩 띄운 버튼 안쪽) 가운데 작은 값이다. 좌우를 2px에 걸고 최대 폭을 1.75rem으로 막아
+     가운데(margin-inline: auto)에 두고, 높이는 정사각형 비율로 폭을 따른다. 세로는 1행(calc(2.25rem - 2px)) 가운데에 중심을 맞춘다.
+     처음에는 지름이 1.75rem 고정이라 기본 글꼴 32px에서 56px가 되어 44px 칸과 오른쪽 여백을 넘었다(교차 검토 지적). */
+  top: calc(1.125rem - 1px);
+  inset-inline: 2px;
+  max-width: 1.75rem;
+  aspect-ratio: 1;
+  margin-inline: auto;
+  translate: 0 -50%;
   border: 2px solid var(--accent);
   border-radius: 50%;
   background: var(--acal-today-fill);
