@@ -2191,5 +2191,7 @@ form.turn-editor textarea {
   /* 막대가 없으니 버튼 안 막대 두 행도 비운다. 숫자 행만 정하고 나머지(빈 2·3행, 「+N개」, 점 묶음)는 내용 높이다. */
   .acal-day { grid-template-rows: calc(2.25rem - 2px); }
   .acal-bar { display: none; }
+  /* 「+N개」는 넓은 보기의 막대 두 줄 기준으로 센 값이다. 점만 남는 좁은 칸에서는 함께 숨긴다(#146). */
+  .acal-more { display: none; }
   .acal-dot { display: inline-block; }
 }
