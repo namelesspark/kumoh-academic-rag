@@ -220,16 +220,16 @@ test("넓은 화면은 + 둘레에 방사형으로, 좁은 화면은 엄지 위�
   }
 });
 
-test("+가 화면 위쪽에 있어 위로 비킬 자리가 없으면 호를 + 옆으로 밀고, 그래도 + 아래로 내려가면 44px 방울 호로 + 위쪽에 둔다", () => {
-  // 390×700에서 홈을 굴려 + 가운데가 위에서 120px·90px, 왼쪽에서 30px에 온 경우.
-  // 120px: 기본 호를 옆으로 밀면 그대로 + 위쪽에 든다. 90px: 기본·70px 호는 화면 위 여백을 맞추느라 끝 방울이
-  // + 가운데보다 내려가므로 쓰지 않고, 반지름 58px·44px 방울 호를 옆으로 민다.
-  for (const [centerY, compact] of [[120, false], [90, true]]) {
+test("+가 화면 위쪽에 있어 + 위 가운데에 호를 둘 수 없으면 + 옆에 띠 높이에 맞춘 호를 계산해 + 위쪽에 둔다", () => {
+  // 390×700에서 홈을 굴려 + 가운데가 위에서 120px·90px·84px, 왼쪽에서 30px에 온 경우. 앞선 검토에서 하나씩 나온 자리다.
+  // 정해진 반지름 대신, 위 여백과 + 가운데 사이 띠에 들도록 호가 벌어진 각도를 줄여 계산한다.
+  for (const centerY of [120, 90, 84]) {
     const page = ringPage({ width: 390, height: 700, toggleRect: { left: 8, top: centerY - 22, width: 44, height: 44 } });
     page.toggle.click();
     assert.equal(page.ring.getAttribute("data-layout"), "arc", String(centerY));
-    assert.equal(page.ring.getAttribute("data-compact") === "", compact, String(centerY));
-    const size = compact ? 22 : 26;
+    // 이 세 자리는 52px 방울로도 + 옆 띠에 든다.
+    assert.equal(page.ring.getAttribute("data-compact"), null, String(centerY));
+    const size = 26;
     const spots = page.items.map(page.position);
     for (const spot of spots) {
       const x = 30 + spot.x, y = centerY + spot.y;
@@ -305,27 +305,36 @@ test("좁고 낮은 화면에서도 방울이 잘리거나 +를 덮지 않고, �
   }
 });
 
-test("52px 방울 칸이 모자라면 44px 방울로 줄이고, 그래도 모자라면 잘리거나 +를 덮는 링을 열지 않는다", () => {
-  // 320×700에서 + 가운데를 (54, 60)에 두고 연 뒤 높이가 120px로 줄어든 경우.
+test("52px 방울 자리가 모자라면 44px 방울로 줄이고, 그래도 모자라면 잘리거나 +를 덮는 링을 열지 않는다", () => {
+  // + 가운데가 (54, 60)인 낮은 화면 두 가지. 320×120은 44px 방울 호가 + 오른쪽 띠에 들고,
+  // 260×120은 호가 너비에 들지 않아 44px 방울 격자 칸을 쓴다. 두 경우 모두 화면 안, + 위쪽 또는 옆, 겹침 없음.
+  const check = (page, width, height, kind) => {
+    assert.equal(page.toggle.getAttribute("aria-expanded"), "true", `${width}x${height}`);
+    assert.equal(page.ring.getAttribute("data-layout"), kind, `${width}x${height}`);
+    assert.equal(page.ring.getAttribute("data-compact"), "", `${width}x${height}`);
+    assert.ok(page.blobs().every(blob => blob.getAttribute("r") === "22"));
+    const centers = page.items.map(page.position).map(spot => ({ x: 54 + spot.x, y: 60 + spot.y }));
+    for (const { x, y } of centers) {
+      assert.ok(x - 22 >= 8 - 0.5 && x + 22 <= width - 8 + 0.5 && y - 22 >= 8 - 0.5 && y + 22 <= height - 8 + 0.5, `off screen ${x},${y}`);
+      const nearestX = Math.min(Math.max(x, 32), 76), nearestY = Math.min(Math.max(y, 38), 82);
+      assert.ok(Math.hypot(x - nearestX, y - nearestY) >= 22, `covers + ${x},${y}`);
+      assert.ok(Math.hypot(x - 54, y - 60) >= 22, `(54,60) hits a bubble`);
+    }
+    for (const [i, a] of centers.entries()) for (const b of centers.slice(i + 1)) assert.ok(Math.hypot(a.x - b.x, a.y - b.y) >= 44, "bubbles overlap");
+    if (kind === "arc") for (const { y } of centers) assert.ok(y <= 60 + 0.5, `dropped below + ${y}`);
+  };
   const page = ringPage({ width: 320, height: 700, toggleRect: { left: 32, top: 38, width: 44, height: 44 } });
   page.toggle.click();
   page.window.innerHeight = 120;
   page.windowEvent("resize");
-  assert.equal(page.toggle.getAttribute("aria-expanded"), "true");
-  assert.equal(page.ring.getAttribute("data-layout"), "grid");
-  assert.equal(page.ring.getAttribute("data-compact"), "");
-  assert.ok(page.blobs().every(blob => blob.getAttribute("r") === "22"));
-  const centers = page.items.map(page.position).map(spot => ({ x: 54 + spot.x, y: 60 + spot.y }));
-  for (const { x, y } of centers) {
-    assert.ok(x - 22 >= 8 - 0.5 && x + 22 <= 320 - 8 + 0.5 && y - 22 >= 8 - 0.5 && y + 22 <= 120 - 8 + 0.5, `off screen ${x},${y}`);
-    const nearestX = Math.min(Math.max(x, 32), 76), nearestY = Math.min(Math.max(y, 38), 82);
-    assert.ok(Math.hypot(x - nearestX, y - nearestY) >= 22, `covers + ${x},${y}`);
-    assert.ok(Math.hypot(x - 54, y - 60) >= 22, `(54,60) hits a bubble`);
-  }
-  for (const [i, a] of centers.entries()) for (const b of centers.slice(i + 1)) assert.ok(Math.hypot(a.x - b.x, a.y - b.y) >= 44, "bubbles overlap");
+  check(page, 320, 120, "arc");
+  const narrowGrid = ringPage({ width: 260, height: 120, toggleRect: { left: 32, top: 38, width: 44, height: 44 } });
+  narrowGrid.toggle.click();
+  check(narrowGrid, 260, 120, "grid");
   // CSS: 작은 방울도 조작 영역 44px를 지킨다.
   assert.match(css, /\.quick-ring\[data-compact\] \.quick-item \{ width: 44px; height: 44px; margin: -22px 0 0 -22px; \}/);
-  // 높이가 다시 넉넉해지면 원래 크기로 돌아간다.
+  // 화면이 다시 넉넉해지면(390×700) 52px 방울 크기로 돌아간다.
+  page.window.innerWidth = 390;
   page.window.innerHeight = 700;
   page.windowEvent("resize");
   assert.equal(page.ring.getAttribute("data-compact"), null);
@@ -353,7 +362,7 @@ test("52px 방울 칸이 모자라면 44px 방울로 줄이고, 그래도 모자
   assert.notEqual(flat.ring.getAttribute("data-layout"), "row");
 });
 
-test("기본 반지름으로 + 위·옆에 자리가 없으면 반지름을 70px로 줄여 + 위쪽에 두고, 방울끼리도 겹치지 않는다", () => {
+test("기본 반지름 호가 + 위·옆에 들지 않으면 + 옆 계산 호로 + 위쪽에 두고, 방울끼리도 겹치지 않는다", () => {
   // 320×700에서 + 가운데가 (80, 120)인 경우. 84px 호는 위로 들면 화면 위를, 옆으로 밀면 오른쪽을 넘는다.
   const page = ringPage({ width: 320, height: 700, toggleRect: { left: 58, top: 98, width: 44, height: 44 } });
   page.toggle.click();
@@ -366,8 +375,8 @@ test("기본 반지름으로 + 위·옆에 자리가 없으면 반지름을 70px
     assert.ok(Math.hypot(x - nearestX, y - nearestY) >= 26, `covers + ${x},${y}`);
   }
   for (const [i, a] of centers.entries()) for (const b of centers.slice(i + 1)) assert.ok(Math.hypot(a.x - b.x, a.y - b.y) >= 52, "bubbles overlap");
-  // 반지름 70px 호: 가운데 방울이 + 가운데보다 70px 높다.
-  assert.ok(Math.abs(Math.min(...centers.map(({ y }) => y)) - 50) < 0.5);
+  // 가운데 방울이 가장 높은 호다.
+  assert.equal(Math.min(...centers.map(({ y }) => y)), centers[2].y);
 });
 
 test("열려 있는 사이 대상이 숨거나 카드가 화면에서 떨어져 나가면, 변경 감시가 오기 전에 골라도 누르지 않는다", () => {

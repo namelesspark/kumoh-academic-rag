@@ -170,18 +170,50 @@
       // 덮는 방울이 없으면 up은 화면 맞춤(fit)과 같다.
       const up = Math.min(fit, ...covering.map(point => anchor.y - clear - point.y));
       const down = Math.max(fit, ...covering.map(point => anchor.y + clear - point.y));
-      const sides = [anchor.x + clear - Math.min(...xs), anchor.x - clear - Math.max(...xs)];
-      const side = sides.find(sx => inside(sx, fit) && high(fit));
       return {
-        above: inside(dx, up) && high(up) ? moved(dx, up) : side !== undefined ? moved(side, fit) : null,
+        above: inside(dx, up) && high(up) ? moved(dx, up) : null,
         below: !compact && inside(dx, down) ? moved(dx, down) : null,
       };
     }
-    // + 위·옆 자리를 세 번 찾는다. 기본 반지름 → 반지름 70px(52px 방울, 이웃 간격 약 53.6px) →
-    // 반지름 58px와 44px 방울(조작 영역 하한, 이웃 간격 약 44.4px). 세 경우 모두 방울끼리 겹치지 않는다.
-    // 그래도 위·옆에 없을 때만 52px 방울을 + 아래로 내린다.
+    // + 옆에 두는 호를 정해진 반지름 몇 개로 고르지 않고 계산한다. 방울 가운데가 놓일 수 있는 띠는
+    // 화면 위 여백 아래(top)부터 + 가운데 높이(bottom)까지다. 이웃 방울 간격을 방울 지름 + 4px로 고정하고,
+    // 호가 벌어진 각도를 180°에서 5°씩 줄여 가며 호의 높이가 띠 안에 들고 + 옆 너비에 맞는 첫 호를 쓴다.
+    // 각도가 작을수록 호는 낮고 넓어지며 0°에서는 한 줄이 된다. 오른쪽을 먼저 보고, 안 되면 왼쪽을 본다.
+    function beside(size) {
+      const gap = size * 2 + 4, clearSide = size + hubRadius + 6;
+      const bottom = Math.min(anchor.y, height - edge - size), top = edge + size;
+      if (count < 1 || bottom < top - 0.5) return null;
+      for (let span = 180; span >= 0; span -= 5) {
+        let shapePoints;
+        if (span === 0 || count === 1) shapePoints = Array.from({ length: count }, (_, index) => ({ x: index * gap, y: 0 }));
+        else {
+          const stepAngle = span / (count - 1) * Math.PI / 180;
+          const radius = gap / (2 * Math.sin(stepAngle / 2));
+          const half = span / 2 * Math.PI / 180;
+          shapePoints = Array.from({ length: count }, (_, index) => {
+            const angle = Math.PI / 2 + half - index * stepAngle;
+            return { x: radius * Math.cos(angle), y: -radius * Math.sin(angle) };
+          });
+        }
+        // 왼쪽 끝을 x 0, 양 끝 높이를 y 0으로 맞춘다. 가운데 방울이 가장 높다(y가 가장 작다).
+        const minX = Math.min(...shapePoints.map(point => point.x)), maxY = Math.max(...shapePoints.map(point => point.y));
+        const rel = shapePoints.map(point => ({ x: point.x - minX, y: point.y - maxY }));
+        const wide = Math.max(...rel.map(point => point.x)), tall = -Math.min(...rel.map(point => point.y));
+        if (bottom - tall < top - 0.5) continue;
+        for (const left of [anchor.x + clearSide, anchor.x - clearSide - wide]) {
+          if (left - size < edge - 0.5 || left + wide + size > width - edge + 0.5) continue;
+          return { kind: span > 0 && count > 1 ? "arc" : "row", compact: size < bubbleRadius,
+            points: rel.map(point => ({ x: left + point.x, y: bottom + point.y })) };
+        }
+      }
+      return null;
+    }
+    // 찾는 순서: + 위 가운데 호(기본 반지름 → 70px) → + 옆 계산 호(52px 방울) → + 위 가운데 58px 호(44px 방울)
+    // → + 옆 계산 호(44px 방울). 어느 경우든 방울은 + 가운데보다 내려가지 않고 서로 겹치지 않는다.
+    // 위·옆에 자리가 없을 때만 52px 방울을 + 아래로 내린다.
     const arcs = [arc(narrow ? 84 : 92), arc(70), arc(58, compactRadius)];
-    for (const each of arcs) if (each.above) return each.above;
+    const above = [() => arcs[0].above, () => arcs[1].above, () => beside(bubbleRadius), () => arcs[2].above, () => beside(compactRadius)];
+    for (const attempt of above) { const found = attempt(); if (found) return found; }
     for (const each of arcs) if (each.below) return each.below;
     // 한 줄: + 오른쪽(자리가 없으면 왼쪽)에 + 버튼과 6px 떨어뜨려 놓는다. 높이는 화면 안으로 맞춘다.
     const step = bubbleRadius * 2 + 4, span = (count - 1) * step;
