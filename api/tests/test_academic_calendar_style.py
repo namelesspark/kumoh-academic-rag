@@ -1,0 +1,519 @@
+"""학사일정 월 달력(#143)의 모양 테스트.
+
+브라우저를 띄우지 않고 실제 chat.css를 읽는다. #143 절의 규칙을 작은 선택자 판정기로 가상 요소(날짜 칸·날짜 버튼·
+막대·점·머리 버튼·고른 날 목록)에 걸어 그 요소가 실제로 받는 선언을 모으고, 그 색으로 라이트·다크(속성)·다크(시스템)
+대비를 계산한다. 사용자 변수(--acal-*)와 color-mix(in srgb, …)도 조상에서 물려받은 값으로 풀어 계산한다.
+선택자 판정기와 색 계산은 test_chat_versions_style.py의 것을 그대로 쓰고, 규칙 읽기만 @container까지 펼친다.
+"""
+
+import re
+import unittest
+from pathlib import Path
+
+from test_chat_versions_style import (
+    block_after, contrast, element, luminance, over, rgba, selector_matches, split_top, strip_comments, tokens,
+)
+
+CSS_PATH = Path(__file__).resolve().parents[1] / "app" / "chat_web" / "assets" / "chat.css"
+MARKER = "/* 학사일정 월 달력 (#143)."
+NARROW = "@container acal (width < 560px)"
+REDUCED = "@media (prefers-reduced-motion: reduce)"
+KINDS = ("enroll", "exam", "holiday", "register", "neutral")
+NAMES = (".acal", ".acal-title", "[data-acal-nav]", "[data-acal-view-toggle]", '[aria-pressed="true"]',
+         ".acal-weekdays", ".acal-grid", ".acal-week", ".acal-cell", ".acal-day", "[data-outside]",
+         '[aria-current="date"]', '[aria-selected="true"]', "[data-more]", ".acal-bar", ".acal-dot",
+         ".acal-day-list", '[data-view="list"]', '[data-view="month"]', "section.evidence")
+
+
+def rules(text):
+    """(선택자 머리, 선언 사전, 조건) 목록. @media·@supports·@container 안쪽도 펼친다."""
+    found = []
+
+    def walk(chunk, media):
+        pos = 0
+        while True:
+            open_at = chunk.find("{", pos)
+            if open_at < 0:
+                return
+            head = " ".join(chunk[pos:open_at].split())
+            depth, end = 1, open_at + 1
+            while depth:
+                depth += {"{": 1, "}": -1}.get(chunk[end], 0)
+                end += 1
+            body = chunk[open_at + 1:end - 1]
+            if head.startswith(("@media", "@supports", "@container")):
+                walk(body, head)
+            elif not head.startswith("@"):
+                decls = {}
+                for part in body.split(";"):
+                    if ":" in part:
+                        key, value = part.split(":", 1)
+                        decls[key.strip()] = " ".join(value.split())
+                found.append((head, decls, media))
+            pos = end
+
+    walk(text, None)
+    return found
+
+
+def mix(first, share, second):
+    """color-mix(in srgb, first share, second). 알파를 곱한 값으로 섞는다(CSS Color 5)."""
+    alpha = first[3] * share + second[3] * (1 - share)
+    if alpha == 0:
+        return (0, 0, 0, 0.0)
+    channels = tuple((first[i] * first[3] * share + second[i] * second[3] * (1 - share)) / alpha for i in range(3))
+    return channels + (alpha,)
+
+
+# 가상 문서. 달력 루트 → 격자 → 주 줄 → 칸 → 날짜 버튼 순서다.
+def acal(view="month"):
+    return element("section", ["acal"], [f'[data-view="{view}"]'])
+
+
+def cell(col, *, outside=False, selected=False):
+    attrs = {f'[data-col="{col}"]', '[role="gridcell"]', f'[aria-selected="{"true" if selected else "false"}"]'}
+    if outside:
+        attrs.add("[data-outside]")
+    return element("div", ["acal-cell"], attrs)
+
+
+def week():
+    return [acal(), element("div", ["acal-grid"], ['[role="grid"]']), element("div", ["acal-week"], ['[role="row"]'])]
+
+
+def day_chain(col=3, *, selected=False, today=False, more=False, states=()):
+    attrs = {'[aria-current="date"]'} if today else set()
+    if more:
+        attrs.add("[data-more]")
+    return week() + [cell(col, selected=selected), element("button", ["acal-day"], attrs, states)]
+
+
+def bar_chain(col=1, span=1, lane=0, kind="neutral"):
+    attrs = [f'[data-col="{col}"]', f'[data-span="{span}"]', f'[data-lane="{lane}"]', f'[data-kind="{kind}"]',
+             '[aria-hidden="true"]']
+    return week() + [element("div", ["acal-bar"], attrs)]
+
+
+def dot_chain(kind):
+    return week() + [cell(3), element("span", ["acal-dot"], [f'[data-kind="{kind}"]'])]
+
+
+# 「+N개」 글자. 날짜 버튼 안 마지막 자식 요소다.
+MORE_LABEL = element("span", states=["last-child"])
+
+
+def head_button(kind, states=(), pressed=None):
+    attrs = {"[data-acal-nav]", '[data-acal-nav="prev"]'} if kind == "nav" else {"[data-acal-view-toggle]"}
+    if pressed is not None:
+        attrs.add(f'[aria-pressed="{pressed}"]')
+    return [acal(), element("div", ["acal-head"]), element("button", [], attrs, states)]
+
+
+class AcademicCalendarStyleTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        raw = CSS_PATH.read_text(encoding="utf-8")
+        cls.raw = raw
+        cls.section = strip_comments(raw[raw.index(MARKER):])
+        cls.rules = rules(cls.section)
+        plain = strip_comments(raw)
+        light = tokens(block_after(plain, ":root {"))
+        cls.themes = {
+            "light": light,
+            "dark": {**light, **tokens(block_after(plain, ':root[data-theme="dark"]'))},
+            "system-dark": {**light, **tokens(block_after(plain, ":root:not([data-theme])"))},
+        }
+
+    def computed(self, chain, media=None):
+        result = {}
+        for head, decls, rule_media in self.rules:
+            if rule_media not in (None, media):
+                continue
+            if any(selector_matches(selector, chain) for selector in split_top(head, ",")):
+                result.update(decls)
+        return result
+
+    def scope(self, chain, media=None):
+        """사용자 변수는 물려받는다. 바깥 조상부터 대상까지 --이름 선언을 차례로 덮어쓴다."""
+        found = {}
+        for depth in range(1, len(chain) + 1):
+            found.update({k: v for k, v in self.computed(chain[:depth], media).items() if k.startswith("--")})
+        return found
+
+    def color(self, theme, value, scope=None):
+        value = value.strip()
+        if value == "transparent":
+            return (0, 0, 0, 0.0)
+        match = re.fullmatch(r"var\((--[\w-]+)\)", value)
+        if match:
+            name = match.group(1)
+            found = (scope or {}).get(name, self.themes[theme].get(name))
+            self.assertIsNotNone(found, f"정의되지 않은 변수 {name}")
+            inner = dict(scope or {})
+            inner.pop(name, None)
+            return self.color(theme, found, inner)
+        match = re.fullmatch(r"color-mix\(in srgb,\s*(.+?)\s+(\d+)%,\s*(.+)\)", value)
+        if match:
+            first, share, second = match.groups()
+            return mix(self.color(theme, first, scope), int(share) / 100, self.color(theme, second, scope))
+        return rgba(value)
+
+    def face(self, chain, theme, media=None):
+        """대상 요소 뒤에 보이는 첫 불투명 면. 반투명 면은 그 아래 면에 겹쳐 계산한다.
+
+        달력 루트(.acal)에 닿기 전에 불투명 면이 없으면 사진이 비친다는 뜻이라 실패한다.
+        """
+        layers = []
+        for depth in range(len(chain), 0, -1):
+            sub = chain[:depth]
+            decls = self.computed(sub, media)
+            if "background" in decls:
+                paint = self.color(theme, decls["background"], self.scope(sub, media))
+                if paint[3] == 1.0:
+                    for layer in reversed(layers):
+                        paint = over(layer, paint)
+                    return paint
+                if paint[3] > 0:
+                    layers.append(paint)
+            if "acal" in chain[depth - 1]["classes"]:
+                break
+        self.fail("달력 요소 뒤에 불투명 면이 없어 사진이 비친다")
+
+    def ink(self, chain, theme, media=None):
+        decls = self.computed(chain, media)
+        back = self.face(chain, theme, media)
+        return over(self.color(theme, decls["color"], self.scope(chain, media)), back), back
+
+    # --- 이름표와 자리 ---------------------------------------------------------------------------
+
+    def test_section_adds_every_contract_name(self):
+        for name in NAMES:
+            with self.subTest(name=name):
+                self.assertIn(name, self.section)
+        for kind in KINDS:
+            with self.subTest(kind=kind):
+                self.assertIn(f'[data-kind="{kind}"]', self.section)
+
+    def test_section_is_appended_after_existing_rules(self):
+        before = strip_comments(self.raw[:self.raw.index(MARKER)])
+        self.assertIsNone(re.search(r"\.acal\b|data-acal", before))
+        self.assertIsNone(re.search(r"@container", before), "컨테이너 쿼리는 이 절에만 있다")
+
+    # --- 격자 -----------------------------------------------------------------------------------
+
+    def test_weekdays_and_weeks_have_seven_columns_of_44px(self):
+        for chain in ([acal(), element("div", ["acal-weekdays"])], week()):
+            for media in (None, NARROW):
+                with self.subTest(target=chain[-1]["classes"], media=media):
+                    self.assertEqual(self.computed(chain, media)["grid-template-columns"], "repeat(7, minmax(44px, 1fr))")
+
+    def test_cell_columns_cover_one_to_seven(self):
+        for col in range(1, 8):
+            with self.subTest(col=col):
+                self.assertEqual(self.computed(week() + [cell(col)]).get("grid-column"), str(col))
+        self.assertNotRegex(self.section, r'data-col="(?:0|[89])"')
+
+    def test_bar_selectors_place_every_column_span_and_lane(self):
+        for col in range(1, 8):
+            for span in range(1, 9 - col):
+                for lane in (0, 1):
+                    with self.subTest(col=col, span=span, lane=lane):
+                        decls = self.computed(bar_chain(col, span, lane))
+                        self.assertEqual(decls.get("grid-column-start"), str(col))
+                        self.assertEqual(decls.get("grid-column-end"), f"span {span}")
+                        self.assertEqual(decls.get("grid-row"), str(lane + 2), "막대는 숫자 줄 아래 2·3행에 놓인다")
+        self.assertNotRegex(self.section, r'data-span="(?:0|[89])"|data-lane="[2-9]"')
+        decls = self.computed(bar_chain())
+        self.assertEqual(decls.get("pointer-events"), "none", "막대 위를 눌러도 날짜가 골라진다")
+        self.assertNotIn("style=", self.section)
+
+    def test_week_rows_leave_room_for_two_lanes_and_more_label(self):
+        rows = split_top(self.computed(week())["grid-template-rows"], " ")
+        self.assertEqual(len(rows), 4)
+        self.assertEqual(self.computed(week(), NARROW)["grid-template-rows"], "auto", "좁은 패널은 막대 줄이 없다")
+        self.assertEqual(self.computed(week() + [cell(2)]).get("grid-row"), "1 / 5", "칸은 네 줄을 모두 덮는다")
+        more = self.computed(day_chain(more=True) + [MORE_LABEL])
+        self.assertIn("font-size", more)
+        self.assertNotIn("font-size", self.computed(day_chain() + [MORE_LABEL]), "+N개 글자 규칙은 data-more 버튼에만 걸린다")
+
+    def test_hairlines_are_nine_percent_text(self):
+        scope = self.scope([acal()])
+        self.assertEqual(scope["--acal-line"], "color-mix(in srgb, var(--text) 9%, transparent)")
+        self.assertEqual(self.computed(week())["border-top"], "1px solid var(--acal-line)")
+        self.assertEqual(self.computed(week() + [cell(2)])["border-inline-start"], "1px solid var(--acal-line)")
+        self.assertEqual(self.computed(week() + [cell(1)])["border-inline-start"], "0")
+        for theme in self.themes:
+            with self.subTest(theme=theme):
+                line = self.color(theme, "var(--acal-line)", scope)
+                self.assertAlmostEqual(line[3], 0.09)
+
+    def test_weekend_columns_have_a_light_opaque_tint(self):
+        for theme in self.themes:
+            weekday = self.face(week() + [cell(3)], theme)
+            for col in (1, 7):
+                with self.subTest(theme=theme, col=col):
+                    tint = self.face(week() + [cell(col)], theme)
+                    self.assertNotEqual(tint[:3], weekday[:3])
+                    self.assertLess(contrast(tint, weekday), 1.2, "틴트는 옅다")
+            for col in range(2, 7):
+                self.assertEqual(self.face(week() + [cell(col)], theme), weekday)
+
+    def test_outside_days_are_muted_but_readable(self):
+        for theme in self.themes:
+            for col in (1, 4, 7):
+                with self.subTest(theme=theme, col=col):
+                    chain = week() + [cell(col, outside=True)]
+                    front, back = self.ink(chain, theme)
+                    self.assertGreaterEqual(contrast(front, back), 4.5)
+                    day_front, _ = self.ink(week() + [cell(col), element("button", ["acal-day"])], theme)
+                    self.assertGreater(contrast(day_front, back), contrast(front, back), "이웃 달 숫자는 더 흐리다")
+
+    def test_today_is_an_accent_circle(self):
+        for col in (1, 4):
+            chain = day_chain(col, today=True)
+            ring = self.computed(chain[:-1] + [element("button", ["acal-day"], ['[aria-current="date"]'], ["before"])])
+            self.assertEqual(ring.get("border-radius"), "50%")
+            self.assertEqual(ring.get("border"), "2px solid var(--accent)")
+            self.assertGreaterEqual(int(ring["width"].rstrip("px")), 24)
+            for theme in self.themes:
+                with self.subTest(theme=theme, col=col):
+                    cell_face = self.face(chain, theme)
+                    fill = over(self.color(theme, ring["background"], self.scope(chain)), cell_face)
+                    accent = self.color(theme, "var(--accent)")
+                    self.assertGreaterEqual(contrast(accent, fill), 3.0)
+                    self.assertGreaterEqual(contrast(accent, cell_face), 3.0)
+                    text = over(self.color(theme, self.computed(chain)["color"]), fill)
+                    self.assertGreaterEqual(contrast(text, fill), 4.5)
+
+    # --- 크기·초점·선택 -----------------------------------------------------------------------------
+
+    def test_targets_are_at_least_44px(self):
+        for media in (None, NARROW):
+            for chain in (day_chain(), week() + [cell(2)], head_button("nav"), head_button("toggle")):
+                with self.subTest(media=media, target=chain[-1]["classes"] or chain[-1]["attrs"]):
+                    decls = self.computed(chain, media)
+                    self.assertEqual(decls.get("min-height"), "44px")
+                    self.assertEqual(decls.get("min-width"), "44px")
+
+    def test_grid_scrolls_inside_below_308px(self):
+        self.assertEqual(7 * 44, 308)
+        grid = self.computed(week()[:2])
+        self.assertEqual(grid.get("overflow-x"), "auto")
+        self.assertEqual(grid.get("min-width"), "0")
+        root = self.computed([acal()])
+        self.assertEqual(root.get("min-width"), "0")
+        self.assertEqual(root.get("grid-template-columns"), "minmax(0, 1fr)")
+
+    def test_focus_and_selection_stay_inside_and_clear_three_to_one(self):
+        for theme in self.themes:
+            for col in (1, 4):
+                for states in (("focus-visible",), ("focus-visible", "hover")):
+                    chain = day_chain(col, selected=True, states=states)
+                    with self.subTest(theme=theme, col=col, states=states):
+                        decls = self.computed(chain)
+                        width, style, ring = decls["outline"].split(" ", 2)
+                        self.assertEqual((width, style), ("2px", "solid"))
+                        border = int(decls["border"].split("px")[0])
+                        offset = int(decls["outline-offset"].rstrip("px"))
+                        self.assertLessEqual(offset, -(border + int(width.rstrip("px"))), "고리는 선택 테두리 안쪽에 그린다")
+                        face = self.face(chain, theme)
+                        self.assertGreaterEqual(contrast(over(self.color(theme, ring), face), face), 3.0)
+                        edge = self.color(theme, decls["border-color"])
+                        self.assertGreaterEqual(contrast(over(edge, face), face), 3.0)
+                        outer = self.face(chain[:-1], theme)
+                        self.assertGreaterEqual(contrast(over(edge, outer), outer), 3.0)
+        plain = self.computed(day_chain())
+        self.assertEqual(plain["border"], "2px solid transparent", "고르지 않은 날은 선이 없고 자리만 같다")
+
+    def test_head_buttons_have_three_to_one_edges_and_ring(self):
+        cases = []
+        for kind in ("nav", "toggle"):
+            for states in ((), ("hover",), ("focus-visible",)):
+                cases.append(head_button(kind, states))
+        cases.append(head_button("toggle", pressed="true"))
+        cases.append(head_button("toggle", pressed="false"))
+        for theme in self.themes:
+            for chain in cases:
+                with self.subTest(theme=theme, attrs=sorted(chain[-1]["attrs"]), states=sorted(chain[-1]["states"])):
+                    decls = self.computed(chain)
+                    inner = self.face(chain, theme)
+                    outer = self.face(chain[:-1], theme)
+                    edge = self.color(theme, decls.get("border-color") or re.search(r"var\(--[\w-]+\)", decls["border"]).group(0))
+                    for side in (inner, outer):
+                        self.assertGreaterEqual(contrast(over(edge, side), side), 3.0)
+                    front = over(self.color(theme, decls["color"]), inner)
+                    self.assertGreaterEqual(contrast(front, inner), 4.5)
+                    if "focus-visible" in chain[-1]["states"]:
+                        ring = decls["outline"].split(" ", 2)[2]
+                        self.assertGreaterEqual(contrast(over(self.color(theme, ring), outer), outer), 3.0)
+        pressed = self.computed(head_button("toggle", pressed="true"))
+        released = self.computed(head_button("toggle", pressed="false"))
+        self.assertNotEqual(pressed.get("border-color"), released.get("border-color"), "눌림은 aria-pressed만으로 알리지 않는다")
+
+    # --- 글자 대비 --------------------------------------------------------------------------------
+
+    def text_cases(self):
+        for col in (1, 4, 7):
+            yield f"day:{col}", day_chain(col)
+            yield f"day:{col}:hover", day_chain(col, states=("hover",))
+            yield f"day:{col}:selected", day_chain(col, selected=True)
+            yield f"day:{col}:more", day_chain(col, more=True) + [MORE_LABEL]
+            yield f"day:{col}:more:hover", day_chain(col, more=True, states=("hover",)) + [MORE_LABEL]
+            yield f"day:{col}:today:more", day_chain(col, today=True, more=True) + [MORE_LABEL]
+        yield "title", [acal(), element("div", ["acal-head"]), element("h4", ["acal-title"], ['[aria-live="polite"]'])]
+        yield "weekday", [acal(), element("div", ["acal-weekdays"]), element("span")]
+        yield "day-list", [acal(), element("div", ["acal-day-list"]), element("p")]
+        yield "day-list-link", [acal(), element("div", ["acal-day-list"]), element("a")]
+        for kind in KINDS:
+            yield f"bar:{kind}", bar_chain(2, 3, 1, kind)
+
+    def test_text_contrast_uses_declared_colors(self):
+        for media in (None, NARROW):
+            for theme in self.themes:
+                for label, chain in self.text_cases():
+                    if media and label.startswith("bar"):
+                        continue
+                    with self.subTest(media=media, theme=theme, case=label):
+                        front, back = self.ink(chain, theme, media)
+                        self.assertGreaterEqual(contrast(front, back), 4.5)
+
+    def test_kind_tokens_exist_in_every_theme_and_chips_are_light_fill_dark_ink(self):
+        for kind in KINDS:
+            for theme in self.themes:
+                with self.subTest(kind=kind, theme=theme):
+                    fill = self.color(theme, f"var(--acal-{kind}-bg)")
+                    text = self.color(theme, f"var(--acal-{kind}-ink)")
+                    surface = self.color(theme, "var(--surface)")
+                    self.assertEqual(fill[3], 1.0)
+                    self.assertLess(contrast(fill, surface), 1.6, "채움은 옅다")
+                    self.assertGreaterEqual(contrast(text, fill), 4.5)
+        for kind in KINDS:
+            with self.subTest(kind=kind):
+                bar = self.computed(bar_chain(kind=kind))
+                self.assertEqual((bar["background"], bar["color"]), (f"var(--acal-{kind}-bg)", f"var(--acal-{kind}-ink)"))
+                self.assertEqual(self.computed(dot_chain(kind))["background"], f"var(--acal-{kind}-dot)")
+        no_kind = week() + [element("div", ["acal-bar"], ['[data-col="1"]', '[data-span="1"]', '[data-lane="0"]'])]
+        bar = self.computed(no_kind)
+        self.assertEqual((bar["background"], bar["color"]), ("var(--acal-neutral-bg)", "var(--acal-neutral-ink)"),
+                         "분류가 없으면 중립색이다")
+        dot = self.computed(week() + [cell(3), element("span", ["acal-dot"])])
+        self.assertEqual(dot["background"], "var(--acal-neutral-dot)")
+
+    def test_backgrounds_use_theme_tokens_and_stay_dark_in_dark(self):
+        """landing_design.test.mjs는 배경 변수를 맨 위 색 블록에서만 풀고, 다크에서 휘도 .5를 넘는 면을 목록으로 막는다."""
+        for head, decls, _ in self.rules:
+            for key in ("background", "background-color"):
+                if key not in decls or decls[key] == "transparent":
+                    continue
+                with self.subTest(selector=head, key=key):
+                    names = re.findall(r"var\((--[\w-]+)\)", decls[key])
+                    self.assertEqual(len(names), 1)
+                    self.assertRegex(decls[key], r"^var\(--[\w-]+\)$")
+                    for theme in ("dark", "system-dark"):
+                        self.assertIn(names[0], self.themes[theme])
+                        paint = self.color(theme, decls[key])
+                        self.assertTrue(paint[3] < .8 or luminance(paint) <= .5, "다크에 밝은 면을 새로 만들지 않는다")
+
+    def test_new_tokens_live_in_all_three_theme_blocks(self):
+        plain = strip_comments(self.raw)
+        light = tokens(block_after(plain, ":root {"))
+        attr = tokens(block_after(plain, ':root[data-theme="dark"]'))
+        system = tokens(block_after(plain, ":root:not([data-theme])"))
+        names = [name for name in light if name.startswith("--acal-")]
+        self.assertEqual(len(names), 2 + 3 * len(KINDS))
+        self.assertEqual([n for n in attr if n.startswith("--acal-")], names, "두 다크 블록은 같은 순서다")
+        self.assertEqual([n for n in system if n.startswith("--acal-")], names)
+        for name in names:
+            with self.subTest(name=name):
+                self.assertRegex(light[name], r"^#[0-9A-F]{6}$")
+                self.assertEqual(attr[name], system[name])
+                self.assertNotEqual(attr[name], light[name], "다크 값은 라이트 값과 다르다")
+
+    def test_kinds_have_distinct_hues(self):
+        for theme in self.themes:
+            fills = {self.color(theme, f"var(--acal-{kind}-bg)") for kind in KINDS}
+            inks = {self.color(theme, f"var(--acal-{kind}-ink)") for kind in KINDS}
+            with self.subTest(theme=theme):
+                self.assertEqual(len(fills), len(KINDS))
+                self.assertEqual(len(inks), len(KINDS))
+                enroll, exam, holiday, register = (self.color(theme, f"var(--acal-{k}-ink)") for k in KINDS[:4])
+                self.assertGreater(enroll[2], enroll[0], "수강신청은 파랑")
+                self.assertGreater(exam[0], exam[2], "시험은 코랄")
+                self.assertGreater(holiday[0], holiday[1] + 40, "휴일은 빨강")
+                self.assertGreater(register[1], register[2] + 40, "등록은 노랑")
+
+    # --- 좁은 패널과 보기 전환 ------------------------------------------------------------------------
+
+    def test_narrow_panel_swaps_bars_for_dots(self):
+        root = self.computed([acal()])
+        self.assertEqual(root.get("container-type"), "inline-size")
+        self.assertEqual(root.get("container-name"), "acal")
+        self.assertIn(NARROW, {media for _, _, media in self.rules})
+        self.assertNotIn("@media (max-width", self.section.split(REDUCED)[0], "전환은 화면 폭이 아니라 패널 폭으로 한다")
+        for kind in KINDS:
+            with self.subTest(kind=kind):
+                self.assertNotEqual(self.computed(bar_chain(kind=kind)).get("display"), "none")
+                self.assertEqual(self.computed(bar_chain(kind=kind), NARROW).get("display"), "none")
+                self.assertEqual(self.computed(dot_chain(kind)).get("display"), "none")
+                self.assertEqual(self.computed(dot_chain(kind), NARROW).get("display"), "inline-block")
+        for theme in self.themes:
+            for kind in KINDS:
+                with self.subTest(theme=theme, kind=kind):
+                    chain = dot_chain(kind)
+                    dot = self.color(theme, self.computed(chain, NARROW)["background"], self.scope(chain, NARROW))
+                    face = self.face(chain[:-1], theme, NARROW)
+                    self.assertGreaterEqual(contrast(dot, face), 3.0)
+        narrow_cell = self.computed(week() + [cell(3)], NARROW)
+        self.assertEqual(narrow_cell.get("flex-wrap"), "wrap")
+        self.assertEqual(self.computed(day_chain(), NARROW).get("flex"), "1 1 100%", "점은 날짜 버튼 아래 줄에 놓인다")
+
+    def test_day_list_stays_in_both_widths(self):
+        chain = [acal(), element("div", ["acal-day-list"])]
+        for media in (None, NARROW):
+            self.assertNotEqual(self.computed(chain, media).get("display"), "none")
+        link = self.computed(chain + [element("a")])
+        self.assertEqual(link.get("min-height"), "44px")
+
+    def test_view_toggle_hides_the_other_view(self):
+        for name in ("acal-weekdays", "acal-grid", "acal-day-list"):
+            with self.subTest(name=name):
+                self.assertEqual(self.computed([acal("list"), element("div", [name])]).get("display"), "none")
+                self.assertNotEqual(self.computed([acal("month"), element("div", [name])]).get("display"), "none")
+        evidence = element("section", ["evidence"])
+        self.assertEqual(self.computed([acal("month"), evidence]).get("display"), "none")
+        self.assertNotEqual(self.computed([acal("list"), evidence]).get("display"), "none")
+
+    # --- 움직임·선·색 -----------------------------------------------------------------------------
+
+    def test_section_adds_no_motion(self):
+        """달력은 움직임 없이 바로 다시 그린다. 움직임 줄이기 설정에서 끌 것이 없고 reduced-motion 블록(전체 3개 고정)도 늘리지 않는다."""
+        self.assertNotIn("@keyframes", self.section)
+        self.assertNotIn("prefers-reduced-motion", self.section)
+        for head, decls, _ in self.rules:
+            for key in decls:
+                with self.subTest(selector=head, key=key):
+                    self.assertFalse(key.startswith(("transition", "animation", "scroll-behavior")))
+                    self.assertNotIn(key, ("view-transition-name", "transform"))
+
+    def test_lines_are_thin_and_colors_are_tokens(self):
+        for head, decls, _ in self.rules:
+            for key, value in decls.items():
+                with self.subTest(selector=head, key=key):
+                    self.assertNotIn("gradient", value)
+                    self.assertIsNone(re.search(r"#[0-9a-fA-F]{3,8}\b|rgba?\(", value), "색은 토큰으로만 쓴다")
+                    self.assertNotIn("shadow", key, "경계는 그림자보다 얇은 선이다")
+                    self.assertNotIn("backdrop-filter", key)
+                    if key.startswith("border") and "radius" not in key and "px" in value:
+                        self.assertRegex(value, r"^[12]px ")
+
+    def test_dark_blocks_agree_on_used_tokens(self):
+        names = set(re.findall(r"var\((--[\w-]+)\)", self.section))
+        local = set(re.findall(r"(--acal-line)\s*:", self.section))
+        self.assertEqual(local, {"--acal-line"}, "절 안에서 정하는 변수는 선 색 하나뿐이다")
+        for token in names - local:
+            with self.subTest(token=token):
+                self.assertEqual(self.color("dark", f"var({token})"), self.color("system-dark", f"var({token})"))
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -136,6 +136,14 @@
      읽지 않은 코랄 점은 밝은 면과 약 2.6:1이라 라이트에서만 남색 테두리를 두른다. */
   --current-mark: #005B96;
   --unread-ring: #0A2540;
+  /* 학사일정 달력(#143). 주말 열 틴트, 오늘 원 채움, 분류 칩(옅은 채움 -bg, 진한 글자 -ink)과 좁은 패널 점(-dot).
+     수강신청 파랑, 시험 코랄, 휴일 빨강, 등록 노랑, 열쇠말이 없으면 중립이다. 글자는 채움과 4.5:1, 점은 둘레 면과 3:1을 넘는다. */
+  --acal-weekend: #F3F5F8; --acal-today-fill: #DBE8F0;
+  --acal-enroll-bg: #E3EEFB; --acal-enroll-ink: #0B4A8C; --acal-enroll-dot: #0B4A8C;
+  --acal-exam-bg: #FDE8E1; --acal-exam-ink: #9A3412; --acal-exam-dot: #9A3412;
+  --acal-holiday-bg: #FBE4E4; --acal-holiday-ink: #A11B1B; --acal-holiday-dot: #A11B1B;
+  --acal-register-bg: #FFF3C4; --acal-register-ink: #7A4B00; --acal-register-dot: #7A4B00;
+  --acal-neutral-bg: #EDF1F6; --acal-neutral-ink: #3A4A5E; --acal-neutral-dot: #3A4A5E;
   color-scheme: light;
   /* 첫 화면 보안 정책이 외부 글꼴을 막으므로 기기에 깔린 글꼴만 쓴다. 중국어(간체) 글꼴은 한국어 글꼴에 없는 글자를 채운다. */
   font-family: Pretendard, "Apple SD Gothic Neo", "Malgun Gothic", "맑은 고딕", "Noto Sans KR", "Microsoft YaHei", "PingFang SC", "Noto Sans SC", system-ui, sans-serif;
@@ -163,6 +171,12 @@
   --emboss: 6px 6px 14px rgba(0,0,0,.45), -6px -6px 14px rgba(255,255,255,.05);
   --deboss: inset 3px 3px 8px rgba(0,0,0,.5), inset -3px -3px 8px rgba(120,160,210,.08);
   --logo-plate: transparent; --logo-pad-x: 0px; --logo-pad: 0; --current-mark: #FFD100; --unread-ring: transparent;
+  --acal-weekend: #1C2C43; --acal-today-fill: #19384F;
+  --acal-enroll-bg: #17375C; --acal-enroll-ink: #BFDBFE; --acal-enroll-dot: #60A5FA;
+  --acal-exam-bg: #4A2A22; --acal-exam-ink: #FFC9B8; --acal-exam-dot: #FB8A6E;
+  --acal-holiday-bg: #4A1F26; --acal-holiday-ink: #FECACA; --acal-holiday-dot: #F87171;
+  --acal-register-bg: #3D3415; --acal-register-ink: #FDE68A; --acal-register-dot: #E0A800;
+  --acal-neutral-bg: #22344D; --acal-neutral-ink: #D6E0EC; --acal-neutral-dot: #8DA2BA;
   --pet-bubble: var(--pet-bubble-dark);
   color-scheme: dark;
 }
@@ -186,6 +200,12 @@
     --emboss: 6px 6px 14px rgba(0,0,0,.45), -6px -6px 14px rgba(255,255,255,.05);
     --deboss: inset 3px 3px 8px rgba(0,0,0,.5), inset -3px -3px 8px rgba(120,160,210,.08);
     --logo-plate: transparent; --logo-pad-x: 0px; --logo-pad: 0; --current-mark: #FFD100; --unread-ring: transparent;
+    --acal-weekend: #1C2C43; --acal-today-fill: #19384F;
+    --acal-enroll-bg: #17375C; --acal-enroll-ink: #BFDBFE; --acal-enroll-dot: #60A5FA;
+    --acal-exam-bg: #4A2A22; --acal-exam-ink: #FFC9B8; --acal-exam-dot: #FB8A6E;
+    --acal-holiday-bg: #4A1F26; --acal-holiday-ink: #FECACA; --acal-holiday-dot: #F87171;
+    --acal-register-bg: #3D3415; --acal-register-ink: #FDE68A; --acal-register-dot: #E0A800;
+    --acal-neutral-bg: #22344D; --acal-neutral-ink: #D6E0EC; --acal-neutral-dot: #8DA2BA;
     --pet-bubble: var(--pet-bubble-dark);
     color-scheme: dark;
   }
@@ -1904,4 +1924,232 @@ form.turn-editor textarea {
   .turn-actions > * { flex: 1 1 100%; }
   .turn-actions .version-picker { justify-content: space-between; }
   form.turn-editor :is(.turn-editor-cancel, .turn-editor-submit) { flex: 1 1 0; }
+}
+
+/* 학사일정 월 달력 (#143). 기존 규칙은 건드리지 않고 .acal 이름표 규칙만 더한다.
+   기능 패널은 사진이 비치는 반투명 면이라 달력 전체(.acal)를 불투명 --surface 면으로 깐다. 글자·선·고리 대비는 그 면 위에서 잰다.
+   주 한 줄(.acal-week)은 7열 4행 격자다. 날짜 칸은 1–4행을 모두 덮고, 기간 막대는 2·3행(data-lane 0·1)에 칸 위로 겹쳐 놓인다.
+   막대 위치는 인라인 style 없이 data-col·data-span·data-lane 선택자로만 정한다(CSP default-src 'self').
+   패널 안쪽 폭이 560px 미만이면(컨테이너 쿼리) 막대를 숨기고 칸마다 점을 보인다. 스크립트는 화면 폭을 몰라도 된다.
+   칸은 44px보다 좁아지지 않는다. 7칸 × 44px = 308px보다 좁은 패널에서는 격자(.acal-grid) 안에서만 가로로 스크롤한다.
+   그래서 초점 고리와 선택 테두리는 날짜 버튼 안쪽에 그린다. 스크롤 상자 밖으로 나간 선은 잘린다.
+   새 움직임(transition·animation)은 넣지 않는다. 달을 넘기면 바로 다시 그리므로 움직임 줄이기 설정에서 끌 것도 없다.
+   test_academic_calendar_style.py가 실제 선언을 모아 이 값들을 계산한다. */
+.acal {
+  --acal-line: color-mix(in srgb, var(--text) 9%, transparent);
+  container-type: inline-size;
+  container-name: acal;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+  min-width: 0;
+  padding: 8px;
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text);
+}
+.acal > :has(> .acal-title) { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.acal-title {
+  flex: 1 1 8em;
+  margin: 0;
+  color: var(--text);
+  font-size: 1rem;
+  font-weight: 700;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+:is([data-acal-nav], [data-acal-view-toggle]) {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 8px 12px;
+  border: 1px solid var(--text-muted);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font-weight: 700;
+  line-height: 1.2;
+}
+:is([data-acal-nav], [data-acal-view-toggle]):hover { border-color: var(--focus-ink); background: var(--tint); }
+/* 목록 보기를 켠 상태는 aria-pressed와 함께 학교 파랑 경계·옅은 면으로도 알린다. */
+[data-acal-view-toggle][aria-pressed="true"] { border-color: var(--accent); background: var(--tint); }
+:is([data-acal-nav], [data-acal-view-toggle]):focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+
+/* 격자와 요일 머리. 칸은 minmax(44px, 1fr)라 패널이 좁아도 44px 아래로 줄지 않고, 넘친 만큼 격자가 스크롤된다. */
+.acal-grid {
+  min-width: 0;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  border-bottom: 1px solid var(--acal-line);
+}
+.acal-weekdays, .acal-week {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(44px, 1fr));
+}
+.acal-weekdays > * {
+  padding: 6px 0;
+  color: var(--text-muted);
+  font-size: .75rem;
+  font-weight: 700;
+  text-align: center;
+}
+.acal-week {
+  grid-template-rows: 36px 22px 22px minmax(22px, auto);
+  border-top: 1px solid var(--acal-line);
+}
+.acal-cell {
+  position: relative;
+  grid-row: 1 / 5;
+  min-width: 44px;
+  min-height: 44px;
+  border-inline-start: 1px solid var(--acal-line);
+  background: var(--surface);
+  color: var(--text);
+}
+.acal-cell[data-col="1"] { grid-column: 1; border-inline-start: 0; }
+.acal-cell[data-col="2"] { grid-column: 2; }
+.acal-cell[data-col="3"] { grid-column: 3; }
+.acal-cell[data-col="4"] { grid-column: 4; }
+.acal-cell[data-col="5"] { grid-column: 5; }
+.acal-cell[data-col="6"] { grid-column: 6; }
+.acal-cell[data-col="7"] { grid-column: 7; }
+/* 주말 열(일·토)은 본문색을 5%쯤 섞은 옅은 불투명 틴트(--acal-weekend)다. 다크 밝은 면 검사가 배경 변수를
+   맨 위 색 블록에서 풀기 때문에 color-mix 대신 6자리 색 이름표로 둔다. */
+.acal-cell:is([data-col="1"], [data-col="7"]) { background: var(--acal-weekend); }
+/* 이웃 달 칸은 버튼 없이 흐린 숫자만 둔다. 흐린 글자도 4.5:1을 넘는 --text-muted다. */
+.acal-cell[data-outside] {
+  padding-top: 12px;
+  color: var(--text-muted);
+  font-size: .88rem;
+  line-height: 20px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+/* 날짜 버튼은 칸 전체를 채운다. 숫자는 위, 「+N개」는 아래 끝에 놓인다. */
+.acal-day {
+  position: relative;
+  z-index: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  height: 100%;
+  min-width: 44px;
+  min-height: 44px;
+  margin: 0;
+  padding: 10px 2px 4px;
+  border: 2px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font-size: .88rem;
+  line-height: 20px;
+  font-variant-numeric: tabular-nums;
+}
+.acal-day:hover { background: var(--tint); }
+/* 「+N개」는 날짜 버튼 안 마지막 자식 요소다. 막대 줄 아래 4행에 작은 굵은 글자로 놓인다. */
+.acal-day[data-more] > :last-child {
+  color: var(--text-muted);
+  font-size: .72rem;
+  font-weight: 700;
+  line-height: 18px;
+  white-space: nowrap;
+}
+/* 고른 날은 버튼 테두리(학교 파랑 2px), 초점은 그 안쪽 2px 고리다. 둘이 겹치지 않고 함께 보인다. */
+.acal-cell[aria-selected="true"] > .acal-day { border-color: var(--accent); }
+.acal-day:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -6px; }
+/* 오늘은 숫자 둘레의 accent 원이다. 옅은 학교 파랑 채움과 2px 학교 파랑 선이고, 숫자는 본문색 굵은 글자다. */
+.acal-day[aria-current="date"] { font-weight: 700; }
+.acal-day[aria-current="date"]::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  top: 6px;
+  left: 50%;
+  width: 28px;
+  height: 28px;
+  margin-left: -14px;
+  border: 2px solid var(--accent);
+  border-radius: 50%;
+  background: var(--acal-today-fill);
+}
+
+/* 기간 막대. 칸 위에 겹쳐 그리고 누름은 아래 날짜 버튼으로 통과시킨다. 주 경계에서 끊긴 조각도 같은 모양이다. */
+.acal-bar {
+  position: relative;
+  z-index: 1;
+  min-width: 0;
+  margin: 1px 3px;
+  padding: 0 6px;
+  overflow: hidden;
+  border-radius: 4px;
+  background: var(--acal-neutral-bg);
+  color: var(--acal-neutral-ink);
+  font-size: .75rem;
+  font-weight: 700;
+  line-height: 20px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.acal-bar[data-col="1"] { grid-column-start: 1; }
+.acal-bar[data-col="2"] { grid-column-start: 2; }
+.acal-bar[data-col="3"] { grid-column-start: 3; }
+.acal-bar[data-col="4"] { grid-column-start: 4; }
+.acal-bar[data-col="5"] { grid-column-start: 5; }
+.acal-bar[data-col="6"] { grid-column-start: 6; }
+.acal-bar[data-col="7"] { grid-column-start: 7; }
+.acal-bar[data-span="1"] { grid-column-end: span 1; }
+.acal-bar[data-span="2"] { grid-column-end: span 2; }
+.acal-bar[data-span="3"] { grid-column-end: span 3; }
+.acal-bar[data-span="4"] { grid-column-end: span 4; }
+.acal-bar[data-span="5"] { grid-column-end: span 5; }
+.acal-bar[data-span="6"] { grid-column-end: span 6; }
+.acal-bar[data-span="7"] { grid-column-end: span 7; }
+.acal-bar[data-lane="0"] { grid-row: 2; }
+.acal-bar[data-lane="1"] { grid-row: 3; }
+/* 분류 색. 옅은 채움(-bg)에 진한 글자(-ink)다. 응답 글자에 열쇠말이 없으면 data-kind가 neutral이거나 비어 있어 중립색이다.
+   배경은 맨 위 색 블록의 이름표로만 쓴다(다크 밝은 면 검사가 배경 변수를 그 블록에서 푼다). */
+.acal-bar[data-kind="enroll"] { background: var(--acal-enroll-bg); color: var(--acal-enroll-ink); }
+.acal-bar[data-kind="exam"] { background: var(--acal-exam-bg); color: var(--acal-exam-ink); }
+.acal-bar[data-kind="holiday"] { background: var(--acal-holiday-bg); color: var(--acal-holiday-ink); }
+.acal-bar[data-kind="register"] { background: var(--acal-register-bg); color: var(--acal-register-ink); }
+.acal-bar[data-kind="neutral"] { background: var(--acal-neutral-bg); color: var(--acal-neutral-ink); }
+/* 점은 넓은 패널에서 숨기고 좁은 패널에서 칸마다 3개까지 보인다. 색(-dot)은 둘레 면과 3:1을 넘는다.
+   다크의 칩 글자색은 밝은 면 기준(휘도 .5)을 넘어 점에는 따로 중간 밝기 색을 쓴다. */
+.acal-dot {
+  display: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--acal-neutral-dot);
+}
+.acal-dot[data-kind="enroll"] { background: var(--acal-enroll-dot); }
+.acal-dot[data-kind="exam"] { background: var(--acal-exam-dot); }
+.acal-dot[data-kind="holiday"] { background: var(--acal-holiday-dot); }
+.acal-dot[data-kind="register"] { background: var(--acal-register-dot); }
+.acal-dot[data-kind="neutral"] { background: var(--acal-neutral-dot); }
+
+/* 고른 날 목록. 넓은 패널과 좁은 패널 모두 격자 아래에 놓인다. */
+.acal-day-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 4px 4px 0;
+  list-style: none;
+  color: var(--text);
+  line-height: 1.5;
+}
+.acal-day-list :is(h3, h4, h5, h6, p, li) { margin: 0; color: var(--text); }
+.acal-day-list a { display: inline-flex; align-items: center; min-height: 44px; color: var(--link-ink); }
+/* 목록 보기에서는 격자와 고른 날 목록을 접고, 달 보기에서는 목록 줄(section.evidence)을 접는다. */
+.acal[data-view="list"] :is(.acal-weekdays, .acal-grid, .acal-day-list) { display: none; }
+.acal[data-view="month"] section.evidence { display: none; }
+
+/* 좁은 패널(안쪽 폭 560px 미만). 막대를 숨기고 칸 안 날짜 버튼 아래에 점을 한 줄로 놓는다. */
+@container acal (width < 560px) {
+  .acal-week { grid-template-rows: auto; }
+  .acal-cell { grid-row: 1; display: flex; flex-wrap: wrap; align-content: flex-start; justify-content: center; gap: 3px; padding-bottom: 6px; }
+  .acal-cell > .acal-day { flex: 1 1 100%; height: auto; }
+  .acal-bar { display: none; }
+  .acal-dot { display: inline-block; }
 }
