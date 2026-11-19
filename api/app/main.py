@@ -24,6 +24,7 @@
 """
 
 import json
+import re
 from collections.abc import Mapping
 from hashlib import sha256
 from html import escape
@@ -46,6 +47,7 @@ VALIDATION_ERROR_MESSAGE = "요청 형식이 올바르지 않습니다."
 CHAT_WEB_DIR = Path(__file__).with_name("chat_web")
 CHAT_WEB_MEDIA_TYPES = {
     "chat.css": "text/css", "chat.js": "text/javascript",
+    "quick-actions.css": "text/css", "quick-actions.js": "text/javascript",
     "kumoh-signature.png": "image/png",
     # 남색 띠 위에 판 없이 올리는 밝은 로고. 같은 공식 로고로 배포 준비 때 만든다.
     "kumoh-signature-light.png": "image/png",
@@ -196,6 +198,24 @@ def fingerprint_chat_assets(html: str, css: bytes, script: bytes) -> str:
     return html
 
 
+def fingerprint_quick_actions(html: str) -> str:
+    """빠른 실행 링 파일이 준비되면 주소에 내용 지문을 붙임."""
+    for name in ("quick-actions.css", "quick-actions.js"):
+        address = f"/chat-assets/{name}"
+        pattern = re.compile(rf"""(?<![^\s"'=]){re.escape(address)}(?=$|[\s"'>])""")
+        matches = list(pattern.finditer(html))
+        if len(matches) > 1:
+            raise ValueError(f"{name} 주소는 정확히 한 번 있어야 함")
+        if not matches:
+            continue
+        try:
+            content = (CHAT_WEB_DIR / "assets" / name).read_bytes()
+        except FileNotFoundError:
+            continue
+        html = pattern.sub(f"{address}?v={sha256(content).hexdigest()}", html)
+    return html
+
+
 def read_prepared_images() -> dict[str, bytes]:
     """지문을 붙일 그림 가운데 준비된 것만 읽음. 없거나 읽지 못한 그림은 뺌."""
     images = {}
@@ -229,6 +249,7 @@ def create_app(
         (CHAT_WEB_DIR / "assets/chat.css").read_bytes(),
         (CHAT_WEB_DIR / "assets/chat.js").read_bytes(),
     )
+    chat_html = fingerprint_quick_actions(chat_html)
     chat_html = fingerprint_prepared_images(chat_html, read_prepared_images())
     chat_html = inject_techmo_layout(
         chat_html, (CHAT_WEB_DIR / TECHMO_LAYOUT_FILE).read_text(encoding="utf-8"))
