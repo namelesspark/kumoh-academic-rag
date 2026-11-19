@@ -1411,3 +1411,69 @@ node --test api/tests/web/campus_backdrop.test.mjs api/tests/web/chat_layout.tes
   Esc 초점 복귀와 늦은 응답 무시, 중국어 lang, 질문 칸 조건(textarea·처리기·touch-action)을 본다.
   질문 칸에서 누른 Esc, 읽는 중 로그아웃, 고친 글 위로 옮긴 선택 범위, 캔버스 밖 잉크 자르기도 같은 파일이 본다.
 - 이 작업에서는 실제 iPad Safari를 쓰지 못했다. Scribble과 Apple Pencil 손바닥 거부는 실기기에서 따로 확인해 PR에 적는다.
+
+## 질문 수정·다시 답하기와 답변 버전 (#140)
+
+팀 피드백(2026-11-18) 5단계다. 질문을 고치거나 답을 다시 받아도 이전 질문과 답을 버전으로 남기고 `‹ 1/2 ›`로 넘겨 본다.
+동작과 기록 형식은 `chat.js`가, 모양은 `chat.css` 끝의 #140 절이 맡는다. 서버 API는 바꾸지 않는다.
+
+### 와이어프레임
+
+```text
+내 질문                              [수정]
+아이오 답변 · 출처
+[‹] 1/2 [›]                    [다시 답하기]
+
+수정 중
+[기존 질문을 채운 입력 칸                 ]
+                       [취소] [저장하고 묻기]
+```
+
+- 넓은 화면은 조작 줄 한 줄에 버전 선택을 왼쪽, 다시 답하기를 오른쪽에 둔다(`justify-content: space-between`, 줄 폭은 답 말풍선과 같은 670px).
+- 390px 이하에서는 조작 줄의 항목이 말풍선 아래 한 줄씩 내려가고, 버전 선택은 화살표를 양 끝에, 편집 폼의 취소·저장하고 묻기는 같은 폭으로 나눈다.
+- 편집 폼은 질문 말풍선 자리에 오른쪽 정렬로 놓이고 폭은 질문 말풍선과 같은 530px까지다.
+
+### 스크립트와 스타일이 함께 지키는 이름
+
+| 이름 | 쓰임 |
+| --- | --- |
+| `.turn-actions` | 답 아래 조작 줄 |
+| `.turn-edit`, `.turn-regenerate` | 수정, 다시 답하기 버튼 |
+| `.version-picker` | 묶음 이름 「답변 버전」. 버전이 하나면 그리지 않는다 |
+| `.version-prev`, `.version-count`, `.version-next` | 이전·번호(「1/2」, aria-live=polite)·다음. 끝 버전의 화살표는 `disabled` |
+| `form.turn-editor` | 편집 폼. 안에 `textarea`, `.turn-editor-cancel`, `.turn-editor-submit` |
+| `.turn[data-version-state="pending"]` | 새 답 후보를 받는 차례 |
+| `.turn[data-version-state="failed"]` | 새 답을 받지 못한 차례. 실패 문구는 `.version-error` |
+
+### 모양과 상태
+
+- 대화 칸은 사진이 비치는 반투명 면이라 버튼·버전 번호·편집 폼·실패 문구를 모두 불투명한 `--surface` 위에 그린다. 대비는 테마별 `--surface` 하나로 계산한다.
+- 버튼은 높이·폭 44px 이상, `1px solid var(--control-line)` 경계, 굵은 본문색 글자다. hover는 경계를 `--focus-ink`, 바탕을 `--tint`로 바꾼다.
+- 저장하고 묻기(실패 뒤 다시 시도 포함)는 `--accent` 채움에 `--surface` 글자다. 라이트는 학교 파랑 위 흰 글자, 다크는 밝은 하늘색 위 짙은 판 색 글자다.
+- 초점은 공통 2px `--focus-ring` 고리에 `--surface` 6px 띠를 깐다. 사진 위에서도 고리 양옆이 판 색이라 두 테마 모두 3:1을 넘는다.
+- 잠긴 버튼(끝 버전 화살표, 답을 받는 동안의 수정·다시 답하기·버전 버튼)은 공통 `opacity: .65`를 되돌리고 `--text-muted` 글자와 점선 경계로 보인다. 반투명으로 흐리면 글자 뒤로 사진이 비친다.
+- 기본: 위 모양 그대로다.
+- pending: 답 자리를 `1px dashed var(--control-line)` 외곽선으로 두르고, 잠긴 버튼에 기다림 커서를 보인다. 움직이는 표시는 넣지 않는다. 이미 있는 버전 글은 그대로 읽힌다.
+- failed: 고친 초안이 남은 편집 폼 경계를 `--danger`로 바꾸고, 그 안에 `.version-error`를 `--danger` 1px 선과 `--danger` 글자로 그린다.
+- 그림자는 초점 띠에만 쓰고 그라데이션·이모지·새 움직임(transition·animation)은 없다. 색은 #131 토큰만 쓴다.
+
+### 대비 계산 결과
+
+모두 불투명 `--surface`(라이트 #FFFFFF, 다크 #13233A) 위 값이다. 다크(속성)와 다크(시스템) 블록은 같은 값이다.
+
+| 쌍 | 라이트 | 다크 |
+| --- | --- | --- |
+| 본문 `--text` | 15.5:1 | 13.5:1 |
+| 잠긴 글자 `--text-muted` | 6.7:1 | 7.1:1 |
+| 실패 문구 `--danger` | 5.5:1 | 5.7:1 |
+| 저장하고 묻기 글자(`--surface`/`--accent`) | 7.2:1 | 6.9:1 |
+| hover 글자(`--text`/`--tint`) | 13.4:1 | 12.2:1 |
+| 버튼 경계 `--control-line` | 4.0:1 | 6.9:1 |
+| 초점 고리 `--focus-ring` | 15.5:1 | 15.8:1 |
+
+표 값은 WCAG 상대 휘도 식으로 손으로 계산해 소수 첫째 자리에서 반올림했다. `api/tests/test_chat_versions_style.py`가 같은 쌍과 hover(`--text`/`--tint`, `--focus-ink`)를 매번 다시 계산해 4.5:1·3:1 기준만 확인한다.
+
+### 검사
+
+- `test_chat_versions_style.py`가 `chat.css`의 #140 절을 읽어 이름표, 44px, 초점 고리, 390px 줄바꿈, 움직임 없음, 토큰만 쓴 1px 경계, 두 테마 대비를 본다.
+- 동작(새로고침 복원, 옛 기록 읽기, 실패·정지 뒤 이전 버전 보존, 늦은 응답 버리기, 5개 한도)은 `api/tests/web/chat_versions.test.mjs`가 본다.
