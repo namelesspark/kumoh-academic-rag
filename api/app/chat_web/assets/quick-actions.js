@@ -113,7 +113,7 @@
   ring.append(blobs, close, menu, caption);
   doc.body.append(ring);
 
-  let open = false, hideTimer = null, settleTimer = null, captionKey = null, waiting = 0, openedAt = null, openedView = null;
+  let open = false, hideTimer = null, settleTimer = null, captionKey = null, waiting = 0, openedAt = null, openedView = null, lastLayoutKey = null;
   const visible = () => entries.filter(entry => !entry.item.hidden);
   const enabled = () => visible().filter(entry => !entry.item.disabled);
 
@@ -283,6 +283,12 @@
     if (!result) return false;
     const { kind } = result;
     const points = result.points.map(point => ({ x: point.x + view.left, y: point.y + view.top }));
+    // 열린 채 방울 자리가 바뀌면(테크모가 나타남·창 크기 변화) 새 자리에 닿기 전까지 누름을 다시 막는다.
+    // 옮겨 가는 방울이 아직 옛 자리(이제 테크모가 있는 곳)에 있는 동안 그 누름을 가로채지 않게 한다.
+    const layoutKey = `${anchor.x},${anchor.y}|${points.map(point => `${Math.round(point.x)},${Math.round(point.y)}`).join(";")}|${result.compact === true}`;
+    const relocated = lastLayoutKey !== null && layoutKey !== lastLayoutKey;
+    lastLayoutKey = layoutKey;
+    if (open && relocated && ring.getAttribute("data-open") !== null) resettle();
     const compact = result.compact === true;
     // 삼각함수 오차(-1e-14 같은 값)가 CSS 값에 섞이지 않게 0.01px 단위로 자른다.
     const px = value => `${Math.round(value * 100) / 100 || 0}px`;
@@ -311,6 +317,13 @@
     ring.style.setProperty("--qa-caption-x", px(Math.min(view.left + width - 96, Math.max(view.left + 96, middle))));
     ring.style.setProperty("--qa-caption-y", px(Math.max(view.top + edge + 28, top)));
     return true;
+  }
+  // 누름 받기(data-settled)를 끄고, 방울 이동이 끝나는 시간(settleMs) 뒤 다시 켠다. 동작 줄이기면 이동이 없으니 바로 켠다.
+  function resettle() {
+    if (settleTimer !== null) { clearTimeout(settleTimer); settleTimer = null; }
+    if (reduced()) { ring.setAttribute("data-settled", ""); return; }
+    ring.removeAttribute("data-settled");
+    settleTimer = setTimeout(() => { settleTimer = null; if (open) ring.setAttribute("data-settled", ""); }, settleMs);
   }
   function visibleArea() {
     const zoomed = window.visualViewport;

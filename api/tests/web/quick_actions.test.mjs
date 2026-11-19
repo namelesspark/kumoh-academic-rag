@@ -452,6 +452,44 @@ test("링을 연 뒤 테크모가 늦게 나타나도(그림 도착) 열린 링�
   }
 });
 
+test("링이 다 펼쳐진 뒤 테크모가 나타나 방울 자리가 바뀌면, 새 자리에 닿을 때까지 방울이 누름을 받지 않는다", () => {
+  const rowBox = { left: 13, top: 592, width: 364, height: 60 };
+  const page = ringPage({ width: 390, height: 700, toggleRect: { left: 21, top: 600, width: 44, height: 44 } });
+  page.row.rect = rowBox;
+  page.pet.hidden = true;
+  page.toggle.click();
+  page.frames();
+  page.tick();
+  assert.equal(page.ring.getAttribute("data-settled"), "", "fully spread and pressable");
+  const anchor = { x: 43, y: 622 };
+  const before = page.items.map(page.position);
+  const center = before.map(spot => ({ x: anchor.x + spot.x, y: anchor.y + spot.y }))[2];
+  // 가운데 방울 자리에 저장해 둔 테크모의 그림이 이제 도착한다.
+  page.pet.rect = { left: center.x - 40, top: center.y - 40, width: 80, height: 80 };
+  page.pet.hidden = false;
+  for (const observer of page.observers) observer([]);
+  assert.notDeepEqual(page.items.map(page.position), before, "the bubbles move away from Techmo");
+  // 옮겨 가는 동안(이동 지연 포함)은 누르지 못한다. 그사이 테크모를 눌러도 방울이 가로채지 않는다.
+  assert.equal(page.ring.getAttribute("data-settled"), null);
+  assert.deepEqual([...page.timers.values()].map(timer => timer.delay), [290]);
+  page.tick();
+  assert.equal(page.ring.getAttribute("data-settled"), "", "pressable again at the new spots");
+  // 자리가 그대로인 속성 변화는 누름을 막지 않는다.
+  for (const observer of page.observers) observer([]);
+  assert.equal(page.ring.getAttribute("data-settled"), "");
+  assert.equal(page.timers.size, 0);
+  // 동작 줄이기에서는 이동이 없으므로 자리가 바뀌어도 바로 누를 수 있다.
+  const still = ringPage({ width: 390, height: 700, toggleRect: { left: 21, top: 600, width: 44, height: 44 }, reduced: true });
+  still.row.rect = rowBox;
+  still.pet.hidden = true;
+  still.toggle.click();
+  still.pet.rect = page.pet.rect;
+  still.pet.hidden = false;
+  for (const observer of still.observers) observer([]);
+  assert.equal(still.ring.getAttribute("data-settled"), "");
+  assert.equal(still.timers.size, 0);
+});
+
 test("로그아웃처럼 본문 화면이 숨어 로그인 화면으로 바뀌면, 포인터 누름이 없어도 열린 링을 닫는다", () => {
   const page = ringPage({ view: "home" });
   page.toggle.click();
