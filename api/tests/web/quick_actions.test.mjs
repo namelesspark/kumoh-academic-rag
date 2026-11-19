@@ -124,6 +124,8 @@ function ringPage({ width = 1280, height = 800, view = "home", reduced = false, 
     outside: target => { const event = { type: "pointerdown", target, defaultPrevented: false, preventDefault() { event.defaultPrevented = true; } };
       for (const each of documentListeners) if (each.type === "pointerdown") each.listener(event); return event; },
     windowEvent: type => { for (const each of windowListeners) if (each.type === type) each.listener({}); },
+    // 문서나 안쪽 칸이 구른 신호(캡처 단계로 받는다).
+    scroll: () => { for (const each of documentListeners) if (each.type === "scroll") each.listener({ type: "scroll" }); },
     position: item => ({ x: Number.parseFloat(item.style.props.get("--qa-x")), y: Number.parseFloat(item.style.props.get("--qa-y")) }),
   };
 }
@@ -569,6 +571,41 @@ test("누를 것을 다 피할 자리가 없으면 홈에서는 +를 화면 가�
     page.windowEvent("resize");
     assert.equal(calls.length, view === "home" ? 1 : 0, `${view} after resize`);
   }
+});
+
+test("대화 칸만 굴러 인용 링크가 방울 밑에 들어오면 +가 제자리여도 방울을 다시 놓아 링크를 누를 수 있다", () => {
+  // 390×700 채팅 화면. 처음에는 링크가 화면 밖(대화 칸 아래쪽)에 있다.
+  const page = ringPage({ width: 390, height: 700, view: "chat", toggleRect: { left: 21, top: 640, width: 44, height: 44 },
+    pressables: [{ left: 0, top: 2000, width: 120, height: 24 }] });
+  page.row.rect = { left: 13, top: 632, width: 364, height: 60 };
+  page.toggle.click();
+  page.frames();
+  page.tick();
+  assert.equal(page.ring.getAttribute("data-settled"), "", "fully spread and pressable");
+  const center = item => { const spot = page.position(item); return { x: 43 + spot.x, y: 662 + spot.y }; };
+  const biskit = center(page.item("biskit"));
+  // + 좌표는 그대로 두고 대화 칸만 굴러 링크가 BISKIT 방울 한가운데로 온다.
+  const [link] = page.pressed;
+  link.rect = { left: biskit.x - 60, top: biskit.y - 12, width: 120, height: 24 };
+  page.scroll();
+  assert.equal(page.toggle.getAttribute("aria-expanded"), "true", "+ did not move, so the ring stays open");
+  const size = page.ring.getAttribute("data-compact") === "" ? 22 : 26;
+  for (const item of page.items) {
+    const spot = center(item);
+    assert.ok(gapTo(link.rect, spot) >= size, `${item.dataset.quickAction} still covers the link at ${spot.x},${spot.y}`);
+    assert.ok(spot.x - size >= 7.5 && spot.x + size <= 390 - 7.5 && spot.y - size >= 7.5 && spot.y + size <= 700 - 7.5, "off screen");
+  }
+  // 옮겨 가는 동안은 방울이 누름을 받지 않아, 옛 자리에 있는 링크가 눌린다. 새 자리에 닿으면 다시 받는다.
+  assert.equal(page.ring.getAttribute("data-settled"), null);
+  page.tick();
+  assert.equal(page.ring.getAttribute("data-settled"), "");
+  // 자리가 그대로인 굴림은 누름을 막지 않는다.
+  page.scroll();
+  assert.equal(page.ring.getAttribute("data-settled"), "");
+  // 문서가 굴러 + 자체가 옮겨 가면 예전처럼 닫는다.
+  page.toggle.rect = { left: 21, top: 520, width: 44, height: 44 };
+  page.scroll();
+  assert.equal(page.toggle.getAttribute("aria-expanded"), "false");
 });
 
 test("링·입력 줄·질문 폼 안의 버튼과 화면 절반 넘게 덮는 틀은 장애물로 세지 않는다", () => {

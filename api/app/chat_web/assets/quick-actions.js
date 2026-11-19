@@ -538,7 +538,11 @@
   // 확대·축소와 확대한 채 화면을 끄는 움직임은 창 크기 대신 보이는 칸(visualViewport)의 신호로만 온다.
   window.visualViewport?.addEventListener?.("resize", resized);
   window.visualViewport?.addEventListener?.("scroll", resized);
-  doc.addEventListener("scroll", moved, true);
+  // 문서나 안쪽 칸(대화 칸)이 굴러도 +가 제자리면, 굴러 온 링크·버튼이 방울 밑에 들어올 수 있다. 그래서 그 자리에서
+  // 바로 다시 놓는다. 방울 자리가 바뀌면 resettle()이 새 자리에 닿을 때까지 방울 누름을 막아, 그 아래 링크가 눌린다.
+  // 브라우저는 굴림 신호를 화면 갱신마다 한 번 보내므로 따로 묶지 않는다. 놓을 자리가 없으면 닫는다.
+  const scrolled = () => { if (moved() === false && !place()) closeRing(false); };
+  doc.addEventListener("scroll", scrolled, true);
   // 동작 줄이기를 켜는 순간: 닫히던 링은 바로 숨기고, 펼쳐지던 링은 바로 펼친 상태로 두고 누름도 받게 한다.
   window.matchMedia?.("(prefers-reduced-motion: reduce)")?.addEventListener?.("change", event => {
     if (!event.matches) return;
