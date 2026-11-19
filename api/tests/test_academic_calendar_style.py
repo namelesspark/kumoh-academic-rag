@@ -23,6 +23,10 @@ from test_chat_versions_style import (
 CSS_PATH = Path(__file__).resolve().parents[1] / "app" / "chat_web" / "assets" / "chat.css"
 MARKER = "/* 학사일정 월 달력 (#143)."
 NARROW = "@container acal (width < 560px)"
+# 칸 최소 폭. 누름 영역 44px를 지키고, 글꼴을 키우면 함께 넓어진다. 7칸이면 기본 글꼴에서 308px다.
+COLUMN_MIN = "max(44px, 2.75rem)"
+GRID_MIN = "max(308px, 19.25rem)"
+TEXT_SIZES = (16, 24, 32, 48)
 REDUCED = "@media (prefers-reduced-motion: reduce)"
 KINDS = ("enroll", "exam", "holiday", "register", "neutral")
 NAMES = (".acal", ".acal-title", "[data-acal-nav]", "[data-acal-view-toggle]", '[aria-pressed="true"]',
@@ -72,9 +76,9 @@ def mix(first, share, second):
 
 
 def length(value, base_font=16):
-    """CSS 길이 값을 px로 푼다. px·rem과 calc(… + …)·calc(… - …)만 읽는다. 1rem은 브라우저 기본 글꼴 크기다.
+    """CSS 길이 값을 px로 푼다. px·rem과 calc(…)·max(…)·min(…) 안의 덧셈·뺄셈만 읽는다. 1rem은 브라우저 기본 글꼴 크기다.
 
-    표준 라이브러리 ast로 덧셈·뺄셈·괄호만 계산한다. 그 밖의 식이 오면 실패해 검사가 조용히 넘어가지 않게 한다.
+    표준 라이브러리 ast로 덧셈·뺄셈·괄호와 max·min 호출만 계산한다. 그 밖의 식이 오면 실패해 검사가 조용히 넘어가지 않게 한다.
     """
     text = value.strip()
     if text.startswith("calc(") and text.endswith(")"):
@@ -93,6 +97,10 @@ def length(value, base_font=16):
         if isinstance(node, ast.BinOp) and isinstance(node.op, (ast.Add, ast.Sub)):
             left, right = walk(node.left), walk(node.right)
             return left + right if isinstance(node.op, ast.Add) else left - right
+        if (isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in ("max", "min")
+                and node.args and not node.keywords):
+            values = [walk(arg) for arg in node.args]
+            return max(values) if node.func.id == "max" else min(values)
         raise AssertionError(f"길이로 읽을 수 없는 값: {value}")
 
     return walk(tree)
@@ -299,7 +307,7 @@ class AcademicCalendarStyleTest(unittest.TestCase):
         for chain in (inside() + [element("div", ["acal-weekdays"])], week()):
             for media in (None, NARROW):
                 with self.subTest(target=chain[-1]["classes"], media=media):
-                    self.assertEqual(self.computed(chain, media)["grid-template-columns"], "repeat(7, minmax(44px, 1fr))")
+                    self.assertEqual(self.computed(chain, media)["grid-template-columns"], f"repeat(7, minmax({COLUMN_MIN}, 1fr))")
 
     def test_cell_columns_cover_one_to_seven(self):
         for col in range(1, 8):
@@ -362,7 +370,7 @@ class AcademicCalendarStyleTest(unittest.TestCase):
         bar = self.computed(bar_chain(2, 5, 1, "exam"))
         self.assertEqual(len(button_rows), 3, "버튼은 숫자 행과 막대 두 행을 정하고 4행부터는 내용 높이다")
         self.assertTrue(week_rows[3].startswith("minmax(") and week_rows[3].endswith("auto)"), "4행은 「+N개」 높이만큼 는다")
-        for base in (16, 24, 32):
+        for base in TEXT_SIZES:
             with self.subTest(base_font=base):
                 rows = [length(value, base) for value in week_rows[:3]]
                 border = length(button["border"].split(" ")[0], base)
@@ -390,8 +398,8 @@ class AcademicCalendarStyleTest(unittest.TestCase):
         pad = split_top(button["padding"], " ")
         horizontal_pad = int((pad[1] if len(pad) > 1 else pad[0]).rstrip("px"))
         border = int(button["border"].split("px")[0])
-        room = int(button["min-width"].rstrip("px")) - 2 * (horizontal_pad + border)
-        self.assertEqual(room, 36)
+        room = length(button["min-width"]) - 2 * (horizontal_pad + border)
+        self.assertEqual(room, 36, "기본 글꼴의 가장 좁은 칸(44px) 기준이다")
         font_px = float(more["font-size"].rstrip("rem")) * 16
 
         def width(text):
@@ -485,8 +493,9 @@ class AcademicCalendarStyleTest(unittest.TestCase):
         button = self.computed(day_chain(today=True))
         number_row = split_top(button["grid-template-rows"], " ")[0]
         min_column = length(button["min-width"])
-        for base in (16, 24, 32):
-            for column in (min_column, 60, 80, 120):
+        for base in TEXT_SIZES:
+            narrowest = length(button["min-width"], base)
+            for column in sorted({narrowest, max(narrowest, 60), max(narrowest, 80), max(narrowest, 120)}):
                 with self.subTest(base_font=base, column=column):
                     left, top, diameter = self.ring_box(base, column)
                     border = length(button["border"].split(" ")[0], base)
@@ -498,11 +507,42 @@ class AcademicCalendarStyleTest(unittest.TestCase):
                     self.assertLessEqual(top + diameter, border + row + 0.001, "원이 막대 줄로 내려가지 않는다")
                     self.assertAlmostEqual(top + diameter / 2, border + row / 2, msg="원 중심이 숫자 행 중심이다")
                     self.assertAlmostEqual(left + diameter / 2, column / 2, msg="원 중심이 칸 가운데다")
-        # 리뷰 재현: 32px·44px 칸. 예전 지름 56px는 칸 44px보다 컸다.
-        _, _, diameter = self.ring_box(32, min_column)
-        self.assertLessEqual(diameter, min_column - 8)
+        # 리뷰 재현: 32px 글꼴. 예전 지름 56px는 칸 44px보다 컸다. 지금 가장 좁은 칸은 글꼴을 따라 88px다.
+        _, _, diameter = self.ring_box(32, length(button["min-width"], 32))
+        self.assertLessEqual(diameter, length(button["min-width"], 32) - 8)
         # 넓은 칸과 기본 글꼴에서는 1.75rem(28px) 그대로라 숫자를 넉넉히 감싼다.
         self.assertAlmostEqual(self.ring_box(16, 80)[2], 28)
+        self.assertEqual(min_column, 44)
+
+    def test_two_digit_date_stays_on_one_line_inside_the_circle_at_any_text_size(self):
+        """기본 글꼴 48px에서 굵은 「28」(약 47px)이 44px 칸 버튼 안 36px에 들지 않아 두 줄로 갈라지고,
+        두 줄 높이가 숫자 행을 넘어 오늘 원이 두 숫자를 감싸지 못하던 결함(교차 검토 지적)을 폭으로 잰다.
+
+        글자 폭은 굵은 숫자 기준으로 넉넉하게 0.62em으로 어림한다(재현값 47px ÷ 글자 크기 42px ÷ 2 ≈ 0.56em).
+        칸 최소 폭, 버튼 안쪽 폭, 원 안쪽 지름, 숫자 행 높이는 모두 실제 선언에서 계산한다.
+        """
+        button = self.computed(day_chain(today=True))
+        self.ring_decls = self.today_ring()
+        pad = split_top(button["padding"], " ")
+        number_row = split_top(button["grid-template-rows"], " ")[0]
+        self.assertEqual(button.get("white-space"), "nowrap", "날짜 숫자는 줄을 나누지 않는다")
+        for base in TEXT_SIZES:
+            with self.subTest(base_font=base):
+                column = length(button["min-width"], base)
+                self.assertEqual(column, length(self.computed(week() + [cell(3)])["min-width"], base), "칸과 버튼 최소 폭이 같다")
+                self.assertEqual(f"repeat(7, minmax({button['min-width']}, 1fr))", self.computed(week())["grid-template-columns"])
+                border = length(button["border"].split(" ")[0], base)
+                room = column - 2 * (border + length(pad[1], base))
+                digits = 2 * 0.62 * length(button["font-size"], base)
+                self.assertLessEqual(digits, room, "두 자리 날짜가 가장 좁은 칸 버튼 안에 한 줄로 든다")
+                _, _, diameter = self.ring_box(base, column)
+                ring_border = length(self.ring_decls["border"].split(" ")[0], base)
+                self.assertLessEqual(digits, diameter - 2 * ring_border, "오늘 원 안쪽이 두 숫자를 감싼다")
+                self.assertLessEqual(length(button["line-height"], base), length(number_row, base), "숫자 한 줄이 숫자 행 안에 든다")
+                self.assertGreaterEqual(column, 44, "누름 영역 44px를 지킨다")
+        # 리뷰 재현: 48px 글꼴. 예전 44px 칸 버튼 안 36px에는 47px 숫자가 들지 않았다.
+        self.assertGreater(2 * 0.56 * length(button["font-size"], 48), 36)
+        self.assertGreaterEqual(length(button["min-width"], 48) - 8, 2 * 0.62 * length(button["font-size"], 48))
 
     def test_today_is_an_accent_circle(self):
         for col in (1, 4):
@@ -530,7 +570,12 @@ class AcademicCalendarStyleTest(unittest.TestCase):
                 with self.subTest(media=media, target=chain[-1]["classes"] or chain[-1]["attrs"]):
                     decls = self.computed(chain, media)
                     self.assertEqual(decls.get("min-height"), "44px")
-                    self.assertEqual(decls.get("min-width"), "44px")
+                    for base in TEXT_SIZES:
+                        self.assertGreaterEqual(length(decls["min-width"], base), 44)
+        # 날짜 칸과 버튼은 글꼴을 따라 넓어지는 최소 폭, 머리 버튼은 고정 44px다.
+        self.assertEqual(self.computed(day_chain())["min-width"], COLUMN_MIN)
+        self.assertEqual(self.computed(week() + [cell(2)])["min-width"], COLUMN_MIN)
+        self.assertEqual(self.computed(head_button("nav"))["min-width"], "44px")
 
     def test_weekdays_and_grid_scroll_together_below_308px(self):
         """월 보기의 본문 상자(.acal-body)에는 요일 머리와 격자만 있다. 머리 줄과 고른 날 목록은 그 형제다.
@@ -538,7 +583,9 @@ class AcademicCalendarStyleTest(unittest.TestCase):
         스크롤 상자는 요일 머리와 격자를 직접 품은 본문 상자다. 두 줄은 같은 최소 폭(7 × 44px)으로 넘쳐 함께 밀린다.
         루트·머리 줄·고른 날 목록은 스크롤하지 않고 고정(sticky)도 필요 없다.
         """
-        self.assertEqual(7 * 44, 308)
+        for base in TEXT_SIZES:
+            self.assertAlmostEqual(length(GRID_MIN, base), 7 * length(COLUMN_MIN, base), msg="두 줄 최소 폭은 7칸 최소 폭의 합이다")
+        self.assertEqual(length(GRID_MIN), 308)
         root = self.computed([acal()])
         self.assertNotIn("overflow-x", root, "루트가 스크롤하면 머리 줄까지 밀린다")
         self.assertEqual(root.get("min-width"), "0")
@@ -556,7 +603,7 @@ class AcademicCalendarStyleTest(unittest.TestCase):
         for chain in (weekdays, grid):
             with self.subTest(target=chain[-1]["classes"]):
                 decls = self.computed(chain)
-                self.assertEqual(decls.get("min-width"), "308px")
+                self.assertEqual(decls.get("min-width"), GRID_MIN)
                 self.assertNotIn("overflow-x", decls, "한 줄만 따로 스크롤하면 둘이 어긋난다")
                 self.assertNotIn("position", decls)
         self.assertEqual(self.computed(weekdays)["grid-template-columns"], self.computed(week())["grid-template-columns"])
@@ -624,7 +671,7 @@ class AcademicCalendarStyleTest(unittest.TestCase):
         # 3. 요일 머리와 격자는 같은 스크롤 상자 안에서 같은 최소 폭으로 넘친다.
         for name in ("acal-weekdays", "acal-grid"):
             chain = inside() + [element("div", [name])]
-            self.assertEqual(self.computed(chain).get("min-width"), "308px")
+            self.assertEqual(self.computed(chain).get("min-width"), GRID_MIN)
             self.assertEqual(self.scroll_box_above(chain), "acal-body")
         # 4. 루트는 스크롤 상자가 아니라 머리 줄이 밀리지 않고, 본문 상자 전체에 sticky가 걸리지 않는다.
         self.assertNotIn("position", self.computed(inside()))

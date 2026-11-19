@@ -1558,9 +1558,13 @@ node --test api/tests/web/campus_backdrop.test.mjs api/tests/web/chat_layout.tes
 
 - 주말 열(일·토)은 옅은 틴트, 이웃 달 날짜는 흐린 숫자만 있고 누를 수 없다.
 - 고른 날은 날짜 버튼 둘레 학교 파랑 2px 테두리, 초점은 그 안쪽 2px 고리다. 둘은 겹치지 않고 함께 보인다.
-- 칸은 44px보다 좁아지지 않는다. 7칸 × 44px = 308px보다 좁은 패널은 요일 머리와 날짜 격자만 함께 가로로 밀리고, 머리 줄과 고른 날 목록은 제자리에 있다.
+- 칸 최소 폭은 `max(44px, 2.75rem)`이다. 기본 글꼴 16px에서는 44px, 브라우저 기본 글꼴을 키우면 칸도 함께 넓어진다(48px 글꼴에서 132px).
+  7칸 최소 폭(`max(308px, 19.25rem)`, 기본 글꼴에서 308px)보다 좁은 패널은 요일 머리와 날짜 격자만 함께 가로로 밀리고, 머리 줄과 고른 날 목록은 제자리에 있다.
+  처음에는 칸이 44px 고정이라 기본 글꼴 48px에서 굵은 두 자리 날짜(약 47px)가 버튼 안 36px에 들지 않아 두 줄로 갈라졌고,
+  두 줄 높이가 숫자 행을 넘어 오늘 원이 두 숫자를 감싸지 못했다(교차 검토 지적). 원·`+N개` 지적도 같은 뿌리(글은 rem으로 커지는데 칸만 px 고정)였다.
+  그래서 글을 줄이지 않고 칸을 글꼴에 맞춰 넓히며, 날짜 버튼은 `white-space: nowrap`으로 숫자를 한 줄로 둔다.
   `chat.js`(#144)는 루트 아래에 머리 줄, 본문 상자 `.acal-body`, 고른 날 목록 `.acal-day-list`를 형제로 둔다. 월 보기의 본문 상자에는 요일 머리와 격자만 들어간다.
-  스크롤 상자는 요일 머리와 격자를 직접 품은 부모(`:is(.acal, .acal-body):has(> .acal-grid)`, 지금은 `.acal-body`)다. 두 줄은 같은 최소 폭 308px로 넘쳐 같이 밀린다.
+  스크롤 상자는 요일 머리와 격자를 직접 품은 부모(`:is(.acal, .acal-body):has(> .acal-grid)`, 지금은 `.acal-body`)다. 두 줄은 같은 최소 폭(`max(308px, 19.25rem)`)으로 넘쳐 같이 밀린다.
   본문 상자는 안쪽 4px 여백에 초점 고리가 들어가게 하고 바깥 여백 -4px로 폭을 되돌린다. 스크롤 상자는 넘친 선을 자르기 때문이다.
 - 머리 줄과 고른 날 목록은 스크롤 상자 밖이다. 터치·트랙패드·휠 어느 쪽으로 그 위에서 가로로 밀어도 요일 머리와 격자는 움직이지 않는다.
   목록 보기의 본문 상자는 격자를 품지 않아 스크롤 상자가 되지 않는다.
@@ -1589,17 +1593,17 @@ node --test api/tests/web/campus_backdrop.test.mjs api/tests/web/chat_layout.tes
 
 ### 배치
 
-- 주 줄(`.acal-week`)은 `repeat(7, minmax(44px, 1fr))` 열과 `2.25rem 1.375rem 1.375rem minmax(1.375rem, auto)` 행이다(기본 글꼴 16px에서 36·22·22px).
+- 주 줄(`.acal-week`)은 `repeat(7, minmax(max(44px, 2.75rem), 1fr))` 열과 `2.25rem 1.375rem 1.375rem minmax(1.375rem, auto)` 행이다(기본 글꼴 16px에서 36·22·22px).
   날짜 칸은 네 행을 모두 덮고(`grid-row: 1 / 5`), 숫자는 1행, 막대는 2·3행, 「+N개」는 4행이다.
 - 날짜 버튼 안도 같은 행 격자다(`calc(2.25rem - 2px) 1.375rem 1.375rem`, 첫 행만 위 테두리 2px를 뺀다). 그래서 버튼 4행이 주 줄 4행과 같은 높이에서 시작하고,
   「+N개」(`grid-row: 4`)는 글꼴 크기와 상관없이 두 번째 막대 아래에 놓인다. 점 묶음은 5행이다. 「+N개」가 두 줄이면 버튼 내용이 늘고, 칸이 덮은 주 줄 4행(auto)이 함께 는다.
 - 오늘 원 지름은 1.75rem과 칸 안쪽 폭(버튼 테두리 안에서 좌우 2px씩 띄운 폭) 가운데 작은 값이다. 좌우를 2px에 걸고(`inset-inline: 2px`)
   `max-width: 1.75rem`과 `margin-inline: auto`로 가운데 두며, 높이는 `aspect-ratio: 1`로 폭을 따른다. 세로 중심은 숫자 행 가운데(`translate: 0 -50%`)다.
   처음에는 지름이 1.75rem 고정이라 기본 글꼴 32px에서 56px(테두리 포함 60px)가 되어 44px 칸과 오른쪽 여백을 넘었다(교차 검토 지적).
-  `test_today_circle_fits_the_cell_at_any_text_size`가 기본 글꼴 16·24·32px와 칸 폭 44·60·80·120px에서 원이 칸과 숫자 행 안에 들고 가운데에 오는지 계산한다.
+  `test_today_circle_fits_the_cell_at_any_text_size`가 기본 글꼴 16·24·32·48px와 그 글꼴의 가장 좁은 칸·60·80·120px에서 원이 칸과 숫자 행 안에 들고 가운데에 오는지 계산한다.
 - 행 높이·줄 높이·오늘 원 최대 크기는 rem이라 브라우저 기본 글꼴을 키우면 함께 커진다. 처음에는 px 행에 flex 열 끝으로 「+N개」를 밀었는데(`margin-top: auto`),
   칸 내용이 네 행보다 짧으면 4행이 늘지 않아, 기본 글꼴 32px의 영어 화면에서 두 줄 「+10 more」가 64px에서 시작해 두 번째 막대(59~79px)에 가렸다(교차 검토 지적).
-  `test_more_label_never_overlaps_the_second_bar_at_any_text_size`가 기본 글꼴 16·24·32px에서 실제 선언의 px·rem·calc를 풀어 「+N개」 위 끝과 두 번째 막대 아래 끝을 비교한다.
+  `test_more_label_never_overlaps_the_second_bar_at_any_text_size`가 기본 글꼴 16·24·32·48px에서 실제 선언의 px·rem·calc·max를 풀어 「+N개」 위 끝과 두 번째 막대 아래 끝을 비교한다.
 - 44px 칸에서 「+N개」가 쓸 수 있는 글 폭은 36px(좌우 안쪽 여백 2px·테두리 2px)다. 영어 「+10 more」는 약 57px라 칸 안에서 두 줄로 나누고,
   띄어 쓰지 않은 긴 글도 글자 단위로 끊는다(`white-space: normal`, `overflow-wrap: anywhere`, `max-width: 100%`). 4행은 `minmax(1.375rem, auto)`라 두 줄이면 주 줄이 늘어난다.
   처음에는 `nowrap`이라 영어 화면에서 이웃 칸의 「+N more」와 겹쳤다(교차 검토 지적). `test_more_label_wraps_inside_a_44px_cell_in_every_language`가
@@ -1637,7 +1641,7 @@ node --test api/tests/web/campus_backdrop.test.mjs api/tests/web/chat_layout.tes
 - `api/tests/test_academic_calendar_style.py`가 `chat.css`의 #143 절을 작은 선택자 판정기로 가상 요소(날짜 칸·날짜 버튼·막대·점·머리 버튼·고른 날 목록)에 걸어
   실제 선언을 모은다. 사용자 변수와 `color-mix`도 물려받은 값으로 풀어 라이트·다크(속성)·다크(시스템) 대비를 계산한다.
 - 같은 파일이 7열·44px, `data-col`·`data-span`·`data-lane` 전 범위의 배치, 9% 헤어라인, 주말 틴트, 이웃 달 흐린 글자, 오늘 원, 안쪽 초점 고리와 선택 테두리,
-  308px 아래 요일 머리·격자 함께 스크롤, 좁은 패널의 막대↔점 전환, 목록 보기 전환, 움직임 없음, 토큰만 쓴 색, 세 색 블록의 새 이름표 순서를 본다.
+  7칸 최소 폭 아래 요일 머리·격자 함께 스크롤, 기본 글꼴 16·24·32·48px에서 두 자리 날짜·오늘 원·「+N개」가 칸과 행 안에 드는지(`test_two_digit_date_stays_on_one_line_inside_the_circle_at_any_text_size` 등), 좁은 패널의 막대↔점 전환, 목록 보기 전환, 움직임 없음, 토큰만 쓴 색, 세 색 블록의 새 이름표 순서를 본다.
 - 판정기는 자식(`>`)과 자손을 구별하고 `:has(…)`를 가상 요소의 표시로 읽는다. 가상 요소는 `chat.js`의 실제 구조(루트 직속 머리 줄·본문 상자·고른 날 목록, 월 보기 `.acal-body` 안 요일 머리·격자,
   버튼 안 숫자 → 「+N개」 → 점 묶음, 고른 날 목록 안 `section.evidence`)를 따른다.
 - 교차 검토로 고친 점: 달 보기에서 고른 날 일정까지 접던 규칙, 점 묶음에 걸려 「+N개」가 막대에 가리던 `:last-child` 규칙,

@@ -1931,9 +1931,9 @@ form.turn-editor textarea {
    주 한 줄(.acal-week)은 7열 4행 격자다. 날짜 칸은 1–4행을 모두 덮고, 기간 막대는 2·3행(data-lane 0·1)에 칸 위로 겹쳐 놓인다.
    막대 위치는 인라인 style 없이 data-col·data-span·data-lane 선택자로만 정한다(CSP default-src 'self').
    패널 안쪽 폭이 560px 미만이면(컨테이너 쿼리) 막대를 숨기고 칸마다 점을 보인다. 스크립트는 화면 폭을 몰라도 된다.
-   칸은 44px보다 좁아지지 않는다. 7칸 × 44px = 308px보다 좁은 패널에서는 요일 머리와 날짜 격자만 함께 가로로 스크롤한다.
+   칸은 max(44px, 2.75rem)보다 좁아지지 않는다. 7칸 최소 폭(기본 글꼴에서 308px)보다 좁은 패널에서는 요일 머리와 날짜 격자만 함께 가로로 스크롤한다.
    chat.js는 루트 아래에 머리 줄, 본문 상자(.acal-body), 고른 날 목록(.acal-day-list)을 형제로 둔다. 월 보기의 본문 상자에는 요일 머리와 격자만 들어간다.
-   스크롤 상자는 요일 머리와 격자를 직접 품은 부모(지금은 .acal-body)다. 두 줄은 같은 최소 폭(308px)으로 넘쳐 같이 밀리고,
+   스크롤 상자는 요일 머리와 격자를 직접 품은 부모(지금은 .acal-body)다. 두 줄은 같은 최소 폭으로 넘쳐 같이 밀리고,
    머리 줄과 고른 날 목록은 스크롤 상자 밖이라 터치·트랙패드·휠 어느 쪽으로 밀어도 움직이지 않는다.
    교차 검토 지적: 격자만 스크롤하면 요일 머리가 어긋났고, 루트를 스크롤 상자로 두면 달력 전체가 밀렸다.
    목록이 본문 상자 안에 있던 동안 쓰던 sticky·touch-action 우회는 트랙패드 가로 스크롤을 막지 못해, 목록을 상자 밖으로 옮기며 지웠다.
@@ -1984,15 +1984,17 @@ form.turn-editor textarea {
 [data-acal-view-toggle][aria-pressed="true"] { border-color: var(--accent); background: var(--tint); }
 :is([data-acal-nav], [data-acal-view-toggle]):focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 
-/* 격자와 요일 머리. 칸은 minmax(44px, 1fr)라 패널이 좁아도 44px 아래로 줄지 않는다. 두 줄 모두 최소 폭 그대로 넘쳐
-   같은 스크롤 상자 안에서 함께 밀린다. 격자에 따로 스크롤을 주면 요일 머리와 어긋난다. */
+/* 격자와 요일 머리. 칸 최소 폭은 max(44px, 2.75rem)다. 누름 영역 44px를 지키고, 글꼴을 키우면 칸도 함께 넓어진다.
+   두 줄 모두 최소 폭 그대로 넘쳐 같은 스크롤 상자 안에서 함께 밀린다. 격자에 따로 스크롤을 주면 요일 머리와 어긋난다.
+   처음에는 44px 고정이라, 기본 글꼴 48px에서 굵은 두 자리 날짜(약 47px)가 버튼 안 36px에 들지 않아 두 줄로 갈라졌고
+   오늘 원이 두 숫자를 감싸지 못했다(교차 검토 지적). 글을 줄이지 않고 칸을 넓혀, 넘친 만큼은 격자 안 가로 스크롤로 본다. */
 .acal-grid { border-bottom: 1px solid var(--acal-line); }
-/* 부모 격자 칸은 minmax(0, 1fr)라 자동 최소 폭이 0이다. 두 줄에 7 × 44px를 최소 폭으로 주어 상자째 넘치게 한다(선도 끝까지 그어진다).
+/* 부모 격자 칸은 minmax(0, 1fr)라 자동 최소 폭이 0이다. 두 줄에 7칸 최소 폭(max(308px, 19.25rem))을 주어 상자째 넘치게 한다(선도 끝까지 그어진다).
    부모 이름을 정하지 않아 요일 머리가 루트·본문 어디에 있든 걸린다. */
-.acal :is(.acal-weekdays, .acal-grid) { min-width: 308px; }
+.acal :is(.acal-weekdays, .acal-grid) { min-width: max(308px, 19.25rem); }
 .acal-weekdays, .acal-week {
   display: grid;
-  grid-template-columns: repeat(7, minmax(44px, 1fr));
+  grid-template-columns: repeat(7, minmax(max(44px, 2.75rem), 1fr));
 }
 .acal-weekdays > * {
   padding: 6px 0;
@@ -2010,7 +2012,7 @@ form.turn-editor textarea {
 .acal-cell {
   position: relative;
   grid-row: 1 / 5;
-  min-width: 44px;
+  min-width: max(44px, 2.75rem);
   min-height: 44px;
   border-inline-start: 1px solid var(--acal-line);
   background: var(--surface);
@@ -2052,10 +2054,12 @@ form.turn-editor textarea {
   justify-items: center;
   width: 100%;
   height: 100%;
-  min-width: 44px;
+  min-width: max(44px, 2.75rem);
   min-height: 44px;
   margin: 0;
   padding: 0 2px 4px;
+  /* 날짜 숫자는 한 덩어리다. 칸이 글꼴을 따라 넓어지므로 줄을 나눌 일이 없고, 「+N개」만 아래 규칙에서 줄바꿈을 다시 연다. */
+  white-space: nowrap;
   border: 2px solid transparent;
   border-radius: 6px;
   background: transparent;
