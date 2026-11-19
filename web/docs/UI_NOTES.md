@@ -1584,7 +1584,7 @@ node --test api/tests/web/campus_backdrop.test.mjs api/tests/web/chat_layout.tes
 | `.acal-weekdays` | 요일 머리 7칸, 일요일부터. 격자 밖, `.acal-body`의 직속 자식이다. 격자와 같은 열 정의를 쓴다 |
 | `.acal-grid[role=grid]` > `.acal-week[role=row]` | 격자와 주 한 줄. 주 줄은 7열 4행 격자다 |
 | `.acal-cell[role=gridcell]` | 날짜 칸. `data-col`(1–7), `aria-selected`. 이웃 달 칸은 `data-outside`를 달고 버튼 없이 숫자 글자만 둔다 |
-| `button.acal-day` | 칸 안 날짜 버튼. 오늘이면 `aria-current="date"`. 숨긴 일정이 있으면 `data-more="N"`이다. 안쪽 자식은 숫자 → 「+N개」 → 점 묶음 순서이고, 스타일은 점 묶음 바로 앞 요소를 「+N개」로 본다(`:has(+ * .acal-dot)`) |
+| `button.acal-day` | 칸 안 날짜 버튼. 이름(`aria-label`)은 `{날짜} · 일정 N건`으로 그날 전체 일정 수를 읽는다(아래 「날짜 버튼 이름」). 오늘이면 `aria-current="date"`. 숨긴 일정이 있으면 `data-more="N"`이다. 안쪽 자식은 숫자 → 「+N개」 → 점 묶음 순서이고, 스타일은 점 묶음 바로 앞 요소를 「+N개」로 본다(`:has(+ * .acal-dot)`) |
 | `.acal-bar` | 기간 막대. `.acal-week`의 직속 자식(날짜 칸 뒤), `aria-hidden="true"`, `data-col`·`data-span`(1–7)·`data-lane`(0–1)·`data-kind` |
 | `.acal-dot` | 점. 날짜 버튼 안 마지막 자식인 점 묶음에 들어 있다. 칸마다 3개까지, `data-kind` |
 | `.acal-day-list` | 고른 날 목록. 일정 이름·기간·출처 링크 |
@@ -1614,6 +1614,25 @@ node --test api/tests/web/campus_backdrop.test.mjs api/tests/web/chat_layout.tes
 - 좁은 패널 전환은 화면 폭이 아니라 `.acal`의 안쪽 폭으로 한다(`@container acal (width < 560px)`). 막대·점·고른 날 목록은 스크립트가 늘 함께 그리고,
   좁으면 막대를 숨기고 날짜 버튼 아래 줄에 점을 보인다. 고른 날 목록은 두 폭 모두 보인다.
 - 「+N개」(`.acal-more`)는 넓은 보기에서만 보인다. 막대 두 줄 기준으로 센 값이라 점만 남는 좁은 칸에서는 막대와 함께 숨긴다(#146).
+  「+N개」는 시각용 배지라 날짜 버튼 이름에 넣지 않는다. 배지와 `data-more`, `aria-hidden`은 그대로 두고, 이름은 그날 전체 일정 수를 읽는다(#149).
+
+### 날짜 버튼 이름 (#149)
+
+- 형식은 `{날짜} · 일정 N건`이다. 날짜 부분은 `calendarDateLabel()` 결과를 그대로 쓰고, 영어 날짜에 쉼표가 없는 것도 그 형식이다.
+- 전에는 날짜만 읽다가 막대가 넘칠 때만 `· +N개`를 붙여, 일정이 3건인 날도 「+1개」로 들렸다. 일정이 없는 날은 날짜만 읽었다.
+- `chat.js`는 그날 일정을 거르는 함수 하나(시작일 ≤ 그날 ≤ 종료일)를 두고, 날짜 이름의 수·점(처음 3건)·고른 날 목록이 모두 이 결과를 쓴다. 세는 곳과 보여 주는 곳이 갈라지지 않는다.
+- 문구는 `t()`의 두 줄 `{date} · 일정 {count}건`과 `{date} · 일정 1건`이다. 영어만 1건일 때 단수(`1 event`)를 쓴다.
+- 가상 일정 3건(2028-02-26 기준)으로 본 이름은 다음과 같다.
+
+| 언어 | 0건 | 1건 | 3건 |
+| --- | --- | --- | --- |
+| ko | `2028년 2월 29일 · 일정 0건` | `2028년 2월 28일 · 일정 1건` | `2028년 2월 27일 · 일정 3건` |
+| en | `February 29 2028 · 0 events` | `February 28 2028 · 1 event` | `February 27 2028 · 3 events` |
+| zh | `2028年2月29日 · 0项日程` | `2028年2月28日 · 1项日程` | `2028年2月27日 · 3项日程` |
+
+- `academic_calendar.test.mjs`가 언어를 바꿀 때마다 다시 그린 버튼을 새로 찾아 위 이름과 글자 그대로 비교하고, 이름에 `+1개`·`+1 more`·`+1项`이 들어가면 실패한다.
+  `api/tests/test_calendar_day_label_doc.py`는 이 절에 예시 9개가 한 번씩 있는지와 「+N개」를 이름에 넣지 않는다는 문장을 본다.
+- 검사는 화면이 붙인 `aria-label` 문자열만 본다. 브라우저 접근성 트리나 화면 읽기 도구 출력은 재지 않았다.
 
 ### 색과 대비
 
