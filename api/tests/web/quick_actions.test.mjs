@@ -552,7 +552,7 @@ test("390×700 홈에서 +가 화면 위쪽에 있으면 방울이 아래의 기
   for (const [i, a] of centers.entries()) for (const b of centers.slice(i + 1)) assert.ok(Math.hypot(a.x - b.x, a.y - b.y) >= size * 2, "bubbles overlap");
 });
 
-test("누를 것을 다 피할 자리가 없으면 홈에서는 +를 화면 가운데로 한 번 굴려 다시 찾고, 그래도 없으면 이전 기준으로 연다", () => {
+test("누를 것을 다 피할 자리가 없으면 홈에서는 +를 화면 가운데로 한 번 굴려 다시 찾고, 그래도 없으면 덮지 않고 열지 않는다", () => {
   // 화면 전체를 작은 카드로 채워 어디에도 놓을 수 없게 한다(카드 하나는 화면 절반보다 작아 장애물로 센다).
   const tiles = [];
   for (let top = 0; top < 700; top += 60) for (let left = 0; left < 390; left += 60) tiles.push({ left, top, width: 56, height: 56 });
@@ -565,12 +565,68 @@ test("누를 것을 다 피할 자리가 없으면 홈에서는 +를 화면 가�
     // 홈에서만 한 번(즉시, 가운데로) 굴린다. 채팅 화면은 읽던 대화 칸이 움직이므로 굴리지 않는다.
     assert.equal(calls.length, view === "home" ? 1 : 0, view);
     if (view === "home") assert.deepEqual({ ...calls[0] }, { block: "center", inline: "nearest", behavior: "instant" });
-    // 굴려도 자리가 없으면 질문 폼·떠 있는 요소만 피하는 기준으로 링을 연다.
-    assert.equal(page.toggle.getAttribute("aria-expanded"), "true", view);
-    // 열린 뒤 다시 놓을 때(창 크기 변화 등)는 굴리지 않는다.
+    // 굴려도 자리가 없으면 누를 것을 덮는 예비 배치로 열지 않는다. 링은 숨은 채로 남는다.
+    assert.equal(page.toggle.getAttribute("aria-expanded"), "false", view);
+    assert.equal(page.ring.hidden, true, view);
+    assert.equal(page.ring.getAttribute("data-settled"), null, view);
+    // 닫힌 채 받은 창 크기 변화는 다시 놓거나 굴리지 않는다.
     page.windowEvent("resize");
     assert.equal(calls.length, view === "home" ? 1 : 0, `${view} after resize`);
+    assert.equal(page.toggle.getAttribute("aria-expanded"), "false", `${view} after resize`);
   }
+});
+
+test("390×600 채팅에서 연 뒤 넓은 링크 12개가 굴러 들어와 피할 자리가 없으면 링을 닫아 방울이 누름을 받지 않는다", () => {
+  // 상단 버튼 3개, 고정된 +, 폭 354px 링크 12개. 링크는 처음에 화면 밖에 있다가 y=50부터 44px 간격으로 굴러 들어온다.
+  const topButtons = [{ left: 8, top: 8, width: 44, height: 44 }, { left: 290, top: 8, width: 44, height: 44 }, { left: 338, top: 8, width: 44, height: 44 }];
+  const links = Array.from({ length: 12 }, (_, index) => ({ left: 18, top: 2000 + index * 44, width: 354, height: 24 }));
+  const page = ringPage({ width: 390, height: 600, view: "chat", toggleRect: { left: 21, top: 540, width: 44, height: 44 },
+    pressables: [...topButtons, ...links] });
+  page.row.rect = { left: 13, top: 532, width: 364, height: 60 };
+  page.toggle.click();
+  page.frames();
+  page.tick();
+  assert.equal(page.toggle.getAttribute("aria-expanded"), "true");
+  assert.equal(page.ring.getAttribute("data-settled"), "", "fully spread and pressable");
+  // + 좌표는 그대로 두고 링크만 굴러 들어온다.
+  page.pressed.slice(3).forEach((link, index) => { link.rect = { left: 18, top: 50 + index * 44, width: 354, height: 24 }; });
+  page.scroll();
+  // 링크를 덮지 않는 자리가 없으므로 링을 닫는다. 닫는 순간 data-settled가 빠져 방울은 누름을 받지 않고,
+  // 링 층 전체도 누름을 통과시키므로 BISKIT 방울이 있던 링크 가운데를 누르면 링크가 눌린다.
+  assert.equal(page.toggle.getAttribute("aria-expanded"), "false");
+  assert.equal(page.ring.getAttribute("data-open"), null);
+  assert.equal(page.ring.getAttribute("data-settled"), null);
+  assert.match(css, /\.quick-ring \{[^}]*pointer-events: none;/);
+  assert.match(css, /\.quick-item \{ pointer-events: none; \}/);
+  assert.match(css, /\.quick-ring\[data-settled\] \.quick-item \{ pointer-events: auto; \}/);
+  page.tick();
+  assert.equal(page.ring.hidden, true);
+  // 앞서 고친 한 줄짜리 링크(자리가 남는 경우)는 닫지 않고 다시 놓는다. 앞 테스트가 그 경우를 따로 본다.
+});
+
+test("굴림 없이 본문에 링크가 붙어 방울 밑에 들어와도 다음 화면 갱신에서 다시 놓는다", () => {
+  const page = ringPage({ width: 390, height: 700, view: "chat", toggleRect: { left: 21, top: 640, width: 44, height: 44 },
+    pressables: [{ left: 0, top: 2000, width: 120, height: 24 }] });
+  page.row.rect = { left: 13, top: 632, width: 364, height: 60 };
+  page.toggle.click();
+  page.frames();
+  page.tick();
+  const content = page.observers.at(-1);
+  // 링 자체의 변화는 세지 않는다.
+  content([{ target: page.ring }]);
+  assert.equal(page.frames(), 0);
+  const center = item => { const spot = page.position(item); return { x: 43 + spot.x, y: 662 + spot.y }; };
+  const biskit = center(page.item("biskit"));
+  const [link] = page.pressed;
+  // 이어 나오는 답에 인용 링크가 붙어 BISKIT 방울 한가운데에 놓인다. 신호가 여러 번 와도 한 번만 다시 놓는다.
+  link.rect = { left: biskit.x - 60, top: biskit.y - 12, width: 120, height: 24 };
+  content([{ target: page.screen }]);
+  content([{ target: page.screen }]);
+  assert.equal(page.frames(), 1);
+  assert.equal(page.toggle.getAttribute("aria-expanded"), "true");
+  const size = page.ring.getAttribute("data-compact") === "" ? 22 : 26;
+  for (const item of page.items) assert.ok(gapTo(link.rect, center(item)) >= size, `${item.dataset.quickAction} covers the new link`);
+  assert.equal(page.ring.getAttribute("data-settled"), null, "no presses while the bubbles move");
 });
 
 test("대화 칸만 굴러 인용 링크가 방울 밑에 들어오면 +가 제자리여도 방울을 다시 놓아 링크를 누를 수 있다", () => {

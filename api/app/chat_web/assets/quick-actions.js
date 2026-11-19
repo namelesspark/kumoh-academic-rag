@@ -296,7 +296,7 @@
       .filter(rect => sized(rect) && rect.width * rect.height < width * height / 2).map(local)
       .filter(rect => rect.right > 0 && rect.left < width && rect.bottom > 0 && rect.top < height);
     const point = { x: anchor.x - view.left, y: anchor.y - view.top };
-    let result = layout(point, avoid, width, height, shown.length, [...others, ...interactive]);
+    const result = layout(point, avoid, width, height, shown.length, [...others, ...interactive]);
     // 누를 것을 다 피할 자리가 없으면, 홈에서 열 때 한 번만 +를 화면 가운데로 굴려 다시 찾는다(즉시 옮김, 부드러운 굴림 없음).
     // 채팅 화면은 굴리면 읽던 대화 칸이 움직이므로 굴리지 않는다.
     if (!result && allowScroll && interactive.length && doc.body.getAttribute("data-view") === "home"
@@ -304,9 +304,9 @@
       toggle.scrollIntoView({ block: "center", inline: "nearest", behavior: "instant" });
       return place(false);
     }
-    // 그래도 없으면 질문 폼과 떠 있는 요소만 피하는 기준으로 놓는다. 링을 아예 못 여는 것보다 낫다.
-    if (!result && interactive.length) result = layout(point, avoid, width, height, shown.length, others);
-    // 화면이 너무 작아 방울을 잘리지 않고 +도 덮지 않게 놓을 수 없으면 false를 돌려준다. 여는 쪽이 링을 열지 않는다.
+    // 그래도 없으면 false를 돌려준다. 누를 것을 덮는 예비 배치는 두지 않는다. 열 때면 링을 열지 않고, 열린 채
+    // 굴림·화면 변화로 자리가 사라졌으면 여는 쪽이 링을 닫는다(닫는 순간 data-settled가 빠져 방울이 누름을 받지 않는다).
+    // 화면이 너무 작아 방울을 잘리지 않고 +도 덮지 않게 놓을 수 없을 때도 같다.
     if (!result) return false;
     const { kind } = result;
     const points = result.points.map(point => ({ x: point.x + view.left, y: point.y + view.top }));
@@ -586,6 +586,16 @@
       const node = doc.querySelector(selector);
       if (node) relayout.observe(node, { attributes: true });
     }
+    // 굴림 없이도 본문이 바뀌어 누를 것이 방울 밑에 들어올 수 있다(이어 나오는 답에 인용 링크가 붙거나 패널이 열리는 등).
+    // 열린 동안 본문에 요소가 붙거나 빠지거나 숨김이 바뀌면 다음 화면 갱신에서 한 번 다시 놓고, 자리가 없으면 닫는다.
+    // 링 자체의 변화는 세지 않는다. 답이 이어 나오는 동안 신호가 잦아 화면 갱신마다 한 번으로 묶는다.
+    let contentFrame = false;
+    const content = new MutationObserver(records => {
+      if (!open || contentFrame || !records?.length || records.every(record => ring.contains(record.target))) return;
+      contentFrame = true;
+      nextFrame(() => { contentFrame = false; if (open && moved() === false && !place()) closeRing(false); });
+    });
+    content.observe(screen ?? doc.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["hidden"] });
   }
   label();
 })();
