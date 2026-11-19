@@ -47,8 +47,32 @@ def calendar_section(text):
 
 
 def count_whole(section, example):
-    """앞뒤가 백틱이나 줄 경계로 끝나는 경우만 센다. `1 event`가 `1 events` 안에서 세지지 않게 한다."""
-    return len(re.findall(r"(?<![^\s`|])" + re.escape(example) + r"(?![^\s`|])", section))
+    """앞뒤에 영문자·숫자가 붙지 않은 경우를 모두 센다.
+
+    괄호·마침표·한글 조사 같은 문장부호나 글자가 붙어도 중복으로 센다. 영문자·숫자만 빼는 까닭은
+    `1 event`를 `1 events` 안에서, `2028년 2월 2일`을 `2028년 2월 29일` 안에서 세지 않기 위해서다.
+    """
+    return len(re.findall(r"(?<![0-9A-Za-z])" + re.escape(example) + r"(?![0-9A-Za-z])", section))
+
+
+class CountWholeTest(unittest.TestCase):
+    """경계 판정 자체를 가상 문장으로 확인한다. 교차 검토에서 문장부호에 붙은 중복을 놓쳤다."""
+
+    def test_counts_duplicates_attached_to_punctuation(self):
+        example = f"February 28 2028 {DOT} 1 event"
+        section = f"| `{example}` |\n- ({example}).\n- {example}, {example}"
+        self.assertEqual(count_whole(section, example), 4)
+
+    def test_counts_korean_and_chinese_attached_text(self):
+        ko = f"2028년 2월 27일 {DOT} 일정 3건"
+        zh = f"2028年2月27日 {DOT} 3项日程"
+        self.assertEqual(count_whole(f"「{ko}」이다. {ko}이", ko), 2)
+        self.assertEqual(count_whole(f"（{zh}）。", zh), 1)
+
+    def test_longer_neighbours_are_not_counted(self):
+        self.assertEqual(count_whole(f"`February 28 2028 {DOT} 1 events`", f"February 28 2028 {DOT} 1 event"), 0)
+        self.assertEqual(count_whole(f"`12028년 2월 27일 {DOT} 일정 3건`", f"2028년 2월 27일 {DOT} 일정 3건"), 0)
+        self.assertEqual(count_whole(f"`February 28 2028 {DOT} 1 event`", f"February 28 2028 {DOT} 1 event"), 1)
 
 
 class CalendarDayLabelDocTest(unittest.TestCase):
