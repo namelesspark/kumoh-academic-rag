@@ -171,7 +171,9 @@
     const step = bubbleRadius * 2 + 4, span = (count - 1) * step;
     const y = Math.min(Math.max(anchor.y, edge + bubbleRadius), height - edge - bubbleRadius);
     const right = anchor.x + clear, left = anchor.x - clear - span;
-    const start = right + span + bubbleRadius <= width - edge ? right : left - bubbleRadius >= edge ? left : null;
+    // 화면 높이가 방울 하나와 위아래 여백(8px)보다 낮으면 한 줄도 화면 안에 들지 않는다.
+    const rowFits = edge + bubbleRadius <= height - edge - bubbleRadius + 0.5;
+    const start = !rowFits ? null : right + span + bubbleRadius <= width - edge ? right : left - bubbleRadius >= edge ? left : null;
     if (start !== null) return { kind: "row", points: Array.from({ length: count }, (_, index) => ({ x: start + index * step, y })) };
     // 한 줄도 너비에 안 들어가면(좁고 낮은 화면) 화면 안 격자 칸 가운데 + 버튼과 겹치지 않는 칸만 남겨 + 에 가까운 칸부터 고른다.
     // 칸 간격이 방울 지름보다 커서 방울끼리도 겹치지 않는다. 52px 방울로 칸이 모자라면 조작 영역 하한인 44px 방울(compact)로
@@ -330,6 +332,9 @@
 
   toggle.addEventListener("click", () => (open ? closeRing(true) : openRing()));
   toggle.addEventListener("keydown", event => {
+    // 방울을 Enter로 고르면 초점이 +로 돌아온다. 키를 누르고 있어 되풀이되는 Enter·Space가 +를 눌러 링을 다시 열면,
+    // 홈으로 가던 실행이 취소된다. 되풀이 키는 기본 동작(click)을 막아 버린다.
+    if ((event.key === "Enter" || event.key === " ") && event.repeat) { event.preventDefault(); return; }
     if (event.key === "ArrowUp" || event.key === "ArrowDown") {
       event.preventDefault();
       if (open) step(null, event.key === "ArrowUp" ? "last" : "first");

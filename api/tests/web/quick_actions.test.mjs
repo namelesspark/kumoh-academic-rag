@@ -315,6 +315,32 @@ test("52px 방울 칸이 모자라면 44px 방울로 줄이고, 그래도 모자
   page.window.innerHeight = 120;
   page.windowEvent("resize");
   assert.equal(page.toggle.getAttribute("aria-expanded"), "false");
+
+  // 390×700에서 + 가운데를 (30, 25)에 두고 연 뒤 높이가 50px로 줄면 방울 하나도 위아래 8px 안에 들지 않는다.
+  // 한 줄로 늘어놓아 위쪽이 잘리는 대신 링을 닫는다.
+  const flat = ringPage({ width: 390, height: 700, toggleRect: { left: 8, top: 3, width: 44, height: 44 } });
+  flat.toggle.click();
+  assert.equal(flat.toggle.getAttribute("aria-expanded"), "true");
+  flat.window.innerHeight = 50;
+  flat.windowEvent("resize");
+  assert.equal(flat.toggle.getAttribute("aria-expanded"), "false");
+  assert.notEqual(flat.ring.getAttribute("data-layout"), "row");
+});
+
+test("채팅에서 Enter로 방울을 고른 뒤 키를 누르고 있어도, +로 돌아온 반복 Enter가 링을 다시 열어 실행을 취소하지 않는다", () => {
+  const page = ringPage({ view: "chat" });
+  page.toggle.click();
+  page.item("calendar").click();
+  assert.equal(page.home.clicks, 1);
+  assert.equal(page.state.focused, page.toggle);
+  // 같은 Enter·Space가 되풀이되어 +에 들어온다. 기본 동작(click)을 막아 링이 다시 열리지 않는다.
+  for (const key of ["Enter", " "]) assert.equal(page.toggle.fire("keydown", { key, repeat: true }).defaultPrevented, true, key);
+  assert.equal(page.toggle.getAttribute("aria-expanded"), "false");
+  page.body.setAttribute("data-view", "home");
+  page.frames(); page.frames();
+  assert.equal(page.cards.calendar.clicks, 1, "the delayed card click still runs");
+  // 새로 누른 Enter는 막지 않는다(버튼이 click을 내 링을 연다).
+  assert.equal(page.toggle.fire("keydown", { key: "Enter" }).defaultPrevented, false);
 });
 
 test("열린 링의 가운데 원 위에 × 표시를 다시 그려 +의 닫기 표시가 가려지지 않고, 누름은 아래 + 버튼이 받는다", () => {

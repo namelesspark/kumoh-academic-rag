@@ -1527,7 +1527,7 @@ body[data-techmo-dragging="true"] { user-select: none; }
   border-radius: inherit;
   padding: 1.5px;
   pointer-events: none;
-  background: linear-gradient(90deg, var(--sky), var(--deep-sky), var(--deep-gold), var(--sky)) 0 0 / 300% 100%;
+  background: linear-gradient(90deg, var(--sky), var(--deep-sky), var(--sky)) 0 0 / 300% 100%;
   -webkit-mask: linear-gradient(var(--white) 0 0) content-box, linear-gradient(var(--white) 0 0);
   -webkit-mask-composite: xor;
   mask: linear-gradient(var(--white) 0 0) content-box, linear-gradient(var(--white) 0 0);

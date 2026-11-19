@@ -818,6 +818,10 @@ test("깊이 모드: 고정 테두리는 상태만으로 그리고, 효과는 �
   // 흐르는 테두리도 한 번만 0.45초 흐른다. 되풀이(infinite)하면 깊이 모드를 둔 동안 노랑 섞인 테두리가 계속 움직인다.
   assert.equal(seconds(".mode-pill.is-flowing::after"), .45);
   assert.doesNotMatch(declared(".mode-pill.is-flowing::after", ["animation"]), /infinite/);
+  // 움직이는 효과에는 하늘색 계열만 쓴다. 노랑(--deep-gold)은 움직이지 않는 고정 테두리 고리에만 남는다.
+  for (const selector of [".mode-pill.is-flowing::after", ".mode-pill.is-flowing::before", ".composer-row.is-deep-enter::after"]) {
+    assert.doesNotMatch(declared(selector, ["background"]), /deep-gold/, selector);
+  }
   // 반짝임 조각은 하늘색 계열이다. 노랑은 고정 테두리 고리에만 남는다.
   for (const selector of [".mode-spark", ".mode-spark:nth-child(3n + 2 of .mode-spark)", ".mode-spark:nth-child(3n of .mode-spark)"]) {
     assert.match(declared(selector, ["background"]), /^var\(--(?:sky|deep-sky)\)$/, selector);
@@ -884,7 +888,7 @@ test("다크 테마에서 남은 밝은 바탕은 말풍선·노랑 표시·깊�
     ).map(([selector]) => selector).sort();
     assert.deepEqual(lightSurfaces, [
       ".composer-row.is-deep::before", ".intro-badge::before",
-      ".login-safety::before", ".mode-pill.is-flowing::after", '.mode-pill[data-mode="deep"]', ".pet-dock .pet-says::before", ".pet-says", '[data-campus-step][data-current="true"]',
+      ".login-safety::before", '.mode-pill[data-mode="deep"]', ".pet-dock .pet-says::before", ".pet-says", '[data-campus-step][data-current="true"]',
     ], themeName(look));
   }
   checkText([
