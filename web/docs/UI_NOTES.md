@@ -1433,7 +1433,7 @@ node --test api/tests/web/campus_backdrop.test.mjs api/tests/web/chat_layout.tes
 [‹] 1/2 [›]          [수정] [다시 답하기]
 
 실패 뒤
-                [고친 초안이 남은 입력 칸 ]   ← 폼 경계 위험 색
+                [고친 초안이 남은 입력 칸 ]   ← 편집 칸 선만 위험 색
                          [취소] [다시 시도]
 [‹] 1/2 [›]          [수정] [다시 답하기]
 [답을 받지 못했어요 …                     ]   ← .version-error
@@ -1443,6 +1443,9 @@ node --test api/tests/web/campus_backdrop.test.mjs api/tests/web/chat_layout.tes
 - 390px 이하에서는 조작 줄의 항목이 말풍선 아래 한 줄씩 내려가고, 버전 선택은 화살표를 양 끝에, 편집 폼의 취소·저장하고 묻기는 같은 폭으로 나눈다.
 - 편집 폼은 질문 말풍선 자리에 오른쪽 정렬로 놓이고 폭은 질문 말풍선과 같은 530px까지다.
 - 실패 문구는 조작 줄과 8px 띄우고 폭은 조작 줄과 같은 670px까지다.
+- 680px 이하에서 대화 칸(`.transcript`)은 좌우 여백이 0이고 가로 넘침을 숨긴다. 차례 밖으로 나간 선은 잘리므로,
+  조작 줄 안쪽에 초점 띠 폭과 같은 6px 여백을 두고(위쪽 간격은 8px에서 2px+6px로 그대로 유지), 대기 점선은 조작 줄 상자 안쪽에 긋는다.
+  편집 폼은 안쪽 여백이 12px이라 그 안의 초점 고리가 폼 밖으로 나가지 않는다.
 
 ### 스크립트와 스타일이 함께 지키는 이름
 
@@ -1460,7 +1463,8 @@ node --test api/tests/web/campus_backdrop.test.mjs api/tests/web/chat_layout.tes
 
 - 대화 칸은 사진이 비치는 반투명 면이라 버튼·버전 번호·편집 폼·실패 문구를 모두 불투명한 `--surface` 위에 그린다. 글자 대비는 그 `--surface` 위에서 잰다.
 - 버튼과 편집 폼의 선은 안쪽 `--surface`와 바깥 대화 면 양쪽에 닿는다. 그래서 바깥 면과도 3:1을 넘는 `--text-muted`로 긋는다.
-  처음에 쓴 `--control-line`(#6E8098)은 흰 판과는 4.0:1이지만, 사진을 받지 못한 라이트 화면에서 남색 덮개와 대화 면을 합성한 바깥 면과는 3:1에 못 미쳤다(교차 검토 지적).
+  처음에 쓴 `--control-line`(#6E8098)은 흰 판과는 4.0:1이지만, 사진을 받지 못한 라이트 화면의 바깥 면과는 3:1에 못 미쳤다(교차 검토 지적).
+  그 면은 `body`·`.campus-backdrop`의 대체 색 `--navy` 위에 대화 면(`--main-surface`)이 얹힌 색이다.
 - 버튼은 높이·폭 44px 이상, `1px solid var(--text-muted)` 경계, 굵은 본문색 글자다. hover는 경계를 `--focus-ink`, 바탕을 `--tint`로 바꾼다.
 - 저장하고 묻기(실패 뒤 다시 시도 포함)는 `--accent` 채움에 `--surface` 글자다. 라이트는 학교 파랑 위 흰 글자, 다크는 밝은 하늘색 위 짙은 판 색 글자다.
   채움이 곧 경계라 채움 색이 바깥 면과 3:1을 넘는다. hover는 밑줄로 알린다. 채움 위에 다른 색 선을 그으면 라이트에서 약 2.2:1이고,
@@ -1468,10 +1472,13 @@ node --test api/tests/web/campus_backdrop.test.mjs api/tests/web/chat_layout.tes
 - 초점은 공통 2px `--focus-ring` 고리에 `--surface` 6px 띠를 깐다. 사진 위에서도 고리 양옆이 판 색이라 두 테마 모두 3:1을 넘는다.
 - 잠긴 버튼(끝 버전 화살표, 답을 받는 동안의 수정·다시 답하기·버전 버튼)은 공통 `opacity: .65`를 되돌리고 `--text-muted` 글자와 점선 경계로 보인다. 반투명으로 흐리면 글자 뒤로 사진이 비친다.
 - 기본: 위 모양 그대로다.
-- pending: 차례(`.turn`) 전체를 `1px dashed var(--text-muted)` 외곽선으로 4px 띄워 두르고, 잠긴 버튼에 기다림 커서를 보인다.
-  첫 답 전에 정지한 기록은 답 없이 질문만 복원되어 `.reply`가 없으므로, 답 자리가 아니라 차례에 긋는다. outline은 자리를 차지하지 않아 상태가 바뀌어도 줄이 밀리지 않는다.
+- pending: 잠긴 조작 줄(`.turn-actions`)을 `1px dashed var(--text-muted)` 외곽선으로 상자 안쪽(-1px)에 두르고, 잠긴 버튼에 기다림 커서를 보인다.
+  첫 답 전에 정지한 기록은 답 없이 질문만 복원되어 `.reply`가 없지만 조작 줄은 있으므로 조작 줄에 긋는다.
+  처음에는 차례 밖 4px에 그었는데 좁은 화면에서 좌우가 잘렸다(교차 검토 지적). outline은 자리를 차지하지 않아 상태가 바뀌어도 줄이 밀리지 않는다.
   움직이는 표시는 넣지 않는다. 이미 있는 버전 글은 그대로 읽힌다.
-- failed: 고친 초안이 남은 편집 폼 경계를 `--danger`로 바꾸고, 조작 줄 다음의 `.version-error`를 `--danger` 1px 선과 `--danger` 글자로 그린다.
+- failed: 편집 폼 바깥 선은 그대로 두고, 폼 안 흰 면에만 닿는 편집 칸(`textarea`) 선을 `--danger`로 바꾼다.
+  조작 줄 다음의 `.version-error`는 바깥 선 없이 `--surface` 면에 `--danger` 글자로 쓴다.
+  폼이나 실패 문구 바깥 선을 `--danger`로 그으면 남색 대체 배경 위 대화 면과 약 2.9:1이라 3:1에 못 미친다(교차 검토 지적).
 - 그림자는 초점 띠에만 쓰고 그라데이션·이모지·새 움직임(transition·animation)은 없다. 색은 #131 토큰만 쓴다.
 
 ### 대비 계산 결과
@@ -1487,15 +1494,17 @@ node --test api/tests/web/campus_backdrop.test.mjs api/tests/web/chat_layout.tes
 | hover 글자(`--text`/`--tint`) | 13.4:1 | 12.2:1 |
 | 초점 고리 `--focus-ring`/`--surface` 띠 | 15.5:1 | 15.8:1 |
 
-선은 안쪽 면과 바깥 면 가운데 더 낮은 값이다. 바깥 면은 사진을 받지 못했을 때의 색으로, `--bg` 위에 덮개(`--overlay-top`·`--overlay-mid`·`--overlay-bottom`) 하나와
-대화 면(`--main-surface`) 또는 답 말풍선(`--main-bubble`)을 얹어 합성했다. 라이트에서 가장 어두운 조합은 `--overlay-top` 위 `--main-surface`(상대 휘도 약 0.72)다.
+선은 안쪽 면과 바깥 면 가운데 더 낮은 값이다. 바깥 면은 사진을 받지 못했을 때의 색이다. 바닥은 `body`·`.campus-backdrop`의 대체 색 `--navy`(비교용으로 `--bg`도 본다)이고,
+그 위에 덮개(`--overlay-top`·`--overlay-mid`·`--overlay-bottom`) 하나 또는 없음, 맨 위에 대화 면(`--main-surface`)이나 답 말풍선(`--main-bubble`)을 얹어 합성했다.
+라이트에서 가장 어두운 조합은 `--navy` 위 `--main-surface`(상대 휘도 약 0.51)다. 남색 덮개는 남색 바닥 위에서 색을 바꾸지 않는다.
 
 | 선 | 라이트 | 다크 |
 | --- | --- | --- |
-| 버튼·편집 폼 경계, pending 점선 `--text-muted` | 약 5.0:1 | 7.1:1 |
-| hover 경계 `--focus-ink`(안쪽 `--tint`), 저장하고 묻기 채움 `--accent` | 약 5.2:1 | 6.3:1 |
-| 실패 경계 `--danger` | 약 4.0:1 | 5.7:1 |
-| (바꾸기 전) `--control-line` | 약 2.96:1, 3:1 미만 | 6.9:1 |
+| 버튼·편집 폼 경계, pending 점선 `--text-muted` | 약 3.6:1 | 7.1:1 |
+| hover 경계 `--focus-ink`(안쪽 `--tint`), 저장하고 묻기 채움 `--accent` | 약 3.8:1 | 6.3:1 |
+| 실패 편집 칸 `--danger`(폼 안 `--surface`에만 닿음) | 5.5:1 | 5.7:1 |
+| (바꾸기 전) 폼 바깥 선 `--danger` | 약 2.9:1, 3:1 미만 | — |
+| (바꾸기 전) `--control-line` | 약 2.1:1, 3:1 미만 | 6.9:1 |
 
 표 값은 WCAG 상대 휘도 식으로 손으로 계산해 소수 첫째 자리에서 반올림했다. 테스트는 이 표를 옮겨 적지 않고 실제 선언에서 다시 계산한다.
 
@@ -1505,4 +1514,6 @@ node --test api/tests/web/campus_backdrop.test.mjs api/tests/web/chat_layout.tes
   편집 칸, 실패 문구, pending·failed 차례)에 걸어, 그 요소가 실제로 받는 `color`·`background`·경계·초점 선언으로 대비를 계산한다.
   예를 들어 `.turn-editor-submit`의 글자색을 채움과 같은 `var(--accent)`로 바꾸면 대비 1:1로 실패한다.
 - 같은 파일이 이름표, 44px, 초점 띠 폭, 390px 줄바꿈, 움직임 없음, 토큰만 쓴 1px 경계, 답 없는 차례의 pending 표시도 본다.
+- 초점 고리·띠가 닿는 거리가 조작 줄·편집 폼 안쪽 여백보다 크지 않은지, 대기 점선이 조작 줄 상자 안쪽에 그려지는지도 넓은 화면과 390px에서 각각 본다.
+- 외곽선 잘림과 대체 배경 대비는 선언과 색 계산으로만 확인했고, 브라우저에서 직접 재지는 않았다.
 - 동작(새로고침 복원, 옛 기록 읽기, 실패·정지 뒤 이전 버전 보존, 늦은 응답 버리기, 5개 한도)은 `api/tests/web/chat_versions.test.mjs`가 본다.

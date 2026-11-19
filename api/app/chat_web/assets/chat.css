@@ -1791,8 +1791,12 @@ button.login-lang:focus-visible, .login-lang .lang-pill:focus-visible { outline:
 /* 질문 수정·다시 답하기와 답변 버전 (#140). 기존 규칙은 건드리지 않고 이름표 규칙만 더한다.
    대화 칸은 사진이 비치는 반투명 면이라, 조작 버튼·버전 번호·편집 폼·실패 문구는 모두 불투명한 --surface 위에 그린다.
    글자 대비는 그 --surface 위에서 잰다. 버튼·편집 폼의 경계 선은 안쪽 --surface와 바깥 대화 면 양쪽에 닿으므로,
-   사진을 못 받았을 때의 바깥 면(--bg 위 덮개와 --main-surface·--main-bubble을 합성한 색)과도 3:1을 넘어야 한다.
-   --control-line(#6E8098)은 라이트의 어두운 덮개 합성 면과 3:1에 못 미쳐 경계는 --text-muted로 긋는다.
+   사진을 못 받았을 때의 바깥 면과도 3:1을 넘어야 한다. 그 면은 body·.campus-backdrop의 대체 색 --navy에서 시작해
+   덮개와 대화 면(--main-surface)이 얹힌 색이다(라이트 상대 휘도 약 0.51).
+   --control-line(#6E8098)과 --danger는 이 면과 3:1에 못 미친다. 그래서 바깥에 닿는 선은 --text-muted·--accent로 긋고,
+   위험 색은 안쪽 --surface에만 닿는 편집 칸 선과 실패 문구 글자에만 쓴다.
+   680px 이하에서 대화 칸(.transcript)은 좌우 여백 없이 가로 넘침을 숨긴다. 그래서 초점 고리와 대기 점선을 차례 밖에 그리지 않는다.
+   조작 줄 안쪽에 초점 띠 폭(6px)만큼 여백을 두고, 대기 점선은 조작 줄 안쪽 가장자리에 긋는다.
    test_chat_versions_style.py가 실제 선언을 모아 이 값들을 계산한다.
    경계는 1px 선이고 그림자·그라데이션·움직임(transition·animation)은 쓰지 않는다. */
 .turn-actions {
@@ -1802,7 +1806,9 @@ button.login-lang:focus-visible, .login-lang .lang-pill:focus-visible { outline:
   justify-content: space-between;
   gap: 8px;
   max-width: 670px;
-  margin-top: 8px;
+  margin-top: 2px;
+  padding: 6px;
+  border-radius: 8px;
 }
 .version-picker { display: inline-flex; align-items: center; gap: 4px; margin: 0; padding: 0; border: 0; }
 .version-count {
@@ -1871,20 +1877,21 @@ form.turn-editor textarea {
   background: var(--surface);
   color: var(--text);
 }
-/* 새 답 후보를 받는 차례. 움직이는 표시 대신 차례 전체를 점선으로 두르고, 잠긴 버튼에 기다림 커서를 보인다.
-   답 없이 복원한 질문(첫 답 전에 정지한 기록)에는 .reply가 없으므로 답 자리가 아니라 .turn에 긋는다.
-   outline은 자리를 차지하지 않아 상태가 바뀌어도 줄이 밀리지 않는다. */
-.turn[data-version-state="pending"] { border-radius: 8px; outline: 1px dashed var(--text-muted); outline-offset: 4px; }
+/* 새 답 후보를 받는 차례. 움직이는 표시 대신 잠긴 조작 줄을 점선으로 두르고, 잠긴 버튼에 기다림 커서를 보인다.
+   답 없이 복원한 질문(첫 답 전에 정지한 기록)에는 .reply가 없어도 조작 줄은 있으므로 조작 줄에 긋는다.
+   점선은 조작 줄 상자 안쪽(-1px)에 그려 좁은 화면에서도 잘리지 않고, outline이라 자리를 차지하지 않는다. */
+.turn[data-version-state="pending"] .turn-actions { outline: 1px dashed var(--text-muted); outline-offset: -1px; }
 .turn[data-version-state="pending"] :is(.turn-edit, .turn-regenerate, .version-prev, .version-next):disabled { cursor: progress; }
-/* 실패한 차례. 고친 초안이 든 편집 폼 경계와 실패 문구를 위험 색 1px 선으로 그린다. 다시 시도 버튼은 .turn-editor-submit을 쓴다.
-   실패 문구는 편집 폼 밖, 조작 줄 바로 다음에 놓이므로 위쪽 간격을 둔다. */
-.turn[data-version-state="failed"] form.turn-editor { border-color: var(--danger); }
+/* 실패한 차례. 편집 폼 바깥 선은 그대로 두고, 폼 안쪽 흰 면에만 닿는 편집 칸 선을 위험 색으로 바꾼다.
+   폼 선을 위험 색으로 바꾸면 남색 대체 배경 위 대화 면과 약 2.9:1이다. 다시 시도 버튼은 .turn-editor-submit을 쓴다.
+   실패 문구는 편집 폼 밖, 조작 줄 바로 다음에 놓인다. 판 바깥 선 없이 --surface 면에 위험 색 글자로 쓴다. */
+.turn[data-version-state="failed"] form.turn-editor textarea { border-color: var(--danger); }
 .version-error {
   flex: 1 1 100%;
   max-width: 670px;
   margin: 8px 0 0;
   padding: 8px 12px;
-  border: 1px solid var(--danger);
+  border: 0;
   border-radius: 8px;
   background: var(--surface);
   color: var(--danger);

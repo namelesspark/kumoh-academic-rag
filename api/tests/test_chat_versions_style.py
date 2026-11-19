@@ -222,13 +222,19 @@ class ChatVersionsStyleTest(unittest.TestCase):
         return rgba(value)
 
     def outer_backdrops(self, theme):
-        """사진을 받지 못했을 때 조작 줄 바깥 면. --bg 위 덮개 하나, 그 위 대화 면(--main-surface) 또는 답 말풍선(--main-bubble)."""
-        bg = self.color(theme, "var(--bg)")
-        found = [bg]
-        for veil in ("--overlay-top", "--overlay-mid", "--overlay-bottom"):
-            base = over(self.color(theme, f"var({veil})"), bg)
-            for face in ("--main-surface", "--main-bubble"):
-                found.append(over(self.color(theme, f"var({face})"), base))
+        """사진을 받지 못했을 때 조작 줄 바깥 면.
+
+        바닥은 body·.campus-backdrop의 대체 색 --navy다(--bg도 함께 본다). 그 위에 덮개 하나(또는 없음),
+        맨 위에 대화 면(--main-surface) 또는 답 말풍선(--main-bubble)을 얹는다.
+        """
+        self.assertIn("background: var(--navy) url(", self.raw, "사진 대체 색이 바뀌면 이 바닥도 바꾼다")
+        found = []
+        for floor in ("--navy", "--bg"):
+            bottom = self.color(theme, f"var({floor})")
+            for veil in (None, "--overlay-top", "--overlay-mid", "--overlay-bottom"):
+                base = over(self.color(theme, f"var({veil})"), bottom) if veil else bottom
+                for face in ("--main-surface", "--main-bubble"):
+                    found.append(over(self.color(theme, f"var({face})"), base))
         return found
 
     def button_cases(self):
@@ -312,22 +318,55 @@ class ChatVersionsStyleTest(unittest.TestCase):
                 self.assertEqual(decls.get("opacity"), "1")
                 self.assertEqual(decls.get("border-style"), "dashed")
 
+    def pending_row(self, state="pending"):
+        attrs = [f'[data-version-state="{state}"]'] if state else []
+        return [element("div", ["turn"], attrs), element("div", ["turn-actions"])]
+
     def test_pending_mark_does_not_need_an_answer(self):
-        # 첫 답 전에 정지한 기록은 답 없이 질문만 복원된다. 그 차례도 다시 답하기를 누르면 점선이 보여야 한다.
-        turn = element("div", ["turn"], ['[data-version-state="pending"]'])
-        decls = self.computed([turn])
+        # 첫 답 전에 정지한 기록은 답 없이 질문만 복원된다. .reply가 없어도 조작 줄에 점선이 보여야 한다.
+        decls = self.computed(self.pending_row())
         self.assertRegex(decls.get("outline", ""), r"^1px dashed var\(--[\w-]+\)$")
-        idle = self.computed([element("div", ["turn"])])
-        self.assertNotIn("outline", idle)
+        self.assertNotIn("outline", self.computed(self.pending_row(None)))
+        self.assertFalse(any("pending" in head and ".reply" in head for head, _, _ in self.rules))
         regenerate = self.chain(element("button", ["turn-regenerate"], states=["disabled"]), "pending")
         self.assertEqual(self.computed(regenerate).get("cursor"), "progress")
 
-    def test_failed_turn_marks_form_and_error(self):
-        form = self.computed([element("div", ["turn"], ['[data-version-state="failed"]']), element("form", ["turn-editor"])])
-        self.assertEqual(form.get("border-color"), "var(--danger)")
+    def test_outlines_stay_inside_the_turn(self):
+        """680px 이하 대화 칸은 좌우 여백 없이 가로 넘침을 숨긴다. 초점 고리·띠와 대기 점선이 차례 밖으로 나가면 잘린다."""
+        self.assertIn("overflow-x: hidden", self.raw)
+        for media in (None, NARROW):
+            row = self.computed(self.pending_row(None), media)
+            pad = int(row["padding"].rstrip("px"))
+            form = self.computed([element("div", ["turn"]), element("form", ["turn-editor"])], media)
+            form_pad = int(form["padding"].rstrip("px"))
+            for label, chain in self.button_cases():
+                if "focus-visible" not in chain[-1]["states"]:
+                    continue
+                with self.subTest(media=media, case=label):
+                    decls = self.computed(chain, media)
+                    reach = max(int(decls["outline-offset"].rstrip("px")) + 2,
+                                int(re.match(r"0 0 0 (\d+)px", decls["box-shadow"]).group(1)))
+                    room = form_pad if chain[-2]["tag"] == "form" else pad
+                    self.assertGreaterEqual(room, reach)
+            pending = self.computed(self.pending_row(), media)
+            self.assertLessEqual(int(pending["outline-offset"].rstrip("px")), -1, "점선은 조작 줄 상자 안쪽에 긋는다")
+
+    def test_failed_turn_marks_textarea_and_error(self):
+        failed = [element("div", ["turn"], ['[data-version-state="failed"]']), element("form", ["turn-editor"])]
+        self.assertNotIn("border-color", self.computed(failed), "폼 바깥 선은 바꾸지 않는다")
+        textarea = self.computed(failed + [element("textarea")])
+        self.assertEqual(textarea.get("border-color"), "var(--danger)")
         error = self.computed(self.chain(element("p", ["version-error"]), "failed"))
         self.assertEqual(error.get("color"), "var(--danger)")
-        self.assertRegex(error.get("border", ""), r"^1px solid var\(--danger\)$")
+        self.assertEqual(error.get("border"), "0")
+        # 위험 색 편집 칸 선은 폼 안쪽 --surface에만 닿는다.
+        form_face = self.computed(failed)["background"]
+        for theme in self.themes:
+            with self.subTest(theme=theme):
+                back = self.color(theme, form_face)
+                edge = self.color(theme, textarea["border-color"])
+                self.assertGreaterEqual(contrast(over(edge, back), back), 3.0)
+                self.assertEqual(self.color(theme, textarea["background"]), back)
 
     # --- 움직임·선·색 -----------------------------------------------------------------------------
 
@@ -381,7 +420,8 @@ class ChatVersionsStyleTest(unittest.TestCase):
                         self.assertGreaterEqual(contrast(over(edge, side), side), 3.0)
 
     def test_pending_outline_clears_the_conversation_face(self):
-        decls = self.computed([element("div", ["turn"], ['[data-version-state="pending"]'])])
+        decls = self.computed(self.pending_row())
+        self.assertNotIn("background", decls, "조작 줄은 투명이라 점선 뒤는 바깥 대화 면이다")
         line = decls["outline"].split(" ")[-1]
         for theme in self.themes:
             for side in self.outer_backdrops(theme):
