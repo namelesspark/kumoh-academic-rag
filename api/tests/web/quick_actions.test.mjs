@@ -15,9 +15,9 @@ const css = styles.replace(/\/\*[\s\S]*?\*\//g, "");
 
 function ringPage({ width = 1280, height = 800, view = "home", reduced = false, lang = "ko", missing = [], locked = [],
   toggleRect = { left: 300, top: 700, width: 44, height: 44 }, visual = null } = {}) {
-  const state = { focused: null };
+  const state = { focused: null, reduced };
   let frames = [];
-  const timers = new Map(), documentListeners = [], windowListeners = [], observers = [];
+  const timers = new Map(), documentListeners = [], windowListeners = [], observers = [], mediaListeners = [];
   let nextTimer = 0;
   class El {
     constructor(tag, ns = null) {
@@ -79,7 +79,11 @@ function ringPage({ width = 1280, height = 800, view = "home", reduced = false, 
   };
   const window = {
     innerWidth: width, innerHeight: height,
-    matchMedia: query => ({ matches: reduced && query.includes("prefers-reduced-motion"), addEventListener() {} }),
+    // 동작 줄이기 설정은 테스트 도중 바꿀 수 있다(state.reduced). 바뀜 신호 처리기는 모아 두었다가 직접 보낸다.
+    matchMedia: query => ({
+      get matches() { return state.reduced && query.includes("prefers-reduced-motion"); },
+      addEventListener: (type, listener) => { if (query.includes("prefers-reduced-motion") && type === "change") mediaListeners.push(listener); },
+    }),
     requestAnimationFrame: callback => { frames.push(callback); return frames.length; },
     addEventListener: (type, listener) => windowListeners.push({ type, listener }),
     // 확대(핀치 줌)했을 때 실제로 보이는 칸. 주면 그 칸의 크기·위치와 신호를 쓴다.
@@ -100,6 +104,7 @@ function ringPage({ width = 1280, height = 800, view = "home", reduced = false, 
     state, row, photo, pen, cards, home, body, root, toggle, ring, menu, items, timers, observers,
     item: id => items.find(item => item.dataset.quickAction === id),
     screen, window,
+    reduce: () => { state.reduced = true; for (const listener of mediaListeners) listener({ matches: true }); },
     blobs: () => ring.all().filter(node => (node.getAttribute("class") ?? "").split(/\s+/).includes("quick-ring-blob")),
     frames: () => { const pending = frames; frames = []; for (const callback of pending) callback(16); return pending.length; },
     tick: () => { for (const [id, timer] of [...timers]) { timers.delete(id); timer.callback(); } },
@@ -350,6 +355,43 @@ test("화면을 확대해 보이는 칸이 창보다 작으면 그 칸 안에 �
   page.windowEvent("visual-scroll");
   assert.equal(page.toggle.getAttribute("aria-expanded"), "true");
   inView({ left: 0, top: 120, width: 195, height: 350 });
+});
+
+test("열린 링은 뒤로 가기·주소 조각 변화·홈↔채팅 전환 때 닫고, 화면이 그대로면 남겨 둔다", () => {
+  for (const type of ["popstate", "hashchange"]) {
+    const page = ringPage({ view: "chat" });
+    page.toggle.click();
+    page.windowEvent(type);
+    assert.equal(page.toggle.getAttribute("aria-expanded"), "false", type);
+  }
+  // 알림을 눌러 대화를 여는 것처럼 뒤로 가기 없이 화면만 바뀐 경우. 속성 변화 감시가 알린다.
+  const page = ringPage({ view: "chat" });
+  page.toggle.click();
+  for (const observer of page.observers) observer([]);
+  assert.equal(page.toggle.getAttribute("aria-expanded"), "true", "an unrelated change keeps the ring");
+  page.body.setAttribute("data-view", "home");
+  for (const observer of page.observers) observer([]);
+  assert.equal(page.toggle.getAttribute("aria-expanded"), "false");
+});
+
+test("펼쳐지는 도중 동작 줄이기를 켜면 바로 펼친 상태로 두고 방울이 곧바로 누름을 받는다", () => {
+  const page = ringPage();
+  page.toggle.click();
+  page.frames();
+  assert.equal(page.ring.getAttribute("data-settled"), null);
+  assert.deepEqual([...page.timers.values()].map(timer => timer.delay), [290]);
+  page.reduce();
+  assert.equal(page.ring.getAttribute("data-open"), "true");
+  assert.equal(page.ring.getAttribute("data-settled"), "");
+  assert.equal(page.timers.size, 0, "the pending settle is cancelled");
+  // 첫 그리기를 기다리던 중에 켜도 같다.
+  const early = ringPage();
+  early.toggle.click();
+  early.reduce();
+  assert.equal(early.ring.getAttribute("data-open"), "true");
+  assert.equal(early.ring.getAttribute("data-settled"), "");
+  early.frames();
+  assert.equal(early.timers.size, 0, "the late first frame does not schedule another wait");
 });
 
 test("채팅에서 Enter로 방울을 고른 뒤 키를 누르고 있어도, +로 돌아온 반복 Enter가 링을 다시 열어 실행을 취소하지 않는다", () => {

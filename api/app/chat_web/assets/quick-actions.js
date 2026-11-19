@@ -113,7 +113,7 @@
   ring.append(blobs, close, menu, caption);
   doc.body.append(ring);
 
-  let open = false, hideTimer = null, settleTimer = null, captionKey = null, waiting = 0, openedAt = null;
+  let open = false, hideTimer = null, settleTimer = null, captionKey = null, waiting = 0, openedAt = null, openedView = null;
   const visible = () => entries.filter(entry => !entry.item.hidden);
   const enabled = () => visible().filter(entry => !entry.item.disabled);
 
@@ -258,6 +258,7 @@
     if (hideTimer !== null) { clearTimeout(hideTimer); hideTimer = null; }
     ring.hidden = false;
     openedAt = toggle.getBoundingClientRect();
+    openedView = doc.body.getAttribute("data-view");
     toggle.setAttribute("aria-expanded", "true");
     show(null);
     const list = enabled();
@@ -272,6 +273,8 @@
     nextFrame(() => {
       if (!open) return;
       ring.setAttribute("data-open", "true");
+      // 첫 그리기를 기다리는 사이 동작 줄이기를 켰으면 이미 누름을 받는 상태다. 다시 기다리게 하지 않는다.
+      if (reduced() || ring.getAttribute("data-settled") !== null) { ring.setAttribute("data-settled", ""); return; }
       settleTimer = setTimeout(() => { settleTimer = null; if (open) ring.setAttribute("data-settled", ""); }, settleMs);
     });
   }
@@ -378,8 +381,11 @@
     cancelWaiting();
     if (open) closeRing(false);
   }, true);
-  window.addEventListener?.("popstate", cancelWaiting);
-  window.addEventListener?.("hashchange", cancelWaiting);
+  // 뒤로 가기·주소 조각 변화로 화면이 바뀌면 기다리던 실행을 버리고, 열린 링도 닫는다.
+  // 링은 연 순간의 + 좌표에 고정돼 있어, 홈·채팅이 바뀌면 + 가 다른 자리로 옮겨 가도 그대로 남는다.
+  const leave = () => { cancelWaiting(); closeRing(false); };
+  window.addEventListener?.("popstate", leave);
+  window.addEventListener?.("hashchange", leave);
   // 링은 화면 좌표에 고정돼 있다. 창 크기가 바뀌거나 문서가 굴러 + 버튼이 옮겨 가면 닫는다.
   // 안쪽 칸(답이 이어 나오는 대화 칸)이 굴러도 신호가 오므로 + 버튼이 실제로 옮겨 갔을 때만 닫는다.
   // 휴대전화에서 초점이 옮겨 가며 키보드가 닫히는 크기 변화도 같은 기준으로 거른다.
@@ -397,8 +403,15 @@
   window.visualViewport?.addEventListener?.("resize", resized);
   window.visualViewport?.addEventListener?.("scroll", resized);
   doc.addEventListener("scroll", moved, true);
+  // 동작 줄이기를 켜는 순간: 닫히던 링은 바로 숨기고, 펼쳐지던 링은 바로 펼친 상태로 두고 누름도 받게 한다.
   window.matchMedia?.("(prefers-reduced-motion: reduce)")?.addEventListener?.("change", event => {
-    if (event.matches && !open && hideTimer !== null) { clearTimeout(hideTimer); hideTimer = null; ring.hidden = true; }
+    if (!event.matches) return;
+    if (!open && hideTimer !== null) { clearTimeout(hideTimer); hideTimer = null; ring.hidden = true; }
+    if (open) {
+      if (settleTimer !== null) { clearTimeout(settleTimer); settleTimer = null; }
+      ring.setAttribute("data-open", "true");
+      ring.setAttribute("data-settled", "");
+    }
   });
   if (typeof MutationObserver === "function" && doc.documentElement) {
     new MutationObserver(label).observe(doc.documentElement, { attributes: true, attributeFilter: ["lang"] });
@@ -413,6 +426,10 @@
       const node = target(action);
       if (node) follow.observe(node, { attributes: true, attributeFilter: ["disabled", "hidden", "aria-disabled"] });
     }
+    // 열어 둔 사이 홈·채팅 화면이 바뀌면(알림을 눌러 대화를 여는 등) 링을 닫는다. 화면이 바뀌면 + 자리도 바뀐다.
+    new MutationObserver(() => {
+      if (open && doc.body.getAttribute("data-view") !== openedView) closeRing(false);
+    }).observe(doc.body, { attributes: true, attributeFilter: ["data-view"] });
   }
   label();
 })();
