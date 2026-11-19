@@ -1790,7 +1790,10 @@ button.login-lang:focus-visible, .login-lang .lang-pill:focus-visible { outline:
 
 /* 질문 수정·다시 답하기와 답변 버전 (#140). 기존 규칙은 건드리지 않고 이름표 규칙만 더한다.
    대화 칸은 사진이 비치는 반투명 면이라, 조작 버튼·버전 번호·편집 폼·실패 문구는 모두 불투명한 --surface 위에 그린다.
-   그래서 대비는 테마별 --surface 한 가지 바탕으로만 계산한다(test_chat_versions_style.py).
+   글자 대비는 그 --surface 위에서 잰다. 버튼·편집 폼의 경계 선은 안쪽 --surface와 바깥 대화 면 양쪽에 닿으므로,
+   사진을 못 받았을 때의 바깥 면(--bg 위 덮개와 --main-surface·--main-bubble을 합성한 색)과도 3:1을 넘어야 한다.
+   --control-line(#6E8098)은 라이트의 어두운 덮개 합성 면과 3:1에 못 미쳐 경계는 --text-muted로 긋는다.
+   test_chat_versions_style.py가 실제 선언을 모아 이 값들을 계산한다.
    경계는 1px 선이고 그림자·그라데이션·움직임(transition·animation)은 쓰지 않는다. */
 .turn-actions {
   display: flex;
@@ -1819,7 +1822,7 @@ button.login-lang:focus-visible, .login-lang .lang-pill:focus-visible { outline:
   min-width: 44px;
   min-height: 44px;
   padding: 8px 14px;
-  border: 1px solid var(--control-line);
+  border: 1px solid var(--text-muted);
   border-radius: 8px;
   background: var(--surface);
   color: var(--text);
@@ -1830,7 +1833,9 @@ button.login-lang:focus-visible, .login-lang .lang-pill:focus-visible { outline:
 :is(.turn-edit, .turn-regenerate, .version-prev, .version-next, .turn-editor-cancel):not(:disabled):hover { border-color: var(--focus-ink); background: var(--tint); }
 /* 저장하고 묻기는 강조 버튼이다. 라이트는 학교 파랑 위 흰 글자, 다크는 밝은 하늘색 위 짙은 판 색 글자라 두 테마 모두 4.5:1을 넘는다. */
 .turn-editor-submit { border-color: var(--accent); background: var(--accent); color: var(--surface); }
-.turn-editor-submit:not(:disabled):hover { border-color: var(--text); }
+/* hover는 글자 밑줄로 알린다. 채움 위에 다른 색 선을 그으면 라이트 남색 선과 파랑 채움이 약 2.2:1이고,
+   채움을 본문색으로 바꾸면 다크에서 밝은 면이 새로 생긴다(landing_design.test.mjs의 다크 밝은 면 목록). */
+.turn-editor-submit:not(:disabled):hover { text-decoration: underline; text-underline-offset: 3px; }
 /* 초점 고리는 공통 2px 고리 그대로이되, 뒤에 --surface 6px 띠를 깔아 사진 위에서도 고리 양옆이 늘 판 색이다. */
 :is(.turn-edit, .turn-regenerate, .version-prev, .version-next, .turn-editor-cancel, .turn-editor-submit):focus-visible {
   outline: 2px solid var(--focus-ring);
@@ -1842,7 +1847,7 @@ button.login-lang:focus-visible, .login-lang .lang-pill:focus-visible { outline:
 :is(.turn-edit, .turn-regenerate, .version-prev, .version-next, .turn-editor-cancel, .turn-editor-submit):disabled {
   opacity: 1;
   border-style: dashed;
-  border-color: var(--control-line);
+  border-color: var(--text-muted);
   background: var(--surface);
   color: var(--text-muted);
 }
@@ -1854,7 +1859,7 @@ form.turn-editor {
   width: min(100%, 530px);
   margin: 0 0 17px auto;
   padding: 12px;
-  border: 1px solid var(--control-line);
+  border: 1px solid var(--text-muted);
   border-radius: 8px;
   background: var(--surface);
 }
@@ -1866,14 +1871,18 @@ form.turn-editor textarea {
   background: var(--surface);
   color: var(--text);
 }
-/* 새 답 후보를 받는 차례. 움직이는 표시 대신 답 자리를 점선으로 두르고, 잠긴 버튼에 기다림 커서를 보인다. */
-.turn[data-version-state="pending"] .reply { outline: 1px dashed var(--control-line); outline-offset: -1px; }
+/* 새 답 후보를 받는 차례. 움직이는 표시 대신 차례 전체를 점선으로 두르고, 잠긴 버튼에 기다림 커서를 보인다.
+   답 없이 복원한 질문(첫 답 전에 정지한 기록)에는 .reply가 없으므로 답 자리가 아니라 .turn에 긋는다.
+   outline은 자리를 차지하지 않아 상태가 바뀌어도 줄이 밀리지 않는다. */
+.turn[data-version-state="pending"] { border-radius: 8px; outline: 1px dashed var(--text-muted); outline-offset: 4px; }
 .turn[data-version-state="pending"] :is(.turn-edit, .turn-regenerate, .version-prev, .version-next):disabled { cursor: progress; }
-/* 실패한 차례. 고친 초안이 든 편집 폼 경계와 실패 문구를 위험 색 1px 선으로 그린다. 다시 시도 버튼은 .turn-editor-submit을 쓴다. */
+/* 실패한 차례. 고친 초안이 든 편집 폼 경계와 실패 문구를 위험 색 1px 선으로 그린다. 다시 시도 버튼은 .turn-editor-submit을 쓴다.
+   실패 문구는 편집 폼 밖, 조작 줄 바로 다음에 놓이므로 위쪽 간격을 둔다. */
 .turn[data-version-state="failed"] form.turn-editor { border-color: var(--danger); }
 .version-error {
   flex: 1 1 100%;
-  margin: 0;
+  max-width: 670px;
+  margin: 8px 0 0;
   padding: 8px 12px;
   border: 1px solid var(--danger);
   border-radius: 8px;

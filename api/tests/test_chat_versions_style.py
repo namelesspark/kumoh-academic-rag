@@ -1,7 +1,8 @@
 """질문 수정·다시 답하기와 답변 버전 화면(#140)의 모양 테스트.
 
-브라우저를 띄우지 않고 실제 chat.css를 읽어 이슈가 정한 이름표 규칙, 44px 조작 영역, 초점 표시,
-390px 줄바꿈, 움직임 없음, 라이트·다크 두 테마 토큰의 대비를 계산한다.
+브라우저를 띄우지 않고 실제 chat.css를 읽는다. #140 절의 규칙을 작은 선택자 판정기로 가상 요소(버튼·번호·폼·실패 문구)에
+걸어 그 요소가 실제로 받는 선언을 모으고, 그 색으로 라이트·다크(속성)·다크(시스템) 대비를 계산한다.
+고정된 색 쌍을 계산하지 않으므로 규칙의 색을 바꾸면 결과도 바뀐다.
 """
 
 import re
@@ -10,6 +11,7 @@ from pathlib import Path
 
 CSS_PATH = Path(__file__).resolve().parents[1] / "app" / "chat_web" / "assets" / "chat.css"
 MARKER = "/* 질문 수정·다시 답하기와 답변 버전 (#140)."
+NARROW = "@media (max-width: 390px)"
 
 BUTTONS = (".turn-edit", ".turn-regenerate", ".version-prev", ".version-next",
            ".turn-editor-cancel", ".turn-editor-submit")
@@ -18,24 +20,24 @@ NAMES = BUTTONS + (".turn-actions", ".version-picker", ".version-count", "form.t
                    '.turn[data-version-state="failed"]')
 
 
+# --- CSS 읽기 ---------------------------------------------------------------------------------
+
 def strip_comments(text):
     return re.sub(r"/\*.*?\*/", "", text, flags=re.S)
 
 
 def block_after(text, head):
-    """head 바로 뒤 중괄호 블록의 안쪽 글을 돌려준다. 안쪽 중괄호도 짝을 맞춘다."""
-    # head에 여는 중괄호가 들어 있어도(":root {") 그 중괄호부터 센다. head 뒤에서 찾으면 다음 블록을 읽는다.
+    """head가 시작하는 자리의 첫 중괄호 블록 안쪽 글. head에 "{"가 들어 있어도 그 중괄호부터 센다."""
     start = text.index("{", text.index(head)) + 1
     depth, pos = 1, start
     while depth:
-        char = text[pos]
-        depth += {"{": 1, "}": -1}.get(char, 0)
+        depth += {"{": 1, "}": -1}.get(text[pos], 0)
         pos += 1
     return text[start:pos - 1]
 
 
 def rules(text):
-    """중첩 없는 규칙 목록 (선택자, 선언 사전). @media 안쪽도 펼쳐 담고 미디어 조건을 함께 남긴다."""
+    """(선택자 머리, 선언 사전, 미디어 조건) 목록. @media·@supports 안쪽도 펼친다."""
     found = []
 
     def walk(chunk, media):
@@ -65,25 +67,72 @@ def rules(text):
     return found
 
 
-def names(selector, name):
-    """선택자에 이름표가 온전히 들어 있는지 본다. .turn-edit는 .turn-editor와 다른 이름이다."""
-    return re.search(re.escape(name) + r"(?![\w-])", selector) is not None
+def split_top(text, separators):
+    """괄호 밖의 구분자로만 나눈다. :is(.a, .b) 안의 쉼표·공백은 나누지 않는다."""
+    parts, depth, current = [], 0, ""
+    for char in text:
+        depth += {"(": 1, ")": -1, "[": 1, "]": -1}.get(char, 0)
+        if depth == 0 and char in separators:
+            parts.append(current)
+            current = ""
+        else:
+            current += char
+    parts.append(current)
+    return [part.strip() for part in parts if part.strip()]
 
+
+# --- 가상 요소와 선택자 판정 --------------------------------------------------------------------
+
+def element(tag, classes=(), attrs=(), states=()):
+    return {"tag": tag, "classes": set(classes), "attrs": set(attrs), "states": set(states)}
+
+
+def compound_matches(compound, node):
+    for inner in re.findall(r":is\(([^()]*)\)", compound):
+        if not any(compound_matches(option, node) for option in split_top(inner, ",")):
+            return False
+    rest = re.sub(r":is\([^()]*\)", "", compound)
+    for inner in re.findall(r":not\(([^()]*)\)", rest):
+        if compound_matches(inner, node):
+            return False
+    rest = re.sub(r":not\([^()]*\)", "", rest)
+    tag = re.match(r"[a-z]*", rest).group(0)
+    if tag and tag != node["tag"]:
+        return False
+    for token in re.findall(r"\.[\w-]+|\[[^\]]+\]|::?[\w-]+|\*", rest[len(tag):]):
+        if token == "*":
+            continue
+        if token.startswith("."):
+            ok = token[1:] in node["classes"]
+        elif token.startswith("["):
+            ok = token in node["attrs"]
+        else:
+            ok = token.lstrip(":") in node["states"]
+        if not ok:
+            return False
+    return True
+
+
+def selector_matches(selector, chain):
+    """chain은 바깥 조상부터 대상 요소까지의 목록이다. 자식(>)도 자손처럼 본다."""
+    compounds = [part for part in split_top(selector, " >") if part != ">"]
+    if not compounds or not compound_matches(compounds[-1], chain[-1]):
+        return False
+    ancestors = chain[:-1]
+    index = len(ancestors)
+    for compound in reversed(compounds[:-1]):
+        index -= 1
+        while index >= 0 and not compound_matches(compound, ancestors[index]):
+            index -= 1
+        if index < 0:
+            return False
+    return True
+
+
+# --- 색 -------------------------------------------------------------------------------------
 
 def tokens(body):
     return {name: value.strip() for name, value in re.findall(r"(--[\w-]+)\s*:\s*([^;]+);", body)}
-
-
-def resolve(name, table, base):
-    value = table.get(name, base.get(name))
-    seen = set()
-    while value and value.startswith("var("):
-        inner = re.match(r"var\((--[\w-]+)\)", value).group(1)
-        if inner in seen:
-            raise AssertionError(f"순환 변수 {inner}")
-        seen.add(inner)
-        value = table.get(inner, base.get(inner))
-    return value
 
 
 def rgba(value):
@@ -101,20 +150,27 @@ def rgba(value):
 
 def over(top, bottom):
     alpha = top[3]
-    return tuple(top[i] * alpha + bottom[i] * (1 - alpha) for i in range(3))
+    return tuple(top[i] * alpha + bottom[i] * (1 - alpha) for i in range(3)) + (1.0,)
 
 
 def luminance(rgb):
     def channel(c):
         c /= 255
-        return c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4
-    r, g, b = (channel(c) for c in rgb)
+        return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
+    r, g, b = (channel(c) for c in rgb[:3])
     return 0.2126 * r + 0.7152 * g + 0.0722 * b
 
 
 def contrast(fg, bg):
     hi, lo = sorted((luminance(fg), luminance(bg)), reverse=True)
     return (hi + 0.05) / (lo + 0.05)
+
+
+def border_color(decls):
+    if "border-color" in decls:
+        return decls["border-color"]
+    match = re.search(r"var\(--[\w-]+\)", decls.get("border", ""))
+    return match.group(0) if match else None
 
 
 class ChatVersionsStyleTest(unittest.TestCase):
@@ -126,21 +182,69 @@ class ChatVersionsStyleTest(unittest.TestCase):
         cls.rules = rules(cls.section)
         plain = strip_comments(raw)
         light = tokens(block_after(plain, ":root {"))
-        dark_attr = tokens(block_after(plain, ':root[data-theme="dark"]'))
-        dark_system = tokens(block_after(plain, ":root:not([data-theme])"))
-        cls.light = light
-        cls.themes = {"light": ({}, light), "dark": (dark_attr, light), "system-dark": (dark_system, light)}
+        cls.themes = {
+            "light": light,
+            "dark": {**light, **tokens(block_after(plain, ':root[data-theme="dark"]'))},
+            "system-dark": {**light, **tokens(block_after(plain, ":root:not([data-theme])"))},
+        }
 
-    def decls_for(self, name, media=None):
-        merged = {}
-        for selector, decls, rule_media in self.rules:
-            if rule_media == media and names(selector, name):
-                merged.update(decls)
-        return merged
+    # 가상 요소. 조작 줄은 답 아래 .turn-actions, 편집 폼은 .turn 안 form.turn-editor, 실패 문구는 조작 줄 다음이다.
+    def chain(self, target, state=None):
+        attrs = {f'[data-version-state="{state}"]'} if state else set()
+        turn = element("div", ["turn"], attrs)
+        name = target["classes"] and next(iter(target["classes"]))
+        if name in ("version-prev", "version-next", "version-count"):
+            return [turn, element("div", ["turn-actions"]), element("div", ["version-picker"], ['[role="group"]']), target]
+        if name in ("turn-edit", "turn-regenerate"):
+            return [turn, element("div", ["turn-actions"]), target]
+        if name in ("turn-editor-cancel", "turn-editor-submit") or target["tag"] == "textarea":
+            return [turn, element("form", ["turn-editor"]), target]
+        return [turn, target]
 
-    def color(self, theme, token):
-        table, base = self.themes[theme]
-        return rgba(resolve(token, table, base))
+    def computed(self, chain, media=None):
+        result = {}
+        for head, decls, rule_media in self.rules:
+            if rule_media not in (None, media):
+                continue
+            if any(selector_matches(selector, chain) for selector in split_top(head, ",")):
+                result.update(decls)
+        return result
+
+    def color(self, theme, value):
+        table = self.themes[theme]
+        seen = set()
+        while value and value.startswith("var("):
+            name = re.fullmatch(r"var\((--[\w-]+)\)", value).group(1)
+            self.assertNotIn(name, seen)
+            seen.add(name)
+            value = table.get(name)
+        self.assertIsNotNone(value)
+        return rgba(value)
+
+    def outer_backdrops(self, theme):
+        """사진을 받지 못했을 때 조작 줄 바깥 면. --bg 위 덮개 하나, 그 위 대화 면(--main-surface) 또는 답 말풍선(--main-bubble)."""
+        bg = self.color(theme, "var(--bg)")
+        found = [bg]
+        for veil in ("--overlay-top", "--overlay-mid", "--overlay-bottom"):
+            base = over(self.color(theme, f"var({veil})"), bg)
+            for face in ("--main-surface", "--main-bubble"):
+                found.append(over(self.color(theme, f"var({face})"), base))
+        return found
+
+    def button_cases(self):
+        for name in BUTTONS:
+            for states in ((), ("hover",), ("disabled",), ("focus-visible",)):
+                for turn_state in (None, "pending", "failed"):
+                    target = element("button", [name.lstrip(".")], states=states)
+                    yield f"{name}:{'/'.join(states) or 'base'}:{turn_state}", self.chain(target, turn_state)
+
+    def text_cases(self):
+        yield from self.button_cases()
+        yield ".version-count", self.chain(element("span", ["version-count"], ['[aria-live="polite"]']))
+        yield ".version-error", self.chain(element("p", ["version-error"]), "failed")
+        yield "form.turn-editor textarea", self.chain(element("textarea"), "failed")
+
+    # --- 이름표와 자리 ---------------------------------------------------------------------------
 
     def test_section_adds_every_issue_name(self):
         for name in NAMES:
@@ -148,102 +252,146 @@ class ChatVersionsStyleTest(unittest.TestCase):
                 self.assertIn(name, self.section)
 
     def test_section_is_appended_after_existing_rules(self):
-        # 기존 규칙을 고치지 않고 끝에 더한다. 이 절 앞에는 이름표가 나오지 않는다.
         before = strip_comments(self.raw[:self.raw.index(MARKER)])
         for name in (".turn-actions", ".version-picker", ".turn-editor", "data-version-state", ".version-error"):
             with self.subTest(name=name):
                 self.assertNotIn(name, before)
 
+    def test_selector_reader_tells_similar_names_apart(self):
+        edit = [element("div", ["turn"]), element("div", ["turn-actions"]), element("button", ["turn-edit"])]
+        self.assertTrue(selector_matches(":is(.turn-edit, .version-next):not(:disabled):hover",
+                                         edit[:-1] + [element("button", ["turn-edit"], states=["hover"])]))
+        self.assertFalse(selector_matches(":is(.turn-edit):not(:disabled):hover",
+                                          edit[:-1] + [element("button", ["turn-edit"], states=["hover", "disabled"])]))
+        self.assertFalse(selector_matches("form.turn-editor textarea", edit))
+        self.assertFalse(selector_matches('.turn[data-version-state="pending"] .x', [element("div", ["turn"]), element("i", ["x"])]))
+
+    # --- 크기·초점·줄바꿈 -------------------------------------------------------------------------
+
     def test_controls_are_at_least_44px(self):
-        for name in BUTTONS + (".version-count",):
+        for name in BUTTONS:
             with self.subTest(name=name):
-                decls = self.decls_for(name)
+                decls = self.computed(self.chain(element("button", [name.lstrip(".")])))
                 self.assertEqual(decls.get("min-height"), "44px")
-        for name in BUTTONS:
-            with self.subTest(name=name):
-                self.assertEqual(self.decls_for(name).get("min-width"), "44px")
+                self.assertEqual(decls.get("min-width"), "44px")
+        count = self.computed(self.chain(element("span", ["version-count"])))
+        self.assertEqual(count.get("min-height"), "44px")
 
-    def test_controls_use_thin_token_lines_without_gradients(self):
-        decls = self.decls_for(".turn-edit")
-        self.assertEqual(decls["border"], "1px solid var(--control-line)")
-        self.assertEqual(decls["background"], "var(--surface)")
-        for selector, body, _ in self.rules:
-            for key, value in body.items():
-                with self.subTest(selector=selector, key=key):
-                    self.assertNotIn("gradient", value)
-                    self.assertIsNone(re.search(r"#[0-9a-fA-F]{3,8}\b|rgba?\(", value), "색은 토큰으로만 쓴다")
-                    if key.startswith("border") and "radius" not in key and "px" in value:
-                        self.assertRegex(value, r"^1px ", "경계는 1px 선이다")
-                    if key == "box-shadow":
-                        self.assertIn(":focus-visible", selector, "그림자는 초점 띠에만 쓴다")
-
-    def test_focus_ring_is_visible_on_every_control(self):
-        focus = [(s, d) for s, d, _ in self.rules if ":focus-visible" in s]
-        self.assertTrue(focus)
-        for name in BUTTONS:
-            with self.subTest(name=name):
-                match = [d for s, d in focus if names(s, name)]
-                self.assertTrue(match)
-                self.assertEqual(match[0]["outline"], "2px solid var(--focus-ring)")
-                self.assertEqual(match[0]["box-shadow"], "0 0 0 6px var(--surface)")
-
-    def test_disabled_controls_do_not_fade_through_the_photo(self):
-        disabled = [d for s, d, _ in self.rules if s.endswith(":disabled") and names(s, ".version-next") and "pending" not in s]
-        self.assertTrue(disabled)
-        self.assertEqual(disabled[0]["opacity"], "1")
-        self.assertEqual(disabled[0]["color"], "var(--text-muted)")
-        self.assertEqual(disabled[0]["border-style"], "dashed")
-
-    def test_states_have_distinct_static_marks(self):
-        pending = self.decls_for('.turn[data-version-state="pending"] .reply')
-        self.assertEqual(pending.get("outline"), "1px dashed var(--control-line)")
-        failed = self.decls_for('.turn[data-version-state="failed"] form.turn-editor')
-        self.assertEqual(failed.get("border-color"), "var(--danger)")
-        error = self.decls_for(".version-error")
-        self.assertEqual(error.get("color"), "var(--danger)")
-        self.assertEqual(error.get("background"), "var(--surface)")
+    def test_focus_ring_sits_on_a_surface_band(self):
+        for theme in self.themes:
+            for label, chain in self.button_cases():
+                if "focus-visible" not in chain[-1]["states"]:
+                    continue
+                with self.subTest(theme=theme, case=label):
+                    decls = self.computed(chain)
+                    width, style, ring = decls["outline"].split(" ", 2)
+                    self.assertEqual((width, style), ("2px", "solid"))
+                    spread, band = re.fullmatch(r"0 0 0 (\d+)px (var\(--[\w-]+\))", decls["box-shadow"]).groups()
+                    # 고리 바깥 끝(간격+굵기)까지 띠가 깔려야 고리 양옆이 모두 띠 색이다.
+                    self.assertGreaterEqual(int(spread), int(decls["outline-offset"].rstrip("px")) + 2)
+                    band_color = self.color(theme, band)
+                    self.assertEqual(band_color[3], 1.0)
+                    self.assertGreaterEqual(contrast(over(self.color(theme, ring), band_color), band_color), 3.0)
 
     def test_actions_wrap_and_stack_at_390px(self):
-        self.assertEqual(self.decls_for(".turn-actions").get("flex-wrap"), "wrap")
-        narrow = "@media (max-width: 390px)"
-        stacked = [d for s, d, m in self.rules if m == narrow and s.strip() == ".turn-actions > *"]
-        self.assertTrue(stacked)
-        self.assertEqual(stacked[0]["flex"], "1 1 100%")
+        row = [element("div", ["turn"]), element("div", ["turn-actions"])]
+        self.assertEqual(self.computed(row).get("flex-wrap"), "wrap")
+        for name in (".turn-edit", ".turn-regenerate"):
+            with self.subTest(name=name):
+                child = self.chain(element("button", [name.lstrip(".")]))
+                self.assertEqual(self.computed(child, NARROW).get("flex"), "1 1 100%")
+        picker = row + [element("div", ["version-picker"])]
+        self.assertEqual(self.computed(picker, NARROW).get("flex"), "1 1 100%")
+
+    # --- 상태 -----------------------------------------------------------------------------------
+
+    def test_disabled_controls_do_not_fade_through_the_photo(self):
+        for name in BUTTONS:
+            with self.subTest(name=name):
+                decls = self.computed(self.chain(element("button", [name.lstrip(".")], states=["disabled"])))
+                self.assertEqual(decls.get("opacity"), "1")
+                self.assertEqual(decls.get("border-style"), "dashed")
+
+    def test_pending_mark_does_not_need_an_answer(self):
+        # 첫 답 전에 정지한 기록은 답 없이 질문만 복원된다. 그 차례도 다시 답하기를 누르면 점선이 보여야 한다.
+        turn = element("div", ["turn"], ['[data-version-state="pending"]'])
+        decls = self.computed([turn])
+        self.assertRegex(decls.get("outline", ""), r"^1px dashed var\(--[\w-]+\)$")
+        idle = self.computed([element("div", ["turn"])])
+        self.assertNotIn("outline", idle)
+        regenerate = self.chain(element("button", ["turn-regenerate"], states=["disabled"]), "pending")
+        self.assertEqual(self.computed(regenerate).get("cursor"), "progress")
+
+    def test_failed_turn_marks_form_and_error(self):
+        form = self.computed([element("div", ["turn"], ['[data-version-state="failed"]']), element("form", ["turn-editor"])])
+        self.assertEqual(form.get("border-color"), "var(--danger)")
+        error = self.computed(self.chain(element("p", ["version-error"]), "failed"))
+        self.assertEqual(error.get("color"), "var(--danger)")
+        self.assertRegex(error.get("border", ""), r"^1px solid var\(--danger\)$")
+
+    # --- 움직임·선·색 -----------------------------------------------------------------------------
 
     def test_section_adds_no_motion(self):
         self.assertNotIn("@keyframes", self.section)
-        for selector, decls, _ in self.rules:
+        for head, decls, _ in self.rules:
             for key in decls:
-                with self.subTest(selector=selector, key=key):
+                with self.subTest(selector=head, key=key):
                     self.assertFalse(key.startswith("transition") or key.startswith("animation"))
                     self.assertNotEqual(key, "view-transition-name")
 
-    def test_dark_blocks_agree_on_used_tokens(self):
-        used = set(re.findall(r"var\((--[\w-]+)\)", self.section))
-        for token in used:
-            with self.subTest(token=token):
-                self.assertEqual(resolve(token, *self.themes["dark"]), resolve(token, *self.themes["system-dark"]))
+    def test_lines_are_thin_and_colors_are_tokens(self):
+        for head, decls, _ in self.rules:
+            for key, value in decls.items():
+                with self.subTest(selector=head, key=key):
+                    self.assertNotIn("gradient", value)
+                    self.assertIsNone(re.search(r"#[0-9a-fA-F]{3,8}\b|rgba?\(", value), "색은 토큰으로만 쓴다")
+                    if (key.startswith("border") or key == "outline") and "radius" not in key and "px" in value:
+                        self.assertRegex(value, r"^[12]px ")
+                        if key != "outline":
+                            self.assertRegex(value, r"^1px ", "경계는 1px 선이다")
+                    if key == "box-shadow":
+                        self.assertIn(":focus-visible", head, "그림자는 초점 띠에만 쓴다")
 
-    def test_contrast_in_both_themes(self):
-        # (앞 색, 뒤 색, 기준) — 모두 불투명 --surface 위에서 잰다. 반투명 토큰은 그 위에 섞어 잰다.
-        pairs = [
-            ("--text", "--surface", 4.5),           # 버튼 글자·버전 번호·편집 칸 글자
-            ("--text-muted", "--surface", 4.5),     # 잠긴 버튼 글자
-            ("--text", "--tint", 4.5),              # 버튼 hover
-            ("--danger", "--surface", 4.5),         # 실패 문구와 경계
-            ("--surface", "--accent", 4.5),         # 저장하고 묻기 글자
-            ("--control-line", "--surface", 3.0),   # 버튼·편집 폼 경계
-            ("--focus-ink", "--surface", 3.0),      # hover 경계
-            ("--accent", "--surface", 3.0),         # 저장하고 묻기 경계
-            ("--focus-ring", "--surface", 3.0),     # 초점 고리
-        ]
+    def test_text_contrast_uses_declared_colors(self):
         for theme in self.themes:
-            for fg, bg, minimum in pairs:
-                with self.subTest(theme=theme, fg=fg, bg=bg):
-                    back = self.color(theme, bg)
-                    self.assertEqual(back[3], 1.0, f"{bg}는 불투명해야 한다")
-                    front = over(self.color(theme, fg), back[:3])
-                    self.assertGreaterEqual(contrast(front, back[:3]), minimum)
+            for label, chain in self.text_cases():
+                with self.subTest(theme=theme, case=label):
+                    decls = self.computed(chain)
+                    back = self.color(theme, decls["background"])
+                    self.assertEqual(back[3], 1.0, "글자 뒤 면은 불투명이어야 사진이 비치지 않는다")
+                    front = over(self.color(theme, decls["color"]), back)
+                    self.assertGreaterEqual(contrast(front, back), 4.5)
+
+    def test_control_edges_clear_both_sides(self):
+        """버튼·편집 폼의 선은 안쪽 면과 바깥 대화 면 양쪽과 3:1을 넘는다."""
+        cases = list(self.button_cases())
+        cases.append(("form.turn-editor", [element("div", ["turn"]), element("form", ["turn-editor"])]))
+        cases.append(("form.turn-editor:failed", [element("div", ["turn"], ['[data-version-state="failed"]']),
+                                                  element("form", ["turn-editor"])]))
+        for theme in self.themes:
+            outer = self.outer_backdrops(theme)
+            for label, chain in cases:
+                with self.subTest(theme=theme, case=label):
+                    decls = self.computed(chain)
+                    inner = self.color(theme, decls["background"])
+                    edge = self.color(theme, border_color(decls))
+                    # 선과 채움이 같은 색이면(저장하고 묻기) 채움 자체가 경계라 바깥 면과만 잰다.
+                    sides = outer if edge == inner else [inner] + outer
+                    for side in sides:
+                        self.assertGreaterEqual(contrast(over(edge, side), side), 3.0)
+
+    def test_pending_outline_clears_the_conversation_face(self):
+        decls = self.computed([element("div", ["turn"], ['[data-version-state="pending"]'])])
+        line = decls["outline"].split(" ")[-1]
+        for theme in self.themes:
+            for side in self.outer_backdrops(theme):
+                with self.subTest(theme=theme):
+                    self.assertGreaterEqual(contrast(over(self.color(theme, line), side), side), 3.0)
+
+    def test_dark_blocks_agree_on_used_tokens(self):
+        for token in set(re.findall(r"var\((--[\w-]+)\)", self.section)):
+            with self.subTest(token=token):
+                self.assertEqual(self.color("dark", f"var({token})"), self.color("system-dark", f"var({token})"))
 
 
 if __name__ == "__main__":
