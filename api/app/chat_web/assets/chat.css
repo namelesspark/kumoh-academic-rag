@@ -2065,8 +2065,15 @@ form.turn-editor textarea {
   color: var(--text-muted);
   font-size: .72rem;
   font-weight: 700;
-  line-height: 18px;
-  white-space: nowrap;
+  line-height: 16px;
+  /* 44px 칸의 글자 폭은 36px(좌우 여백 2px·테두리 2px)다. 「+10 more」(약 57px)처럼 넓은 글은 칸 안에서 줄을 나누고,
+     띄어 쓰지 않은 긴 글도 글자 단위로 끊는다. 처음에는 nowrap이라 영어 화면에서 이웃 칸의 글과 겹쳤다(교차 검토 지적).
+     4행은 minmax(22px, auto)라 두 줄이 되면 주 줄이 그만큼 늘어난다. */
+  min-width: 0;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-align: center;
 }
 /* 고른 날은 버튼 테두리(학교 파랑 2px), 초점은 그 안쪽 2px 고리다. 둘이 겹치지 않고 함께 보인다. */
 .acal-cell[aria-selected="true"] > .acal-day { border-color: var(--accent); }

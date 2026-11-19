@@ -326,6 +326,42 @@ class AcademicCalendarStyleTest(unittest.TestCase):
         self.assertEqual(rows[3], "minmax(22px, auto)")
         self.assertLessEqual(int(more["line-height"].rstrip("px")), 22)
 
+    def test_more_label_wraps_inside_a_44px_cell_in_every_language(self):
+        """영어 「+10 more」가 44px 칸 밖으로 넘쳐 이웃 칸 글과 겹치던 결함(교차 검토 지적)을 폭으로 잰다.
+
+        글자 폭은 글꼴마다 다르므로 넉넉하게 어림한다. 라틴·숫자·기호는 0.62em, 한자·한글은 1em이다(굵은 글자 기준 위쪽 어림).
+        칸 안 글 폭은 실제 선언에서 계산한다: 최소 폭 44px - 좌우 안쪽 여백 - 좌우 테두리.
+        """
+        button = self.computed(day_chain(more=True))
+        more = self.computed(day_chain(more=True) + [MORE_LABEL])
+        pad = split_top(button["padding"], " ")
+        horizontal_pad = int((pad[1] if len(pad) > 1 else pad[0]).rstrip("px"))
+        border = int(button["border"].split("px")[0])
+        room = int(button["min-width"].rstrip("px")) - 2 * (horizontal_pad + border)
+        self.assertEqual(room, 36)
+        font_px = float(more["font-size"].rstrip("rem")) * 16
+
+        def width(text):
+            return sum(font_px * (1.0 if ord(ch) > 0x2E80 else 0.62) for ch in text)
+
+        labels = {"ko": "+10개", "en": "+10 more", "zh": "+10个"}
+        wraps = more.get("white-space", "normal") not in ("nowrap", "pre")
+        breaks_anywhere = more.get("overflow-wrap") == "anywhere" or more.get("word-break") == "break-all"
+        for lang, text in labels.items():
+            with self.subTest(lang=lang, text=text):
+                if width(text) <= room:
+                    continue
+                self.assertTrue(wraps, f"{text}는 {width(text):.0f}px로 칸 글 폭 {room}px보다 넓어 줄을 나눠야 한다")
+                longest = max(width(word) for word in text.split(" "))
+                self.assertTrue(longest <= room or breaks_anywhere, "한 덩어리도 칸보다 넓으면 글자 단위로 끊는다")
+        self.assertGreater(width(labels["en"]), room, "영어 예시는 실제로 칸보다 넓다(검사가 헛돌지 않는다)")
+        self.assertEqual(more.get("max-width"), "100%")
+        self.assertEqual(more.get("min-width"), "0")
+        self.assertNotIn("overflow", more, "잘라 숨기지 않고 줄을 나눈다")
+        # 두 줄이 되어도 4행이 늘어나 막대 줄(2·3행)과 겹치지 않는다.
+        last_row = split_top(self.computed(week())["grid-template-rows"], " ")[3]
+        self.assertTrue(last_row.endswith("auto)"), last_row)
+
     def test_hairlines_are_nine_percent_text(self):
         scope = self.scope([acal()])
         self.assertEqual(scope["--acal-line"], "color-mix(in srgb, var(--text) 9%, transparent)")

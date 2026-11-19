@@ -1591,6 +1591,10 @@ node --test api/tests/web/campus_backdrop.test.mjs api/tests/web/chat_layout.tes
 
 - 주 줄(`.acal-week`)은 `repeat(7, minmax(44px, 1fr))` 열과 `36px 22px 22px minmax(22px, auto)` 행이다. 날짜 칸은 네 행을 모두 덮고(`grid-row: 1 / 5`),
   숫자는 1행, 막대는 2·3행, 「+N개」는 버튼 아래 끝인 4행 자리에 온다.
+- 44px 칸에서 「+N개」가 쓸 수 있는 글 폭은 36px(좌우 안쪽 여백 2px·테두리 2px)다. 영어 「+10 more」는 약 57px라 칸 안에서 두 줄로 나누고,
+  띄어 쓰지 않은 긴 글도 글자 단위로 끊는다(`white-space: normal`, `overflow-wrap: anywhere`, `max-width: 100%`). 4행은 `minmax(22px, auto)`라 두 줄이면 주 줄이 늘어난다.
+  처음에는 `nowrap`이라 영어 화면에서 이웃 칸의 「+N more」와 겹쳤다(교차 검토 지적). `test_more_label_wraps_inside_a_44px_cell_in_every_language`가
+  ko·en·zh 글 폭을 넉넉하게 어림해 선언에서 계산한 칸 폭과 비교한다.
 - 막대 위치는 인라인 style 없이 `data-col` → `grid-column-start`, `data-span` → `grid-column-end: span N`, `data-lane` 0·1 → `grid-row` 2·3 선택자로만 정한다.
   페이지 보안 정책이 `default-src 'self'`이고, 선언만 읽어도 배치를 검사할 수 있어서다. 막대는 칸 위에 겹쳐 그리고 `pointer-events: none`이라 막대를 눌러도 그 아래 날짜가 골라진다.
 - 긴 이름은 막대 끝에서 잘린다. 말줄임(`text-overflow`)은 전역 검사(`motion_layout.test.mjs`)가 두 요소 밖에서 막아 쓰지 않는다. 전체 이름은 고른 날 목록에 있다.
