@@ -218,11 +218,18 @@ function askPage(route) {
     showAssistant: name => states.push(name), renderConversations() {}, scrollToLatest() {}, setBusy() {},
     persistConversations() { counts.persisted++; }, notifyConversation() { counts.notified++; }, celebrate() { counts.celebrated++; },
     citationCard: () => node("div"),
+    // 사진 질문의 후속 답(읽은 글자로 묻기)에 필요한 화면 조각. 사진 처리 자체는 이 테스트 밖이다.
+    statusLine: node("p"), photoNote: node("p"),
+    photoMessages: { asking: "가상 묻는 중", disconnected: "가상 연결 실패", textFailed: "가상 처리 실패", textRejected: "가상 거절" },
+    failureBox: message => { const box = node("div"); box.className = "error"; box.textContent = message; return box; },
+    runPhotoRequest() {}, textAnswer: () => [node("section"), "가상 요약"],
     element(tag, className, text) { const made = node(tag); made.className = className || ""; if (text !== undefined) made.textContent = text; return made; },
   };
   runInNewContext(langBlock + between("function updateSend(", "function setBusy(") + morphBlock +
     between("async function readChatStream(", 'input.addEventListener("input"') +
-    between('input.addEventListener("keydown"', 'composer.addEventListener("submit"'), context);
+    between('input.addEventListener("keydown"', 'composer.addEventListener("submit"') +
+    between("async function requestJson(", "function textProblem(") +
+    between("async function answerFromText(", "function readingPanel("), context);
   const record = { id: "fictional-1", time: 1, title: "가상 질문", messages: [{ role: "question", text: "가상 질문", time: 1, sources: [] }], turns: [] };
   context.conversations = [record];
   context.activeConversation = record;
@@ -306,6 +313,58 @@ test("스트림이 실패해 JSON으로 다시 묻는 중에 멈춰도 세 번�
   assert.deepEqual(Array.from(page.record.committedMessages, ({ role }) => role), ["question"], "nothing was received, so no answer is stored");
   assert.equal(page.counts.notified, 0);
   assert.equal(page.mode(), "send");
+});
+
+test("스트림이 답 한 조각만 주고 끝맺지 못해 JSON으로 다시 묻는 중에 멈추면 받은 조각을 되살려 남긴다", async () => {
+  const page = askPage((path, options) => {
+    if (path === "/api/v1/chat/stream") {
+      // 답 한 조각 뒤 완료(done) 신호 없이 연결이 닫힌다.
+      const body = new ReadableStream({ start(controller) {
+        controller.enqueue(new TextEncoder().encode(event("meta", meta) + event("answer", { text: "가상 부분 답", replace: false })));
+        controller.close();
+      } });
+      return Promise.resolve({ ok: true, body });
+    }
+    return new Promise((resolve, reject) => options.signal.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError"))));
+  });
+  const done = page.ask();
+  await settle();
+  assert.deepEqual(page.requests, ["/api/v1/chat/stream", "/api/v1/chat"]);
+  assert.equal(page.reply.text, "", "the JSON retry clears the unfinished stream first");
+  page.send.fire("click");
+  await done;
+  assert.equal(page.requests.length, 2);
+  assert.equal(page.reply.text, "가상 부분 답");
+  assert.deepEqual(Array.from(page.record.committedMessages, ({ role, text }) => [role, text]),
+    [["question", "가상 질문"], ["answer", "가상 부분 답"]]);
+  assert.equal(page.reply.all().some(child => child.className === "error"), false);
+  assert.equal(page.counts.notified, 0);
+});
+
+test("사진에서 읽은 글자로 답을 받는 동안에도 정지 버튼이 켜지고, 멈추면 오류·다시 시도 없이 끝낸다", async () => {
+  let signal = null;
+  const page = askPage((path, options) => {
+    signal = options.signal;
+    return new Promise((resolve, reject) => options.signal.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError"))));
+  });
+  // 사진 요청 묶음(runPhotoRequest)이 대화에 거는 대기 표시다.
+  page.record.pending = true;
+  const answer = new El("div", page.state);
+  const done = page.context.answerFromText("가상 질문", "가상 판독문", answer, page.record);
+  await settle();
+  assert.deepEqual(page.requests, ["/api/v1/photo-question"]);
+  assert.equal(signal, page.record.chatAbort.signal);
+  assert.equal(page.mode(), "stop");
+  assert.equal(page.send.disabled, false);
+  page.send.fire("click");
+  assert.equal(await done, false);
+  assert.equal(answer.children.length, 0, "no error box or retry button");
+  assert.equal(page.states.at(-1), "idle");
+  assert.equal(Object.hasOwn(page.record, "chatAbort"), false);
+  // 사진 요청 묶음이 끝나기 전까지는 잠긴 보내기 버튼이다.
+  assert.equal(page.mode(), "send");
+  assert.equal(page.send.disabled, true);
+  assert.equal(page.counts.celebrated, 0);
 });
 
 test("정지 버튼은 보고 있는 대화가 답을 만들 때만 켜지고 사진·졸업 요청이나 홈 화면에서는 잠긴 보내기 버튼이다", async () => {

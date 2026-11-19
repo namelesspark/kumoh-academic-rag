@@ -2258,14 +2258,30 @@ async function answerFromText(question, recognized, answer, record = null) {
   photoNote.textContent = "";
   answer.replaceChildren();
 
-  const { result, failure, status } = await requestJson("/api/v1/photo-question", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Accept: "application/json" },
-    body: JSON.stringify({ question, recognized_text: recognized, session_id: record ? record.sessionId || null : sessionId }),
-    signal: AbortSignal.timeout(90_000),
-  }, photoMessages.textFailed);
+  // 읽은 글자로 답을 만드는 동안에도 보내기 버튼이 정지 버튼이 된다(#137). 사진을 읽는 단계에는 신호를 두지 않는다.
+  const controller = record && typeof AbortController === "function" ? new AbortController() : null;
+  if (controller) { record.chatAbort = controller; updateSend(); }
+  let response;
+  try {
+    response = await requestJson("/api/v1/photo-question", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ question, recognized_text: recognized, session_id: record ? record.sessionId || null : sessionId }),
+      signal: chatSignal(controller?.signal ?? null, 90_000),
+    }, photoMessages.textFailed);
+  } finally {
+    if (record?.chatAbort === controller) delete record.chatAbort;
+    if (controller) updateSend();
+  }
+  const { result, failure, status } = response;
 
   if (record && (account !== historyAccount || !conversations.includes(record))) return false;
+  // 학생이 멈춘 답은 받은 글이 없으므로 빈 채로 두고, 오류 문구·다시 시도·알림을 내지 않는다.
+  if (controller?.signal.aborted) {
+    say(photoNote, "");
+    showAssistant("idle");
+    return false;
+  }
   let message = failure;
   if (!failure) {
     try {
@@ -2786,8 +2802,8 @@ async function readChatStream(response, onEvent) {
 }
 // stop은 학생이 정지 버튼으로 끊는 신호다(#137). 시간 제한 신호와 함께 걸고, 끊긴 요청은 JSON 주소로 다시 묻지 않는다.
 // 신호를 묶는 AbortSignal.any가 없는 브라우저는 정지 신호만 건다. 서버도 100초 안에 답을 끝낸다.
-function chatSignal(stop) {
-  const timeout = AbortSignal.timeout(100_000);
+function chatSignal(stop, ms = 100_000) {
+  const timeout = AbortSignal.timeout(ms);
   if (!stop) return timeout;
   return typeof AbortSignal.any === "function" ? AbortSignal.any([stop, timeout]) : stop;
 }
@@ -2857,11 +2873,14 @@ async function ask(question, reply, record = activeConversation) {
     thinkingLabel.textContent = t("아이오가 {seconds}초 동안 생각함", { seconds: Math.max(0, Math.round((Date.now() - thinkingStarted) / 1000)) });
   }
   startThinking();
+  let streamed = "";
   try {
     const result = await requestChatAnswer({ message: question,
       session_id: record ? record.sessionId || null : sessionId, use_academic_data: false, mode, lang }, (name, data) => {
       if (!valid()) return;
       if (name === "reset") {
+        // 스트림이 끝맺지 못해 JSON으로 다시 묻는 동안 학생이 멈추면, 그때까지 스트림으로 받은 글을 되살린다(#137).
+        if (answerNode?.textContent.trim()) streamed = answerNode.textContent;
         finishThinking(); reply.replaceChildren(); answerNode = null; thinking = null; thinkingContent = null; thinkingLabel = null;
       }
       if (name === "thinking" && mode === "deep" && data.text) {
@@ -2913,7 +2932,8 @@ async function ask(question, reply, record = activeConversation) {
     // 학생이 멈춘 답은 받은 부분까지만 남긴다. 다시 묻지 않고, 오류 문구·다시 시도·새 답변 알림도 내지 않는다.
     if (controller?.signal.aborted) {
       finishThinking();
-      const partial = answerNode && answerNode.textContent.trim() ? answerNode.textContent : "";
+      const partial = answerNode && answerNode.textContent.trim() ? answerNode.textContent : streamed;
+      if (partial && !answerNode) { answerNode = element("p"); answerNode.textContent = partial; reply.append(answerNode); }
       const time = Date.now();
       const kept = partial ? [{ role: "answer", text: partial, time, sources: [] }] : [];
       record.messages.push(...kept);

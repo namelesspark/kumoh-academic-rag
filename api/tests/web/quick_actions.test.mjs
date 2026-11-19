@@ -201,6 +201,10 @@ test("넓은 화면은 + 둘레에 방사형으로, 좁은 화면은 엄지 위�
       assert.ok(spot.y <= 0, `arc stays above the thumb: ${JSON.stringify(spot)}`);
       assert.ok(inside(origin.x + spot.x, width), `${width}/${left}: ${JSON.stringify(spot)}`);
     }
+    // 묶음을 화면 안으로 밀어도 방울이 + 버튼(44px) 위에 얹히지 않는다. +를 다시 눌러 닫는 손가락이 방울을 누르지 않는다.
+    for (const spot of spots) {
+      if (Math.abs(spot.x) < 26 + 22 + 6) assert.ok(spot.y <= -(26 + 22 + 6) + 0.5, `${width}/${left} covers +: ${JSON.stringify(spot)}`);
+    }
     // 반원 호: 왼쪽 끝에서 오른쪽 끝으로 차례로 놓이고, 가운데 방울이 가장 높다.
     assert.deepEqual(spots.map(spot => spot.x), [...spots.map(spot => spot.x)].sort((a, b) => a - b));
     assert.equal(Math.min(...spots.map(spot => spot.y)), spots[2].y);
@@ -343,6 +347,32 @@ test("대상 버튼이 없으면 방울을 숨기고, 잠겨 있으면 방울도
   assert.equal(page.photo.clicks, 0);
   // 보이는 방울은 넷이고 자리도 넷만 나눈다.
   assert.equal(page.items.filter(item => !item.hidden).length, 4);
+});
+
+test("링을 연 채 대상 버튼의 잠금이 풀리면 방울도 바로 풀린다", () => {
+  const page = ringPage({ locked: ["#photo-attach"] });
+  page.toggle.click();
+  assert.equal(page.item("photo").disabled, true);
+  // 답이 끝나 chat.js가 사진 버튼 잠금을 푼 상황이다. 속성 변화 감시(MutationObserver)가 알린다.
+  page.photo.disabled = false;
+  for (const observer of page.observers) observer([]);
+  assert.equal(page.item("photo").disabled, false);
+  assert.equal(page.item("photo").getAttribute("aria-disabled"), null);
+  assert.doesNotMatch(page.blobs()[3].getAttribute("class"), /is-disabled/);
+  page.item("photo").click();
+  assert.equal(page.photo.clicks, 1);
+});
+
+test("채팅 화면의 사진·손글씨 방울은 홈으로 가지 않고 그 자리의 입력 줄 버튼을 누른다", () => {
+  // 홈 이동은 첫 화면에만 있는 학사 카드에 한한다. 두 버튼은 채팅 화면 입력 줄에도 있고, 손글씨는 지금 대화의 질문 칸에 넣는다.
+  const page = ringPage({ view: "chat" });
+  page.toggle.click();
+  page.item("photo").click();
+  page.toggle.click();
+  page.item("handwriting").click();
+  assert.equal(page.photo.clicks, 1);
+  assert.equal(page.pen.clicks, 1);
+  assert.equal(page.home.clicks, 0);
 });
 
 test("문구는 세 언어 사전에서 고르고 <html lang>이 바뀌면 다시 쓴다", () => {

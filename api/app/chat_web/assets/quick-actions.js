@@ -144,7 +144,13 @@
     const shift = (low, high, size) => (low < edge ? edge - low : high > size - edge ? size - edge - high : 0);
     const xs = points.map(point => point.x), ys = points.map(point => point.y);
     const dx = shift(Math.min(...xs) - bubbleRadius, Math.max(...xs) + bubbleRadius, width);
-    const dy = shift(Math.min(...ys) - bubbleRadius, Math.max(...ys) + bubbleRadius, height);
+    let dy = shift(Math.min(...ys) - bubbleRadius, Math.max(...ys) + bubbleRadius, height);
+    // 묶음을 옆으로 밀면 끝 방울이 + 버튼 위에 얹힐 수 있다. 그러면 +를 다시 눌러 닫으려던 손가락이 방울을 누른다.
+    // + 버튼과 가로로 겹치는 방울이 있으면 그 방울이 + 위로 비켜날 만큼 묶음을 들어 올린다.
+    const clear = bubbleRadius + hubRadius + 6;
+    for (const point of points) {
+      if (Math.abs(point.x + dx - anchor.x) < clear) dy = Math.min(dy, anchor.y - clear - point.y);
+    }
     return { narrow, points: points.map(point => ({ x: point.x + dx, y: point.y + dy })) };
   }
   function place() {
@@ -318,6 +324,17 @@
   });
   if (typeof MutationObserver === "function" && doc.documentElement) {
     new MutationObserver(label).observe(doc.documentElement, { attributes: true, attributeFilter: ["lang"] });
+    // 링을 연 채 답이 끝나 사진 버튼이 다시 켜지는 것처럼, 대상의 잠금·숨김이 바뀌면 열린 링의 방울도 바로 따라간다.
+    const follow = new MutationObserver(() => {
+      if (!open) return;
+      refresh();
+      place();
+      if (ring.contains(doc.activeElement) && doc.activeElement.disabled) toggle.focus();
+    });
+    for (const action of actions) {
+      const node = target(action);
+      if (node) follow.observe(node, { attributes: true, attributeFilter: ["disabled", "hidden", "aria-disabled"] });
+    }
   }
   label();
 })();
