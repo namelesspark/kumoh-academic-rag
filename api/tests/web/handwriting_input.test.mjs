@@ -364,12 +364,10 @@ test("질문 칸은 진짜 textarea 그대로이고 덮개·포인터 처리기�
   const listeners = [...script.matchAll(/\binput\.addEventListener\("([^"]+)"/g)].map(match => match[1]);
   assert.deepEqual(listeners, ["input", "keydown"]);
   assert.doesNotMatch(script, /input\.(on(pointer|touch|mouse)\w*|style\.touchAction)/);
-  // touch-action은 필기 캔버스와 끌어 옮기는 테크모, 그리고 학사일정 달력의 고른 날 목록(#143, 가로 밀기만 막는 pan-y)에만 있다.
-  // 입력 줄 쪽 규칙에는 없다.
+  // touch-action은 필기 캔버스와 끌어 옮기는 테크모에만 있다. 입력 줄 쪽 규칙에는 없다.
   const rules = [...styles.replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/([^{}]+)\{([^{}]*)\}/g)].map(([, selector, body]) => [selector.trim(), body]);
   const touch = rules.filter(([, body]) => /touch-action/.test(body)).map(([selector, body]) => [selector, /touch-action:\s*([^;]+)/.exec(body)[1].trim()]);
-  assert.deepEqual(touch, [[".pet", "none"], [".handwriting-canvas", "none"],
-    [":is(.acal, .acal-body):has(> .acal-grid) > :not(.acal-weekdays):not(.acal-grid)", "pan-y"]]);
+  assert.deepEqual(touch, [[".pet", "none"], [".handwriting-canvas", "none"]]);
   for (const [selector] of rules) if (/textarea|composer/.test(selector)) assert.equal(/handwriting/.test(selector), false, selector);
   // 패드는 전환 효과 없이 연다.
   for (const [selector, body] of rules) if (/handwriting/.test(selector)) assert.doesNotMatch(body, /transition|animation/, selector);

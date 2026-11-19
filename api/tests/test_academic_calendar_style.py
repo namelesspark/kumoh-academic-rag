@@ -5,7 +5,8 @@
 대비를 계산한다. 사용자 변수(--acal-*)와 color-mix(in srgb, …)도 조상에서 물려받은 값으로 풀어 계산한다.
 색 계산과 한 요소 판정(compound_matches)은 test_chat_versions_style.py의 것을 쓴다. 규칙 읽기는 @container까지 펼치고,
 선택자 판정은 자식(>)과 자손을 구별하며 :has(…)를 가상 요소의 표시("has:…")로 읽는다.
-가상 요소는 chat.js가 실제로 그리는 구조를 따른다. 머리 줄만 루트 직속이고 요일 머리·격자·고른 날 목록은 본문 상자(.acal-body) 안이다.
+가상 요소는 chat.js가 실제로 그리는 구조를 따른다. 루트 아래에 머리 줄·본문 상자(.acal-body)·고른 날 목록이 형제로 있고,
+월 보기의 본문 상자에는 요일 머리와 격자만 들어간다.
 날짜 버튼 안은 숫자 → 「+N개」 → 점 묶음이며, 고른 날 목록의 일정도 section.evidence다.
 처음에는 >를 자손처럼 보고 :last-child로 「+N개」를 만들었고, 다음 판은 요일 머리를 루트 직속으로 꾸며 결함을 놓쳤다(교차 검토 지적).
 """
@@ -115,12 +116,25 @@ def cell(col, *, outside=False, selected=False):
 
 
 def body():
-    """chat.js는 요일 머리·격자·고른 날 목록을 본문 상자(.acal-body) 하나에 함께 넣는다. 머리 줄만 루트 직속이다."""
+    """chat.js는 루트 아래에 머리 줄, 본문 상자(.acal-body), 고른 날 목록(.acal-day-list)을 형제로 둔다.
+
+    월 보기의 본문 상자에는 요일 머리와 격자만 들어간다. 목록 보기에서는 격자 없이 목록 줄이 들어간다.
+    """
     return element("div", ["acal-body"], states=["has:> .acal-grid"])
 
 
+def list_body():
+    """목록 보기의 본문 상자. 격자를 품지 않는다."""
+    return element("div", ["acal-body"])
+
+
 def inside(view="month"):
-    return [acal(view), body()]
+    return [acal(view), body() if view == "month" else list_body()]
+
+
+def day_list(view="month"):
+    """고른 날 목록. 본문 상자의 형제, 곧 루트 직속이다(#144가 스크롤 상자 밖으로 옮겼다)."""
+    return [acal(view), element("div", ["acal-day-list"])]
 
 
 def week():
@@ -372,11 +386,10 @@ class AcademicCalendarStyleTest(unittest.TestCase):
                     self.assertEqual(decls.get("min-width"), "44px")
 
     def test_weekdays_and_grid_scroll_together_below_308px(self):
-        """chat.js는 머리 줄만 루트 직속으로 두고, 요일 머리·격자·고른 날 목록을 본문 상자(.acal-body)에 함께 넣는다.
+        """월 보기의 본문 상자(.acal-body)에는 요일 머리와 격자만 있다. 머리 줄과 고른 날 목록은 그 형제다.
 
-        스크롤 상자는 요일 머리와 격자를 직접 품은 본문 상자다. 두 줄은 같은 최소 폭(7 × 44px)으로 넘쳐 함께 밀리고,
-        고른 날 목록은 sticky로 왼쪽에 붙어 제자리다. 머리 줄과 루트는 스크롤하지 않는다.
-        처음 두 판은 요일 머리를 격자 안, 다음에는 루트 직속으로 가정해 실제 구조와 어긋났다(교차 검토 지적 두 번).
+        스크롤 상자는 요일 머리와 격자를 직접 품은 본문 상자다. 두 줄은 같은 최소 폭(7 × 44px)으로 넘쳐 함께 밀린다.
+        루트·머리 줄·고른 날 목록은 스크롤하지 않고 고정(sticky)도 필요 없다.
         """
         self.assertEqual(7 * 44, 308)
         root = self.computed([acal()])
@@ -400,39 +413,30 @@ class AcademicCalendarStyleTest(unittest.TestCase):
                 self.assertNotIn("overflow-x", decls, "한 줄만 따로 스크롤하면 둘이 어긋난다")
                 self.assertNotIn("position", decls)
         self.assertEqual(self.computed(weekdays)["grid-template-columns"], self.computed(week())["grid-template-columns"])
-        for label, child in (("고른 날 목록", element("div", ["acal-day-list"])), ("목록 보기 줄", element("section", ["evidence"]))):
-            with self.subTest(child=label):
-                decls = self.computed(inside() + [child])
-                self.assertEqual((decls.get("position"), decls.get("left")), ("sticky", "4px"), "본문 여백 4px 안쪽에 붙는다")
-        # 고른 날 목록 안의 일정은 본문 직속이 아니라 sticky 규칙을 받지 않는다.
-        inner = self.computed(inside() + [element("div", ["acal-day-list"]), element("section", ["evidence"])])
-        self.assertNotIn("position", inner)
-        # 요일 머리·격자를 품지 않은 상자는 스크롤 상자가 아니다.
-        plain_body = self.computed([acal(), element("div", ["acal-body"])])
-        self.assertNotIn("overflow-x", plain_body)
+        # 고른 날 목록과 목록 보기의 본문 상자는 스크롤 상자가 아니고 고정 위치도 받지 않는다.
+        for label, chain in (("고른 날 목록", day_list()), ("목록 보기 본문", inside("list"))):
+            with self.subTest(target=label):
+                decls = self.computed(chain)
+                self.assertNotIn("overflow-x", decls)
+                self.assertNotIn("position", decls)
+        self.assertFalse(any("sticky" in decls.get("position", "") for _, decls, _ in self.rules),
+                         "스크롤 상자 밖으로 옮긴 목록에는 sticky 우회가 필요 없다")
 
-    def horizontal_pan_scrolls(self, chain):
-        """손가락이 chain[-1]에 닿아 가로로 밀 때 움직이는 스크롤 상자의 이름. 아무것도 움직이지 않으면 None.
+    def scroll_box_above(self, chain):
+        """chain[-1]이나 그 조상 가운데 가장 가까운 가로 스크롤 상자의 이름. 없으면 None.
 
-        브라우저는 닿은 요소부터 가장 가까운 가로 스크롤 상자까지(상자 자신 포함) touch-action을 겹쳐 본다.
-        그 가운데 하나라도 가로 이동(auto·manipulation·pan-x)을 빼면 가로 밀기는 그 상자를 움직이지 못한다.
+        가로 스크롤은 터치·트랙패드·휠 모두 포인터 아래 요소에서 위로 올라가며 처음 만나는 스크롤 상자를 움직인다.
+        그래서 목록이 움직이지 않으려면 목록과 그 안 모든 요소의 조상에 가로 스크롤 상자가 없어야 한다.
+        이전 판은 같은 상자 안에 둔 목록에 touch-action: pan-y를 걸어 터치만 막았고, 트랙패드 가로 스크롤은 막지 못했다.
         """
-        allowed = True
         for depth in range(len(chain), 0, -1):
-            decls = self.computed(chain[:depth])
-            action = decls.get("touch-action", "auto")
-            if not (action in ("auto", "manipulation") or "pan-x" in action.split()):
-                allowed = False
-            if decls.get("overflow-x") in ("auto", "scroll"):
-                return " ".join(sorted(chain[depth - 1]["classes"])) if allowed else None
+            if self.computed(chain[:depth]).get("overflow-x") in ("auto", "scroll"):
+                return " ".join(sorted(chain[depth - 1]["classes"]))
         return None
 
-    def test_horizontal_swipe_starts_only_on_weekdays_and_grid(self):
-        """고른 날 목록 위에서 좌우로 밀면 요일 머리·격자가 움직이던 결함(교차 검토 세 번째 지적)을 입력 범위로 잰다.
-
-        선언만 보던 이전 검사는 목록이 sticky로 제자리라는 것만 확인해, 같은 스크롤 상자 안에서 시작한 밀기를 놓쳤다.
-        """
-        day_list = element("div", ["acal-day-list"])
+    def test_horizontal_scroll_starts_only_on_weekdays_and_grid(self):
+        """고른 날 목록 위에서 좌우로 밀거나 트랙패드로 굴리면 요일 머리·격자가 움직이던 결함(교차 검토 세 번째·네 번째 지적)을 잰다."""
+        evidence = element("section", ["evidence"])
         moves = {
             "요일 칸": inside() + [element("div", ["acal-weekdays"]), element("span")],
             "날짜 버튼": day_chain(4),
@@ -443,30 +447,29 @@ class AcademicCalendarStyleTest(unittest.TestCase):
             "점": dot_chain("holiday"),
         }
         stays = {
-            "고른 날 목록": inside() + [day_list],
-            "목록 안 일정 글": inside() + [day_list, element("section", ["evidence"]), element("p")],
-            "목록 안 출처 링크": inside() + [day_list, element("section", ["evidence"]), element("a")],
-            "목록 보기 줄": inside("list") + [element("section", ["evidence"]), element("p")],
+            "고른 날 목록": day_list(),
+            "목록 안 일정 글": day_list() + [evidence, element("p")],
+            "목록 안 출처 링크": day_list() + [evidence, element("a")],
+            "목록 보기 줄": inside("list") + [evidence, element("p")],
+            "목록 보기 출처 링크": inside("list") + [evidence, element("a")],
             "머리 줄 버튼": head_button("nav"),
             "제목": [acal(), HEAD_ROW, element("h4", ["acal-title"])],
         }
         for label, chain in moves.items():
             with self.subTest(target=label):
-                self.assertEqual(self.horizontal_pan_scrolls(chain), "acal-body")
+                self.assertEqual(self.scroll_box_above(chain), "acal-body")
         for label, chain in stays.items():
             with self.subTest(target=label):
-                self.assertIsNone(self.horizontal_pan_scrolls(chain))
-        # 세로 밀기(페이지 스크롤)는 목록 위에서도 그대로다.
-        self.assertIn("pan-y", self.computed(inside() + [day_list])["touch-action"].split())
-        # touch-action은 이 한 규칙에만 있다. 날짜 칸·버튼에 걸면 격자 스크롤과 탭 확대가 막힌다.
-        holders = [head for head, decls, _ in self.rules if "touch-action" in decls]
-        self.assertEqual(holders, [":is(.acal, .acal-body):has(> .acal-grid) > :not(.acal-weekdays):not(.acal-grid)"])
+                self.assertIsNone(self.scroll_box_above(chain), "조상에 가로 스크롤 상자가 있으면 트랙패드로 굴려도 움직인다")
+        # touch-action 우회는 남기지 않는다. 날짜 칸·버튼에 걸면 격자 스크롤과 탭 확대가 막히고, 목록에는 필요 없다.
+        self.assertFalse([head for head, decls, _ in self.rules if "touch-action" in decls])
+        self.assertNotIn("touch-action", self.section)
 
     def test_earlier_cross_review_repros_stay_fixed(self):
-        """앞선 지적 네 가지를 한곳에서 다시 잰다. 구조는 chat.js가 그리는 그대로다."""
+        """앞선 지적을 한곳에서 다시 잰다. 구조는 chat.js가 그리는 그대로다."""
         evidence = element("section", ["evidence"])
         # 1. 달 보기에서 고른 날 일정(section.evidence)이 접히지 않는다.
-        self.assertNotEqual(self.computed(inside("month") + [element("div", ["acal-day-list"]), evidence]).get("display"), "none")
+        self.assertNotEqual(self.computed(day_list("month") + [evidence]).get("display"), "none")
         # 2. 「+N개」 규칙은 마지막 자식인 점 묶음이 아니라 그 앞 요소에 걸린다.
         self.assertEqual(self.computed(day_chain(more=True) + [MORE_LABEL]).get("margin-top"), "auto")
         self.assertNotIn("margin-top", self.computed(day_chain(more=True) + [DOT_GROUP]))
@@ -474,10 +477,12 @@ class AcademicCalendarStyleTest(unittest.TestCase):
         for name in ("acal-weekdays", "acal-grid"):
             chain = inside() + [element("div", [name])]
             self.assertEqual(self.computed(chain).get("min-width"), "308px")
-            self.assertEqual(self.horizontal_pan_scrolls(chain), "acal-body")
-        # 4. 루트와 본문 상자 전체는 sticky가 아니고, 머리 줄은 스크롤 상자 밖이다.
+            self.assertEqual(self.scroll_box_above(chain), "acal-body")
+        # 4. 루트는 스크롤 상자가 아니라 머리 줄이 밀리지 않고, 본문 상자 전체에 sticky가 걸리지 않는다.
         self.assertNotIn("position", self.computed(inside()))
         self.assertNotIn("overflow-x", self.computed([acal()]))
+        # 5. 고른 날 목록 안 출처 링크 위의 트랙패드 가로 스크롤이 격자를 움직이지 않는다.
+        self.assertIsNone(self.scroll_box_above(day_list() + [evidence, element("a")]))
 
     def test_focus_and_selection_stay_inside_and_clear_three_to_one(self):
         for theme in self.themes:
@@ -537,9 +542,9 @@ class AcademicCalendarStyleTest(unittest.TestCase):
             yield f"day:{col}:today:more", day_chain(col, today=True, more=True) + [MORE_LABEL]
         yield "title", [acal(), element("div", ["acal-head"]), element("h4", ["acal-title"], ['[aria-live="polite"]'])]
         yield "weekday", inside() + [element("div", ["acal-weekdays"]), element("span")]
-        yield "day-list", inside() + [element("div", ["acal-day-list"]), element("p")]
-        yield "day-list-link", inside() + [element("div", ["acal-day-list"]), element("a")]
-        yield "day-list-evidence", inside() + [element("div", ["acal-day-list"]), element("section", ["evidence"]), element("p")]
+        yield "day-list", day_list() + [element("p")]
+        yield "day-list-link", day_list() + [element("a")]
+        yield "day-list-evidence", day_list() + [element("section", ["evidence"]), element("p")]
         for kind in KINDS:
             yield f"bar:{kind}", bar_chain(2, 3, 1, kind)
 
@@ -644,17 +649,20 @@ class AcademicCalendarStyleTest(unittest.TestCase):
         self.assertEqual(self.computed(day_chain(), NARROW).get("flex"), "1 1 100%", "날짜 버튼은 좁은 칸 폭을 채운다")
 
     def test_day_list_stays_in_both_widths(self):
-        chain = inside() + [element("div", ["acal-day-list"])]
+        chain = day_list()
         for media in (None, NARROW):
             self.assertNotEqual(self.computed(chain, media).get("display"), "none")
         link = self.computed(chain + [element("a")])
         self.assertEqual(link.get("min-height"), "44px")
 
     def test_view_toggle_hides_the_other_view(self):
-        for name in ("acal-weekdays", "acal-grid", "acal-day-list"):
+        for name in ("acal-weekdays", "acal-grid"):
             with self.subTest(name=name):
                 self.assertEqual(self.computed(inside("list") + [element("div", [name])]).get("display"), "none")
                 self.assertNotEqual(self.computed(inside("month") + [element("div", [name])]).get("display"), "none")
+        # 고른 날 목록은 본문 상자 밖, 루트 직속이다. 자손 선택자라 위치가 바뀌어도 목록 보기에서 접힌다.
+        self.assertEqual(self.computed(day_list("list")).get("display"), "none")
+        self.assertNotEqual(self.computed(day_list("month")).get("display"), "none")
         evidence = element("section", ["evidence"])
         # 목록 보기 줄은 루트 직속이거나 본문 상자 직속이다. 어느 쪽이든 달 보기에서만 접힌다.
         for parents in (lambda view: [acal(view)], inside):
@@ -662,25 +670,24 @@ class AcademicCalendarStyleTest(unittest.TestCase):
                 self.assertEqual(self.computed(parents("month") + [evidence]).get("display"), "none")
                 self.assertNotEqual(self.computed(parents("list") + [evidence]).get("display"), "none")
         # 고른 날 목록의 일정도 section.evidence다. 달 보기에서 이것까지 접으면 일정 이름·기간·출처가 사라진다.
-        picked = inside("month") + [element("div", ["acal-day-list"]), evidence]
+        picked = day_list("month") + [evidence]
         self.assertNotEqual(self.computed(picked).get("display"), "none")
         self.assertNotEqual(self.computed(picked + [element("p")]).get("display"), "none")
         for media in (None, NARROW):
             self.assertNotEqual(self.computed(picked, media).get("display"), "none")
 
     def test_selector_reader_tells_child_from_descendant_and_reads_has(self):
-        root, day_list, evidence = acal("month"), element("div", ["acal-day-list"]), element("section", ["evidence"])
+        root, picked, evidence = acal("month"), element("div", ["acal-day-list"]), element("section", ["evidence"])
         self.assertTrue(selector_matches('.acal[data-view="month"] > section.evidence', [root, evidence]))
-        self.assertFalse(selector_matches('.acal[data-view="month"] > section.evidence', [root, day_list, evidence]))
-        self.assertTrue(selector_matches('.acal[data-view="month"] section.evidence', [root, day_list, evidence]))
+        self.assertFalse(selector_matches('.acal[data-view="month"] > section.evidence', [root, picked, evidence]))
+        self.assertTrue(selector_matches('.acal[data-view="month"] section.evidence', [root, picked, evidence]))
         button = element("button", ["acal-day"], ["[data-more]"])
         self.assertTrue(selector_matches(".acal-day[data-more] > :has(+ * .acal-dot)", [button, MORE_LABEL]))
         self.assertFalse(selector_matches(".acal-day[data-more] > :has(+ * .acal-dot)", [button, DOT_GROUP]))
-        sticky = ":is(.acal, .acal-body):has(> .acal-grid) > :not(.acal-weekdays):not(.acal-grid)"
-        self.assertTrue(selector_matches(sticky, inside() + [day_list]))
-        self.assertFalse(selector_matches(sticky, inside() + [element("div", ["acal-grid"])]))
-        self.assertFalse(selector_matches(sticky, [root, HEAD_ROW]), "머리 줄은 스크롤 상자 밖이다")
-        self.assertFalse(selector_matches(sticky, [root, body()]), "본문 상자 전체에 sticky가 걸리지 않는다")
+        scroller = ":is(.acal, .acal-body):has(> .acal-grid)"
+        self.assertTrue(selector_matches(scroller, [root, body()]), "격자를 품은 본문 상자가 스크롤 상자다")
+        self.assertFalse(selector_matches(scroller, [root, list_body()]), "격자 없는 목록 보기 본문은 스크롤하지 않는다")
+        self.assertFalse(selector_matches(scroller, [root]), "루트는 격자를 직접 품지 않는다")
 
     # --- 움직임·선·색 -----------------------------------------------------------------------------
 
