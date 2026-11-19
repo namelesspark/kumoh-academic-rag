@@ -230,13 +230,23 @@ test("+가 화면 위쪽에 있어 위로 비킬 자리가 없으면 방울을 +
 test("+는 제자리인데 창 높이만 줄면 링을 닫지 않고 새 화면 안에 방울을 다시 놓으며, +가 옮겨 가면 닫는다", () => {
   const page = ringPage({ width: 390, height: 700, toggleRect: { left: 8, top: 68, width: 44, height: 44 } });
   page.toggle.click();
-  // 키보드가 올라와 보이는 높이가 220px로 줄어든 경우.
-  page.window.innerHeight = 220;
-  page.windowEvent("resize");
-  assert.equal(page.toggle.getAttribute("aria-expanded"), "true");
-  for (const spot of page.items.map(page.position)) {
-    const y = 90 + spot.y;
-    assert.ok(y - 26 >= 8 - 0.5 && y + 26 <= 220 - 8 + 0.5, `bubble leaves the 220px screen: ${JSON.stringify(spot)}`);
+  // 키보드가 올라와 보이는 높이가 220px, 132px로 줄어든 경우. + 위·아래 어느 쪽에도 호가 들어가지 않으면
+  // + 옆에 한 줄로 늘어놓아, 방울이 화면 안에 있고 + 버튼(가운데 30, 90)도 덮지 않는다.
+  for (const height of [220, 132]) {
+    page.window.innerHeight = height;
+    page.windowEvent("resize");
+    assert.equal(page.toggle.getAttribute("aria-expanded"), "true", String(height));
+    assert.equal(page.ring.getAttribute("data-layout"), "row", String(height));
+    const spots = page.items.map(page.position);
+    for (const spot of spots) {
+      const x = 30 + spot.x, y = 90 + spot.y;
+      assert.ok(y - 26 >= 8 - 0.5 && y + 26 <= height - 8 + 0.5, `${height}: bubble leaves the screen: ${JSON.stringify(spot)}`);
+      assert.ok(x - 26 >= 8 - 0.5 && x + 26 <= 390 - 8 + 0.5, `${height}: ${JSON.stringify(spot)}`);
+      // + 버튼 칸(8~52, 68~112) 안의 어느 점도 방울 원 안에 들지 않는다.
+      const nearestX = Math.min(Math.max(x, 8), 52), nearestY = Math.min(Math.max(y, 68), 112);
+      assert.ok(Math.hypot(x - nearestX, y - nearestY) >= 26, `${height}: covers +: ${JSON.stringify(spot)}`);
+    }
+    assert.deepEqual(spots.map(spot => spot.x), [...spots.map(spot => spot.x)].sort((a, b) => a - b), "left-to-right order for the arrow keys");
   }
   // + 자체가 옮겨 가면 고정 좌표가 맞지 않으므로 닫는다.
   page.toggle.rect = { left: 8, top: 150, width: 44, height: 44 };

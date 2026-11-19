@@ -427,6 +427,26 @@ test("「고쳐서 다시 묻기」 중에 멈추면 앞서 받은 답을 되돌
   assert.equal(page.mode(), "send");
 });
 
+test("사진 후속 답이 실패한 뒤 「다시 시도」 중에 멈추면 앞의 오류 문구와 다시 시도 버튼을 되살리지 않는다", async () => {
+  const page = askPage((path, options) =>
+    new Promise((resolve, reject) => options.signal.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")))));
+  // 첫 요청이 503으로 실패해 답 자리에 오류 상자가 남아 있다.
+  const answer = new El("div", page.state);
+  const failure = new El("div", page.state);
+  failure.className = "error";
+  failure.textContent = "가상 처리 실패";
+  answer.append(failure);
+  const done = page.context.runPhotoRequest(page.record, "가상 묻는 중",
+    () => page.context.answerFromText("가상 질문", "가상 판독문", answer, page.record));
+  await settle();
+  assert.equal(page.mode(), "stop");
+  page.send.fire("click");
+  await done;
+  assert.equal(answer.children.length, 0, "the finished failure stays gone");
+  assert.equal(page.record.unread === true, false);
+  assert.equal(page.counts.notified, 0);
+});
+
 test("정지 버튼은 보고 있는 대화가 답을 만들 때만 켜지고 사진·졸업 요청이나 홈 화면에서는 잠긴 보내기 버튼이다", async () => {
   const held = heldStream();
   const page = askPage(held.route);

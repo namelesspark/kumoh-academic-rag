@@ -2258,7 +2258,9 @@ async function answerFromText(question, recognized, answer, record = null) {
   // 읽은 글자로 답을 만드는 동안에도 보내기 버튼이 정지 버튼이 된다(#137). 사진을 읽는 단계에는 신호를 두지 않는다.
   // 「고쳐서 다시 묻기」로 같은 자리에 새 답을 받다가 멈추면, 지우기 전의 답을 그대로 되돌려 놓는다.
   const controller = record && typeof AbortController === "function" ? new AbortController() : null;
-  const previous = controller ? Array.from(answer.childNodes ?? answer.children ?? []) : [];
+  // 되돌리는 것은 앞서 받은 답뿐이다. 「다시 시도」로 연 경우 앞의 오류 상자(문구와 다시 시도 버튼)는 이미 끝난 실패라 되살리지 않는다.
+  const failed = node => node?.className === "error" || node?.classList?.contains?.("error") === true;
+  const previous = controller ? Array.from(answer.childNodes ?? answer.children ?? []).filter(node => !failed(node)) : [];
   say(statusLine, photoMessages.asking);
   photoNote.textContent = "";
   answer.replaceChildren();

@@ -153,14 +153,23 @@
     const fit = shift(Math.min(...ys) - bubbleRadius, Math.max(...ys) + bubbleRadius, height);
     // 묶음을 옆으로 밀면 끝 방울이 + 버튼 위에 얹힐 수 있다. 그러면 +를 다시 눌러 닫으려던 손가락이 방울을 누른다.
     // + 버튼과 가로로 겹치는 방울이 있으면 묶음을 + 위로 들어 올린다. 위에 자리가 없으면(+가 화면 위쪽에 있으면)
-    // + 아래로 내린다. 둘 다 화면을 넘으면 화면 안을 지키고 겹침을 받아들인다.
+    // + 아래로 내린다. 둘 다 화면을 넘으면(키보드가 올라와 높이가 낮을 때) 호 대신 + 옆에 한 줄로 늘어놓는다.
     const clear = bubbleRadius + hubRadius + 6;
     const covering = points.filter(point => Math.abs(point.x + dx - anchor.x) < clear);
     const inside = dy => Math.min(...ys) + dy - bubbleRadius >= edge - 0.5 && Math.max(...ys) + dy + bubbleRadius <= height - edge + 0.5;
     const up = Math.min(fit, ...covering.map(point => anchor.y - clear - point.y));
     const down = Math.max(fit, ...covering.map(point => anchor.y + clear - point.y));
-    const dy = !covering.length || inside(up) ? up : inside(down) ? down : fit;
-    return { narrow, points: points.map(point => ({ x: point.x + dx, y: point.y + dy })) };
+    const shape = narrow ? "arc" : "radial";
+    const moved = dy => ({ kind: shape, points: points.map(point => ({ x: point.x + dx, y: point.y + dy })) });
+    if (!covering.length || inside(up)) return moved(up);
+    if (inside(down)) return moved(down);
+    // 한 줄: + 오른쪽(자리가 없으면 왼쪽)에 + 버튼과 6px 떨어뜨려 놓는다. 높이는 화면 안으로 맞춘다.
+    const step = bubbleRadius * 2 + 4, span = (count - 1) * step;
+    const y = Math.min(Math.max(anchor.y, edge + bubbleRadius), height - edge - bubbleRadius);
+    const right = anchor.x + clear, left = anchor.x - clear - span;
+    const start = right + span + bubbleRadius <= width - edge ? right : left - bubbleRadius >= edge ? left : null;
+    if (start === null) return moved(fit);
+    return { kind: "row", points: Array.from({ length: count }, (_, index) => ({ x: start + index * step, y })) };
   }
   function place() {
     const box = toggle.getBoundingClientRect();
@@ -168,10 +177,10 @@
     const width = window.innerWidth || doc.documentElement?.clientWidth || 360;
     const height = window.innerHeight || doc.documentElement?.clientHeight || 640;
     const shown = visible();
-    const { narrow, points } = layout(anchor, width, height, shown.length);
+    const { kind, points } = layout(anchor, width, height, shown.length);
     // 삼각함수 오차(-1e-14 같은 값)가 CSS 값에 섞이지 않게 0.01px 단위로 자른다.
     const px = value => `${Math.round(value * 100) / 100 || 0}px`;
-    ring.setAttribute("data-layout", narrow ? "arc" : "radial");
+    ring.setAttribute("data-layout", kind);
     ring.style.setProperty("--qa-anchor-x", px(anchor.x));
     ring.style.setProperty("--qa-anchor-y", px(anchor.y));
     hub.setAttribute("cx", String(anchor.x));
