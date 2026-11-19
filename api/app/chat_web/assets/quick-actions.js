@@ -158,15 +158,20 @@
     const clear = bubbleRadius + hubRadius + 6;
     const covering = points.filter(point => Math.abs(point.x + dx - anchor.x) < clear);
     // 호를 밀어 넣은 뒤에도 가로·세로 모두 화면 안에 드는지 본다. 화면이 묶음보다 좁으면 한쪽을 맞춰도 반대쪽이 넘친다.
-    const across = Math.min(...xs) + dx - bubbleRadius >= edge - 0.5 && Math.max(...xs) + dx + bubbleRadius <= width - edge + 0.5;
-    const inside = dy => across && Math.min(...ys) + dy - bubbleRadius >= edge - 0.5 && Math.max(...ys) + dy + bubbleRadius <= height - edge + 0.5;
+    const inside = (sx, sy) => Math.min(...xs) + sx - bubbleRadius >= edge - 0.5 && Math.max(...xs) + sx + bubbleRadius <= width - edge + 0.5 &&
+      Math.min(...ys) + sy - bubbleRadius >= edge - 0.5 && Math.max(...ys) + sy + bubbleRadius <= height - edge + 0.5;
     const up = Math.min(fit, ...covering.map(point => anchor.y - clear - point.y));
     const down = Math.max(fit, ...covering.map(point => anchor.y + clear - point.y));
     const shape = narrow ? "arc" : "radial";
-    const moved = dy => ({ kind: shape, points: points.map(point => ({ x: point.x + dx, y: point.y + dy })) });
-    // 덮는 방울이 없으면 up은 화면 맞춤(fit)과 같다. 그래도 화면을 넘으면(묶음이 화면보다 크면) 아래 한 줄·격자로 넘어간다.
-    if (inside(up)) return moved(up);
-    if (inside(down)) return moved(down);
+    const moved = (sx, sy) => ({ kind: shape, points: points.map(point => ({ x: point.x + sx, y: point.y + sy })) });
+    // 덮는 방울이 없으면 up은 화면 맞춤(fit)과 같다.
+    if (inside(dx, up)) return moved(dx, up);
+    // 위로 들 자리가 없으면 아래로 내리기 전에, 같은 높이에서 호를 통째로 옆으로 더 밀어 + 버튼 옆으로 비켜 본다.
+    // 엄지 위쪽 호 모양을 그대로 두고 +도 덮지 않는다. 오른쪽을 먼저 보고, 안 되면 왼쪽을 본다.
+    for (const side of [anchor.x + clear - Math.min(...xs), anchor.x - clear - Math.max(...xs)]) {
+      if (inside(side, fit)) return moved(side, fit);
+    }
+    if (inside(dx, down)) return moved(dx, down);
     // 한 줄: + 오른쪽(자리가 없으면 왼쪽)에 + 버튼과 6px 떨어뜨려 놓는다. 높이는 화면 안으로 맞춘다.
     const step = bubbleRadius * 2 + 4, span = (count - 1) * step;
     const y = Math.min(Math.max(anchor.y, edge + bubbleRadius), height - edge - bubbleRadius);
@@ -314,8 +319,8 @@
       if (screen?.hidden || Date.now() - started > waitMs) { cancelWaiting(); return; }
       if (doc.body.getAttribute("data-view") === "home" && node.isConnected !== false) {
         cancelWaiting();
-        // 홈으로 오는 사이 대상이 잠기면(요청 중) 누르지 않는다.
-        if (!node.disabled) fire();
+        // 홈으로 오는 사이 대상이 잠기거나(disabled·aria-disabled) 숨으면(hidden) 누르지 않는다. 열 때 방울을 거른 규칙과 같다.
+        if (!node.disabled && node.hidden !== true && node.getAttribute?.("aria-disabled") !== "true") fire();
         return;
       }
       nextFrame(check);
