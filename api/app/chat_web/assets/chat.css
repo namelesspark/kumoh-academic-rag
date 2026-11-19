@@ -1484,8 +1484,9 @@ body[data-techmo-dragging="true"] { user-select: none; }
   mask-composite: exclude;
 }
 .composer-row.is-deep::before { padding: 1px; opacity: .85; background: linear-gradient(90deg, var(--sky), var(--deep-sky), var(--deep-gold)); }
-/* 효과는 클래스가 붙어 있을 때만 돈다. chat.js가 움직임이 허용될 때만 붙이고 0.7초·0.9초 뒤 뗀다. */
-.composer-row.is-deep-enter::after { inset: -5px; padding: 4px; background: linear-gradient(90deg, var(--sky), var(--deep-sky), var(--deep-gold), var(--sky)) 0 0 / 300% 100%; filter: blur(2px); opacity: 0; animation: composer-deep-enter .9s ease-out forwards; }
+/* 효과는 클래스가 붙어 있을 때만 돈다. chat.js가 움직임이 허용될 때만 붙이고 0.7초·0.45초 뒤 뗀다. */
+/* 깊이 모드를 켤 때 입력 줄을 한 번 감싸는 빛도 하늘색 계열 두 색만 쓰고 0.45초에 끝난다(#137). */
+.composer-row.is-deep-enter::after { inset: -5px; padding: 4px; background: linear-gradient(90deg, var(--sky), var(--deep-sky), var(--sky)) 0 0 / 300% 100%; filter: blur(2px); opacity: 0; animation: composer-deep-enter .45s ease-out forwards; }
 @keyframes composer-deep-enter { 0% { opacity: 0; background-position: 0 0; } 30% { opacity: 1; } 100% { opacity: 0; background-position: 100% 0; } }
 .mode-pill.is-bursting .mode-icon[data-icon="deep"] { animation: mode-star-spin .7s ease-out; }
 @keyframes mode-star-spin { 0% { transform: rotate(0deg) scale(1); } 45% { transform: rotate(200deg) scale(1.35); filter: drop-shadow(0 0 4px var(--deep-sky)); } 100% { transform: rotate(360deg) scale(1); } }

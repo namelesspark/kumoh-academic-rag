@@ -1741,7 +1741,8 @@ async function runPhotoRequest(record, message, work) {
   }
   try {
     const succeeded = await work();
-    if (account !== historyAccount || !conversations.includes(record)) return;
+    // null은 학생이 정지 버튼으로 멈춘 요청이다(#137). 알림도 읽지 않음 표시도 남기지 않는다.
+    if (succeeded === null || account !== historyAccount || !conversations.includes(record)) return;
     if (!requestedChatView || activeConversation !== record || document.hidden) {
       if (succeeded) notifyConversation(record);
       else record.unread = true;
@@ -2254,12 +2255,13 @@ function textAnswer(result) {
 // 사진 없이 글자만 보낸다. 실패하면 같은 글자로만 다시 시도한다.
 async function answerFromText(question, recognized, answer, record = null) {
   const account = historyAccount;
+  // 읽은 글자로 답을 만드는 동안에도 보내기 버튼이 정지 버튼이 된다(#137). 사진을 읽는 단계에는 신호를 두지 않는다.
+  // 「고쳐서 다시 묻기」로 같은 자리에 새 답을 받다가 멈추면, 지우기 전의 답을 그대로 되돌려 놓는다.
+  const controller = record && typeof AbortController === "function" ? new AbortController() : null;
+  const previous = controller ? Array.from(answer.childNodes ?? answer.children ?? []) : [];
   say(statusLine, photoMessages.asking);
   photoNote.textContent = "";
   answer.replaceChildren();
-
-  // 읽은 글자로 답을 만드는 동안에도 보내기 버튼이 정지 버튼이 된다(#137). 사진을 읽는 단계에는 신호를 두지 않는다.
-  const controller = record && typeof AbortController === "function" ? new AbortController() : null;
   if (controller) { record.chatAbort = controller; updateSend(); }
   let response;
   try {
@@ -2276,11 +2278,13 @@ async function answerFromText(question, recognized, answer, record = null) {
   const { result, failure, status } = response;
 
   if (record && (account !== historyAccount || !conversations.includes(record))) return false;
-  // 학생이 멈춘 답은 받은 글이 없으므로 빈 채로 두고, 오류 문구·다시 시도·알림을 내지 않는다.
+  // 학생이 멈춘 답은 새로 받은 글이 없다. 앞서 있던 답만 되돌리고, 오류 문구·다시 시도·알림·읽지 않음 표시를 내지 않는다.
+  // null은 runPhotoRequest에 「멈춤」을 알린다. 실패(false)로 넘기면 그사이 탭을 숨겼을 때 읽지 않음 표시가 붙는다.
   if (controller?.signal.aborted) {
+    answer.replaceChildren(...previous);
     say(photoNote, "");
     showAssistant("idle");
-    return false;
+    return null;
   }
   let message = failure;
   if (!failure) {
@@ -2558,7 +2562,7 @@ function setupAiMode() {
     const sparks = Array.from({ length: 7 }, () => element("span", "mode-spark"));
     sparks.forEach(spark => { spark.setAttribute("aria-hidden", "true"); button.append(spark); });
     setTimeout(() => { sparks.forEach(spark => spark.remove()); if (version === effectVersion) button.classList.remove("is-bursting"); }, 700);
-    setTimeout(() => { if (version === effectVersion) row?.classList.remove("is-deep-enter"); }, 900);
+    setTimeout(() => { if (version === effectVersion) row?.classList.remove("is-deep-enter"); }, 450);
   }
   render();
   // 언어를 바꾸면 효과 없이 이름만 다시 그린다.

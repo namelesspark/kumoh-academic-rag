@@ -807,7 +807,9 @@ test("깊이 모드: 고정 테두리는 상태만으로 그리고, 효과는 �
     ".mode-pill.is-flowing::after", ".mode-pill.is-flowing::before", ".thinking.is-waiting > summary",
   ]);
   const seconds = selector => Number.parseFloat(/(\d*\.?\d+)s/.exec(declared(selector, ["animation"]))[1]);
-  assert.equal(seconds(".composer-row.is-deep-enter::after"), .9);
+  // 입력 줄을 감싸는 빛도 하늘색 계열로 0.45초 한 번만 지나간다(#137). 노랑은 고정 테두리 고리에만 남는다.
+  assert.equal(seconds(".composer-row.is-deep-enter::after"), .45);
+  assert.doesNotMatch(declared(".composer-row.is-deep-enter::after", ["background"]), /deep-gold/);
   assert.equal(seconds('.mode-pill.is-bursting .mode-icon[data-icon="deep"]'), .7);
   assert.ok(seconds(".mode-spark") <= .7);
   // 하늘색 빛줄기는 깊이 모드가 켜질 때 한 번만 지나간다(#137). 되풀이하지 않고 0.5초 안에 끝난다.
@@ -878,7 +880,7 @@ test("다크 테마에서 남은 밝은 바탕은 말풍선·노랑 표시·깊�
       colors(value, look).some(color => color[3] >= .8 && luminance(color.slice(0, 3)) > .5)
     ).map(([selector]) => selector).sort();
     assert.deepEqual(lightSurfaces, [
-      ".composer-row.is-deep-enter::after", ".composer-row.is-deep::before", ".intro-badge::before",
+      ".composer-row.is-deep::before", ".intro-badge::before",
       ".login-safety::before", ".mode-pill.is-flowing::after", '.mode-pill[data-mode="deep"]', ".pet-dock .pet-says::before", ".pet-says", '[data-campus-step][data-current="true"]',
     ], themeName(look));
   }

@@ -363,16 +363,54 @@ test("링을 연 채 대상 버튼의 잠금이 풀리면 방울도 바로 풀�
   assert.equal(page.photo.clicks, 1);
 });
 
-test("채팅 화면의 사진·손글씨 방울은 홈으로 가지 않고 그 자리의 입력 줄 버튼을 누른다", () => {
-  // 홈 이동은 첫 화면에만 있는 학사 카드에 한한다. 두 버튼은 채팅 화면 입력 줄에도 있고, 손글씨는 지금 대화의 질문 칸에 넣는다.
-  const page = ringPage({ view: "chat" });
+test("채팅 화면의 사진·손글씨 방울도 홈으로 돌아간 뒤 홈 화면이 적용되면 입력 줄 버튼을 누른다", () => {
+  for (const [id, button] of [["photo", "photo"], ["handwriting", "pen"]]) {
+    const page = ringPage({ view: "chat" });
+    page.toggle.click();
+    page.item(id).click();
+    assert.equal(page.home.clicks, 1, id);
+    assert.equal(page[button].clicks, 0, `${id} waits for the home screen`);
+    page.frames();
+    assert.equal(page[button].clicks, 0, id);
+    page.body.setAttribute("data-view", "home");
+    page.frames();
+    assert.equal(page[button].clicks, 1, id);
+  }
+  // 홈으로 오는 사이 대상이 잠기면(요청 중) 누르지 않는다.
+  const locked = ringPage({ view: "chat" });
+  locked.toggle.click();
+  locked.item("photo").click();
+  locked.photo.disabled = true;
+  locked.body.setAttribute("data-view", "home");
+  locked.frames(); locked.frames();
+  assert.equal(locked.photo.clicks, 0);
+});
+
+test("방울은 다 펼쳐진 뒤에만 누름을 받아, +를 빠르게 두 번 누르면 두 번째 누름이 출발 중인 방울에 가지 않는다", () => {
+  const page = ringPage({ width: 390, height: 700, toggleRect: { left: 8, top: 600, width: 44, height: 44 } });
   page.toggle.click();
-  page.item("photo").click();
+  page.frames();
+  assert.equal(page.ring.getAttribute("data-open"), "true");
+  assert.equal(page.ring.getAttribute("data-settled"), null, "bubbles are still leaving the + button");
+  assert.deepEqual([...page.timers.values()].map(timer => timer.delay), [290]);
+  page.tick();
+  assert.equal(page.ring.getAttribute("data-settled"), "");
+  // 닫으면 누름 받기를 먼저 끈다. 열자마자 닫으면 예약도 버린다.
   page.toggle.click();
-  page.item("handwriting").click();
-  assert.equal(page.photo.clicks, 1);
-  assert.equal(page.pen.clicks, 1);
-  assert.equal(page.home.clicks, 0);
+  assert.equal(page.ring.getAttribute("data-settled"), null);
+  const quick = ringPage();
+  quick.toggle.click();
+  quick.frames();
+  quick.toggle.click();
+  assert.deepEqual([...quick.timers.values()].map(timer => timer.delay), [300], "only the hide timer is left");
+  // CSS: 방울 버튼은 기본으로 누름을 받지 않고 data-settled에서만 받는다.
+  assert.match(css, /\n\.quick-item \{ pointer-events: none; \}/);
+  assert.match(css, /\.quick-ring\[data-settled\] \.quick-item \{ pointer-events: auto; \}/);
+  assert.doesNotMatch(/\.quick-ring\[data-open\] \.quick-item \{([^}]*)\}/.exec(css)[1], /pointer-events/);
+  // 동작 줄이기에서는 움직임이 없으므로 열자마자 누름을 받는다.
+  const still = ringPage({ reduced: true });
+  still.toggle.click();
+  assert.equal(still.ring.getAttribute("data-settled"), "");
 });
 
 test("문구는 세 언어 사전에서 고르고 <html lang>이 바뀌면 다시 쓴다", () => {

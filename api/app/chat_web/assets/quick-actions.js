@@ -31,7 +31,8 @@
   // 카드는 채팅 화면에서 문서 밖으로 빠지므로 처음 한 번 찾아 둔다. chat.js도 같은 때 카드를 기억해 둔다.
   const cards = new Map(actions.filter(action => action.feature)
     .map(action => [action.feature, doc.querySelector(`[data-feature="${action.feature}"]`)]));
-  const bubbleRadius = 26, hubRadius = 22, edge = 8, closeMs = 300, waitMs = 1500;
+  // settleMs는 quick-actions.css의 방울 이동(220ms)과 마지막 방울의 출발 지연(16ms × 4)을 더한 값이다.
+  const bubbleRadius = 26, hubRadius = 22, edge = 8, closeMs = 300, settleMs = 290, waitMs = 1500;
 
   const lang = () => {
     const value = String(doc.documentElement?.getAttribute?.("lang") || "").toLowerCase();
@@ -106,7 +107,7 @@
   ring.append(blobs, menu, caption);
   doc.body.append(ring);
 
-  let open = false, hideTimer = null, captionKey = null, waiting = 0, openedAt = null;
+  let open = false, hideTimer = null, settleTimer = null, captionKey = null, waiting = 0, openedAt = null;
   const visible = () => entries.filter(entry => !entry.item.hidden);
   const enabled = () => visible().filter(entry => !entry.item.disabled);
 
@@ -205,16 +206,22 @@
     first?.item.focus();
     if (first) show(first.action.id);
     // 닫힌 자리를 한 번 그린 뒤 열린 자리로 옮겨야 전환이 돈다. 동작 줄이기면 바로 연다.
-    if (reduced()) ring.setAttribute("data-open", "true");
-    else {
-      void ring.getBoundingClientRect?.();
-      nextFrame(() => { if (open) ring.setAttribute("data-open", "true"); });
-    }
+    // 방울은 + 버튼 가운데에서 출발하므로, 다 펼쳐지기 전에는 누름을 받지 않는다(data-settled).
+    // 그래야 +를 빠르게 두 번 눌러 닫을 때 두 번째 누름이 출발 중인 방울에 가지 않는다. 키보드 초점은 바로 받는다.
+    if (reduced()) { ring.setAttribute("data-open", "true"); ring.setAttribute("data-settled", ""); return; }
+    void ring.getBoundingClientRect?.();
+    nextFrame(() => {
+      if (!open) return;
+      ring.setAttribute("data-open", "true");
+      settleTimer = setTimeout(() => { settleTimer = null; if (open) ring.setAttribute("data-settled", ""); }, settleMs);
+    });
   }
   function closeRing(restore = false) {
     if (!open) return;
     open = false;
     ring.removeAttribute("data-open");
+    ring.removeAttribute("data-settled");
+    if (settleTimer !== null) { clearTimeout(settleTimer); settleTimer = null; }
     toggle.setAttribute("aria-expanded", "false");
     show(null);
     if (restore) toggle.focus();
@@ -229,11 +236,11 @@
     if (reduced()) { hide(); return; }
     hideTimer = setTimeout(hide, closeMs);
   }
-  // 채팅 화면에서 학사 기능을 고르면 홈으로 돌아간 뒤 카드가 문서에 다시 붙을 때 누른다.
+  // 채팅 화면에서 방울을 고르면 모두 홈으로 돌아간 뒤, 홈 화면이 적용되고 대상(카드는 문서에 다시 붙은 뒤)이 준비되면 누른다.
   // 기다리는 동안 학생이 화면을 옮기거나(뒤로 가기·다른 곳 누르기) 링을 다시 열면 실행하지 않는다.
   function cancelWaiting() { waiting++; }
-  function runFeature(card) {
-    if (doc.body.getAttribute("data-view") !== "chat") { card.click(); return; }
+  function afterHome(node, fire) {
+    if (doc.body.getAttribute("data-view") !== "chat") { fire(); return; }
     const home = doc.querySelector("#home-button");
     if (!home || home.hidden || home.disabled) return;
     const ticket = ++waiting;
@@ -243,9 +250,10 @@
       if (ticket !== waiting) return;
       const screen = doc.querySelector("#main-screen");
       if (screen?.hidden || Date.now() - started > waitMs) { cancelWaiting(); return; }
-      if (doc.body.getAttribute("data-view") === "home" && card.isConnected !== false) {
+      if (doc.body.getAttribute("data-view") === "home" && node.isConnected !== false) {
         cancelWaiting();
-        card.click();
+        // 홈으로 오는 사이 대상이 잠기면(요청 중) 누르지 않는다.
+        if (!node.disabled) fire();
         return;
       }
       nextFrame(check);
@@ -258,10 +266,11 @@
     // 링이 사라져도 초점이 갈 곳이 있게 먼저 + 버튼에 둔다. 카드는 패널 제목으로, 펜 버튼은 필기 칸으로 초점을 다시 옮긴다.
     closeRing(true);
     if (!node || node.disabled) return;
-    if (entry.action.feature) { runFeature(node); return; }
-    // 사진 창을 닫으면 초점이 돌아올 자리가 있어야 한다. 줄에 보이는 클립 버튼이면 그쪽에 둔다.
-    if (entry.action.id === "photo" && (typeof node.getClientRects !== "function" || node.getClientRects().length > 0)) node.focus();
-    node.click();
+    afterHome(node, () => {
+      // 사진 창을 닫으면 초점이 돌아올 자리가 있어야 한다. 줄에 보이는 클립 버튼이면 그쪽에 둔다.
+      if (entry.action.id === "photo" && (typeof node.getClientRects !== "function" || node.getClientRects().length > 0)) node.focus();
+      node.click();
+    });
   }
   function step(from, delta) {
     const list = enabled();

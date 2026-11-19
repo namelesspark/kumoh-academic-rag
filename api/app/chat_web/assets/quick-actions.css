@@ -61,8 +61,10 @@
 .quick-item svg { display: block; width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .quick-item:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .quick-item:disabled { cursor: not-allowed; }
-.quick-ring[data-open] .quick-item { opacity: 1; pointer-events: auto; transform: translate(var(--qa-x, 0px), var(--qa-y, 0px)); }
-.quick-ring:not([data-open]) .quick-item { pointer-events: none; }
+.quick-ring[data-open] .quick-item { opacity: 1; transform: translate(var(--qa-x, 0px), var(--qa-y, 0px)); }
+/* 방울은 다 펼쳐진 뒤(data-settled)에만 누름을 받는다. 출발 중인 방울은 + 버튼 위에 있어 두 번째 누름을 가로챌 수 있다. */
+.quick-item { pointer-events: none; }
+.quick-ring[data-settled] .quick-item { pointer-events: auto; }
 
 /* 이름표 한 장. 초점이나 마우스가 가리키는 방울의 이름을 묶음 위에 보인다. 읽기 도구는 버튼 이름을 읽는다. */
 .quick-ring-caption {

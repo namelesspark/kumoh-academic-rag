@@ -229,7 +229,8 @@ function askPage(route) {
     between("async function readChatStream(", 'input.addEventListener("input"') +
     between('input.addEventListener("keydown"', 'composer.addEventListener("submit"') +
     between("async function requestJson(", "function textProblem(") +
-    between("async function answerFromText(", "function readingPanel("), context);
+    between("async function answerFromText(", "function readingPanel(") +
+    between("async function runPhotoRequest(", "function scrollToLatest("), context);
   const record = { id: "fictional-1", time: 1, title: "가상 질문", messages: [{ role: "question", text: "가상 질문", time: 1, sources: [] }], turns: [] };
   context.conversations = [record];
   context.activeConversation = record;
@@ -357,7 +358,7 @@ test("사진에서 읽은 글자로 답을 받는 동안에도 정지 버튼이 
   assert.equal(page.mode(), "stop");
   assert.equal(page.send.disabled, false);
   page.send.fire("click");
-  assert.equal(await done, false);
+  assert.equal(await done, null, "null tells runPhotoRequest the student stopped it");
   assert.equal(answer.children.length, 0, "no error box or retry button");
   assert.equal(page.states.at(-1), "idle");
   assert.equal(Object.hasOwn(page.record, "chatAbort"), false);
@@ -365,6 +366,30 @@ test("사진에서 읽은 글자로 답을 받는 동안에도 정지 버튼이 
   assert.equal(page.mode(), "send");
   assert.equal(page.send.disabled, true);
   assert.equal(page.counts.celebrated, 0);
+});
+
+test("「고쳐서 다시 묻기」 중에 멈추면 앞서 받은 답을 되돌리고, 그사이 탭을 숨겨도 읽지 않음·알림을 남기지 않는다", async () => {
+  const page = askPage((path, options) =>
+    new Promise((resolve, reject) => options.signal.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")))));
+  // 같은 답 자리에 이미 받은 가상 답 하나가 있다.
+  const answer = new El("div", page.state);
+  const earlier = new El("section", page.state);
+  earlier.textContent = "가상 앞선 답";
+  answer.append(earlier);
+  const done = page.context.runPhotoRequest(page.record, "가상 묻는 중",
+    () => page.context.answerFromText("가상 고친 질문", "가상 고친 판독문", answer, page.record));
+  await settle();
+  assert.equal(page.mode(), "stop");
+  assert.equal(answer.children.length, 0, "the old answer is cleared while the new one is pending");
+  page.send.fire("click");
+  // 취소 처리가 끝나기 전에 탭을 숨긴다.
+  page.context.document.hidden = true;
+  await done;
+  assert.deepEqual(Array.from(answer.children), [earlier]);
+  assert.equal(page.record.unread === true, false);
+  assert.equal(page.counts.notified, 0);
+  assert.equal(page.record.pending, false);
+  assert.equal(page.mode(), "send");
 });
 
 test("정지 버튼은 보고 있는 대화가 답을 만들 때만 켜지고 사진·졸업 요청이나 홈 화면에서는 잠긴 보내기 버튼이다", async () => {
