@@ -1932,9 +1932,11 @@ form.turn-editor textarea {
    막대 위치는 인라인 style 없이 data-col·data-span·data-lane 선택자로만 정한다(CSP default-src 'self').
    패널 안쪽 폭이 560px 미만이면(컨테이너 쿼리) 막대를 숨기고 칸마다 점을 보인다. 스크립트는 화면 폭을 몰라도 된다.
    칸은 44px보다 좁아지지 않는다. 7칸 × 44px = 308px보다 좁은 패널에서는 요일 머리와 날짜 격자만 함께 가로로 스크롤한다.
-   chat.js는 요일 머리(.acal-weekdays)를 격자 밖, 달력 루트의 직속 자식으로 붙인다. 그래서 스크롤 상자는 루트(.acal)이고,
-   두 줄은 같은 폭(308px)으로 넘쳐 같이 밀린다. 나머지 직속 자식(머리 줄·고른 날 목록·목록 보기 줄)은 왼쪽에 붙어(sticky) 제자리에 있다.
-   격자만 스크롤하던 처음 규칙은 요일 머리가 제자리에 남아 날짜와 어긋났다(교차 검토 지적).
+   chat.js는 머리 줄을 루트 직속으로, 요일 머리(.acal-weekdays)·격자·고른 날 목록을 본문(.acal-body) 한 상자에 함께 넣는다.
+   스크롤 상자는 요일 머리와 격자를 직접 품은 부모(지금은 .acal-body)다. 두 줄은 같은 최소 폭(308px)으로 넘쳐 같이 밀리고,
+   같은 부모의 다른 자식(고른 날 목록·목록 보기 줄)은 왼쪽에 붙어(sticky) 제자리에 있다. 머리 줄은 스크롤 상자 밖이라 움직이지 않는다.
+   교차 검토 지적 두 번: 격자만 스크롤하면 요일 머리가 어긋났고, 루트를 스크롤 상자로 두면 요일 머리·격자가 루트 직속이 아니라
+   최소 폭이 걸리지 않고 sticky가 본문 상자 전체에 걸려 달력 전체가 밀렸다.
    초점 고리와 선택 테두리는 날짜 버튼 안쪽에 그린다. 스크롤 상자 밖으로 나간 선은 잘린다.
    새 움직임(transition·animation)은 넣지 않는다. 달을 넘기면 바로 다시 그리므로 움직임 줄이기 설정에서 끌 것도 없다.
    test_academic_calendar_style.py가 실제 선언을 모아 이 값들을 계산한다. */
@@ -1946,15 +1948,18 @@ form.turn-editor textarea {
   grid-template-columns: minmax(0, 1fr);
   gap: 8px;
   min-width: 0;
-  overflow-x: auto;
-  overscroll-behavior-x: contain;
   padding: 8px;
   border-radius: 10px;
   background: var(--surface);
   color: var(--text);
 }
-/* 요일 머리와 격자 밖의 직속 자식은 루트가 가로로 밀려도 왼쪽 끝에 붙어 있다. 폭은 루트 안쪽 폭(격자 한 칸 너비)이다. */
-.acal > :not(.acal-weekdays):not(.acal-grid) { position: sticky; left: 0; min-width: 0; }
+/* 본문 상자. 루트처럼 한 열 격자라 자식은 상자 안쪽 폭을 받는다. 스크롤 상자가 되면 넘친 선을 자르므로
+   안쪽 4px 여백에 초점 고리(간격 2px + 굵기 2px)가 들어가게 하고, 같은 만큼 바깥 여백을 당겨 머리 줄과 왼쪽 끝을 맞춘다. */
+.acal-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; min-width: 0; margin: -4px; padding: 4px; }
+/* 스크롤 상자: 요일 머리·격자를 직접 품은 부모. 루트에는 8px 여백이 이미 있다. */
+:is(.acal, .acal-body):has(> .acal-grid) { overflow-x: auto; overscroll-behavior-x: contain; }
+/* 같은 부모의 다른 자식(고른 날 목록·목록 보기 줄)은 두 줄이 밀려도 왼쪽 끝(여백 4px 안쪽)에 붙어 있다. */
+:is(.acal, .acal-body):has(> .acal-grid) > :not(.acal-weekdays):not(.acal-grid) { position: sticky; left: 4px; min-width: 0; }
 .acal > :has(> .acal-title) { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .acal-title {
   flex: 1 1 8em;
@@ -1982,10 +1987,11 @@ form.turn-editor textarea {
 :is([data-acal-nav], [data-acal-view-toggle]):focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 
 /* 격자와 요일 머리. 칸은 minmax(44px, 1fr)라 패널이 좁아도 44px 아래로 줄지 않는다. 두 줄 모두 최소 폭 그대로 넘쳐
-   루트 스크롤 안에서 함께 밀린다. 격자에 따로 스크롤을 주면 요일 머리와 어긋난다. */
+   같은 스크롤 상자 안에서 함께 밀린다. 격자에 따로 스크롤을 주면 요일 머리와 어긋난다. */
 .acal-grid { border-bottom: 1px solid var(--acal-line); }
-/* 루트 격자 칸은 minmax(0, 1fr)라 자동 최소 폭이 0이다. 두 줄에 7 × 44px를 최소 폭으로 주어 상자째 넘치게 한다(선도 끝까지 그어진다). */
-.acal > :is(.acal-weekdays, .acal-grid) { min-width: 308px; }
+/* 부모 격자 칸은 minmax(0, 1fr)라 자동 최소 폭이 0이다. 두 줄에 7 × 44px를 최소 폭으로 주어 상자째 넘치게 한다(선도 끝까지 그어진다).
+   부모 이름을 정하지 않아 요일 머리가 루트·본문 어디에 있든 걸린다. */
+.acal :is(.acal-weekdays, .acal-grid) { min-width: 308px; }
 .acal-weekdays, .acal-week {
   display: grid;
   grid-template-columns: repeat(7, minmax(44px, 1fr));
@@ -2153,7 +2159,8 @@ form.turn-editor textarea {
 /* 목록 보기에서는 격자와 고른 날 목록을 접고, 달 보기에서는 루트 바로 아래의 목록 줄(section.evidence)만 접는다.
    고른 날 목록 안의 일정도 section.evidence로 그려지므로 자손 전체를 접으면 일정 이름·기간·출처가 사라진다(교차 검토 지적). */
 .acal[data-view="list"] :is(.acal-weekdays, .acal-grid, .acal-day-list) { display: none; }
-.acal[data-view="month"] > section.evidence { display: none; }
+.acal[data-view="month"] > section.evidence,
+.acal[data-view="month"] > .acal-body > section.evidence { display: none; }
 
 /* 좁은 패널(안쪽 폭 560px 미만). 막대를 숨기고 칸 안 날짜 버튼 아래에 점을 한 줄로 놓는다. */
 @container acal (width < 560px) {
