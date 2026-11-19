@@ -134,7 +134,7 @@ test("겹친 기간은 주마다 빈 줄을 채우고 날짜별로 넘친 일정
   assert.equal(all(page.list(), node => attr(node, "href") === "https://example.invalid/calendar").length, 1);
 });
 
-test("2월 27일에 겹친 가상 일정 세 건의 점·막대·초과 표시와 출처를 확인한다", async () => {
+test("2월 27일에 겹친 가상 일정 세 건의 점·막대·초과 표시와 출처, 세 언어의 날짜 버튼 이름을 확인한다", async () => {
   const entries = [
     { title: "가상 수강신청", start: "2028-02-25", end: "2028-02-27", kind: "enroll" },
     { title: "가상 시험", start: "2028-02-26", end: "2028-02-28", kind: "exam" },
@@ -169,6 +169,18 @@ test("2월 27일에 겹친 가상 일정 세 건의 점·막대·초과 표시�
   const linksByRow = rows.map(row => all(row, node => node.tag === "a")
     .map(link => [link.textContent, attr(link, "href")]));
   assert.deepEqual(linksByRow, entries.map(({ source }) => [[source.title, source.url]]));
+
+  const labelsByLanguage = {
+    ko: ["2028년 2월 27일 · 일정 3건", "2028년 2월 28일 · 일정 1건", "2028년 2월 29일 · 일정 0건"],
+    en: ["February 27 2028 · 3 events", "February 28 2028 · 1 event", "February 29 2028 · 0 events"],
+    zh: ["2028年2月27日 · 3项日程", "2028年2月28日 · 1项日程", "2028年2月29日 · 0项日程"],
+  };
+  for (const [language, expected] of Object.entries(labelsByLanguage)) {
+    page.language(language);
+    const labels = [27, 28, 29].map(date => attr(page.day(date), "aria-label"));
+    assert.deepEqual(labels, expected, language);
+    for (const label of labels) assert.doesNotMatch(label, /\+1/);
+  }
 });
 
 test("고른 날 목록은 요일과 날짜가 가로로 밀리는 상자 밖에 있다", async () => {

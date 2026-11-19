@@ -113,6 +113,8 @@ const uiText = {
     "{month} {day}일 일정": "Events for {month} {day}",
     "고른 날에 일정이 없어요.": "No events on this date.",
     "+{count}개": "+{count} more",
+    "{date} · 일정 {count}건": "{date} · {count} events",
+    "{date} · 일정 1건": "{date} · 1 event",
     "출처": "Source",
     " · 확인일 ": " · Checked on ",
     "공식 페이지에서 다시 확인해 주세요.": "Please check the official page for updates.",
@@ -353,6 +355,8 @@ const uiText = {
     "{month} {day}일 일정": "{month}{day}日的日程",
     "고른 날에 일정이 없어요.": "所选日期没有日程。",
     "+{count}개": "+{count}项",
+    "{date} · 일정 {count}건": "{date} · {count}项日程",
+    "{date} · 일정 1건": "{date} · 1项日程",
     "출처": "来源",
     " · 확인일 ": " · 核查日期 ",
     "공식 페이지에서 다시 확인해 주세요.": "请在官方网站确认最新信息。",
@@ -4889,8 +4893,12 @@ function renderCalendar(content, result, current) {
   root.append(scopeTitle, header, body, dayList);
   content.replaceChildren(root);
 
+  function eventsOnDay(day) {
+    return events.filter(event => event.start <= day && event.end >= day);
+  }
+
   function drawDayList() {
-    const matches = events.filter(event => event.start <= selected && event.end >= selected);
+    const matches = eventsOnDay(selected);
     const heading = element("h5", null, calendarDateLabel(new Date(selected), "{month} {day}일 일정"));
     const rows = matches.length ? matches.map(calendarEventRow) : [element("p", "hint", t("고른 날에 일정이 없어요."))];
     dayList.replaceChildren(heading, ...rows);
@@ -4976,7 +4984,12 @@ function renderCalendar(content, result, current) {
       button.className = "acal-day";
       button.tabIndex = day === focused ? 0 : -1;
       button.append(element("span", "acal-day-number", String(date.getUTCDate())));
-      let label = calendarDateLabel(date, "{month} {day}일", true);
+      const matches = eventsOnDay(day);
+      const count = matches.length;
+      button.setAttribute("aria-label", t(count === 1 ? "{date} · 일정 1건" : "{date} · 일정 {count}건", {
+        date: calendarDateLabel(date, "{month} {day}일", true),
+        count,
+      }));
       if (day === +now) button.setAttribute("aria-current", "date");
       if (hidden[col]) {
         button.dataset.more = String(hidden[col]);
@@ -4984,12 +4997,10 @@ function renderCalendar(content, result, current) {
         const badge = element("span", "acal-more", more);
         badge.setAttribute("aria-hidden", "true");
         button.append(badge);
-        label += ` · ${more}`;
       }
-      button.setAttribute("aria-label", label);
       const dots = element("span", "acal-dots");
       dots.setAttribute("aria-hidden", "true");
-      for (const event of events.filter(event => event.start <= day && event.end >= day).slice(0, 3)) {
+      for (const event of matches.slice(0, 3)) {
         const dot = element("span", "acal-dot");
         dot.dataset.kind = event.kind;
         dots.append(dot);
