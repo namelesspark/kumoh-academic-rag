@@ -1532,7 +1532,7 @@ body[data-techmo-dragging="true"] { user-select: none; }
   -webkit-mask-composite: xor;
   mask: linear-gradient(var(--white) 0 0) content-box, linear-gradient(var(--white) 0 0);
   mask-composite: exclude;
-  animation: mode-border-flow 6s linear infinite alternate;
+  animation: mode-border-flow .45s ease-out 1 both;
 }
 @keyframes mode-border-flow { from { background-position: 0 0; } to { background-position: 100% 0; } }
 .mode-pill.is-flowing::before {

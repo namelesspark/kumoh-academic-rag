@@ -76,6 +76,8 @@
   transition-delay: calc(var(--qa-index, 0) * 16ms);
 }
 .quick-item[hidden] { display: none; }
+/* 화면이 아주 작아 52px 방울을 놓을 칸이 모자라면 조작 영역 하한인 44px 방울로 줄인다(quick-actions.js가 data-compact를 붙인다). */
+.quick-ring[data-compact] .quick-item { width: 44px; height: 44px; margin: -22px 0 0 -22px; }
 .quick-item svg { display: block; width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .quick-item:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .quick-item:disabled { cursor: not-allowed; }

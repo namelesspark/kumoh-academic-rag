@@ -166,6 +166,8 @@ test("저장한 깊이 모드를 복원하고 빠르게 선택을 같은 키에 
   assert.equal(p.row.classList.contains("is-deep"), true);
   assert.equal(p.button.classList.contains("is-bursting"), false);
   assert.equal(p.row.classList.contains("is-deep-enter"), false);
+  // 저장한 깊이 모드로 다시 열면 고정 테두리만 보이고 흐르는 테두리·빛줄기는 돌지 않는다(#137).
+  assert.equal(p.button.classList.contains("is-flowing"), false);
   p.select("fast");
   assert.equal(p.mode(), "fast");
   assert.deepEqual(writes, [["kumoh-chat-ai-mode:v1", "fast"]]);
@@ -247,6 +249,8 @@ test("깊이 선택 효과는 정해진 시간 뒤 끝나고 움직임 줄이기
   assert.ok(p.button.children.filter(node => node.classList.contains("mode-spark")).length >= 6);
   p.tick(700);
   assert.equal(p.button.classList.contains("is-bursting"), false);
+  // 흐르는 테두리도 효과 시간이 끝나면 뗀다. 깊이 모드를 오래 두어도 테두리가 계속 움직이지 않는다.
+  assert.equal(p.button.classList.contains("is-flowing"), false);
   p.tick(900);
   assert.equal(p.row.classList.contains("is-deep-enter"), false);
   const still = modePage(storage, true);

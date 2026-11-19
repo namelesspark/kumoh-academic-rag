@@ -32,7 +32,8 @@
   const cards = new Map(actions.filter(action => action.feature)
     .map(action => [action.feature, doc.querySelector(`[data-feature="${action.feature}"]`)]));
   // settleMs는 quick-actions.css의 방울 이동(220ms)과 마지막 방울의 출발 지연(16ms × 4)을 더한 값이다.
-  const bubbleRadius = 26, hubRadius = 22, edge = 8, closeMs = 300, settleMs = 290, waitMs = 1500;
+  // compactRadius는 화면이 아주 작을 때 쓰는 44px 방울(조작 영역 하한)의 반지름이다.
+  const bubbleRadius = 26, compactRadius = 22, hubRadius = 22, edge = 8, closeMs = 300, settleMs = 290, waitMs = 1500;
 
   const lang = () => {
     const value = String(doc.documentElement?.getAttribute?.("lang") || "").toLowerCase();
@@ -156,12 +157,15 @@
     // + 아래로 내린다. 둘 다 화면을 넘으면(키보드가 올라와 높이가 낮을 때) 호 대신 + 옆에 한 줄로 늘어놓는다.
     const clear = bubbleRadius + hubRadius + 6;
     const covering = points.filter(point => Math.abs(point.x + dx - anchor.x) < clear);
-    const inside = dy => Math.min(...ys) + dy - bubbleRadius >= edge - 0.5 && Math.max(...ys) + dy + bubbleRadius <= height - edge + 0.5;
+    // 호를 밀어 넣은 뒤에도 가로·세로 모두 화면 안에 드는지 본다. 화면이 묶음보다 좁으면 한쪽을 맞춰도 반대쪽이 넘친다.
+    const across = Math.min(...xs) + dx - bubbleRadius >= edge - 0.5 && Math.max(...xs) + dx + bubbleRadius <= width - edge + 0.5;
+    const inside = dy => across && Math.min(...ys) + dy - bubbleRadius >= edge - 0.5 && Math.max(...ys) + dy + bubbleRadius <= height - edge + 0.5;
     const up = Math.min(fit, ...covering.map(point => anchor.y - clear - point.y));
     const down = Math.max(fit, ...covering.map(point => anchor.y + clear - point.y));
     const shape = narrow ? "arc" : "radial";
     const moved = dy => ({ kind: shape, points: points.map(point => ({ x: point.x + dx, y: point.y + dy })) });
-    if (!covering.length || inside(up)) return moved(up);
+    // 덮는 방울이 없으면 up은 화면 맞춤(fit)과 같다. 그래도 화면을 넘으면(묶음이 화면보다 크면) 아래 한 줄·격자로 넘어간다.
+    if (inside(up)) return moved(up);
     if (inside(down)) return moved(down);
     // 한 줄: + 오른쪽(자리가 없으면 왼쪽)에 + 버튼과 6px 떨어뜨려 놓는다. 높이는 화면 안으로 맞춘다.
     const step = bubbleRadius * 2 + 4, span = (count - 1) * step;
@@ -169,18 +173,23 @@
     const right = anchor.x + clear, left = anchor.x - clear - span;
     const start = right + span + bubbleRadius <= width - edge ? right : left - bubbleRadius >= edge ? left : null;
     if (start !== null) return { kind: "row", points: Array.from({ length: count }, (_, index) => ({ x: start + index * step, y })) };
-    // 한 줄도 너비에 안 들어가면(좁고 낮은 화면) 화면 안 격자 칸(56px 간격) 가운데 + 버튼과 겹치지 않는 칸만 남겨
-    // + 에 가까운 칸부터 고른다. 칸 간격이 방울 지름보다 커서 방울끼리도 겹치지 않는다. 칸이 모자라면 화면 안만 지킨다.
+    // 한 줄도 너비에 안 들어가면(좁고 낮은 화면) 화면 안 격자 칸 가운데 + 버튼과 겹치지 않는 칸만 남겨 + 에 가까운 칸부터 고른다.
+    // 칸 간격이 방울 지름보다 커서 방울끼리도 겹치지 않는다. 52px 방울로 칸이 모자라면 조작 영역 하한인 44px 방울(compact)로
+    // 한 번 더 찾는다. 그래도 모자라면 null을 돌려준다. 잘리거나 +를 덮는 배치를 보이느니 링을 열지 않는다.
     const box = { left: anchor.x - hubRadius, right: anchor.x + hubRadius, top: anchor.y - hubRadius, bottom: anchor.y + hubRadius };
-    const apart = (x, y) => Math.hypot(x - Math.min(Math.max(x, box.left), box.right), y - Math.min(Math.max(y, box.top), box.bottom)) >= bubbleRadius + 4;
-    const slots = [];
-    for (let gy = edge + bubbleRadius; gy <= height - edge - bubbleRadius + 0.5; gy += step) {
-      for (let gx = edge + bubbleRadius; gx <= width - edge - bubbleRadius + 0.5; gx += step) if (apart(gx, gy)) slots.push({ x: gx, y: gy });
+    for (const [radius, compact] of [[bubbleRadius, false], [compactRadius, true]]) {
+      const gap = radius * 2 + 4;
+      const apart = (x, y) => Math.hypot(x - Math.min(Math.max(x, box.left), box.right), y - Math.min(Math.max(y, box.top), box.bottom)) >= radius + 4;
+      const slots = [];
+      for (let gy = edge + radius; gy <= height - edge - radius + 0.5; gy += gap) {
+        for (let gx = edge + radius; gx <= width - edge - radius + 0.5; gx += gap) if (apart(gx, gy)) slots.push({ x: gx, y: gy });
+      }
+      if (slots.length < count) continue;
+      const chosen = slots.sort((a, b) => Math.hypot(a.x - anchor.x, a.y - anchor.y) - Math.hypot(b.x - anchor.x, b.y - anchor.y)).slice(0, count);
+      // 화살표 키 순서가 화면 순서와 맞게 위 줄부터, 같은 줄은 왼쪽부터 놓는다.
+      return { kind: "grid", compact, points: chosen.sort((a, b) => a.y - b.y || a.x - b.x) };
     }
-    if (slots.length < count) return moved(fit);
-    const chosen = slots.sort((a, b) => Math.hypot(a.x - anchor.x, a.y - anchor.y) - Math.hypot(b.x - anchor.x, b.y - anchor.y)).slice(0, count);
-    // 화살표 키 순서가 화면 순서와 맞게 위 줄부터, 같은 줄은 왼쪽부터 놓는다.
-    return { kind: "grid", points: chosen.sort((a, b) => a.y - b.y || a.x - b.x) };
+    return null;
   }
   function place() {
     const box = toggle.getBoundingClientRect();
@@ -188,10 +197,16 @@
     const width = window.innerWidth || doc.documentElement?.clientWidth || 360;
     const height = window.innerHeight || doc.documentElement?.clientHeight || 640;
     const shown = visible();
-    const { kind, points } = layout(anchor, width, height, shown.length);
+    const result = layout(anchor, width, height, shown.length);
+    // 화면이 너무 작아 방울을 잘리지 않고 +도 덮지 않게 놓을 수 없으면 false를 돌려준다. 여는 쪽이 링을 열지 않는다.
+    if (!result) return false;
+    const { kind, points } = result;
+    const compact = result.compact === true;
     // 삼각함수 오차(-1e-14 같은 값)가 CSS 값에 섞이지 않게 0.01px 단위로 자른다.
     const px = value => `${Math.round(value * 100) / 100 || 0}px`;
     ring.setAttribute("data-layout", kind);
+    if (compact) ring.setAttribute("data-compact", "");
+    else ring.removeAttribute("data-compact");
     ring.style.setProperty("--qa-anchor-x", px(anchor.x));
     ring.style.setProperty("--qa-anchor-y", px(anchor.y));
     hub.setAttribute("cx", String(anchor.x));
@@ -200,6 +215,7 @@
       entry.blob.setAttribute("cx", String(anchor.x));
       entry.blob.setAttribute("cy", String(anchor.y));
       entry.blob.setAttribute("display", entry.item.hidden ? "none" : "inline");
+      entry.blob.setAttribute("r", String(compact ? compactRadius : bubbleRadius));
     }
     shown.forEach((entry, index) => {
       for (const node of [entry.blob, entry.item]) {
@@ -212,6 +228,7 @@
     const middle = points.reduce((sum, point) => sum + point.x, 0) / Math.max(1, points.length);
     ring.style.setProperty("--qa-caption-x", px(Math.min(width - 96, Math.max(96, middle))));
     ring.style.setProperty("--qa-caption-y", px(Math.max(edge + 28, top)));
+    return true;
   }
   function show(key) {
     captionKey = key;
@@ -222,10 +239,11 @@
     cancelWaiting();
     refresh();
     if (!enabled().length && !visible().length) return;
+    // 방울을 화면 안에, +를 덮지 않게 놓을 자리가 없으면(키보드가 화면을 거의 가린 경우) 열지 않는다.
+    if (!place()) return;
     open = true;
     if (hideTimer !== null) { clearTimeout(hideTimer); hideTimer = null; }
     ring.hidden = false;
-    place();
     openedAt = toggle.getBoundingClientRect();
     toggle.setAttribute("aria-expanded", "true");
     show(null);
@@ -356,7 +374,8 @@
     return false;
   };
   // 창 크기만 바뀌고 +는 제자리면(키보드가 열리고 닫히는 등) 닫지 않고 새 화면 크기에 맞춰 방울을 다시 놓는다.
-  window.addEventListener?.("resize", () => { if (moved() === false) place(); });
+  // 새 크기에 놓을 자리가 없으면 잘린 링을 남기지 않고 닫는다.
+  window.addEventListener?.("resize", () => { if (moved() === false && !place()) closeRing(false); });
   doc.addEventListener("scroll", moved, true);
   window.matchMedia?.("(prefers-reduced-motion: reduce)")?.addEventListener?.("change", event => {
     if (event.matches && !open && hideTimer !== null) { clearTimeout(hideTimer); hideTimer = null; ring.hidden = true; }
@@ -367,7 +386,7 @@
     const follow = new MutationObserver(() => {
       if (!open) return;
       refresh();
-      place();
+      if (!place()) { closeRing(true); return; }
       if (ring.contains(doc.activeElement) && doc.activeElement.disabled) toggle.focus();
     });
     for (const action of actions) {

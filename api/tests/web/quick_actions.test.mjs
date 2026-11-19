@@ -279,6 +279,44 @@ test("좁고 낮아 한 줄도 들어가지 않는 화면에서는 + 버튼을 �
   }
 });
 
+test("52px 방울 칸이 모자라면 44px 방울로 줄이고, 그래도 모자라면 잘리거나 +를 덮는 링을 열지 않는다", () => {
+  // 320×700에서 + 가운데를 (54, 60)에 두고 연 뒤 높이가 120px로 줄어든 경우.
+  const page = ringPage({ width: 320, height: 700, toggleRect: { left: 32, top: 38, width: 44, height: 44 } });
+  page.toggle.click();
+  page.window.innerHeight = 120;
+  page.windowEvent("resize");
+  assert.equal(page.toggle.getAttribute("aria-expanded"), "true");
+  assert.equal(page.ring.getAttribute("data-layout"), "grid");
+  assert.equal(page.ring.getAttribute("data-compact"), "");
+  assert.ok(page.blobs().every(blob => blob.getAttribute("r") === "22"));
+  const centers = page.items.map(page.position).map(spot => ({ x: 54 + spot.x, y: 60 + spot.y }));
+  for (const { x, y } of centers) {
+    assert.ok(x - 22 >= 8 - 0.5 && x + 22 <= 320 - 8 + 0.5 && y - 22 >= 8 - 0.5 && y + 22 <= 120 - 8 + 0.5, `off screen ${x},${y}`);
+    const nearestX = Math.min(Math.max(x, 32), 76), nearestY = Math.min(Math.max(y, 38), 82);
+    assert.ok(Math.hypot(x - nearestX, y - nearestY) >= 22, `covers + ${x},${y}`);
+    assert.ok(Math.hypot(x - 54, y - 60) >= 22, `(54,60) hits a bubble`);
+  }
+  for (const [i, a] of centers.entries()) for (const b of centers.slice(i + 1)) assert.ok(Math.hypot(a.x - b.x, a.y - b.y) >= 44, "bubbles overlap");
+  // CSS: 작은 방울도 조작 영역 44px를 지킨다.
+  assert.match(css, /\.quick-ring\[data-compact\] \.quick-item \{ width: 44px; height: 44px; margin: -22px 0 0 -22px; \}/);
+  // 높이가 다시 넉넉해지면 원래 크기로 돌아간다.
+  page.window.innerHeight = 700;
+  page.windowEvent("resize");
+  assert.equal(page.ring.getAttribute("data-compact"), null);
+  assert.ok(page.blobs().every(blob => blob.getAttribute("r") === "26"));
+
+  // 200×120처럼 44px 방울로도 다섯 칸이 없으면 열지 않는다. 연 채로 그만큼 줄면 닫는다.
+  const tiny = ringPage({ width: 200, height: 120, toggleRect: { left: 32, top: 38, width: 44, height: 44 } });
+  tiny.toggle.click();
+  assert.equal(tiny.toggle.getAttribute("aria-expanded"), "false");
+  assert.equal(tiny.ring.hidden, true);
+  assert.notEqual(tiny.state.focused?.dataset?.quickAction, "calendar");
+  page.window.innerWidth = 200;
+  page.window.innerHeight = 120;
+  page.windowEvent("resize");
+  assert.equal(page.toggle.getAttribute("aria-expanded"), "false");
+});
+
 test("열린 링의 가운데 원 위에 × 표시를 다시 그려 +의 닫기 표시가 가려지지 않고, 누름은 아래 + 버튼이 받는다", () => {
   const page = ringPage();
   const close = page.ring.children.find(node => node.className === "quick-ring-close");

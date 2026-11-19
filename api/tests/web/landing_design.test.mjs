@@ -815,6 +815,9 @@ test("깊이 모드: 고정 테두리는 상태만으로 그리고, 효과는 �
   // 하늘색 빛줄기는 깊이 모드가 켜질 때 한 번만 지나간다(#137). 되풀이하지 않고 0.5초 안에 끝난다.
   assert.equal(seconds(".mode-pill.is-flowing::before"), .45);
   assert.doesNotMatch(declared(".mode-pill.is-flowing::before", ["animation"]), /infinite/);
+  // 흐르는 테두리도 한 번만 0.45초 흐른다. 되풀이(infinite)하면 깊이 모드를 둔 동안 노랑 섞인 테두리가 계속 움직인다.
+  assert.equal(seconds(".mode-pill.is-flowing::after"), .45);
+  assert.doesNotMatch(declared(".mode-pill.is-flowing::after", ["animation"]), /infinite/);
   // 반짝임 조각은 하늘색 계열이다. 노랑은 고정 테두리 고리에만 남는다.
   for (const selector of [".mode-spark", ".mode-spark:nth-child(3n + 2 of .mode-spark)", ".mode-spark:nth-child(3n of .mode-spark)"]) {
     assert.match(declared(selector, ["background"]), /^var\(--(?:sky|deep-sky)\)$/, selector);
