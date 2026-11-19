@@ -38,6 +38,29 @@ EXAMPLES = {
 }
 
 
+# 「+N개」를 이름에서 뺀다는 문장. 낱말을 따로 찾으면 뜻을 뒤집은 문장도 통과해 글자 그대로 본다.
+BADGE_SENTENCE = "「+N개」는 시각용 배지라 날짜 버튼 이름에 넣지 않는다."
+
+
+def visible_text(text):
+    """HTML 주석(`<!-- … -->`)을 걷어 낸 글. 닫히지 않은 주석은 문서 끝까지 숨은 것으로 본다.
+
+    주석 안 글은 렌더링한 문서에 보이지 않는다. 그 안에 예시나 문장을 숨기고 검사를 통과하면 안 된다.
+    """
+    return re.sub(r"<!--.*?(?:-->|\Z)", "", text, flags=re.DOTALL)
+
+
+def sentences(section):
+    """줄과 마침표(. 。) 뒤 공백으로 나눈 문장들."""
+    parts = (part.strip() for line in section.splitlines() for part in re.split(r"(?<=[.。])\s+", line))
+    return [part for part in parts if part]
+
+
+def badge_into_name_sentences(section):
+    """배지(「+N개」)를 이름에 넣는다고 적은 문장. `이름에 넣지 않는다`는 이 글자를 품지 않는다."""
+    return [s for s in sentences(section) if ("+N개" in s or "배지" in s) and "이름에 넣는다" in s]
+
+
 def calendar_section(text):
     """달력 절 머리부터 다음 `## ` 머리 앞(없으면 끝)까지를 돌려준다."""
     start = text.index(SECTION_HEADING)
@@ -75,10 +98,35 @@ class CountWholeTest(unittest.TestCase):
         self.assertEqual(count_whole(f"`February 28 2028 {DOT} 1 event`", f"February 28 2028 {DOT} 1 event"), 1)
 
 
+class HiddenAndReversedTextTest(unittest.TestCase):
+    """교차 검토 재현: 주석에 숨긴 글과 뜻을 뒤집은 문장을 가상 문서로 확인한다."""
+
+    def test_comments_are_removed_before_counting(self):
+        example = f"February 28 2028 {DOT} 1 event"
+        hidden = f"{SECTION_HEADING}\n<!--\n| `{example}` |\n-->\n- 끝\n"
+        self.assertEqual(count_whole(calendar_section(visible_text(hidden)), example), 0)
+        self.assertNotIn(BADGE_SENTENCE, visible_text(f"<!-- {BADGE_SENTENCE} -->"))
+        self.assertNotIn(BADGE_SENTENCE, visible_text(f"<!-- 닫지 않은 주석\n{BADGE_SENTENCE}"))
+        self.assertEqual(visible_text("앞 <!-- 숨김 --> 뒤"), "앞  뒤")
+
+    def test_reversed_badge_sentence_is_caught(self):
+        reversed_line = (
+            "  「+N개」는 시각용 배지지만 날짜 버튼 이름에 넣는다. "
+            "숨긴 막대 수가 0이면 배지를 이름에 넣지 않는다."
+        )
+        self.assertNotIn(BADGE_SENTENCE, reversed_line)
+        self.assertEqual(
+            badge_into_name_sentences(reversed_line),
+            ["「+N개」는 시각용 배지지만 날짜 버튼 이름에 넣는다."],
+        )
+        self.assertEqual(badge_into_name_sentences(f"  {BADGE_SENTENCE} 배지는 그대로 둔다."), [])
+
+
 class CalendarDayLabelDocTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.section = calendar_section(UI_NOTES.read_text(encoding="utf-8"))
+        cls.text = visible_text(UI_NOTES.read_text(encoding="utf-8"))
+        cls.section = calendar_section(cls.text)
 
     def test_each_example_appears_once_in_the_calendar_section(self):
         for lang, examples in EXAMPLES.items():
@@ -88,8 +136,7 @@ class CalendarDayLabelDocTest(unittest.TestCase):
 
     def test_examples_are_not_written_outside_the_calendar_section(self):
         # 다른 절에 같은 예시를 두면 고칠 때 한쪽만 바뀐다.
-        text = UI_NOTES.read_text(encoding="utf-8")
-        outside = text.replace(self.section, "")
+        outside = self.text.replace(self.section, "")
         for examples in EXAMPLES.values():
             for example in examples:
                 with self.subTest(example=example):
@@ -101,12 +148,8 @@ class CalendarDayLabelDocTest(unittest.TestCase):
         self.assertIn("aria-label", row)
 
     def test_visual_more_badge_is_kept_out_of_the_name(self):
-        lines = [
-            line for line in self.section.splitlines()
-            if "+N개" in line and "이름에 넣지 않는다" in line
-        ]
-        self.assertTrue(lines, "「+N개」를 이름에 넣지 않는다는 문장이 달력 절에 없다")
-        self.assertTrue(any("시각용" in line for line in lines), lines)
+        self.assertEqual(sentences(self.section).count(BADGE_SENTENCE), 1)
+        self.assertEqual(badge_into_name_sentences(self.section), [])
 
     def test_count_dots_and_list_share_one_filter(self):
         self.assertRegex(self.section, r"거르는 함수 하나[^\n]*점\(처음 3건\)[^\n]*고른 날 목록[^\n]*이 결과")
