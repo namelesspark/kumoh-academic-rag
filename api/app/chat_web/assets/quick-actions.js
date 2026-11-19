@@ -146,35 +146,41 @@
     const shift = (low, high, size) => (low < edge ? edge - low : high > size - edge ? size - edge - high : 0);
     // 묶음을 옆으로 밀면 끝 방울이 + 버튼 위에 얹힐 수 있다. 그러면 +를 다시 눌러 닫으려던 손가락이 방울을 누른다.
     const clear = bubbleRadius + hubRadius + 6;
-    // 호 하나의 후보 자리. above는 + 위로 들거나(up) 같은 높이에서 + 옆으로 통째로 밀어(side) 놓은 자리,
-    // below는 + 아래로 내린 자리다. 화면을 넘거나 +를 덮으면 null이다.
-    function arc(radius) {
+    // 호 하나의 후보 자리. above는 + 위로 들거나(up) + 옆으로 통째로 밀어(side) 놓은 자리이고,
+    // 좁은 화면의 엄지 위쪽 호는 방울이 하나라도 + 가운데보다 내려가면 above로 치지 않는다.
+    // below는 + 아래로 내린 자리다. 화면을 넘거나 +를 덮으면 null이다. size는 방울 반지름이다.
+    function arc(radius, size = bubbleRadius) {
+      const clear = size + hubRadius + 6;
       const points = Array.from({ length: count }, (_, index) => {
         const degrees = count === 1 ? (from + to) / 2 : from + (to - from) * index / (count - 1);
         const angle = degrees * Math.PI / 180;
         return { x: anchor.x + radius * Math.cos(angle), y: anchor.y - radius * Math.sin(angle) };
       });
       const xs = points.map(point => point.x), ys = points.map(point => point.y);
-      const dx = shift(Math.min(...xs) - bubbleRadius, Math.max(...xs) + bubbleRadius, width);
-      const fit = shift(Math.min(...ys) - bubbleRadius, Math.max(...ys) + bubbleRadius, height);
+      const dx = shift(Math.min(...xs) - size, Math.max(...xs) + size, width);
+      const fit = shift(Math.min(...ys) - size, Math.max(...ys) + size, height);
       const covering = points.filter(point => Math.abs(point.x + dx - anchor.x) < clear);
       // 밀어 넣은 뒤에도 가로·세로 모두 화면 안에 드는지 본다. 화면이 묶음보다 좁으면 한쪽을 맞춰도 반대쪽이 넘친다.
-      const inside = (sx, sy) => Math.min(...xs) + sx - bubbleRadius >= edge - 0.5 && Math.max(...xs) + sx + bubbleRadius <= width - edge + 0.5 &&
-        Math.min(...ys) + sy - bubbleRadius >= edge - 0.5 && Math.max(...ys) + sy + bubbleRadius <= height - edge + 0.5;
-      const moved = (sx, sy) => ({ kind: shape, points: points.map(point => ({ x: point.x + sx, y: point.y + sy })) });
+      const inside = (sx, sy) => Math.min(...xs) + sx - size >= edge - 0.5 && Math.max(...xs) + sx + size <= width - edge + 0.5 &&
+        Math.min(...ys) + sy - size >= edge - 0.5 && Math.max(...ys) + sy + size <= height - edge + 0.5;
+      // 엄지 위쪽 호(좁은 화면)는 방울이 모두 + 가운데 높이 이상에 있어야 위쪽 자리로 친다.
+      const high = sy => !narrow || Math.max(...ys) + sy <= anchor.y + 0.5;
+      const compact = size < bubbleRadius;
+      const moved = (sx, sy) => ({ kind: shape, compact, points: points.map(point => ({ x: point.x + sx, y: point.y + sy })) });
       // 덮는 방울이 없으면 up은 화면 맞춤(fit)과 같다.
       const up = Math.min(fit, ...covering.map(point => anchor.y - clear - point.y));
       const down = Math.max(fit, ...covering.map(point => anchor.y + clear - point.y));
       const sides = [anchor.x + clear - Math.min(...xs), anchor.x - clear - Math.max(...xs)];
-      const side = sides.find(sx => inside(sx, fit));
+      const side = sides.find(sx => inside(sx, fit) && high(fit));
       return {
-        above: inside(dx, up) ? moved(dx, up) : side !== undefined ? moved(side, fit) : null,
-        below: inside(dx, down) ? moved(dx, down) : null,
+        above: inside(dx, up) && high(up) ? moved(dx, up) : side !== undefined ? moved(side, fit) : null,
+        below: !compact && inside(dx, down) ? moved(dx, down) : null,
       };
     }
-    // 기본 반지름으로 + 위·옆을 먼저 보고, 자리가 모자라면 반지름을 70px로 줄여 다시 본다. 70px는 52px 방울 다섯 개가
-    // 반원 위에서 서로 겹치지 않는(이웃 간격 약 53.6px) 가장 작은 값에 가깝다. 그래도 위·옆에 없을 때만 + 아래로 내린다.
-    const arcs = [narrow ? 84 : 92, 70].map(arc);
+    // + 위·옆 자리를 세 번 찾는다. 기본 반지름 → 반지름 70px(52px 방울, 이웃 간격 약 53.6px) →
+    // 반지름 58px와 44px 방울(조작 영역 하한, 이웃 간격 약 44.4px). 세 경우 모두 방울끼리 겹치지 않는다.
+    // 그래도 위·옆에 없을 때만 52px 방울을 + 아래로 내린다.
+    const arcs = [arc(narrow ? 84 : 92), arc(70), arc(58, compactRadius)];
     for (const each of arcs) if (each.above) return each.above;
     for (const each of arcs) if (each.below) return each.below;
     // 한 줄: + 오른쪽(자리가 없으면 왼쪽)에 + 버튼과 6px 떨어뜨려 놓는다. 높이는 화면 안으로 맞춘다.

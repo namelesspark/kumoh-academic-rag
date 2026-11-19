@@ -220,23 +220,28 @@ test("넓은 화면은 + 둘레에 방사형으로, 좁은 화면은 엄지 위�
   }
 });
 
-test("+가 화면 위쪽에 있어 위로 비킬 자리가 없으면 호를 통째로 + 옆으로 밀어 화면 안에 두고 +도 덮지 않는다", () => {
-  // 390×700에서 홈을 굴려 + 가운데가 위에서 90px·120px, 왼쪽에서 30px에 온 경우. 아래로 내리기 전에 옆으로 비켜 본다.
-  for (const [centerY, highest] of [[90, 28], [120, 0]]) {
+test("+가 화면 위쪽에 있어 위로 비킬 자리가 없으면 호를 + 옆으로 밀고, 그래도 + 아래로 내려가면 44px 방울 호로 + 위쪽에 둔다", () => {
+  // 390×700에서 홈을 굴려 + 가운데가 위에서 120px·90px, 왼쪽에서 30px에 온 경우.
+  // 120px: 기본 호를 옆으로 밀면 그대로 + 위쪽에 든다. 90px: 기본·70px 호는 화면 위 여백을 맞추느라 끝 방울이
+  // + 가운데보다 내려가므로 쓰지 않고, 반지름 58px·44px 방울 호를 옆으로 민다.
+  for (const [centerY, compact] of [[120, false], [90, true]]) {
     const page = ringPage({ width: 390, height: 700, toggleRect: { left: 8, top: centerY - 22, width: 44, height: 44 } });
     page.toggle.click();
     assert.equal(page.ring.getAttribute("data-layout"), "arc", String(centerY));
+    assert.equal(page.ring.getAttribute("data-compact") === "", compact, String(centerY));
+    const size = compact ? 22 : 26;
     const spots = page.items.map(page.position);
     for (const spot of spots) {
       const x = 30 + spot.x, y = centerY + spot.y;
-      assert.ok(x >= 33.5 && x <= 390 - 33.5, `${centerY}: x ${JSON.stringify(spot)}`);
-      assert.ok(y >= 33.5 && y <= 700 - 33.5, `${centerY}: y ${JSON.stringify(spot)}`);
+      assert.ok(x - size >= 7.5 && x + size <= 390 - 7.5, `${centerY}: x ${JSON.stringify(spot)}`);
+      assert.ok(y - size >= 7.5 && y + size <= 700 - 7.5, `${centerY}: y ${JSON.stringify(spot)}`);
       // 모든 방울이 + 버튼 오른쪽으로 비켜나 있다.
-      assert.ok(spot.x >= 26 + 22 + 6 - 0.5, `${centerY}: covers +: ${JSON.stringify(spot)}`);
-      // 호는 + 아래로 내려가지 않는다. 화면 위 여백을 맞추느라 내린 만큼(highest)만 + 가운데보다 낮을 수 있다.
-      assert.ok(spot.y <= highest + 0.5, `${centerY}: dropped below +: ${JSON.stringify(spot)}`);
+      assert.ok(spot.x >= size + 22 + 6 - 0.5, `${centerY}: covers +: ${JSON.stringify(spot)}`);
+      // 엄지 위쪽 호는 + 가운데보다 내려가지 않는다.
+      assert.ok(spot.y <= 0.5, `${centerY}: dropped below +: ${JSON.stringify(spot)}`);
     }
-    // 엄지 위쪽 반원 호 모양 그대로다. 가운데 방울이 가장 높다.
+    for (const [i, a] of spots.entries()) for (const b of spots.slice(i + 1)) assert.ok(Math.hypot(a.x - b.x, a.y - b.y) >= size * 2, "bubbles overlap");
+    // 반원 호 모양 그대로다. 가운데 방울이 가장 높다.
     assert.equal(Math.min(...spots.map(spot => spot.y)), spots[2].y, String(centerY));
   }
 });
@@ -244,21 +249,23 @@ test("+가 화면 위쪽에 있어 위로 비킬 자리가 없으면 호를 통�
 test("+는 제자리인데 창 높이만 줄면 링을 닫지 않고 새 화면 안에 방울을 다시 놓으며, +가 옮겨 가면 닫는다", () => {
   const page = ringPage({ width: 390, height: 700, toggleRect: { left: 8, top: 68, width: 44, height: 44 } });
   page.toggle.click();
-  // 키보드가 올라와 보이는 높이가 220px, 132px로 줄어든 경우. 220px에서는 호를 + 옆으로 밀어 들어가고,
-  // 132px처럼 호가 어디에도 들어가지 않으면 + 옆에 한 줄로 늘어놓는다. 방울은 화면 안에 있고 +(가운데 30, 90)도 덮지 않는다.
-  for (const [height, kind] of [[220, "arc"], [132, "row"]]) {
+  // 키보드가 올라와 보이는 높이가 220px, 132px로 줄어든 경우. 두 높이 모두 44px 방울 호를 + 오른쪽으로 밀어 + 위쪽에 둔다.
+  // 방울은 화면 안에 있고 +(가운데 30, 90)도 덮지 않는다.
+  for (const height of [220, 132]) {
     page.window.innerHeight = height;
     page.windowEvent("resize");
     assert.equal(page.toggle.getAttribute("aria-expanded"), "true", String(height));
-    assert.equal(page.ring.getAttribute("data-layout"), kind, String(height));
+    assert.equal(page.ring.getAttribute("data-layout"), "arc", String(height));
+    const size = page.ring.getAttribute("data-compact") === "" ? 22 : 26;
     const spots = page.items.map(page.position);
     for (const spot of spots) {
       const x = 30 + spot.x, y = 90 + spot.y;
-      assert.ok(y - 26 >= 8 - 0.5 && y + 26 <= height - 8 + 0.5, `${height}: bubble leaves the screen: ${JSON.stringify(spot)}`);
-      assert.ok(x - 26 >= 8 - 0.5 && x + 26 <= 390 - 8 + 0.5, `${height}: ${JSON.stringify(spot)}`);
+      assert.ok(y - size >= 8 - 0.5 && y + size <= height - 8 + 0.5, `${height}: bubble leaves the screen: ${JSON.stringify(spot)}`);
+      assert.ok(x - size >= 8 - 0.5 && x + size <= 390 - 8 + 0.5, `${height}: ${JSON.stringify(spot)}`);
+      assert.ok(spot.y <= 0.5, `${height}: dropped below +: ${JSON.stringify(spot)}`);
       // + 버튼 칸(8~52, 68~112) 안의 어느 점도 방울 원 안에 들지 않는다.
       const nearestX = Math.min(Math.max(x, 8), 52), nearestY = Math.min(Math.max(y, 68), 112);
-      assert.ok(Math.hypot(x - nearestX, y - nearestY) >= 26, `${height}: covers +: ${JSON.stringify(spot)}`);
+      assert.ok(Math.hypot(x - nearestX, y - nearestY) >= size, `${height}: covers +: ${JSON.stringify(spot)}`);
     }
     assert.deepEqual(spots.map(spot => spot.x), [...spots.map(spot => spot.x)].sort((a, b) => a - b), "left-to-right order for the arrow keys");
   }
@@ -268,26 +275,28 @@ test("+는 제자리인데 창 높이만 줄면 링을 닫지 않고 새 화면 
   assert.equal(page.toggle.getAttribute("aria-expanded"), "false");
 });
 
-test("좁고 낮아 한 줄도 들어가지 않는 화면에서는 + 버튼을 비운 격자 칸에 방울을 놓아 잘리거나 +를 덮지 않는다", () => {
+test("좁고 낮은 화면에서도 방울이 잘리거나 +를 덮지 않고, 호를 쓸 수 있으면 + 위쪽에 둔다", () => {
   // 320×700에서 + 가운데를 (54, 90)에 두고 연 뒤, 키보드가 올라와 높이가 220px·132px로 줄어든 경우.
+  // 두 높이 모두 반지름 58px·44px 방울 호를 + 오른쪽으로 밀어 + 위쪽에 들어간다.
   const page = ringPage({ width: 320, height: 700, toggleRect: { left: 32, top: 68, width: 44, height: 44 } });
   page.toggle.click();
-  // 220px에서는 호를 + 오른쪽으로 밀어 들어간다. 132px에서는 호도 한 줄도 들어가지 않아 격자 칸을 쓴다.
-  for (const [height, kind] of [[220, "arc"], [132, "grid"]]) {
+  for (const [height, kind] of [[220, "arc"], [132, "arc"]]) {
     page.window.innerHeight = height;
     page.windowEvent("resize");
     assert.equal(page.toggle.getAttribute("aria-expanded"), "true", String(height));
     assert.equal(page.ring.getAttribute("data-layout"), kind, String(height));
+    const size = page.ring.getAttribute("data-compact") === "" ? 22 : 26;
     const centers = page.items.map(page.position).map(spot => ({ x: 54 + spot.x, y: 90 + spot.y }));
     for (const { x, y } of centers) {
-      assert.ok(x - 26 >= 8 - 0.5 && x + 26 <= 320 - 8 + 0.5 && y - 26 >= 8 - 0.5 && y + 26 <= height - 8 + 0.5, `${height}: off screen ${x},${y}`);
+      assert.ok(x - size >= 8 - 0.5 && x + size <= 320 - 8 + 0.5 && y - size >= 8 - 0.5 && y + size <= height - 8 + 0.5, `${height}: off screen ${x},${y}`);
+      assert.ok(y <= 90 + 0.5, `${height}: dropped below + ${x},${y}`);
       // + 버튼 칸(32~76, 68~112)의 어느 점도 방울 원 안에 들지 않는다. (54, 108)을 누르면 +가 받는다.
       const nearestX = Math.min(Math.max(x, 32), 76), nearestY = Math.min(Math.max(y, 68), 112);
-      assert.ok(Math.hypot(x - nearestX, y - nearestY) >= 26, `${height}: covers + ${x},${y}`);
-      assert.ok(Math.hypot(x - 54, y - 108) >= 26, `${height}: (54,108) hits a bubble`);
+      assert.ok(Math.hypot(x - nearestX, y - nearestY) >= size, `${height}: covers + ${x},${y}`);
+      assert.ok(Math.hypot(x - 54, y - 108) >= size, `${height}: (54,108) hits a bubble`);
     }
     // 방울끼리도 겹치지 않는다.
-    for (const [i, a] of centers.entries()) for (const b of centers.slice(i + 1)) assert.ok(Math.hypot(a.x - b.x, a.y - b.y) >= 52, `${height}: bubbles overlap`);
+    for (const [i, a] of centers.entries()) for (const b of centers.slice(i + 1)) assert.ok(Math.hypot(a.x - b.x, a.y - b.y) >= size * 2, `${height}: bubbles overlap`);
     // 화살표 순서는 화면 순서를 따른다. 호는 왼쪽부터, 격자는 위 줄부터·같은 줄은 왼쪽부터다.
     if (kind === "grid") {
       const order = centers.map(({ x, y }) => [y, x]);
@@ -402,12 +411,14 @@ test("화면을 확대해 보이는 칸이 창보다 작으면 그 칸 안에 �
   page.toggle.click();
   assert.equal(page.toggle.getAttribute("aria-expanded"), "true");
   const inView = ({ left, top, width, height }) => {
+    // 좁은 보이는 칸에서는 44px 방울(data-compact)을 쓸 수 있다. 반지름은 그에 맞춰 본다.
+    const size = page.ring.getAttribute("data-compact") === "" ? 22 : 26;
     for (const spot of page.items.map(page.position)) {
       const x = 30 + spot.x, y = 300 + spot.y;
-      assert.ok(x - 26 >= left + 8 - 0.5 && x + 26 <= left + width - 8 + 0.5, `x ${x} outside the visible ${left}..${left + width}`);
-      assert.ok(y - 26 >= top + 8 - 0.5 && y + 26 <= top + height - 8 + 0.5, `y ${y} outside the visible ${top}..${top + height}`);
+      assert.ok(x - size >= left + 8 - 0.5 && x + size <= left + width - 8 + 0.5, `x ${x} outside the visible ${left}..${left + width}`);
+      assert.ok(y - size >= top + 8 - 0.5 && y + size <= top + height - 8 + 0.5, `y ${y} outside the visible ${top}..${top + height}`);
       const nearestX = Math.min(Math.max(x, 8), 52), nearestY = Math.min(Math.max(y, 278), 322);
-      assert.ok(Math.hypot(x - nearestX, y - nearestY) >= 26, `covers + ${x},${y}`);
+      assert.ok(Math.hypot(x - nearestX, y - nearestY) >= size, `covers + ${x},${y}`);
     }
   };
   inView({ left: 0, top: 150, width: 195, height: 350 });
