@@ -134,6 +134,43 @@ test("겹친 기간은 주마다 빈 줄을 채우고 날짜별로 넘친 일정
   assert.equal(all(page.list(), node => attr(node, "href") === "https://example.invalid/calendar").length, 1);
 });
 
+test("2월 27일에 겹친 가상 일정 세 건의 점·막대·초과 표시와 출처를 확인한다", async () => {
+  const entries = [
+    { title: "가상 수강신청", start: "2028-02-25", end: "2028-02-27", kind: "enroll" },
+    { title: "가상 시험", start: "2028-02-26", end: "2028-02-28", kind: "exam" },
+    { title: "가상 등록", start: "2028-02-27", end: "2028-02-27", kind: "register" },
+  ].map(entry => ({
+    ...entry,
+    source: {
+      title: `${entry.title} 출처`,
+      url: `https://example.invalid/calendar/${entry.kind}`,
+      checked_on: "2028-02-01",
+    },
+  }));
+  const page = await openCalendar(entries.map(({ title, start, end, source }) =>
+    event(title, start, end, [source])), "2028-02-26");
+  const day = page.day(27);
+  assert.deepEqual(byClass(day, "acal-dot").map(dot => dot.dataset.kind), ["enroll", "exam", "register"]);
+
+  const week = byClass(page.root, "acal-week").find(row => byClass(row, "acal-day").includes(day));
+  assert.deepEqual(byClass(week, "acal-bar").map(bar => ({ ...bar.dataset })), [
+    { col: "1", span: "1", lane: "0", kind: "enroll" },
+    { col: "1", span: "2", lane: "1", kind: "exam" },
+  ]);
+  assert.equal(day.dataset.more, "1");
+  const badges = byClass(day, "acal-more");
+  assert.deepEqual(badges.map(badge => [badge.tag, attr(badge, "aria-hidden"), badge.textContent]),
+    [["span", "true", "+1개"]]);
+
+  day.click();
+  const rows = byClass(page.list(), "evidence");
+  assert.deepEqual(rows.map(row => all(row, node => node.tag === "h5").map(heading => heading.textContent)),
+    entries.map(({ title }) => [title]));
+  const linksByRow = rows.map(row => all(row, node => node.tag === "a")
+    .map(link => [link.textContent, attr(link, "href")]));
+  assert.deepEqual(linksByRow, entries.map(({ source }) => [[source.title, source.url]]));
+});
+
 test("고른 날 목록은 요일과 날짜가 가로로 밀리는 상자 밖에 있다", async () => {
   const page = await openCalendar([event("가상 일정", "2028-02-27")]);
   const body = byClass(page.root, "acal-body")[0];
