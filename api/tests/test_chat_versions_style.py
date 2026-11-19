@@ -221,21 +221,19 @@ class ChatVersionsStyleTest(unittest.TestCase):
         self.assertIsNotNone(value)
         return rgba(value)
 
-    def outer_backdrops(self, theme):
-        """사진을 받지 못했을 때 조작 줄 바깥 면.
+    def face_behind(self, chain, theme):
+        """대상 요소 둘레에 닿는 면. 가장 가까운 조상 가운데 바탕을 깐 요소의 색이다.
 
-        바닥은 body·.campus-backdrop의 대체 색 --navy다(--bg도 함께 본다). 그 위에 덮개 하나(또는 없음),
-        맨 위에 대화 면(--main-surface) 또는 답 말풍선(--main-bubble)을 얹는다.
+        대화 칸 너머는 사진이라 색을 정할 수 없다. 그래서 차례(.turn)에 닿기 전에 불투명 면이 있어야 한다.
         """
-        self.assertIn("background: var(--navy) url(", self.raw, "사진 대체 색이 바뀌면 이 바닥도 바꾼다")
-        found = []
-        for floor in ("--navy", "--bg"):
-            bottom = self.color(theme, f"var({floor})")
-            for veil in (None, "--overlay-top", "--overlay-mid", "--overlay-bottom"):
-                base = over(self.color(theme, f"var({veil})"), bottom) if veil else bottom
-                for face in ("--main-surface", "--main-bubble"):
-                    found.append(over(self.color(theme, f"var({face})"), base))
-        return found
+        for depth in range(len(chain) - 1, 0, -1):
+            decls = self.computed(chain[:depth])
+            if "background" in decls:
+                face = self.color(theme, decls["background"])
+                self.assertEqual(face[3], 1.0, "둘레 면은 불투명이어야 사진이 비치지 않는다")
+                return face
+            self.assertNotIn("turn", chain[depth - 1]["classes"])
+        self.fail("조작 요소 둘레에 불투명 면이 없어 선과 고리가 사진에 닿는다")
 
     def button_cases(self):
         for name in BUTTONS:
@@ -283,14 +281,6 @@ class ChatVersionsStyleTest(unittest.TestCase):
         count = self.computed(self.chain(element("span", ["version-count"])))
         self.assertEqual(count.get("min-height"), "44px")
 
-    def faces_behind(self, chain, theme):
-        """버튼 둘레(초점 고리 양옆)에 닿는 면. 편집 폼 안이면 폼 면, 조작 줄이면 투명한 줄 너머 바깥 대화 면이다."""
-        if chain[-2]["tag"] == "form":
-            return [self.color(theme, self.computed(chain[:-1])["background"])]
-        for depth in range(1, len(chain)):
-            self.assertNotIn("background", self.computed(chain[:depth]), "조작 줄과 버전 묶음은 투명이다")
-        return self.outer_backdrops(theme)
-
     def test_focus_ring_clears_the_faces_around_it_without_shadow(self):
         # #140은 그림자를 쓰지 않는다. 띠 없이 고리 자체가 둘레 면과 3:1을 넘어야 한다.
         for theme in self.themes:
@@ -303,8 +293,8 @@ class ChatVersionsStyleTest(unittest.TestCase):
                     width, style, ring = decls["outline"].split(" ", 2)
                     self.assertEqual((width, style), ("2px", "solid"))
                     self.assertGreaterEqual(int(decls["outline-offset"].rstrip("px")), 1, "고리는 버튼 선과 떨어져 그린다")
-                    for face in self.faces_behind(chain, theme):
-                        self.assertGreaterEqual(contrast(over(self.color(theme, ring), face), face), 3.0)
+                    face = self.face_behind(chain, theme)
+                    self.assertGreaterEqual(contrast(over(self.color(theme, ring), face), face), 3.0)
 
     def test_actions_wrap_and_stack_at_390px(self):
         row = [element("div", ["turn"]), element("div", ["turn-actions"])]
@@ -407,31 +397,46 @@ class ChatVersionsStyleTest(unittest.TestCase):
                     self.assertGreaterEqual(contrast(front, back), 4.5)
 
     def test_control_edges_clear_both_sides(self):
-        """버튼·편집 폼의 선은 안쪽 면과 바깥 대화 면 양쪽과 3:1을 넘는다."""
+        """버튼·편집 칸의 선은 안쪽 면과 둘레 면(조작 줄·편집 폼의 --surface) 양쪽과 3:1을 넘는다."""
         cases = list(self.button_cases())
-        cases.append(("form.turn-editor", [element("div", ["turn"]), element("form", ["turn-editor"])]))
-        cases.append(("form.turn-editor:failed", [element("div", ["turn"], ['[data-version-state="failed"]']),
-                                                  element("form", ["turn-editor"])]))
+        for state in (None, "failed"):
+            cases.append((f"form.turn-editor textarea:{state}", self.chain(element("textarea"), state)))
+            cases.append((f"form.turn-editor textarea:hover:{state}", self.chain(element("textarea", states=["hover"]), state)))
         for theme in self.themes:
-            outer = self.outer_backdrops(theme)
             for label, chain in cases:
                 with self.subTest(theme=theme, case=label):
                     decls = self.computed(chain)
                     inner = self.color(theme, decls["background"])
+                    face = self.face_behind(chain, theme)
                     edge = self.color(theme, border_color(decls))
-                    # 선과 채움이 같은 색이면(저장하고 묻기) 채움 자체가 경계라 바깥 면과만 잰다.
-                    sides = outer if edge == inner else [inner] + outer
+                    # 선과 채움이 같은 색이면(저장하고 묻기) 채움 자체가 경계라 둘레 면과만 잰다.
+                    sides = [face] if edge == inner else [inner, face]
                     for side in sides:
                         self.assertGreaterEqual(contrast(over(edge, side), side), 3.0)
 
-    def test_pending_outline_clears_the_conversation_face(self):
+    def test_no_line_touches_the_photo(self):
+        """대화 칸 너머 사진은 색을 정할 수 없다. 조작 줄과 편집 폼은 불투명 면이고 바깥 선이 없다.
+
+        다크 화면에 밝은 사진이 깔리면 반투명 대화 면 위 hover 경계가 약 2.97:1이었다(교차 검토 지적).
+        """
+        for state in (None, "pending", "failed"):
+            row = self.computed(self.pending_row(state))
+            form = self.computed([self.pending_row(state)[0], element("form", ["turn-editor"])])
+            with self.subTest(state=state):
+                self.assertFalse(any(key.startswith("border") and "radius" not in key for key in row))
+                self.assertEqual(form.get("border"), "0")
+                self.assertNotIn("border-color", form)
+                for theme in self.themes:
+                    self.assertEqual(self.color(theme, row["background"])[3], 1.0)
+                    self.assertEqual(self.color(theme, form["background"])[3], 1.0)
+
+    def test_pending_outline_clears_the_row_face(self):
         decls = self.computed(self.pending_row())
-        self.assertNotIn("background", decls, "조작 줄은 투명이라 점선 뒤는 바깥 대화 면이다")
         line = decls["outline"].split(" ")[-1]
         for theme in self.themes:
-            for side in self.outer_backdrops(theme):
-                with self.subTest(theme=theme):
-                    self.assertGreaterEqual(contrast(over(self.color(theme, line), side), side), 3.0)
+            with self.subTest(theme=theme):
+                face = self.color(theme, decls["background"])
+                self.assertGreaterEqual(contrast(over(self.color(theme, line), face), face), 3.0)
 
     def test_dark_blocks_agree_on_used_tokens(self):
         for token in set(re.findall(r"var\((--[\w-]+)\)", self.section)):
