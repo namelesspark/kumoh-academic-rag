@@ -2805,11 +2805,19 @@ async function readChatStream(response, onEvent) {
   }
 }
 // stop은 학생이 정지 버튼으로 끊는 신호다(#137). 시간 제한 신호와 함께 걸고, 끊긴 요청은 JSON 주소로 다시 묻지 않는다.
-// 신호를 묶는 AbortSignal.any가 없는 브라우저는 정지 신호만 건다. 서버도 100초 안에 답을 끝낸다.
+// 신호를 묶는 AbortSignal.any가 없는 브라우저는 새 취소 신호 하나를 두고 두 신호 중 먼저 오는 쪽을 따라 끊는다.
+// 그래야 정지 버튼을 단 요청도 시간 제한이 그대로 걸린다. 학생이 멈췄는지는 호출한 쪽이 stop.aborted로 따로 본다.
 function chatSignal(stop, ms = 100_000) {
   const timeout = AbortSignal.timeout(ms);
   if (!stop) return timeout;
-  return typeof AbortSignal.any === "function" ? AbortSignal.any([stop, timeout]) : stop;
+  if (typeof AbortSignal.any === "function") return AbortSignal.any([stop, timeout]);
+  if (typeof AbortController !== "function" || typeof timeout?.addEventListener !== "function") return stop;
+  const both = new AbortController();
+  const end = () => both.abort();
+  if (stop.aborted || timeout.aborted) end();
+  stop.addEventListener("abort", end, { once: true });
+  timeout.addEventListener("abort", end, { once: true });
+  return both.signal;
 }
 async function requestChatAnswer(body, onEvent, stop = null) {
   const options = { method: "POST", headers: { "Content-Type": "application/json" },

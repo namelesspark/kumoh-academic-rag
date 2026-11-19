@@ -97,7 +97,7 @@ function ringPage({ width = 1280, height = 800, view = "home", reduced = false, 
   return {
     state, row, photo, pen, cards, home, body, root, toggle, ring, menu, items, timers, observers,
     item: id => items.find(item => item.dataset.quickAction === id),
-    screen,
+    screen, window,
     blobs: () => ring.all().filter(node => (node.getAttribute("class") ?? "").split(/\s+/).includes("quick-ring-blob")),
     frames: () => { const pending = frames; frames = []; for (const callback of pending) callback(16); return pending.length; },
     tick: () => { for (const [id, timer] of [...timers]) { timers.delete(id); timer.callback(); } },
@@ -225,6 +225,23 @@ test("+가 화면 위쪽에 있어 위로 비킬 자리가 없으면 방울을 +
     assert.ok(y >= 33.5 && y <= 700 - 33.5, `y ${JSON.stringify(spot)}`);
     if (Math.abs(spot.x) < 26 + 22 + 6) assert.ok(spot.y >= 26 + 22 + 6 - 0.5, `covers +: ${JSON.stringify(spot)}`);
   }
+});
+
+test("+는 제자리인데 창 높이만 줄면 링을 닫지 않고 새 화면 안에 방울을 다시 놓으며, +가 옮겨 가면 닫는다", () => {
+  const page = ringPage({ width: 390, height: 700, toggleRect: { left: 8, top: 68, width: 44, height: 44 } });
+  page.toggle.click();
+  // 키보드가 올라와 보이는 높이가 220px로 줄어든 경우.
+  page.window.innerHeight = 220;
+  page.windowEvent("resize");
+  assert.equal(page.toggle.getAttribute("aria-expanded"), "true");
+  for (const spot of page.items.map(page.position)) {
+    const y = 90 + spot.y;
+    assert.ok(y - 26 >= 8 - 0.5 && y + 26 <= 220 - 8 + 0.5, `bubble leaves the 220px screen: ${JSON.stringify(spot)}`);
+  }
+  // + 자체가 옮겨 가면 고정 좌표가 맞지 않으므로 닫는다.
+  page.toggle.rect = { left: 8, top: 150, width: 44, height: 44 };
+  page.windowEvent("resize");
+  assert.equal(page.toggle.getAttribute("aria-expanded"), "false");
 });
 
 test("열린 링의 가운데 원 위에 × 표시를 다시 그려 +의 닫기 표시가 가려지지 않고, 누름은 아래 + 버튼이 받는다", () => {

@@ -332,9 +332,11 @@
   const moved = () => {
     if (!open || !openedAt) return;
     const box = toggle.getBoundingClientRect();
-    if (Math.abs(box.left - openedAt.left) > 1 || Math.abs(box.top - openedAt.top) > 1) closeRing(false);
+    if (Math.abs(box.left - openedAt.left) > 1 || Math.abs(box.top - openedAt.top) > 1) { closeRing(false); return true; }
+    return false;
   };
-  window.addEventListener?.("resize", moved);
+  // 창 크기만 바뀌고 +는 제자리면(키보드가 열리고 닫히는 등) 닫지 않고 새 화면 크기에 맞춰 방울을 다시 놓는다.
+  window.addEventListener?.("resize", () => { if (moved() === false) place(); });
   doc.addEventListener("scroll", moved, true);
   window.matchMedia?.("(prefers-reduced-motion: reduce)")?.addEventListener?.("change", event => {
     if (event.matches && !open && hideTimer !== null) { clearTimeout(hideTimer); hideTimer = null; ring.hidden = true; }

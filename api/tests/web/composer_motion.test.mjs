@@ -200,15 +200,16 @@ test("답변 멈추기 이름은 세 언어 사전에 있고 언어를 바꾸면
 const meta = { answered: true, citations: [], session_id: "fictional-session", personalized: false };
 const event = (name, data) => `event: ${name}\ndata: ${JSON.stringify(data)}\n\n`;
 
-function askPage(route) {
+function askPage(route, { timeoutSignal = null } = {}) {
   const state = { focused: null };
   const requests = [], states = [], counts = { persisted: 0, notified: 0, celebrated: 0, submits: 0 };
   const node = tag => new El(tag, state);
   const send = node("button"), input = node("textarea");
   const context = {
     document: { hidden: false }, window: {}, Date, TextDecoder, TextEncoder, ReadableStream, DOMException, AbortController,
-    // 시간 제한 신호는 가짜다. 묶는 함수(any)가 없어 정지 신호가 그대로 요청에 실린다.
-    AbortSignal: { timeout: () => ({ fictionalTimeout: true }) },
+    // 시간 제한 신호는 가짜다. 묶는 함수(any)가 없고, 기본 가짜는 처리기를 받지 않아 정지 신호가 그대로 요청에 실린다.
+    // timeoutSignal을 주면 그 신호를 시간 제한으로 써서, 테스트가 직접 만료시킬 수 있다.
+    AbortSignal: { timeout: () => timeoutSignal ?? { fictionalTimeout: true } },
     fetch(path, options) { requests.push(path); return route(path, options); },
     send, input, photoFile: { files: [] }, photoClear: node("button"), photoAttach: node("button"), reset: node("button"),
     composer: { requestSubmit() { counts.submits++; } },
@@ -366,6 +367,40 @@ test("사진에서 읽은 글자로 답을 받는 동안에도 정지 버튼이 
   assert.equal(page.mode(), "send");
   assert.equal(page.send.disabled, true);
   assert.equal(page.counts.celebrated, 0);
+});
+
+test("신호를 묶는 AbortSignal.any가 없어도 사진 후속 답의 시간 제한이 요청을 끊고, 멈춤이 아니라 실패로 알린다", async () => {
+  const clock = new AbortController();
+  let signal = null;
+  const page = askPage((path, options) => {
+    signal = options.signal;
+    return new Promise((resolve, reject) => options.signal.addEventListener("abort", () => reject(new DOMException("timed out", "TimeoutError"))));
+  }, { timeoutSignal: clock.signal });
+  page.record.pending = true;
+  const answer = new El("div", page.state);
+  const done = page.context.answerFromText("가상 질문", "가상 판독문", answer, page.record);
+  await settle();
+  assert.equal(page.mode(), "stop");
+  assert.notEqual(signal, page.record.chatAbort.signal, "the request carries a signal joined from stop and timeout");
+  assert.equal(signal.aborted, false);
+  // 가상 시간 제한이 만료된다.
+  clock.abort();
+  assert.equal(signal.aborted, true);
+  assert.equal(await done, undefined, "a timeout is a failure, not a stop");
+  assert.equal(answer.children[0].className, "error");
+  assert.equal(page.states.at(-1), "error");
+  assert.equal(page.mode(), "send");
+  // 정지 버튼도 같은 묶은 신호를 끊는다.
+  const other = askPage((path, options) => {
+    signal = options.signal;
+    return new Promise((resolve, reject) => options.signal.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError"))));
+  }, { timeoutSignal: new AbortController().signal });
+  other.record.pending = true;
+  const stopped = other.context.answerFromText("가상 질문", "가상 판독문", new El("div", other.state), other.record);
+  await settle();
+  other.send.fire("click");
+  assert.equal(signal.aborted, true);
+  assert.equal(await stopped, null);
 });
 
 test("「고쳐서 다시 묻기」 중에 멈추면 앞서 받은 답을 되돌리고, 그사이 탭을 숨겨도 읽지 않음·알림을 남기지 않는다", async () => {
