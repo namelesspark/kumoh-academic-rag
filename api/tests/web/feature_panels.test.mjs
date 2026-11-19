@@ -18,7 +18,8 @@ function deferred() {
 function loadPage({ transition, reduced = false, legacy = false, now = "2027-02-10T03:00:00Z" } = {}) {
   let focused;
   let calm = reduced;
-  let motionChange;
+  // 브라우저처럼 처리기를 여러 개 받는다. 보내기 버튼 모핑(#137)도 같은 설정 변화를 듣는다.
+  const motionChanges = [];
   const requests = [];
   const response = deferred();
   const responses = [response];
@@ -105,7 +106,7 @@ function loadPage({ transition, reduced = false, legacy = false, now = "2027-02-
     window: { matchMedia: query => ({
       matches: query.includes("reduced-motion") && calm,
       addEventListener(type, listener) {
-        if (query.includes("reduced-motion") && type === "change") motionChange = listener;
+        if (query.includes("reduced-motion") && type === "change") motionChanges.push(listener);
       },
     }) },
     fetch: (...args) => {
@@ -142,7 +143,7 @@ function loadPage({ transition, reduced = false, legacy = false, now = "2027-02-
     finish: (body, index = requests.length - 1) => responses[index].resolve({ ok: true, json: async () => body }),
     tick: () => { const pending = [...timers.values()]; timers.clear(); pending.forEach(callback => callback()); },
     focus: () => focused,
-    reduce: value => { calm = value; motionChange?.({ matches: value }); },
+    reduce: value => { calm = value; for (const listener of motionChanges) listener({ matches: value }); },
     close: index => panels[index].querySelector("[data-panel-close]").click(),
     start: index => panels[index].querySelector("[data-action]").click(),
   };

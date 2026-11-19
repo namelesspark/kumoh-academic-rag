@@ -19,7 +19,10 @@ test("시연 계정 세 개와 비밀번호 입력란, 둘러보기 진입을 �
 });
 
 test("문서 안 실행 코드와 스타일, 외부 라이브러리를 추가하지 않는다", () => {
-  assert.equal([...html.matchAll(/<script\b/g)].length, 1);
+  // 스크립트는 chat.js와 그 뒤의 빠른 실행 링(#137) 두 개다. 둘 다 같은 출처 파일이고 순서대로 실행된다(defer).
+  assert.deepEqual([...html.matchAll(/<script\b[^>]*>/g)].map(match => match[0]), [
+    '<script src="/chat-assets/chat.js" defer>', '<script src="/chat-assets/quick-actions.js" defer>',
+  ]);
   assert.match(html, /<script src="\/chat-assets\/chat.js" defer><\/script>/);
   assert.doesNotMatch(html, /\sstyle\s*=|<style\b|\son\w+\s*=/i);
   // 스타일은 좌표 변수만 쓴다. 손글씨 패드(#134)의 입력 줄 위 자리도 --handwriting- 변수다.

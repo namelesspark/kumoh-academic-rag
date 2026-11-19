@@ -810,7 +810,13 @@ test("깊이 모드: 고정 테두리는 상태만으로 그리고, 효과는 �
   assert.equal(seconds(".composer-row.is-deep-enter::after"), .9);
   assert.equal(seconds('.mode-pill.is-bursting .mode-icon[data-icon="deep"]'), .7);
   assert.ok(seconds(".mode-spark") <= .7);
-  assert.equal(seconds(".mode-pill.is-flowing::before"), 3);
+  // 하늘색 빛줄기는 깊이 모드가 켜질 때 한 번만 지나간다(#137). 되풀이하지 않고 0.5초 안에 끝난다.
+  assert.equal(seconds(".mode-pill.is-flowing::before"), .45);
+  assert.doesNotMatch(declared(".mode-pill.is-flowing::before", ["animation"]), /infinite/);
+  // 반짝임 조각은 하늘색 계열이다. 노랑은 고정 테두리 고리에만 남는다.
+  for (const selector of [".mode-spark", ".mode-spark:nth-child(3n + 2 of .mode-spark)", ".mode-spark:nth-child(3n of .mode-spark)"]) {
+    assert.match(declared(selector, ["background"]), /^var\(--(?:sky|deep-sky)\)$/, selector);
+  }
   // 별 조각은 8방향으로 퍼진다.
   assert.equal(rules.filter(rule => rule.selectors.some(selector => /^\.mode-spark:nth-child\(\d of \.mode-spark\)$/.test(selector))).length, 7);
   // 움직임 줄이기 설정에서는 효과의 움직임을 끄고 별·빛줄기·감싸는 빛은 그리지 않는다.
@@ -873,7 +879,7 @@ test("다크 테마에서 남은 밝은 바탕은 말풍선·노랑 표시·깊�
     ).map(([selector]) => selector).sort();
     assert.deepEqual(lightSurfaces, [
       ".composer-row.is-deep-enter::after", ".composer-row.is-deep::before", ".intro-badge::before",
-      ".login-safety::before", ".mode-pill.is-flowing::after", '.mode-pill[data-mode="deep"]', ".mode-spark", ".pet-dock .pet-says::before", ".pet-says", '[data-campus-step][data-current="true"]',
+      ".login-safety::before", ".mode-pill.is-flowing::after", '.mode-pill[data-mode="deep"]', ".pet-dock .pet-says::before", ".pet-says", '[data-campus-step][data-current="true"]',
     ], themeName(look));
   }
   checkText([
