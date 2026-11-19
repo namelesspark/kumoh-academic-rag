@@ -3217,6 +3217,11 @@ function stopActiveAnswer() {
   input.focus?.();
   return true;
 }
+// 보내기 버튼에 초점을 두고 Enter·Space를 길게 누르면, 첫 입력이 질문을 보내고 버튼이 곧바로 정지 버튼이 된다.
+// 이어 들어오는 반복 키가 방금 시작한 답을 멈추지 않게, 반복 키의 기본 동작(click)을 막는다.
+send?.addEventListener?.("keydown", event => {
+  if ((event.key === "Enter" || event.key === " ") && event.repeat) event.preventDefault?.();
+});
 send?.addEventListener?.("click", event => {
   if (sendMode !== "stop") return;
   event.preventDefault?.();

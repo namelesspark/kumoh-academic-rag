@@ -65,6 +65,8 @@ function ringPage({ width = 1280, height = 800, view = "home", reduced = false, 
   // 입력 줄 위에 여는 필기 패드와 다른 대화의 답이 오면 뜨는 알림. 둘 다 숨긴 채 시작한다.
   const pad = Object.assign(new El("section"), { id: "handwriting-pad", hidden: true });
   const toast = Object.assign(new El("div"), { id: "conversation-toast", hidden: true });
+  // 질문 폼 전체(입력 줄 + 첨부 제거·안내 줄·언어·테마 버튼). 크기를 주지 않으면 입력 줄 상자로 대신한다.
+  const composer = Object.assign(new El("form"), { id: "composer" });
   const screen = Object.assign(new El("div"), { id: "main-screen" });
   const body = new El("body");
   body.setAttribute("data-view", view);
@@ -72,7 +74,7 @@ function ringPage({ width = 1280, height = 800, view = "home", reduced = false, 
   root.setAttribute("lang", lang);
   const nodes = {
     ".composer-row": row, "#photo-attach": photo, "#handwriting-button": pen, "#home-button": home, "#main-screen": screen, "#pet": pet,
-    "#handwriting-pad": pad, "#conversation-toast": toast,
+    "#handwriting-pad": pad, "#conversation-toast": toast, "#composer": composer,
     '[data-feature="graduation"]': cards.graduation, '[data-feature="biskit"]': cards.biskit, '[data-feature="calendar"]': cards.calendar,
   };
   const document = {
@@ -109,7 +111,7 @@ function ringPage({ width = 1280, height = 800, view = "home", reduced = false, 
   return {
     state, row, photo, pen, cards, home, body, root, toggle, ring, menu, items, timers, observers,
     item: id => items.find(item => item.dataset.quickAction === id),
-    screen, window, pet, pad, toast,
+    screen, window, pet, pad, toast, composer,
     reduce: () => { state.reduced = true; for (const listener of mediaListeners) listener({ matches: true }); },
     blobs: () => ring.all().filter(node => (node.getAttribute("class") ?? "").split(/\s+/).includes("quick-ring-blob")),
     frames: () => { const pending = frames; frames = []; for (const callback of pending) callback(16); return pending.length; },
@@ -492,6 +494,51 @@ test("링이 다 펼쳐진 뒤 테크모가 나타나 방울 자리가 바뀌면
   for (const observer of still.observers) observer([]);
   assert.equal(still.ring.getAttribute("data-settled"), "");
   assert.equal(still.timers.size, 0);
+});
+
+test("질문 폼이 화면 위쪽에 있어 방울이 아래로 펼쳐져도 입력 줄 아래의 첨부 제거·언어·테마 버튼을 덮지 않는다", () => {
+  // 320×700·390×700 홈에서 +의 윗변이 화면 위 10px 부근이다. 폼 상자에는 입력 줄과 그 아래 첨부 제거 버튼,
+  // 안내 줄, 언어·테마 버튼이 모두 든다(약 170px 높이).
+  for (const [width, left, formBox] of [
+    [320, 20, { left: 12, top: 2, width: 296, height: 170 }],
+    [390, 21, { left: 13, top: 2, width: 364, height: 170 }],
+  ]) {
+    const page = ringPage({ width, height: 700, toggleRect: { left, top: 10, width: 44, height: 44 } });
+    page.row.rect = { left: formBox.left, top: 2, width: formBox.width, height: 60 };
+    page.composer.rect = formBox;
+    page.toggle.click();
+    assert.equal(page.toggle.getAttribute("aria-expanded"), "true", String(width));
+    const size = page.ring.getAttribute("data-compact") === "" ? 22 : 26;
+    const anchor = { x: left + 22, y: 32 };
+    const centers = page.items.map(page.position).map(spot => ({ x: anchor.x + spot.x, y: anchor.y + spot.y }));
+    const right = formBox.left + formBox.width, bottom = formBox.top + formBox.height;
+    for (const { x, y } of centers) {
+      const nearestX = Math.min(Math.max(x, formBox.left), right), nearestY = Math.min(Math.max(y, formBox.top), bottom);
+      assert.ok(Math.hypot(x - nearestX, y - nearestY) >= size, `${width}: covers the composer controls at ${x},${y}`);
+      assert.ok(x - size >= 7.5 && x + size <= width - 7.5 && y - size >= 7.5 && y + size <= 700 - 7.5, `${width}: off screen ${x},${y}`);
+    }
+    for (const [i, a] of centers.entries()) for (const b of centers.slice(i + 1)) assert.ok(Math.hypot(a.x - b.x, a.y - b.y) >= size * 2, `${width}: bubbles overlap`);
+  }
+});
+
+test("대화 목록 서랍이 열리면(화면 낭독기로 연 경우 포함) 열린 링을 닫고, 서랍이 열린 동안은 링을 열지 않는다", () => {
+  const page = ringPage({ view: "chat" });
+  page.toggle.click();
+  assert.equal(page.toggle.getAttribute("aria-expanded"), "true");
+  // 포인터 누름 없이 서랍이 열린다. chat.js는 body에 표시를 달고 질문 폼을 inert로 만든다.
+  page.body.setAttribute("data-conversation-drawer", "open");
+  page.composer.inert = true;
+  for (const observer of page.observers) observer([]);
+  assert.equal(page.toggle.getAttribute("aria-expanded"), "false");
+  // 서랍이 열린 동안은 + 를 눌러도(키보드 포함) 열리지 않는다.
+  page.toggle.click();
+  page.toggle.fire("keydown", { key: "ArrowDown" });
+  assert.equal(page.toggle.getAttribute("aria-expanded"), "false");
+  // 서랍을 닫으면 다시 열 수 있다.
+  page.body.removeAttribute("data-conversation-drawer");
+  page.composer.inert = false;
+  page.toggle.click();
+  assert.equal(page.toggle.getAttribute("aria-expanded"), "true");
 });
 
 test("입력 줄 위에 필기 패드를 연 채 링을 열면 방울이 패드(취소·넣기 버튼)를 덮지 않는다", () => {

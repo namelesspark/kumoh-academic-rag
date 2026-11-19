@@ -270,8 +270,10 @@
     const view = visibleArea();
     const width = view.width, height = view.height;
     const shown = visible();
-    // 방울이 덮으면 안 되는 상자는 입력 줄 전체다. 크기를 모르면(그리기 전 등) + 버튼 상자로 대신한다.
-    const rowBox = row.getBoundingClientRect?.();
+    // 방울이 덮으면 안 되는 상자는 질문 폼 전체(#composer)다. 입력 줄 아래의 첨부 제거 버튼·안내 줄·언어·테마 버튼까지 든다.
+    // 폼 크기를 모르면 입력 줄, 그것도 모르면(그리기 전 등) + 버튼 상자로 대신한다.
+    const formBox = doc.querySelector("#composer")?.getBoundingClientRect?.();
+    const rowBox = formBox && formBox.width > 0 && formBox.height > 0 ? formBox : row.getBoundingClientRect?.();
     const sized = rect => Boolean(rect) && rect.width > 0 && rect.height > 0;
     const local = rect => ({ left: rect.left - view.left, right: rect.left + rect.width - view.left,
       top: rect.top - view.top, bottom: rect.top + rect.height - view.top });
@@ -341,8 +343,12 @@
     captionKey = key;
     caption.textContent = say(key ?? "toggle");
   }
+  // 대화 목록 서랍이 열려 본문이 막힌 동안은 링을 열지 않는다(chat.js가 서랍을 열 때 질문 폼을 inert로 만든다).
+  function drawerOpen() {
+    return doc.body.getAttribute("data-conversation-drawer") === "open" || doc.querySelector("#composer")?.inert === true;
+  }
   function openRing(focusLast = false) {
-    if (open) return;
+    if (open || drawerOpen()) return;
     cancelWaiting();
     refresh();
     if (!enabled().length && !visible().length) return;
@@ -536,9 +542,11 @@
       if (node) follow.observe(node, { attributes: true, attributeFilter: ["disabled", "hidden", "aria-disabled"] });
     }
     // 열어 둔 사이 홈·채팅 화면이 바뀌면(알림을 눌러 대화를 여는 등) 링을 닫는다. 화면이 바뀌면 + 자리도 바뀐다.
+    // 대화 목록 서랍이 열리면(화면 낭독기로 연 경우 포함) 본문 조작이 막히므로 본문 밖에 붙은 링도 닫는다.
     new MutationObserver(() => {
-      if (open && doc.body.getAttribute("data-view") !== openedView) closeRing(false);
-    }).observe(doc.body, { attributes: true, attributeFilter: ["data-view"] });
+      if (!open) return;
+      if (doc.body.getAttribute("data-view") !== openedView || drawerOpen()) closeRing(false);
+    }).observe(doc.body, { attributes: true, attributeFilter: ["data-view", "data-conversation-drawer"] });
     // 로그아웃처럼 본문 화면(#main-screen)이 통째로 숨어 로그인 화면으로 바뀌면 data-view는 그대로다.
     // 포인터 누름 없이(화면 낭독기·키보드) 바뀌어도 링을 닫는다.
     const screen = doc.querySelector("#main-screen");

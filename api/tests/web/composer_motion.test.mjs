@@ -186,6 +186,24 @@ test("정지 버튼은 보고 있는 대화의 요청만 끊고 보내기(submit
   assert.equal(aborted, 1, "the home screen never stops a hidden conversation");
 });
 
+test("보내기 버튼에서 Enter·Space를 길게 누르면 첫 입력만 버튼을 누르고, 반복 키는 막아 방금 시작한 답을 멈추지 않는다", () => {
+  const page = morphPage();
+  let aborted = 0;
+  page.context.activeConversation = { chatAbort: { abort() { aborted++; } } };
+  for (const key of ["Enter", " "]) {
+    // 첫 입력은 막지 않는다. 버튼이 click을 내 질문을 보낸다.
+    assert.equal(page.send.fire("keydown", { key }).defaultPrevented, false, key);
+  }
+  // 질문을 보내 버튼이 정지 버튼으로 바뀐 뒤 같은 키가 되풀이해 들어온다. 기본 동작(click)을 막는다.
+  page.run("renderSendMode(true)");
+  for (const key of ["Enter", " "]) assert.equal(page.send.fire("keydown", { key, repeat: true }).defaultPrevented, true, key);
+  assert.equal(aborted, 0, "the repeat never reaches the stop click");
+  // 손을 뗐다가 새로 누르면 정지 버튼이 동작한다.
+  assert.equal(page.send.fire("keydown", { key: "Enter" }).defaultPrevented, false);
+  page.send.fire("click");
+  assert.equal(aborted, 1);
+});
+
 test("답변 멈추기 이름은 세 언어 사전에 있고 언어를 바꾸면 다시 쓴다", () => {
   const page = morphPage();
   for (const [lang, name] of [["en", "Stop answer"], ["zh", "停止回答"], ["ko", "답변 멈추기"]]) {
