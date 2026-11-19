@@ -344,6 +344,57 @@ test("52px 방울 칸이 모자라면 44px 방울로 줄이고, 그래도 모자
   assert.notEqual(flat.ring.getAttribute("data-layout"), "row");
 });
 
+test("기본 반지름으로 + 위·옆에 자리가 없으면 반지름을 70px로 줄여 + 위쪽에 두고, 방울끼리도 겹치지 않는다", () => {
+  // 320×700에서 + 가운데가 (80, 120)인 경우. 84px 호는 위로 들면 화면 위를, 옆으로 밀면 오른쪽을 넘는다.
+  const page = ringPage({ width: 320, height: 700, toggleRect: { left: 58, top: 98, width: 44, height: 44 } });
+  page.toggle.click();
+  assert.equal(page.ring.getAttribute("data-layout"), "arc");
+  const centers = page.items.map(page.position).map(spot => ({ x: 80 + spot.x, y: 120 + spot.y }));
+  for (const { x, y } of centers) {
+    assert.ok(x - 26 >= 8 - 0.5 && x + 26 <= 320 - 8 + 0.5 && y - 26 >= 8 - 0.5, `off screen ${x},${y}`);
+    assert.ok(y <= 120 + 0.5, `dropped below + ${x},${y}`);
+    const nearestX = Math.min(Math.max(x, 58), 102), nearestY = Math.min(Math.max(y, 98), 142);
+    assert.ok(Math.hypot(x - nearestX, y - nearestY) >= 26, `covers + ${x},${y}`);
+  }
+  for (const [i, a] of centers.entries()) for (const b of centers.slice(i + 1)) assert.ok(Math.hypot(a.x - b.x, a.y - b.y) >= 52, "bubbles overlap");
+  // 반지름 70px 호: 가운데 방울이 + 가운데보다 70px 높다.
+  assert.ok(Math.abs(Math.min(...centers.map(({ y }) => y)) - 50) < 0.5);
+});
+
+test("열려 있는 사이 대상이 숨거나 카드가 화면에서 떨어져 나가면, 변경 감시가 오기 전에 골라도 누르지 않는다", () => {
+  const page = ringPage();
+  page.toggle.click();
+  // 변경 감시(MutationObserver) 알림을 보내지 않은 채 바꾼다. 방울은 아직 누를 수 있게 보인다.
+  page.pen.hidden = true;
+  page.item("handwriting").click();
+  assert.equal(page.pen.clicks, 0);
+  page.toggle.click();
+  page.photo.setAttribute("aria-disabled", "true");
+  page.item("photo").click();
+  assert.equal(page.photo.clicks, 0);
+  page.toggle.click();
+  page.cards.calendar.isConnected = false;
+  page.item("calendar").click();
+  assert.equal(page.cards.calendar.clicks, 0, "a detached card is not pressed");
+});
+
+test("홈에 닿은 뒤 다음 화면 갱신 전에 새 대화(채팅 화면)를 요청하면 기다리던 카드를 누르지 않는다", () => {
+  for (const [name, request] of [
+    ["전환 방향 기록", page => page.body.setAttribute("data-chat-direction", "forward")],
+    ["#chat 주소", page => { page.window.location = { hash: "#chat" }; }],
+  ]) {
+    const page = ringPage({ view: "chat" });
+    page.toggle.click();
+    page.item("calendar").click();
+    assert.equal(page.home.clicks, 1, name);
+    // 홈 화면이 적용된 직후, 링의 다음 화면 갱신 전에 학생이 새 대화를 연다. 채팅 화면은 아직 그려지지 않았다.
+    page.body.setAttribute("data-view", "home");
+    request(page);
+    page.frames(); page.frames();
+    assert.equal(page.cards.calendar.clicks, 0, name);
+  }
+});
+
 test("화면을 확대해 보이는 칸이 창보다 작으면 그 칸 안에 방울을 놓고, 확대한 채 화면을 끌면 다시 놓는다", () => {
   // 390×700 창을 두 배로 확대해 보이는 칸이 195×350, 위에서 150px 내려가 있다. + 가운데는 (30, 300)이다.
   const visual = { width: 195, height: 350, offsetLeft: 0, offsetTop: 150 };

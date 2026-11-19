@@ -141,37 +141,42 @@
   // 방울 자리. 화면 좌표(px)로 돌려준다. 묶음이 화면 가장자리 8px 안쪽에 들어오도록 통째로 민다.
   function layout(anchor, width, height, count) {
     const narrow = width <= 480;
-    const radius = narrow ? 84 : 92;
     const [from, to] = narrow ? [180, 0] : [210, -30];
-    const points = Array.from({ length: count }, (_, index) => {
-      const degrees = count === 1 ? (from + to) / 2 : from + (to - from) * index / (count - 1);
-      const angle = degrees * Math.PI / 180;
-      return { x: anchor.x + radius * Math.cos(angle), y: anchor.y - radius * Math.sin(angle) };
-    });
-    const shift = (low, high, size) => (low < edge ? edge - low : high > size - edge ? size - edge - high : 0);
-    const xs = points.map(point => point.x), ys = points.map(point => point.y);
-    const dx = shift(Math.min(...xs) - bubbleRadius, Math.max(...xs) + bubbleRadius, width);
-    const fit = shift(Math.min(...ys) - bubbleRadius, Math.max(...ys) + bubbleRadius, height);
-    // 묶음을 옆으로 밀면 끝 방울이 + 버튼 위에 얹힐 수 있다. 그러면 +를 다시 눌러 닫으려던 손가락이 방울을 누른다.
-    // + 버튼과 가로로 겹치는 방울이 있으면 묶음을 + 위로 들어 올린다. 위에 자리가 없으면(+가 화면 위쪽에 있으면)
-    // + 아래로 내린다. 둘 다 화면을 넘으면(키보드가 올라와 높이가 낮을 때) 호 대신 + 옆에 한 줄로 늘어놓는다.
-    const clear = bubbleRadius + hubRadius + 6;
-    const covering = points.filter(point => Math.abs(point.x + dx - anchor.x) < clear);
-    // 호를 밀어 넣은 뒤에도 가로·세로 모두 화면 안에 드는지 본다. 화면이 묶음보다 좁으면 한쪽을 맞춰도 반대쪽이 넘친다.
-    const inside = (sx, sy) => Math.min(...xs) + sx - bubbleRadius >= edge - 0.5 && Math.max(...xs) + sx + bubbleRadius <= width - edge + 0.5 &&
-      Math.min(...ys) + sy - bubbleRadius >= edge - 0.5 && Math.max(...ys) + sy + bubbleRadius <= height - edge + 0.5;
-    const up = Math.min(fit, ...covering.map(point => anchor.y - clear - point.y));
-    const down = Math.max(fit, ...covering.map(point => anchor.y + clear - point.y));
     const shape = narrow ? "arc" : "radial";
-    const moved = (sx, sy) => ({ kind: shape, points: points.map(point => ({ x: point.x + sx, y: point.y + sy })) });
-    // 덮는 방울이 없으면 up은 화면 맞춤(fit)과 같다.
-    if (inside(dx, up)) return moved(dx, up);
-    // 위로 들 자리가 없으면 아래로 내리기 전에, 같은 높이에서 호를 통째로 옆으로 더 밀어 + 버튼 옆으로 비켜 본다.
-    // 엄지 위쪽 호 모양을 그대로 두고 +도 덮지 않는다. 오른쪽을 먼저 보고, 안 되면 왼쪽을 본다.
-    for (const side of [anchor.x + clear - Math.min(...xs), anchor.x - clear - Math.max(...xs)]) {
-      if (inside(side, fit)) return moved(side, fit);
+    const shift = (low, high, size) => (low < edge ? edge - low : high > size - edge ? size - edge - high : 0);
+    // 묶음을 옆으로 밀면 끝 방울이 + 버튼 위에 얹힐 수 있다. 그러면 +를 다시 눌러 닫으려던 손가락이 방울을 누른다.
+    const clear = bubbleRadius + hubRadius + 6;
+    // 호 하나의 후보 자리. above는 + 위로 들거나(up) 같은 높이에서 + 옆으로 통째로 밀어(side) 놓은 자리,
+    // below는 + 아래로 내린 자리다. 화면을 넘거나 +를 덮으면 null이다.
+    function arc(radius) {
+      const points = Array.from({ length: count }, (_, index) => {
+        const degrees = count === 1 ? (from + to) / 2 : from + (to - from) * index / (count - 1);
+        const angle = degrees * Math.PI / 180;
+        return { x: anchor.x + radius * Math.cos(angle), y: anchor.y - radius * Math.sin(angle) };
+      });
+      const xs = points.map(point => point.x), ys = points.map(point => point.y);
+      const dx = shift(Math.min(...xs) - bubbleRadius, Math.max(...xs) + bubbleRadius, width);
+      const fit = shift(Math.min(...ys) - bubbleRadius, Math.max(...ys) + bubbleRadius, height);
+      const covering = points.filter(point => Math.abs(point.x + dx - anchor.x) < clear);
+      // 밀어 넣은 뒤에도 가로·세로 모두 화면 안에 드는지 본다. 화면이 묶음보다 좁으면 한쪽을 맞춰도 반대쪽이 넘친다.
+      const inside = (sx, sy) => Math.min(...xs) + sx - bubbleRadius >= edge - 0.5 && Math.max(...xs) + sx + bubbleRadius <= width - edge + 0.5 &&
+        Math.min(...ys) + sy - bubbleRadius >= edge - 0.5 && Math.max(...ys) + sy + bubbleRadius <= height - edge + 0.5;
+      const moved = (sx, sy) => ({ kind: shape, points: points.map(point => ({ x: point.x + sx, y: point.y + sy })) });
+      // 덮는 방울이 없으면 up은 화면 맞춤(fit)과 같다.
+      const up = Math.min(fit, ...covering.map(point => anchor.y - clear - point.y));
+      const down = Math.max(fit, ...covering.map(point => anchor.y + clear - point.y));
+      const sides = [anchor.x + clear - Math.min(...xs), anchor.x - clear - Math.max(...xs)];
+      const side = sides.find(sx => inside(sx, fit));
+      return {
+        above: inside(dx, up) ? moved(dx, up) : side !== undefined ? moved(side, fit) : null,
+        below: inside(dx, down) ? moved(dx, down) : null,
+      };
     }
-    if (inside(dx, down)) return moved(dx, down);
+    // 기본 반지름으로 + 위·옆을 먼저 보고, 자리가 모자라면 반지름을 70px로 줄여 다시 본다. 70px는 52px 방울 다섯 개가
+    // 반원 위에서 서로 겹치지 않는(이웃 간격 약 53.6px) 가장 작은 값에 가깝다. 그래도 위·옆에 없을 때만 + 아래로 내린다.
+    const arcs = [narrow ? 84 : 92, 70].map(arc);
+    for (const each of arcs) if (each.above) return each.above;
+    for (const each of arcs) if (each.below) return each.below;
     // 한 줄: + 오른쪽(자리가 없으면 왼쪽)에 + 버튼과 6px 떨어뜨려 놓는다. 높이는 화면 안으로 맞춘다.
     const step = bubbleRadius * 2 + 4, span = (count - 1) * step;
     const y = Math.min(Math.max(anchor.y, edge + bubbleRadius), height - edge - bubbleRadius);
@@ -306,8 +311,19 @@
   // 채팅 화면에서 방울을 고르면 모두 홈으로 돌아간 뒤, 홈 화면이 적용되고 대상(카드는 문서에 다시 붙은 뒤)이 준비되면 누른다.
   // 기다리는 동안 학생이 화면을 옮기거나(뒤로 가기·다른 곳 누르기) 링을 다시 열면 실행하지 않는다.
   function cancelWaiting() { waiting++; }
+  // 누를 수 있는 대상인지. 열 때 방울을 숨기거나 잠근 규칙(disabled·hidden·aria-disabled)을 누르기 직전에도 다시 본다.
+  // 변경 감시(MutationObserver)는 한 박자 늦게 오므로 그사이 바뀐 상태를 놓치지 않게 한다.
+  function usable(node) {
+    return Boolean(node) && !node.disabled && node.hidden !== true && node.getAttribute?.("aria-disabled") !== "true";
+  }
+  // 홈·채팅 화면이 아직 적용되지 않았어도, 이미 채팅 화면을 요청했는지 본다. chat.js는 채팅 화면을 요청하는 순간
+  // 주소에 #chat을 붙이고(pushState) 전환 방향(data-chat-direction="forward")을 적는다. 화면은 그 뒤에 바뀐다.
+  function chatRequested() {
+    return window.location?.hash === "#chat" || doc.body.getAttribute("data-chat-direction") === "forward";
+  }
   function afterHome(node, fire) {
-    if (doc.body.getAttribute("data-view") !== "chat") { fire(); return; }
+    // 첫 화면에서는 바로 누른다. 카드가 화면에서 떨어져 나갔으면(isConnected false) 보관해 둔 카드를 누르지 않는다.
+    if (doc.body.getAttribute("data-view") !== "chat") { if (usable(node) && node.isConnected !== false) fire(); return; }
     const home = doc.querySelector("#home-button");
     if (!home || home.hidden || home.disabled) return;
     const ticket = ++waiting;
@@ -317,10 +333,12 @@
       if (ticket !== waiting) return;
       const screen = doc.querySelector("#main-screen");
       if (screen?.hidden || Date.now() - started > waitMs) { cancelWaiting(); return; }
+      // 홈에 닿았어도 그사이 학생이 다시 채팅 화면(새 대화 등)을 요청했으면 그 화면이 그려지기 전이라도 누르지 않는다.
+      if (chatRequested()) { cancelWaiting(); return; }
       if (doc.body.getAttribute("data-view") === "home" && node.isConnected !== false) {
         cancelWaiting();
-        // 홈으로 오는 사이 대상이 잠기거나(disabled·aria-disabled) 숨으면(hidden) 누르지 않는다. 열 때 방울을 거른 규칙과 같다.
-        if (!node.disabled && node.hidden !== true && node.getAttribute?.("aria-disabled") !== "true") fire();
+        // 홈으로 오는 사이 대상이 잠기거나 숨으면 누르지 않는다.
+        if (usable(node)) fire();
         return;
       }
       nextFrame(check);
@@ -332,7 +350,7 @@
     const node = target(entry.action);
     // 링이 사라져도 초점이 갈 곳이 있게 먼저 + 버튼에 둔다. 카드는 패널 제목으로, 펜 버튼은 필기 칸으로 초점을 다시 옮긴다.
     closeRing(true);
-    if (!node || node.disabled) return;
+    if (!usable(node)) return;
     afterHome(node, () => {
       // 사진 창을 닫으면 초점이 돌아올 자리가 있어야 한다. 줄에 보이는 클립 버튼이면 그쪽에 둔다.
       if (entry.action.id === "photo" && (typeof node.getClientRects !== "function" || node.getClientRects().length > 0)) node.focus();
