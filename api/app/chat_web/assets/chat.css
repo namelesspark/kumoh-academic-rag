@@ -1705,7 +1705,7 @@ button.login-lang:focus-visible, .login-lang .lang-pill:focus-visible { outline:
 }
 
 /* 손글씨 필기 패드(#134). 넓은 화면은 입력 줄 바로 위에 띄우고 좌표(--handwriting-x·bottom·width)는 chat.js가 입력 줄에서 잰다.
-   좁은 화면(680px 이하)은 화면 아래 시트이고 아래 안전 영역만큼 띄운다. 테크모(20) 위, 선택 메뉴(30) 아래다.
+   좁은 화면(680px 이하)은 폭 전체를 쓰는 시트를 입력 줄 바로 위에 붙인다(아래 미디어 쿼리 참고). 테크모(20) 위, 선택 메뉴(30) 아래다.
    불투명 면이라 사진이 비치지 않고, 경계는 그림자 대신 얇은 선이다. 전환·움직임은 넣지 않는다.
    touch-action: none은 캔버스에만 준다. 질문 칸(textarea)은 손대지 않아 iPad Scribble이 그대로 동작한다. */
 .handwriting-pad {
@@ -1766,16 +1766,20 @@ button.login-lang:focus-visible, .login-lang .lang-pill:focus-visible { outline:
 .handwriting-actions button:not(:disabled):hover { border-color: var(--focus-ink); }
 /* 넣기는 보내기 버튼과 같은 학교 파랑 채움에 흰 글자다. 다크에서도 밝은 면을 새로 만들지 않는다. */
 .handwriting-actions .handwriting-insert { border-color: var(--control-edge); background: linear-gradient(135deg,var(--control-start),var(--control-end)); color: var(--white); }
+/* 좁은 화면은 화면 폭 전체를 쓰는 시트지만 화면 맨 아래가 아니라 입력 줄 바로 위에 붙인다. 채팅 화면에서는 입력 줄이 화면 아래에
+   있어, 시트를 bottom: 0에 두면 질문 칸과 입력 줄 버튼을 덮어 누를 수 없었다. 아래 끝과 최대 높이는 chat.js가 입력 줄에서 잰 값
+   (--handwriting-bottom·--handwriting-max-height)을 쓰고, 좁은 화면에서는 줄 아래로 옮기지 않는다. 아래 안전 영역은 입력 줄 쪽이 비운다.
+   잰 값이 없을 때만(입력 줄을 잴 수 없을 때) 예전처럼 화면 아래에 붙이고 안전 영역만큼 띄운다. */
 @media (max-width: 680px) {
   .handwriting-pad {
     left: 0;
     top: auto;
-    bottom: 0;
+    bottom: var(--handwriting-bottom, 0);
     width: 100%;
     max-width: none;
-    max-height: calc(100dvh - 16px);
-    padding-bottom: calc(14px + env(safe-area-inset-bottom));
-    border-width: 1px 0 0;
+    max-height: var(--handwriting-max-height, calc(100dvh - 16px));
+    padding-bottom: var(--handwriting-sheet-padding, calc(14px + env(safe-area-inset-bottom)));
+    border-width: 1px 0;
     border-radius: 16px 16px 0 0;
   }
   .handwriting-actions button { flex: 1 1 0; padding-inline: 6px; }

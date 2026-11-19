@@ -3287,7 +3287,11 @@ function setupHandwriting() {
     // 연 뒤 학생이 스크롤해 입력 줄이 화면 위쪽에 붙어 위쪽이 최소 높이보다 좁아지고 아래쪽이 더 넓으면, 그때만 줄 아래(top 고정)로 옮긴다.
     // 스크롤 중에 문서를 대신 굴리면 학생의 스크롤과 다투므로, 패드를 옮겨 필기 칸과 버튼이 0px로 접히지 않게 한다.
     const above = row.top - 16, below = height - row.bottom - 16;
-    if (allowBelow && above < handwritingMinRoom && below > above) {
+    // 좁은 화면 시트도 입력 줄 바로 위에 붙인다(CSS가 폭만 화면 전체로 넓힌다). 시트가 입력 줄을 덮지 않도록 좁은 화면에서는 줄 아래로 옮기지 않는다.
+    // 입력 줄 쪽이 아래 안전 영역을 비우므로 시트 아래 여백은 평소 값(14px)이다.
+    const narrow = (window.innerWidth || 0) <= 680;
+    pad.style?.setProperty("--handwriting-sheet-padding", "14px");
+    if (!narrow && allowBelow && above < handwritingMinRoom && below > above) {
       side = "below";
       const top = Math.min(height - 8, Math.max(8, row.bottom + 8));
       pad.style?.setProperty("--handwriting-bottom", "auto");
@@ -3522,9 +3526,13 @@ function setupHandwriting() {
         const response = await fetch(handwritingPath, { method: "POST", headers: { Accept: "application/json" }, body: form, signal: controller.signal });
         if (stale()) return;
         if (response.ok) {
-          // 본문이 JSON이 아니면 연결 문제가 아니라 서버 응답 문제다.
-          const payload = await response.json().catch(() => null);
+          // 본문 받기와 JSON 해석을 나눈다. 받는 도중의 실패(시간 초과로 끊음·연결 끊김)는 바깥 catch로 넘겨
+          // 시간 초과·연결 문구를 띄운다. 예전처럼 response.json()의 실패를 모두 삼키면, 상태 200을 먼저 받고 본문을
+          // 기다리다 시간 초과된 경우에도 「서버가 글씨를 처리하지 못했어요」가 떴다. 받은 본문이 JSON이 아닐 때만 서버 응답 문제다.
+          const body = await response.text();
           if (stale()) return;
+          let payload = null;
+          try { payload = JSON.parse(body); } catch { payload = null; }
           text = typeof payload?.text === "string" ? payload.text.trim() : "";
           if (payload === null) message = handwritingMessages.failed;
           else if (!text) message = handwritingMessages.unreadable;

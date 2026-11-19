@@ -316,8 +316,9 @@ function loadPad({ language, pixelRatio = 2, blobSize = pngBytes.length, innerWi
   return page;
 }
 
-const ok = text => ({ ok: true, status: 200, json: async () => ({ text }) });
-const refused = status => ({ ok: false, status, json: async () => ({ detail: "fictional error" }) });
+// 가짜 응답은 브라우저처럼 본문을 글자(text)로도 JSON으로도 읽을 수 있다. 코드는 글자로 받은 뒤 JSON으로 해석한다.
+const ok = text => ({ ok: true, status: 200, text: async () => JSON.stringify({ text }), json: async () => ({ text }) });
+const refused = status => ({ ok: false, status, text: async () => JSON.stringify({ detail: "fictional error" }), json: async () => ({ detail: "fictional error" }) });
 const settle = async () => { for (let i = 0; i < 4; i++) await setImmediate(); };
 
 test("펜 버튼은 입력 줄의 사진 버튼 뒤에 있고, 패드는 질문 폼 밖의 이름 붙은 대화 상자다", () => {
@@ -576,10 +577,15 @@ test("선택한 글자는 받은 글자로 바뀌고, 읽을 글씨가 없거나
   page.insert.click();
   await settle();
   assert.equal(page.status.textContent, messages.unreadable);
-  page.respond({ ok: true, status: 200, json: async () => { throw new SyntaxError("fictional malformed body"); } });
+  page.respond({ ok: true, status: 200, text: async () => "<fictional malformed body>", json: async () => { throw new SyntaxError("fictional malformed body"); } });
   page.insert.click();
   await settle();
   assert.equal(page.status.textContent, messages.failed, "a malformed body is not a network failure");
+  // 본문을 받는 도중 연결이 끊기면 형식 오류가 아니라 연결 문구다.
+  page.respond({ ok: true, status: 200, text: async () => { throw new TypeError("fictional body network failure"); } });
+  page.insert.click();
+  await settle();
+  assert.equal(page.status.textContent, messages.offline, "a dropped body is a network failure");
   page.respond(ok("휴학"));
   page.insert.click();
   await settle();
@@ -2082,6 +2088,60 @@ test("시간 제한이 지나면 요청을 끊고 시간 초과를 알린 뒤 �
   assert.equal(held.request.options.signal.aborted, true);
   assert.equal(page.status.textContent, messages.timeout);
   assert.equal(page.insert.disabled, false);
+});
+
+test("390×844 좁은 화면의 시트는 입력 줄 바로 위에 붙어 질문 칸과 입력 줄 버튼을 덮지 않는다", () => {
+  // CSS: 좁은 화면 시트의 아래 끝과 최대 높이는 chat.js가 입력 줄에서 잰 값을 쓴다(화면 맨 아래 bottom: 0이 아니다).
+  const narrow = /@media \(max-width: 680px\) \{\s*\.handwriting-pad \{([^}]*)\}/.exec(styles.replace(/\/\*[\s\S]*?\*\//g, ""))?.[1] ?? "";
+  assert.match(narrow, /bottom:\s*var\(--handwriting-bottom, 0\);/);
+  assert.match(narrow, /max-height:\s*var\(--handwriting-max-height,/);
+  assert.match(narrow, /width:\s*100%;/);
+  // 채팅 화면처럼 입력 줄이 화면 아래(y 700~760)에 있다.
+  const page = loadPad({ innerWidth: 390, innerHeight: 844 });
+  Object.assign(page.rowRect, { left: 12, right: 378, width: 366, top: 700, bottom: 760 });
+  page.button.click();
+  const props = page.pad.style.properties;
+  assert.equal(props.get("--handwriting-top"), "auto");
+  const bottom = parseFloat(props.get("--handwriting-bottom"));
+  const maxHeight = parseFloat(props.get("--handwriting-max-height"));
+  // 시트 아래 끝(화면 위에서 844 − bottom)이 입력 줄 위 끝보다 위이고, 위 끝도 화면 안이다.
+  assert.ok(844 - bottom <= page.rowRect.top, `sheet bottom ${844 - bottom} vs row top ${page.rowRect.top}`);
+  assert.ok(844 - bottom - maxHeight >= 0, "the sheet stays on screen");
+  assert.equal(props.get("--handwriting-sheet-padding"), "14px");
+  // 좁은 화면에서는 위쪽이 좁아져도 줄 아래로 옮기지 않는다(옮기면 입력 줄 아래 테크모 줄·안전 영역을 덮는다).
+  Object.assign(page.rowRect, { top: 100, bottom: 160 });
+  page.scroll();
+  assert.equal(props.get("--handwriting-top"), "auto");
+  assert.ok(844 - parseFloat(props.get("--handwriting-bottom")) <= page.rowRect.top);
+});
+
+test("상태 200을 받은 뒤 본문을 기다리다 시간 제한이 지나도 시간 초과를 알리고 획을 남겨 다시 넣을 수 있다", async () => {
+  const page = loadPad();
+  page.button.click();
+  page.stroke([10, 10], [60, 60]);
+  // 가상 서버가 상태 200을 먼저 보내고 본문은 보내지 않는다. 요청이 끊기면 브라우저처럼 본문 읽기가 거절된다.
+  let request = null;
+  page.routes.push(each => {
+    request = each;
+    return Promise.resolve({
+      ok: true, status: 200,
+      text: () => new Promise((_resolve, reject) => each.options.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")))),
+    });
+  });
+  page.insert.click();
+  await settle();
+  const timer = page.timers.find(each => each.delay === 30_000 && !each.cleared);
+  assert.ok(timer, "a 30 s limit is set");
+  timer.callback();
+  await settle();
+  assert.equal(request.options.signal.aborted, true);
+  assert.equal(page.status.textContent, messages.timeout, "not the server-failure message");
+  assert.equal(page.insert.disabled, false);
+  // 획은 남아 있어 그대로 다시 넣을 수 있다.
+  page.respond(ok("가상"));
+  page.insert.click();
+  await settle();
+  assert.equal(page.input.value, "가상");
 });
 
 test("Esc와 취소는 패드를 닫아 펜 버튼으로 초점을 돌리고, 읽던 요청을 끊어 늦은 응답을 버린다", async () => {
