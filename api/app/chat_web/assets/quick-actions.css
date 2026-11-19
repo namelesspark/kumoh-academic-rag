@@ -35,6 +35,24 @@
 .quick-ring[data-open] .quick-ring-hub { opacity: 1; }
 .quick-ring[data-open] .quick-ring-blob { opacity: 1; transform: translate(var(--qa-x, 0px), var(--qa-y, 0px)) scale(1); }
 
+/* 가운데 원 위의 × 표시. 원(--accent) 위 그림색(--surface)은 방울 아이콘과 같은 대비이고, 누름은 아래 + 버튼으로 넘긴다. */
+.quick-ring-close {
+  position: absolute;
+  left: var(--qa-anchor-x, 0px);
+  top: var(--qa-anchor-y, 0px);
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  margin: -22px 0 0 -22px;
+  color: var(--surface);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 120ms ease-out;
+}
+.quick-ring-close svg { display: block; width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; transform: rotate(45deg); }
+.quick-ring[data-open] .quick-ring-close { opacity: 1; }
+
 /* 버튼 층. 필터 밖이라 아이콘과 초점 고리가 흐려지지 않는다. 방울과 같은 자리·같은 곡선으로 움직인다. */
 .quick-ring-menu { position: absolute; inset: 0; }
 .quick-item {
@@ -123,6 +141,6 @@
 #send .send-glyph { display: block; width: 22px; height: 22px; }
 
 @media (prefers-reduced-motion: reduce) {
-  .quick-toggle svg, .quick-ring-hub, .quick-ring-blob, .quick-item, .quick-ring-caption,
+  .quick-toggle svg, .quick-ring-hub, .quick-ring-close, .quick-ring-blob, .quick-item, .quick-ring-caption,
   .choice-menu-indicator, .choice-menu-indicator[data-phase="settle"] { transition: none !important; }
 }

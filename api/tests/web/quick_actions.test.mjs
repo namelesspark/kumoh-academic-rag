@@ -213,6 +213,39 @@ test("넓은 화면은 + 둘레에 방사형으로, 좁은 화면은 엄지 위�
   }
 });
 
+test("+가 화면 위쪽에 있어 위로 비킬 자리가 없으면 방울을 + 아래로 내려 화면 안에 두고 +도 덮지 않는다", () => {
+  // 390×700에서 홈을 굴려 + 가운데가 위에서 90px, 왼쪽에서 30px에 온 경우.
+  const page = ringPage({ width: 390, height: 700, toggleRect: { left: 8, top: 68, width: 44, height: 44 } });
+  page.toggle.click();
+  const origin = { x: 30, y: 90 };
+  const spots = page.items.map(page.position);
+  for (const spot of spots) {
+    const x = origin.x + spot.x, y = origin.y + spot.y;
+    assert.ok(x >= 33.5 && x <= 390 - 33.5, `x ${JSON.stringify(spot)}`);
+    assert.ok(y >= 33.5 && y <= 700 - 33.5, `y ${JSON.stringify(spot)}`);
+    if (Math.abs(spot.x) < 26 + 22 + 6) assert.ok(spot.y >= 26 + 22 + 6 - 0.5, `covers +: ${JSON.stringify(spot)}`);
+  }
+});
+
+test("열린 링의 가운데 원 위에 × 표시를 다시 그려 +의 닫기 표시가 가려지지 않고, 누름은 아래 + 버튼이 받는다", () => {
+  const page = ringPage();
+  const close = page.ring.children.find(node => node.className === "quick-ring-close");
+  assert.ok(close, "the close mark lives in the ring");
+  assert.equal(close.getAttribute("aria-hidden"), "true");
+  assert.equal(close.children[0].tag, "svg");
+  const goo = page.ring.all().find(node => node.getAttribute("filter") === "url(#quick-ring-goo)");
+  assert.equal(goo.contains(close), false, "drawn outside the goo filter");
+  // 가운데 원보다 뒤에(위에) 그린다. 방울 층(SVG) 다음 순서다.
+  const order = page.ring.children.map(node => node.className || node.getAttribute("class"));
+  assert.ok(order.indexOf("quick-ring-close") > order.indexOf("quick-ring-blobs"), order.join(","));
+  const rule = /\n\.quick-ring-close \{([^}]*)\}/.exec(css)[1];
+  assert.match(rule, /pointer-events: none;/);
+  assert.match(rule, /color: var\(--surface\);/);
+  assert.match(rule, /left: var\(--qa-anchor-x, 0px\);/);
+  assert.match(css, /\.quick-ring-close svg \{[^}]*transform: rotate\(45deg\);/);
+  assert.match(css, /\.quick-ring\[data-open\] \.quick-ring-close \{ opacity: 1; \}/);
+});
+
 test("화살표·Home·End로 방울 사이를 돌고, + 버튼의 위·아래 화살표는 끝 방울을 연다", () => {
   const page = ringPage();
   page.toggle.click();

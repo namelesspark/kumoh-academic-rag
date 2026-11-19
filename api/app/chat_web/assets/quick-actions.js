@@ -104,7 +104,12 @@
     for (const node of [blob, item]) node.style.setProperty("--qa-index", String(index));
     return { action, blob, item, name };
   });
-  ring.append(blobs, menu, caption);
+  // 가운데 원(hub)은 불투명해 그 아래 + 버튼의 × 표시를 가린다. 같은 자리 필터 밖 층에 × 그림만 다시 그린다.
+  // 이 그림은 누름을 받지 않아(pointer-events: none) 누름은 그대로 아래 + 버튼이 받는다. 이름은 + 버튼이 읽힌다.
+  const close = make("span", "quick-ring-close");
+  close.setAttribute("aria-hidden", "true");
+  close.append(icon({ paths: ["M12 5v14M5 12h14"] }));
+  ring.append(blobs, close, menu, caption);
   doc.body.append(ring);
 
   let open = false, hideTimer = null, settleTimer = null, captionKey = null, waiting = 0, openedAt = null;
@@ -145,13 +150,16 @@
     const shift = (low, high, size) => (low < edge ? edge - low : high > size - edge ? size - edge - high : 0);
     const xs = points.map(point => point.x), ys = points.map(point => point.y);
     const dx = shift(Math.min(...xs) - bubbleRadius, Math.max(...xs) + bubbleRadius, width);
-    let dy = shift(Math.min(...ys) - bubbleRadius, Math.max(...ys) + bubbleRadius, height);
+    const fit = shift(Math.min(...ys) - bubbleRadius, Math.max(...ys) + bubbleRadius, height);
     // 묶음을 옆으로 밀면 끝 방울이 + 버튼 위에 얹힐 수 있다. 그러면 +를 다시 눌러 닫으려던 손가락이 방울을 누른다.
-    // + 버튼과 가로로 겹치는 방울이 있으면 그 방울이 + 위로 비켜날 만큼 묶음을 들어 올린다.
+    // + 버튼과 가로로 겹치는 방울이 있으면 묶음을 + 위로 들어 올린다. 위에 자리가 없으면(+가 화면 위쪽에 있으면)
+    // + 아래로 내린다. 둘 다 화면을 넘으면 화면 안을 지키고 겹침을 받아들인다.
     const clear = bubbleRadius + hubRadius + 6;
-    for (const point of points) {
-      if (Math.abs(point.x + dx - anchor.x) < clear) dy = Math.min(dy, anchor.y - clear - point.y);
-    }
+    const covering = points.filter(point => Math.abs(point.x + dx - anchor.x) < clear);
+    const inside = dy => Math.min(...ys) + dy - bubbleRadius >= edge - 0.5 && Math.max(...ys) + dy + bubbleRadius <= height - edge + 0.5;
+    const up = Math.min(fit, ...covering.map(point => anchor.y - clear - point.y));
+    const down = Math.max(fit, ...covering.map(point => anchor.y + clear - point.y));
+    const dy = !covering.length || inside(up) ? up : inside(down) ? down : fit;
     return { narrow, points: points.map(point => ({ x: point.x + dx, y: point.y + dy })) };
   }
   function place() {
