@@ -202,11 +202,10 @@ def fingerprint_quick_actions(html: str) -> str:
     """빠른 실행 링 파일이 준비되면 주소에 내용 지문을 붙임."""
     for name in ("quick-actions.css", "quick-actions.js"):
         address = f"/chat-assets/{name}"
-        pattern = re.compile(rf"""(?<![^\s"'=]){re.escape(address)}(?=$|[\s"'>])""")
-        matches = list(pattern.finditer(html))
-        if len(matches) > 1:
+        if html.count(address) > 1:
             raise ValueError(f"{name} 주소는 정확히 한 번 있어야 함")
-        if not matches:
+        pattern = re.compile(rf"""(?<![^\s"'=]){re.escape(address)}(?=$|[\s"'>])""")
+        if not pattern.search(html):
             continue
         try:
             content = (CHAT_WEB_DIR / "assets" / name).read_bytes()

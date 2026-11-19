@@ -884,10 +884,12 @@ class TestChatWeb(unittest.TestCase):
 
             prepared = {}
             for name, tag in tags.items():
-                with self.subTest(duplicate=name):
-                    source = base_html + tag * 2
-                    with self.assertRaisesRegex(ValueError, re.escape(name)):
-                        create_app()
+                address = f"/chat-assets/{name}"
+                for suffix in ("", "?v=old", "#old"):
+                    with self.subTest(duplicate=name, suffix=suffix):
+                        source = base_html + tag + tag.replace(address, address + suffix)
+                        with self.assertRaisesRegex(ValueError, re.escape(name)):
+                            create_app()
 
     def test_techmo_layout_is_injected_once_into_the_pet_dock(self):
         raw = read_index()
