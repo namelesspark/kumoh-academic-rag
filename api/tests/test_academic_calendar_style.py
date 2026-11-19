@@ -411,6 +411,74 @@ class AcademicCalendarStyleTest(unittest.TestCase):
         plain_body = self.computed([acal(), element("div", ["acal-body"])])
         self.assertNotIn("overflow-x", plain_body)
 
+    def horizontal_pan_scrolls(self, chain):
+        """손가락이 chain[-1]에 닿아 가로로 밀 때 움직이는 스크롤 상자의 이름. 아무것도 움직이지 않으면 None.
+
+        브라우저는 닿은 요소부터 가장 가까운 가로 스크롤 상자까지(상자 자신 포함) touch-action을 겹쳐 본다.
+        그 가운데 하나라도 가로 이동(auto·manipulation·pan-x)을 빼면 가로 밀기는 그 상자를 움직이지 못한다.
+        """
+        allowed = True
+        for depth in range(len(chain), 0, -1):
+            decls = self.computed(chain[:depth])
+            action = decls.get("touch-action", "auto")
+            if not (action in ("auto", "manipulation") or "pan-x" in action.split()):
+                allowed = False
+            if decls.get("overflow-x") in ("auto", "scroll"):
+                return " ".join(sorted(chain[depth - 1]["classes"])) if allowed else None
+        return None
+
+    def test_horizontal_swipe_starts_only_on_weekdays_and_grid(self):
+        """고른 날 목록 위에서 좌우로 밀면 요일 머리·격자가 움직이던 결함(교차 검토 세 번째 지적)을 입력 범위로 잰다.
+
+        선언만 보던 이전 검사는 목록이 sticky로 제자리라는 것만 확인해, 같은 스크롤 상자 안에서 시작한 밀기를 놓쳤다.
+        """
+        day_list = element("div", ["acal-day-list"])
+        moves = {
+            "요일 칸": inside() + [element("div", ["acal-weekdays"]), element("span")],
+            "날짜 버튼": day_chain(4),
+            "주말 날짜 버튼": day_chain(7, today=True, more=True),
+            "이웃 달 칸": week() + [cell(1, outside=True)],
+            "기간 막대": bar_chain(2, 3, 1, "exam"),
+            "+N개": day_chain(4, more=True) + [MORE_LABEL],
+            "점": dot_chain("holiday"),
+        }
+        stays = {
+            "고른 날 목록": inside() + [day_list],
+            "목록 안 일정 글": inside() + [day_list, element("section", ["evidence"]), element("p")],
+            "목록 안 출처 링크": inside() + [day_list, element("section", ["evidence"]), element("a")],
+            "목록 보기 줄": inside("list") + [element("section", ["evidence"]), element("p")],
+            "머리 줄 버튼": head_button("nav"),
+            "제목": [acal(), HEAD_ROW, element("h4", ["acal-title"])],
+        }
+        for label, chain in moves.items():
+            with self.subTest(target=label):
+                self.assertEqual(self.horizontal_pan_scrolls(chain), "acal-body")
+        for label, chain in stays.items():
+            with self.subTest(target=label):
+                self.assertIsNone(self.horizontal_pan_scrolls(chain))
+        # 세로 밀기(페이지 스크롤)는 목록 위에서도 그대로다.
+        self.assertIn("pan-y", self.computed(inside() + [day_list])["touch-action"].split())
+        # touch-action은 이 한 규칙에만 있다. 날짜 칸·버튼에 걸면 격자 스크롤과 탭 확대가 막힌다.
+        holders = [head for head, decls, _ in self.rules if "touch-action" in decls]
+        self.assertEqual(holders, [":is(.acal, .acal-body):has(> .acal-grid) > :not(.acal-weekdays):not(.acal-grid)"])
+
+    def test_earlier_cross_review_repros_stay_fixed(self):
+        """앞선 지적 네 가지를 한곳에서 다시 잰다. 구조는 chat.js가 그리는 그대로다."""
+        evidence = element("section", ["evidence"])
+        # 1. 달 보기에서 고른 날 일정(section.evidence)이 접히지 않는다.
+        self.assertNotEqual(self.computed(inside("month") + [element("div", ["acal-day-list"]), evidence]).get("display"), "none")
+        # 2. 「+N개」 규칙은 마지막 자식인 점 묶음이 아니라 그 앞 요소에 걸린다.
+        self.assertEqual(self.computed(day_chain(more=True) + [MORE_LABEL]).get("margin-top"), "auto")
+        self.assertNotIn("margin-top", self.computed(day_chain(more=True) + [DOT_GROUP]))
+        # 3. 요일 머리와 격자는 같은 스크롤 상자 안에서 같은 최소 폭으로 넘친다.
+        for name in ("acal-weekdays", "acal-grid"):
+            chain = inside() + [element("div", [name])]
+            self.assertEqual(self.computed(chain).get("min-width"), "308px")
+            self.assertEqual(self.horizontal_pan_scrolls(chain), "acal-body")
+        # 4. 루트와 본문 상자 전체는 sticky가 아니고, 머리 줄은 스크롤 상자 밖이다.
+        self.assertNotIn("position", self.computed(inside()))
+        self.assertNotIn("overflow-x", self.computed([acal()]))
+
     def test_focus_and_selection_stay_inside_and_clear_three_to_one(self):
         for theme in self.themes:
             for col in (1, 4):

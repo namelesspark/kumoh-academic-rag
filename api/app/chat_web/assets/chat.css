@@ -1960,6 +1960,10 @@ form.turn-editor textarea {
 :is(.acal, .acal-body):has(> .acal-grid) { overflow-x: auto; overscroll-behavior-x: contain; }
 /* 같은 부모의 다른 자식(고른 날 목록·목록 보기 줄)은 두 줄이 밀려도 왼쪽 끝(여백 4px 안쪽)에 붙어 있다. */
 :is(.acal, .acal-body):has(> .acal-grid) > :not(.acal-weekdays):not(.acal-grid) { position: sticky; left: 4px; min-width: 0; }
+/* 가로 밀기는 요일 머리·격자 위에서만 시작한다. 같은 스크롤 상자 안의 다른 자식(고른 날 목록·목록 보기 줄)은 세로 밀기만 받는다.
+   브라우저는 손가락이 닿은 요소부터 스크롤 상자까지의 touch-action을 겹쳐 보므로, 이 한 줄이 목록 안 모든 글과 링크에 걸린다.
+   sticky만 두었을 때는 목록은 제자리여도 그 위에서 민 만큼 요일 머리와 격자가 움직였다(교차 검토 지적). */
+:is(.acal, .acal-body):has(> .acal-grid) > :not(.acal-weekdays):not(.acal-grid) { touch-action: pan-y; }
 .acal > :has(> .acal-title) { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .acal-title {
   flex: 1 1 8em;
