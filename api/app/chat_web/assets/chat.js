@@ -4886,7 +4886,7 @@ function renderCalendar(content, result, current) {
   const toggle = control("", () => { listView = !listView; draw(); });
   toggle.dataset.acalViewToggle = "";
   header.append(previous, title, next, toggle);
-  root.append(scopeTitle, header, body);
+  root.append(scopeTitle, header, body, dayList);
   content.replaceChildren(root);
 
   function drawDayList() {
@@ -5007,12 +5007,14 @@ function renderCalendar(content, result, current) {
     const scope = t("{year}학년도 {semester}학기", calendarScope);
     scopeTitle.textContent = scope;
     root.dataset.view = listView ? "list" : "month";
+    dayList.hidden = listView;
     previous.hidden = next.hidden = title.hidden = listView;
     previous.setAttribute("aria-label", t("이전 달"));
     next.setAttribute("aria-label", t("다음 달"));
     toggle.textContent = t(listView ? "월 보기" : "목록 보기");
     toggle.setAttribute("aria-pressed", String(listView));
     if (listView) {
+      dayList.replaceChildren();
       body.replaceChildren(...(remaining.length ? remaining.map(calendarEventRow) :
         [element("p", "hint", t("{scope}에 남은 일정이 없어요.", { scope }))]));
       return;
@@ -5039,7 +5041,7 @@ function renderCalendar(content, result, current) {
       grid.append(drawWeek(week, +first, last));
     }
     drawDayList();
-    body.replaceChildren(weekdays, grid, dayList);
+    body.replaceChildren(weekdays, grid);
   }
 
   translateCalendar = () => {

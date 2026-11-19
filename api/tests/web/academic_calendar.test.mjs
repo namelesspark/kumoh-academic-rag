@@ -134,6 +134,22 @@ test("겹친 기간은 주마다 빈 줄을 채우고 날짜별로 넘친 일정
   assert.equal(all(page.list(), node => attr(node, "href") === "https://example.invalid/calendar").length, 1);
 });
 
+test("고른 날 목록은 요일과 날짜가 가로로 밀리는 상자 밖에 있다", async () => {
+  const page = await openCalendar([event("가상 일정", "2028-02-27")]);
+  const body = byClass(page.root, "acal-body")[0];
+  const dayList = page.list();
+  assert.ok(page.root.children.includes(dayList));
+  assert.deepEqual(body.children.map(node => node.className), ["acal-weekdays", "acal-grid"]);
+  assert.match(visibleText(dayList), /가상 일정/);
+
+  page.toggle.click();
+  assert.equal(dayList.hidden, true);
+  page.toggle.click();
+  assert.equal(dayList.hidden, false);
+  assert.deepEqual(body.children.map(node => node.className), ["acal-weekdays", "acal-grid"]);
+  assert.equal(page.list(), dayList);
+});
+
 test("키로 날짜를 넘기고 윤년 말일을 맞추며 Enter와 Space로 고른다", async () => {
   const page = await openCalendar([event("가상 일정", "2028-03-31")]);
   assert.equal(page.title(), "2028년 3월");
