@@ -429,6 +429,42 @@ test("방울이 놓였던 자리에 테크모 버튼을 끌어 놓고 다시 열
   assert.deepEqual(page.items.map(page.position).map(spot => ({ x: anchor.x + spot.x, y: anchor.y + spot.y })), first);
 });
 
+test("링을 연 뒤 테크모가 늦게 나타나도(그림 도착) 열린 링이 방울을 다시 놓아 테크모를 덮지 않는다", () => {
+  // 390×700 채팅. 테크모는 저장 위치(가운데 방울 자리)에 있지만 그림이 늦어 아직 숨어 있다.
+  const rowBox = { left: 13, top: 592, width: 364, height: 60 };
+  const page = ringPage({ width: 390, height: 700, toggleRect: { left: 21, top: 600, width: 44, height: 44 } });
+  page.row.rect = rowBox;
+  page.pet.hidden = true;
+  page.toggle.click();
+  const anchor = { x: 43, y: 622 };
+  const center = page.items.map(page.position).map(spot => ({ x: anchor.x + spot.x, y: anchor.y + spot.y }))[2];
+  const petBox = { left: center.x - 40, top: center.y - 40, width: 80, height: 80 };
+  page.pet.rect = petBox;
+  // 그림이 도착해 테크모가 보인다. 속성 변화 감시가 알린다.
+  page.pet.hidden = false;
+  for (const observer of page.observers) observer([]);
+  assert.equal(page.toggle.getAttribute("aria-expanded"), "true", "the ring stays open and moves out of the way");
+  const size = page.ring.getAttribute("data-compact") === "" ? 22 : 26;
+  const gap = (rect, { x, y }) => Math.hypot(x - Math.min(Math.max(x, rect.left), rect.left + rect.width), y - Math.min(Math.max(y, rect.top), rect.top + rect.height));
+  for (const spot of page.items.map(page.position).map(each => ({ x: anchor.x + each.x, y: anchor.y + each.y }))) {
+    assert.ok(gap(petBox, spot) >= size, `covers Techmo at ${spot.x},${spot.y}`);
+    assert.ok(gap(rowBox, spot) >= size, `covers the input row at ${spot.x},${spot.y}`);
+  }
+});
+
+test("로그아웃처럼 본문 화면이 숨어 로그인 화면으로 바뀌면, 포인터 누름이 없어도 열린 링을 닫는다", () => {
+  const page = ringPage({ view: "home" });
+  page.toggle.click();
+  assert.equal(page.toggle.getAttribute("aria-expanded"), "true");
+  // 화면 낭독기로 로그아웃 버튼을 누른 것처럼 data-view는 그대로 두고 본문 화면만 숨긴다.
+  for (const observer of page.observers) observer([]);
+  assert.equal(page.toggle.getAttribute("aria-expanded"), "true", "an unrelated change keeps the ring");
+  page.screen.hidden = true;
+  for (const observer of page.observers) observer([]);
+  assert.equal(page.toggle.getAttribute("aria-expanded"), "false");
+  assert.equal(page.body.getAttribute("data-view"), "home");
+});
+
 test("키보드로 연 링을 초점이 옮겨 가지 않는 바깥 누름으로 닫은 뒤, 닫히는 사이 동작 줄이기를 켜도 초점이 +로 돌아온다", () => {
   const page = ringPage();
   page.toggle.fire("keydown", { key: "ArrowDown" });

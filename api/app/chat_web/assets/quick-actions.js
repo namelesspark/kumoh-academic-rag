@@ -522,6 +522,20 @@
     new MutationObserver(() => {
       if (open && doc.body.getAttribute("data-view") !== openedView) closeRing(false);
     }).observe(doc.body, { attributes: true, attributeFilter: ["data-view"] });
+    // 로그아웃처럼 본문 화면(#main-screen)이 통째로 숨어 로그인 화면으로 바뀌면 data-view는 그대로다.
+    // 포인터 누름 없이(화면 낭독기·키보드) 바뀌어도 링을 닫는다.
+    const screen = doc.querySelector("#main-screen");
+    if (screen) {
+      new MutationObserver(() => { if (open && screen.hidden) closeRing(false); })
+        .observe(screen, { attributes: true, attributeFilter: ["hidden"] });
+    }
+    // 테크모는 그림을 받은 뒤에야 보이고(hidden이 풀림) 끌어 옮기면 자리가 바뀐다. 열린 링이 그사이 테크모를 덮지 않게
+    // 테크모 버튼과 그 줄의 속성이 바뀌면 방울을 다시 놓고, 놓을 자리가 없으면 닫는다.
+    const relayout = new MutationObserver(() => { if (open && !place()) closeRing(false); });
+    for (const selector of ["#pet", "#pet-dock"]) {
+      const node = doc.querySelector(selector);
+      if (node) relayout.observe(node, { attributes: true });
+    }
   }
   label();
 })();
