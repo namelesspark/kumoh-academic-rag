@@ -1766,14 +1766,14 @@ button.login-lang:focus-visible, .login-lang .lang-pill:focus-visible { outline:
 .handwriting-actions button:not(:disabled):hover { border-color: var(--focus-ink); }
 /* 넣기는 보내기 버튼과 같은 학교 파랑 채움에 흰 글자다. 다크에서도 밝은 면을 새로 만들지 않는다. */
 .handwriting-actions .handwriting-insert { border-color: var(--control-edge); background: linear-gradient(135deg,var(--control-start),var(--control-end)); color: var(--white); }
-/* 좁은 화면은 화면 폭 전체를 쓰는 시트지만 화면 맨 아래가 아니라 입력 줄 바로 위에 붙인다. 채팅 화면에서는 입력 줄이 화면 아래에
-   있어, 시트를 bottom: 0에 두면 질문 칸과 입력 줄 버튼을 덮어 누를 수 없었다. 아래 끝과 최대 높이는 chat.js가 입력 줄에서 잰 값
-   (--handwriting-bottom·--handwriting-max-height)을 쓰고, 좁은 화면에서는 줄 아래로 옮기지 않는다. 아래 안전 영역은 입력 줄 쪽이 비운다.
-   잰 값이 없을 때만(입력 줄을 잴 수 없을 때) 예전처럼 화면 아래에 붙이고 안전 영역만큼 띄운다. */
+/* 좁은 화면은 화면 폭 전체를 쓰는 시트다. 채팅 화면에서는 입력 줄이 화면 아래에 있어, 시트를 bottom: 0에 두면 질문 칸과 입력 줄 버튼을
+   덮어 누를 수 없었다. 그래서 chat.js가 입력 줄을 재 위쪽 자리가 넉넉하면 줄 바로 위, 아니면 줄 바로 아래, 둘 다 모자라면 화면 아래에 둔다
+   (--handwriting-top·--handwriting-bottom·--handwriting-max-height). 줄 위·아래에 둘 때는 입력 줄이 아래 안전 영역을 비우므로 아래 여백 14px다.
+   잰 값이 없을 때(입력 줄을 잴 수 없을 때)와 화면 아래에 둘 때는 안전 영역만큼 띄운다. */
 @media (max-width: 680px) {
   .handwriting-pad {
     left: 0;
-    top: auto;
+    top: var(--handwriting-top, auto);
     bottom: var(--handwriting-bottom, 0);
     width: 100%;
     max-width: none;

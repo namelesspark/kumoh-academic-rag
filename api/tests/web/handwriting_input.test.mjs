@@ -2108,11 +2108,64 @@ test("390×844 좁은 화면의 시트는 입력 줄 바로 위에 붙어 질문
   assert.ok(844 - bottom <= page.rowRect.top, `sheet bottom ${844 - bottom} vs row top ${page.rowRect.top}`);
   assert.ok(844 - bottom - maxHeight >= 0, "the sheet stays on screen");
   assert.equal(props.get("--handwriting-sheet-padding"), "14px");
-  // 좁은 화면에서는 위쪽이 좁아져도 줄 아래로 옮기지 않는다(옮기면 입력 줄 아래 테크모 줄·안전 영역을 덮는다).
+  // 스크롤해 위쪽이 최소 높이(160px)보다 좁아지면(84px) 아래쪽(668px)에 붙인다. 시트 위 끝이 입력 줄 아래 끝보다 아래라 덮지 않는다.
   Object.assign(page.rowRect, { top: 100, bottom: 160 });
   page.scroll();
+  assert.equal(props.get("--handwriting-bottom"), "auto");
+  assert.equal(props.get("--handwriting-top"), "168px");
+  assert.ok(parseFloat(props.get("--handwriting-top")) >= page.rowRect.bottom);
+});
+
+test("390×500 좁은 화면에서 입력 줄이 화면 위쪽에 있으면 문서를 굴려 줄 위에 자리를 만들어 시트가 접히지 않는다", () => {
+  const page = loadPad({ innerWidth: 390, innerHeight: 500 });
+  // 둘러보기에서 아래로 300px 굴려 입력 줄 위 끝이 화면 위 20px에 있다. 그대로 두면 위쪽 남은 높이는 4px다.
+  page.state.scrollY = 300;
+  Object.assign(page.rowRect, { left: 12, right: 378, width: 366, top: 20, bottom: 80 });
+  page.button.click();
+  // 모자란 156px만큼 위로 굴린다. 입력 줄 위 끝은 176px, 위쪽 남은 높이는 160px다.
+  assert.deepEqual(page.state.scrolls, [-156]);
+  const props = page.pad.style.properties;
   assert.equal(props.get("--handwriting-top"), "auto");
-  assert.ok(844 - parseFloat(props.get("--handwriting-bottom")) <= page.rowRect.top);
+  assert.equal(props.get("--handwriting-bottom"), "332px");
+  assert.equal(props.get("--handwriting-max-height"), "160px");
+});
+
+test("390×500 좁은 화면에서 굴릴 수 없으면 입력 줄 아래에, 아래도 모자라면 화면 아래 시트로 연다", () => {
+  // 문서 맨 위라 굴릴 수 없고 입력 줄이 화면 위 20px에 있다. 아래쪽(404px)에 붙인다.
+  const below = loadPad({ innerWidth: 390, innerHeight: 500 });
+  Object.assign(below.rowRect, { left: 12, right: 378, width: 366, top: 20, bottom: 80 });
+  below.button.click();
+  const props = below.pad.style.properties;
+  assert.deepEqual(below.state.scrolls, []);
+  assert.equal(props.get("--handwriting-bottom"), "auto");
+  assert.equal(props.get("--handwriting-top"), "88px");
+  assert.equal(props.get("--handwriting-max-height"), "404px");
+
+  // 입력 줄이 거의 화면을 채워 위(4px)·아래(84px) 모두 최소 높이보다 좁다. 화면 아래 시트로 열고 아래 안전 영역만큼 띄운다.
+  const sheet = loadPad({ innerWidth: 390, innerHeight: 500 });
+  Object.assign(sheet.rowRect, { left: 12, right: 378, width: 366, top: 20, bottom: 400 });
+  sheet.button.click();
+  const sheetProps = sheet.pad.style.properties;
+  assert.equal(sheetProps.get("--handwriting-top"), "auto");
+  assert.equal(sheetProps.get("--handwriting-bottom"), "0px");
+  assert.equal(sheetProps.get("--handwriting-max-height"), "484px");
+  assert.equal(sheetProps.has("--handwriting-sheet-padding"), false, "the safe-area fallback padding applies");
+});
+
+test("패드를 연 채 고른 글자와 겹치게 고치면 범위를 넓히지 않고 새로 쓴 글 뒤에 넣는다", async () => {
+  const page = loadPad();
+  page.input.value = "ABCD";
+  // 「B」만 고른다.
+  page.input.selectionStart = 1; page.input.selectionEnd = 2;
+  page.button.click();
+  // 질문 칸에서 「BC」를 「XY」로 바꾼다(커서는 XY 뒤).
+  page.type("AXYD", 3, "insertText");
+  page.stroke([10, 10], [60, 60]);
+  page.respond(ok("OCR"));
+  page.insert.click();
+  await settle();
+  // 새로 쓴 XY는 지우지 않는다(예전에는 「AOCRD」).
+  assert.equal(page.input.value, "AXYOCRD");
 });
 
 test("상태 200을 받은 뒤 본문을 기다리다 시간 제한이 지나도 시간 초과를 알리고 획을 남겨 다시 넣을 수 있다", async () => {

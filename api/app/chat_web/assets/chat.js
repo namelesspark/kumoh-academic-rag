@@ -3287,16 +3287,35 @@ function setupHandwriting() {
     // 연 뒤 학생이 스크롤해 입력 줄이 화면 위쪽에 붙어 위쪽이 최소 높이보다 좁아지고 아래쪽이 더 넓으면, 그때만 줄 아래(top 고정)로 옮긴다.
     // 스크롤 중에 문서를 대신 굴리면 학생의 스크롤과 다투므로, 패드를 옮겨 필기 칸과 버튼이 0px로 접히지 않게 한다.
     const above = row.top - 16, below = height - row.bottom - 16;
-    // 좁은 화면 시트도 입력 줄 바로 위에 붙인다(CSS가 폭만 화면 전체로 넓힌다). 시트가 입력 줄을 덮지 않도록 좁은 화면에서는 줄 아래로 옮기지 않는다.
-    // 입력 줄 쪽이 아래 안전 영역을 비우므로 시트 아래 여백은 평소 값(14px)이다.
-    const narrow = (window.innerWidth || 0) <= 680;
-    pad.style?.setProperty("--handwriting-sheet-padding", "14px");
-    if (!narrow && allowBelow && above < handwritingMinRoom && below > above) {
+    const putBelow = () => {
       side = "below";
       const top = Math.min(height - 8, Math.max(8, row.bottom + 8));
       pad.style?.setProperty("--handwriting-bottom", "auto");
       pad.style?.setProperty("--handwriting-top", `${top}px`);
       pad.style?.setProperty("--handwriting-max-height", `${Math.max(0, height - top - 8)}px`);
+    };
+    // 좁은 화면(680px 이하) 시트는 폭 전체를 쓰고, 입력 줄을 덮지 않게 다음 순서로 놓는다(열 때 문서를 굴려 자리를 만든 뒤 잰다, makeRoom).
+    // 1) 입력 줄 위쪽이 최소 높이(160px) 이상이면 줄 바로 위. 2) 아니고 아래쪽이 최소 높이 이상이면 줄 바로 아래.
+    // 3) 둘 다 모자라면 예전처럼 화면 아래 시트(아래 안전 영역만큼 띄움). 위·아래에 둘 때는 입력 줄이 안전 영역을 비우므로 아래 여백 14px다.
+    // 예전에는 좁은 화면에서 늘 줄 위에 두어, 입력 줄이 화면 위 20px에 있으면 시트 최대 높이가 4px로 접혔다.
+    const narrow = (window.innerWidth || 0) <= 680;
+    if (narrow) {
+      if (above < handwritingMinRoom && below >= handwritingMinRoom) {
+        pad.style?.setProperty("--handwriting-sheet-padding", "14px");
+        putBelow();
+        return;
+      }
+      if (above < handwritingMinRoom) {
+        side = "sheet";
+        pad.style?.removeProperty("--handwriting-sheet-padding");
+        pad.style?.setProperty("--handwriting-top", "auto");
+        pad.style?.setProperty("--handwriting-bottom", "0px");
+        pad.style?.setProperty("--handwriting-max-height", `${Math.max(0, height - 16)}px`);
+        return;
+      }
+      pad.style?.setProperty("--handwriting-sheet-padding", "14px");
+    } else if (allowBelow && above < handwritingMinRoom && below > above) {
+      putBelow();
       return;
     }
     side = "above";
@@ -3306,7 +3325,7 @@ function setupHandwriting() {
     pad.style?.setProperty("--handwriting-max-height", `${Math.max(0, Math.min(above, height - bottom - 8))}px`);
   }
   // 넓은 화면에서 입력 줄 위쪽이 최소 높이보다 좁고 문서가 아래로 굴러가 있으면, 모자란 만큼 위로 굴려 입력 줄 위에 자리를 만든다.
-  // 여는 순간에만 한 번 한다(스크롤할 때마다 하면 학생의 스크롤과 다툰다). 좁은 화면 시트는 화면 아래에 붙으므로 하지 않는다.
+  // 여는 순간에만 한 번 한다(스크롤할 때마다 하면 학생의 스크롤과 다툰다). 좁은 화면에서도 한다(아래 makeRoom 참고).
   // 입력 줄의 자리·크기와 캔버스 크기를 한 줄로 적어 둔 값. 크기 감시 알림이 실제 변화인지 가를 때 쓴다.
   let padLayout = "";
   function layoutKey() {
@@ -3330,8 +3349,8 @@ function setupHandwriting() {
     const rect = canvas.getBoundingClientRect?.();
     if (rect) { box = rect; origin = { left: rect.left, top: rect.top }; if (measureArea()) redraw(); }
   }
+  // 좁은 화면도 같다. 입력 줄이 화면 위쪽에 붙어 있으면 먼저 굴려 시트를 줄 위에 둘 자리를 만들고, 그래도 모자랄 때만 줄 아래·화면 아래로 놓는다.
   function makeRoom() {
-    if ((window.innerWidth || 0) <= 680) return;
     const row = document.querySelector(".composer-row")?.getBoundingClientRect?.();
     const scrolled = Number(window.scrollY) || 0;
     if (!row || scrolled <= 0) return;
@@ -3457,9 +3476,16 @@ function setupHandwriting() {
       return position === prefix ? prefix : prefix + added;
     };
     const collapsed = selection.start === selection.end;
-    const start = move(selection.start, "start");
     const previous = selection;
-    selection = { start, end: collapsed ? start : Math.max(start, move(selection.end, "end")), value: after };
+    // 편집이 고른 글자 일부라도 지웠으면(바뀐 옛 구간 [prefix, editEnd)와 고른 범위가 겹치면) 고른 글자는 이미 없다.
+    // 이때 범위를 넓히지 않고 바뀐 구간 끝 한 점으로 접어, 새로 쓴 글을 지우지 않고 그 뒤에 넣는다.
+    // 예: 「ABCD」에서 B를 고른 뒤 BC를 XY로 바꾸면 범위는 XY 뒤 한 점이라 OCR을 넣으면 「AXYOCRD」다(예전에는 XY까지 지워 「AOCRD」).
+    const overlaps = !collapsed && !inserted && prefix < selection.end && editEnd > selection.start;
+    if (overlaps) selection = { start: prefix + added, end: prefix + added, value: after };
+    else {
+      const start = move(selection.start, "start");
+      selection = { start, end: collapsed ? start : Math.max(start, move(selection.end, "end")), value: after };
+    }
     if (history) return;
     // 편집마다 직전 글과 범위를 모두 쌓는다. 브라우저가 실행 취소를 어떻게 묶는지(이어 친 삭제, 커서 이동, Delete·Backspace)는
     // 추측하지 않는다. 브라우저가 몇 개를 한 번에 되돌려도 돌아간 글은 반드시 이 기록 가운데 하나라, 위에서 같은 글을 찾으면 된다.
