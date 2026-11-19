@@ -165,6 +165,14 @@ const uiText = {
     "아이오가 {seconds}초 동안 생각함": "AIO thought for {seconds}s",
     "이 질문은 가상 규정에서 근거를 찾지 못했어요.": "No basis for this question was found in the fictional regulations.",
     "다시 시도": "Try again",
+    "수정": "Edit",
+    "질문 수정": "Edit question",
+    "저장하고 묻기": "Save and ask",
+    "다시 답하기": "Answer again",
+    "답변 버전": "Answer versions",
+    "이전 버전": "Previous version",
+    "다음 버전": "Next version",
+    "저장할 수 없는 번호가 있어 이전 버전을 유지했어요.": "Kept the previous version because the new one contains a number that can't be saved.",
     "서버 응답을 받지 못했어요.": "No response from the server.",
     "내 질문: ": "My question: ",
     "사진 1장": "1 photo",
@@ -380,6 +388,14 @@ const uiText = {
     "아이오가 {seconds}초 동안 생각함": "AIO 思考了 {seconds} 秒",
     "이 질문은 가상 규정에서 근거를 찾지 못했어요.": "在虚拟规定中未找到此问题的依据。",
     "다시 시도": "重试",
+    "수정": "编辑",
+    "질문 수정": "编辑问题",
+    "저장하고 묻기": "保存并提问",
+    "다시 답하기": "重新回答",
+    "답변 버전": "回答版本",
+    "이전 버전": "上一版本",
+    "다음 버전": "下一版本",
+    "저장할 수 없는 번호가 있어 이전 버전을 유지했어요.": "新版本含有无法保存的号码，已保留上一版本。",
     "서버 응답을 받지 못했어요.": "未收到服务器响应。",
     "내 질문: ": "我的问题：",
     "사진 1장": "照片 1 张",
@@ -536,18 +552,53 @@ function trimConversations(records) {
       // 보관은 true일 때만 인정한다. 없거나 깨진 값은 보관하지 않은 대화로 본다. 20개 한도는 보관 여부와 무관하다.
       archived: record.archived === true,
       title: conversationTitle(record),
-      messages: record.messages.filter(message => message && !message.photo &&
-        ["question", "answer"].includes(message.role) && typeof message.text === "string" &&
-        !/\b\d{8,10}\b/.test(message.text))
-        .slice(-40).map(message => ({ role: message.role, text: message.text,
-          time: Number(message.time) || 0,
-          // 보류와 안내 답은 boolean으로만 남긴다. 필드가 없는 옛 기록은 보류로 바꾸지 않는다.
-          ...(message.role === "answer" && message.answered === false ? { answered: false } : {}),
-          ...(message.role === "answer" && message.answered === false && message.guided === true ? { guided: true } : {}),
-          sources: (Array.isArray(message.sources) ? message.sources : [])
-            .filter(source => source && typeof source.title === "string" && isSafeSourceUrl(source.url))
-            .map(source => ({ title: source.title, url: source.url })) })),
+      messages: trimMessages(record.messages).slice(-40),
     })).filter(record => record.messages.length).sort((a, b) => b.time - a.time).slice(0, 20);
+}
+function cleanChatMessage(message) {
+  if (!message || message.photo || !["question", "answer"].includes(message.role) ||
+      typeof message.text !== "string" || /\b\d{8,10}\b/.test(message.text)) return null;
+  return { role: message.role, text: message.text, time: Number(message.time) || 0,
+    ...(message.role === "answer" && message.answered === false ? { answered: false } : {}),
+    ...(message.role === "answer" && message.answered === false && message.guided === true ? { guided: true } : {}),
+    sources: (Array.isArray(message.sources) ? message.sources : [])
+      .filter(source => source && typeof source.title === "string" && isSafeSourceUrl(source.url))
+      .map(source => ({ title: source.title, url: source.url })) };
+}
+function limitChatVersions(versions, selected) {
+  while (versions.length > 5) {
+    versions.splice(selected === 0 ? 1 : 0, 1);
+    if (selected > 0) selected--;
+  }
+  return selected;
+}
+function trimMessages(messages) {
+  const clean = [];
+  for (let index = 0; index < messages.length; index++) {
+    const message = messages[index];
+    if (message?.role !== "question" || !Array.isArray(message.versions)) {
+      const plain = cleanChatMessage(message);
+      if (plain) clean.push(plain);
+      continue;
+    }
+    if (messages[index + 1]?.role === "answer") index++;
+    const versions = [];
+    const selectedIndex = Number.isInteger(message.selected) ? message.selected : 0;
+    let selected = 0;
+    for (const [position, version] of message.versions.entries()) {
+      const question = cleanChatMessage(version?.question);
+      const answer = cleanChatMessage(version?.answer);
+      if (question?.role !== "question" || (version.answer != null && answer?.role !== "answer")) continue;
+      if (position <= selectedIndex) selected = versions.length;
+      versions.push({ question, answer });
+    }
+    if (!versions.length || message.photo) continue;
+    selected = limitChatVersions(versions, selected);
+    const { question, answer } = versions[selected];
+    clean.push({ ...question, versions, selected });
+    if (answer) clean.push(answer);
+  }
+  return clean;
 }
 function conversationTitle(record) {
   const title = record.title || record.messages.find(message => message?.role === "question")?.text || "";
@@ -746,6 +797,7 @@ function persistConversations() {
     .map(record => ({ ...record, messages: record.committedMessages || record.messages })));
 }
 function switchHistoryAccount(account) {
+  for (const record of conversations) record.chatAbort?.abort();
   dismissConversationToast();
   // 계정이 바뀌면 열린 필기 패드와 읽던 요청을 버린다. 첫 화면에서 로그아웃해도 이전 계정의 인식 글자가 남지 않는다(#134).
   if (typeof closeHandwritingPad === "function") closeHandwritingPad(false);
@@ -858,6 +910,7 @@ function renderActiveConversation() {
   if (!chatView) return;
   transcript.replaceChildren(...(activeConversation?.turns || []));
   localizeReplyAuthors();
+  for (const turn of activeConversation?.turns || []) turn.updateActions?.();
   scrollToLatest();
 }
 function openConversation(record) {
@@ -869,17 +922,17 @@ function openConversation(record) {
   record.unread = false;
   if (!record.turns) {
     record.turns = [];
-    for (const message of record.messages) {
-      if (message.role === "question" || !record.turns.length) record.turns.push(element("div", "turn"));
-      const node = record.turns[record.turns.length - 1];
-      const held = message.role === "answer" && message.answered === false && message.guided !== true;
-      const line = element("p", message.role === "question" ? "question" : held ? "reply fallback" : "reply", message.text);
-      node.append(line);
-      if (message.role === "answer") node.append(element("small", "reply-author", t("아이오")));
-      for (const source of message.sources || []) {
-        const link = sourceLink(source.url, source.title, source.title);
-        if (link) node.append(link);
+    for (let index = 0; index < record.messages.length; index++) {
+      const message = record.messages[index];
+      const node = element("div", "turn");
+      record.turns.push(node);
+      if (message.role === "answer") {
+        appendStoredMessage(node, message);
+        continue;
       }
+      const answer = record.messages[index + 1]?.role === "answer" ? record.messages[++index] : null;
+      appendStoredTurn(node, message, answer);
+      setupTurnActions(record, node, message, answer);
     }
   }
   persistConversations();
@@ -1280,6 +1333,7 @@ clearButton?.addEventListener("click", () => openConfirm({
     clearConversations(historyStorage(), historyAccount);
     dismissConversationToast();
     if (typeof closeHandwritingPad === "function") closeHandwritingPad(false);
+    for (const record of conversations) record.chatAbort?.abort();
     conversations = []; activeConversation = null; renderConversations(); renderActiveConversation(); updateSend();
   },
   restore: () => (listVisible() ? clearButton : input).focus(),
@@ -1695,6 +1749,7 @@ function updateSend() {
   photoFile.disabled = pending;
   photoAttach.disabled = pending;
   reset.disabled = pending;
+  for (const turn of activeConversation?.turns || []) turn.updateActions?.();
   // 첨부 제거 버튼이 나타나거나 사라지면 입력 줄이 크기 변화 없이 위아래로 움직인다. 열린 필기 패드 자리를 바로 다시 잰다(#134).
   if (typeof placeHandwritingPad === "function") placeHandwritingPad();
 }
@@ -2710,6 +2765,7 @@ function applyLang(lang) {
   translateStatic();
   renderTitles();
   localizeReplyAuthors();
+  for (const turn of document.querySelectorAll?.(".turn") ?? []) turn.updateActions?.();
   renderLangButtons();
   labelConversationMenu();
   labelConfirm();
@@ -2835,35 +2891,231 @@ function chatSignal(stop, ms = 100_000) {
   timeout.addEventListener("abort", end, { once: true });
   return both.signal;
 }
-async function requestChatAnswer(body, onEvent, stop = null) {
+async function requestChatAnswer(body, onEvent, stop = null, versionRequest = false) {
   const options = { method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body), signal: chatSignal(stop) };
   let meta = null, answer = "", notice, done = null;
+  async function request() {
+    try {
+      const response = await fetch("/api/v1/chat/stream", options);
+      await readChatStream(response, (name, data) => {
+        if (!meta && name !== "meta") throw new Error("Missing metadata");
+        if (name === "meta") meta = data;
+        // 글이 아닌 조각은 쌓지 않는다. 보류 답은 서버 글을 그대로 그리므로 "null" 같은 글자가 섞이면 안 된다.
+        if (name === "answer" && typeof data.text === "string") answer = data.replace ? data.text : answer + data.text;
+        if (name === "notice") notice = data.text;
+        if (name === "done") done = data;
+        onEvent(name, data);
+      });
+      // 최종 상태는 done에서 정한다. done.answered가 boolean이면 meta보다 앞서고, 안내 답은 done.guided로만 안다.
+      const result = { ...meta, answer, notice, guided: done?.guided === true };
+      if (typeof done?.answered === "boolean") result.answered = done.answered;
+      if (versionRequest && typeof result.answered !== "boolean") throw new Error("Invalid chat stream");
+      return result;
+    } catch (error) {
+      if (stop?.aborted || (versionRequest && options.signal.aborted)) throw error;
+      onEvent("reset", {});
+      const signal = versionRequest ? options.signal : chatSignal(stop);
+      const response = await fetch("/api/v1/chat", { ...options, signal });
+      if (!response.ok) throw new Error("Chat request failed");
+      return response.json();
+    }
+  }
+  if (!versionRequest) return request();
+  // 수정 요청은 스트림과 JSON 응답이 같은 시간 제한을 쓴다.
+  const { signal } = options;
+  let abort;
+  const cancelled = new Promise((_, reject) => {
+    abort = () => reject(new Error("Chat request cancelled"));
+    if (signal.aborted) abort();
+    else signal.addEventListener("abort", abort, { once: true });
+  });
   try {
-    const response = await fetch("/api/v1/chat/stream", options);
-    await readChatStream(response, (name, data) => {
-      if (!meta && name !== "meta") throw new Error("Missing metadata");
-      if (name === "meta") meta = data;
-      // 글이 아닌 조각은 쌓지 않는다. 보류 답은 서버 글을 그대로 그리므로 "null" 같은 글자가 섞이면 안 된다.
-      if (name === "answer" && typeof data.text === "string") answer = data.replace ? data.text : answer + data.text;
-      if (name === "notice") notice = data.text;
-      if (name === "done") done = data;
-      onEvent(name, data);
-    });
-    // 최종 상태는 done에서 정한다. done.answered가 boolean이면 meta보다 앞서고, 안내 답은 done.guided로만 안다.
-    const result = { ...meta, answer, notice, guided: done?.guided === true };
-    if (typeof done?.answered === "boolean") result.answered = done.answered;
+    const result = await Promise.race([cancelled, request()]);
+    if (signal.aborted || typeof result?.answered !== "boolean" || typeof result.answer !== "string") {
+      throw new Error("Invalid chat response");
+    }
     return result;
-  } catch (error) {
-    if (stop?.aborted) throw error;
-    onEvent("reset", {});
-    const response = await fetch("/api/v1/chat", { ...options, signal: chatSignal(stop) });
-    if (!response.ok) throw new Error("Chat request failed");
-    return response.json();
+  } finally {
+    signal.removeEventListener("abort", abort);
   }
 }
 
-async function ask(question, reply, record = activeConversation) {
+function appendStoredMessage(node, message) {
+  const held = message.answered === false && message.guided !== true;
+  const className = message.role === "question" ? "question" : held ? "reply fallback" : "reply";
+  node.append(element("p", className, message.text));
+  if (message.role === "answer") node.append(element("small", "reply-author", t("아이오")));
+  for (const source of message.sources || []) {
+    const link = sourceLink(source.url, source.title, source.title);
+    if (link) node.append(link);
+  }
+}
+
+function appendStoredTurn(turn, question, answer) {
+  appendStoredMessage(turn, question);
+  if (answer) appendStoredMessage(turn, answer);
+}
+
+function setupTurnActions(record, turn, question, answer) {
+  const panel = element("div", "turn-actions");
+  const picker = element("div", "version-picker");
+  picker.setAttribute("role", "group");
+  const count = element("span", "version-count");
+  count.setAttribute("aria-live", "polite");
+  const status = element("p");
+  status.setAttribute("role", "status");
+  const labels = [];
+  let prompt = turn.children[0], editor = null, draft = null, save, field, cancel, state = "", error = "";
+  let versions = question.versions || [{ question, answer }], selected = question.selected ?? 0;
+  function button(className, label, run, glyph) {
+    const control = element("button", className, glyph);
+    control.type = "button";
+    control.addEventListener("click", run);
+    if (label) labels.push(() => {
+      if (glyph) control.setAttribute("aria-label", t(label));
+      else control.textContent = t(label);
+    });
+    return control;
+  }
+  const locked = () => busy || record.pending || !record.messages.includes(question);
+  const edit = button("turn-edit", "수정", () => {
+    if (locked()) return;
+    state = "";
+    draft = question.text;
+    showEditor();
+    field.focus();
+  });
+  const regenerate = button("turn-regenerate", null, () => {
+    if (!locked() && draft === null) run(question.text);
+  });
+  const previous = button("version-prev", "이전 버전", () => select(selected - 1, previous), "‹");
+  const next = button("version-next", "다음 버전", () => select(selected + 1, next), "›");
+  picker.append(previous, count, next);
+  function showEditor() {
+    if (!editor) {
+      editor = element("form", "turn-editor");
+      field = element("textarea");
+      field.required = true;
+      cancel = button("turn-editor-cancel", "취소", closeEditor);
+      save = element("button", "turn-editor-submit");
+      save.type = "submit";
+      editor.append(field, cancel, save);
+      editor.addEventListener("submit", event => {
+        event.preventDefault();
+        if (!locked() && field.value.trim()) run(field.value.trim());
+      });
+      editor.addEventListener("keydown", event => {
+        if (event.key !== "Escape" || event.isComposing || locked()) return;
+        event.preventDefault();
+        event.stopPropagation();
+        closeEditor();
+      });
+    }
+    field.value = draft;
+    turn.insertBefore(editor, prompt);
+    update();
+  }
+  function closeEditor() {
+    if (locked()) return;
+    draft = null;
+    state = "";
+    editor.remove();
+    update();
+    edit.focus();
+  }
+  function update() {
+    for (const label of labels) label();
+    picker.setAttribute("aria-label", t("답변 버전"));
+    const position = `${selected + 1}/${versions.length}`;
+    if (count.textContent !== position) count.textContent = position;
+    previous.disabled = locked() || draft !== null || selected === 0;
+    next.disabled = locked() || draft !== null || selected === versions.length - 1;
+    edit.disabled = regenerate.disabled = locked() || draft !== null;
+    regenerate.textContent = t(state === "failed" && draft === null ? "다시 시도" : "다시 답하기");
+    prompt.hidden = draft !== null && state !== "pending";
+    if (editor) {
+      field.setAttribute("aria-label", t("질문 수정"));
+      field.readOnly = locked();
+      cancel.disabled = save.disabled = locked();
+      save.textContent = t(state === "failed" ? "다시 시도" : "저장하고 묻기");
+    }
+    if (state) turn.setAttribute("data-version-state", state);
+    else turn.removeAttribute?.("data-version-state");
+    status.className = state === "failed" ? "version-error" : "";
+    status.hidden = !state;
+    const message = state === "failed" ? t(error) : state ? t("서버에 질문을 보내는 중…") : "";
+    if (status.textContent !== message) status.textContent = message;
+  }
+  function redraw() {
+    for (const child of [...turn.children]) {
+      if (child !== panel && child !== status) child.remove();
+    }
+    const content = element("div");
+    appendStoredTurn(content, question, answer);
+    for (const child of [...content.children]) turn.insertBefore(child, panel);
+    prompt = turn.children[0];
+    if (versions.length > 1 && picker.parentNode !== panel) panel.insertBefore(picker, regenerate);
+    update();
+  }
+  function choose(index) {
+    selected = index;
+    const version = versions[selected];
+    const chosen = { ...version.question, versions, selected };
+    for (const messages of [record.messages, record.committedMessages]) {
+      const position = messages?.indexOf(question) ?? -1;
+      if (position < 0) continue;
+      const hasAnswer = answer && messages[position + 1] === answer;
+      messages.splice(position, hasAnswer ? 2 : 1, chosen, ...(version.answer ? [version.answer] : []));
+      if (messages.length > 40) messages.splice(0, messages.length - 40);
+    }
+    question = chosen;
+    answer = version.answer;
+    redraw();
+    persistConversations();
+  }
+  function select(index, origin) {
+    if (locked() || draft !== null || index < 0 || index >= versions.length) return;
+    state = "";
+    choose(index);
+    (origin.disabled ? (origin === previous ? next : previous) : origin).focus();
+  }
+  function run(text) {
+    if (!conversations.includes(record) || !record.messages.includes(question)) return;
+    if (draft !== null) draft = text;
+    state = "pending";
+    void ask(text, null, record, (outcome, reply) => {
+      state = outcome;
+      error = "서버 응답을 받지 못했어요.";
+      if (reply) {
+        const revised = cleanChatMessage({ role: "question", text, time: reply.time, sources: [] });
+        const cleanedReply = cleanChatMessage(reply);
+        if (!revised || !cleanedReply) {
+          state = "failed";
+          error = "저장할 수 없는 번호가 있어 이전 버전을 유지했어요.";
+          update();
+          return;
+        }
+        // 기존 저장 기준으로 먼저 걸러야 정상 버전만 다섯 개 남는다.
+        versions = versions.filter(version => cleanChatMessage(version.question) &&
+          (!version.answer || cleanChatMessage(version.answer)));
+        versions.push({ question: revised, answer: cleanedReply });
+        draft = null;
+        record.time = reply.time;
+        choose(limitChatVersions(versions, versions.length - 1));
+      }
+      update();
+    });
+  }
+  turn.updateActions = update;
+  panel.append(edit);
+  if (versions.length > 1) panel.append(picker);
+  panel.append(regenerate);
+  turn.append(panel, status);
+  update();
+}
+
+async function ask(question, reply, record = activeConversation, revise = null) {
   if (record?.pending) return;
   const account = historyAccount;
   // 대화마다 요청 하나에 취소 신호 하나를 둔다. 이 신호가 있는 동안 그 대화를 보고 있으면 보내기 버튼이 정지 버튼이 된다(#137).
@@ -2873,18 +3125,20 @@ async function ask(question, reply, record = activeConversation) {
   else setBusy(true);
   showAssistant("searching");
   updateSend(); renderConversations();
-  reply.replaceChildren();
+  reply?.replaceChildren();
   const mode = aiMode;
   // 답변 언어는 보낼 때 정한다. 답을 기다리는 동안 언어를 바꾸면 다음 질문부터 적용되고, JSON으로 다시 물을 때도 같은 값을 쓴다.
   const lang = uiLang;
   const requestNumber = ++chatRequestNumber;
-  const valid = () => !record || (account === historyAccount && conversations.includes(record));
+  if (record) record.requestNumber = requestNumber;
+  const valid = () => !record || (account === historyAccount && conversations.includes(record) &&
+    record.requestNumber === requestNumber);
   const visible = () => valid() && (!record || (requestedChatView && activeConversation === record));
   let answerNode = null, thinking = null, thinkingContent = null, thinkingLabel = null;
   const thinkingStarted = Date.now();
   let thinkingFinished = false;
   function startThinking() {
-    if (mode !== "deep" || thinking) return;
+    if (!reply || mode !== "deep" || thinking) return;
     thinkingFinished = false;
     thinking = element("details", "thinking"); thinking.id = `thinking-${requestNumber}`;
     thinking.classList.add("is-waiting");
@@ -2905,7 +3159,7 @@ async function ask(question, reply, record = activeConversation) {
   try {
     const result = await requestChatAnswer({ message: question,
       session_id: record ? record.sessionId || null : sessionId, use_academic_data: false, mode, lang }, (name, data) => {
-      if (!valid()) return;
+      if (revise || !valid() || controller?.signal.aborted) return;
       if (name === "reset") {
         // 스트림이 끝맺지 못해 JSON으로 다시 묻는 동안 학생이 멈추면, 그때까지 스트림으로 받은 글을 되살린다(#137).
         if (answerNode?.textContent.trim()) streamed = answerNode.textContent;
@@ -2923,8 +3177,9 @@ async function ask(question, reply, record = activeConversation) {
         if (visible()) showAssistant("answer");
       }
       if (visible()) scrollToLatest();
-    }, controller?.signal ?? null);
-    if (record && (account !== historyAccount || !conversations.includes(record))) return;
+    }, controller?.signal ?? null, Boolean(revise));
+    if (!valid()) return;
+    if (controller?.signal.aborted) throw new Error("Chat request stopped");
     if (record) record.sessionId = result.session_id;
     else sessionId = result.session_id;
     // 안내 답은 근거 없이 받은 글 그대로 일반 말풍선에 그린다. 보류는 서버가 고른 언어로 쓴 보류 문구를 그대로 그리고,
@@ -2932,23 +3187,25 @@ async function ask(question, reply, record = activeConversation) {
     const spoken = typeof result.answer === "string" && result.answer.trim() !== "";
     const guided = result.answered !== true && result.guided === true && spoken;
     const text = result.answered || guided || spoken ? result.answer : t("이 질문은 가상 규정에서 근거를 찾지 못했어요.");
+    const citations = result.answered && Array.isArray(result.citations) ? result.citations : [];
+    const message = { role: "answer", text, time: Date.now(), sources: citations.map(citation => ({
+      title: citation.document + " · " + citation.article_path, url: citation.source_url,
+    })), ...(result.answered ? {} : { answered: false }), ...(guided ? { guided: true } : {}) };
+    if (revise) {
+      revise("", message);
+      if (visible()) {
+        if (result.answered) celebrate();
+        else showAssistant("hold");
+      }
+      return;
+    }
     if (!answerNode) { answerNode = element("p"); reply.append(answerNode); }
     answerNode.className = result.answered || guided ? "" : "fallback";
     answerNode.textContent = text;
     if (result.answered && result.notice) reply.append(element("small", "ai-notice", result.notice));
-    const citations = result.answered && Array.isArray(result.citations) ? result.citations : [];
     for (const citation of citations) reply.append(citationCard(citation));
     if (record) {
-      record.messages.push({ role: "answer", text, time: Date.now(), sources: citations.map(citation => ({
-        title: citation.document + " · " + citation.article_path, url: citation.source_url,
-      })), ...(result.answered ? {} : { answered: false }), ...(guided ? { guided: true } : {}) });
-      record.messages = record.messages.slice(-40);
-      record.time = Date.now(); record.saved = true;
-      record.committedMessages = [
-        ...(record.committedMessages || []),
-        { role: "question", text: question, time: record.time, sources: [] },
-        record.messages[record.messages.length - 1],
-      ].slice(-40);
+      commitChatTurn(record, reply, question, message);
       if (!requestedChatView || activeConversation !== record || document.hidden) notifyConversation(record);
       else if (result.answered) celebrate();
       else showAssistant("hold");
@@ -2956,19 +3213,19 @@ async function ask(question, reply, record = activeConversation) {
     } else if (result.answered) celebrate();
     else showAssistant("hold");
   } catch {
-    if (record && (account !== historyAccount || !conversations.includes(record))) return;
+    if (!valid()) return;
+    if (revise) {
+      const stopped = controller?.signal.aborted;
+      revise(stopped ? "" : "failed");
+      if (visible()) showAssistant(stopped ? "idle" : "error");
+      return;
+    }
     // 학생이 멈춘 답은 받은 부분까지만 남긴다. 다시 묻지 않고, 오류 문구·다시 시도·새 답변 알림도 내지 않는다.
     if (controller?.signal.aborted) {
       finishThinking();
       const partial = answerNode && answerNode.textContent.trim() ? answerNode.textContent : streamed;
       if (partial && !answerNode) { answerNode = element("p"); answerNode.textContent = partial; reply.append(answerNode); }
-      const time = Date.now();
-      const kept = partial ? [{ role: "answer", text: partial, time, sources: [] }] : [];
-      record.messages.push(...kept);
-      record.messages = record.messages.slice(-40);
-      record.time = time; record.saved = true;
-      record.committedMessages = [...(record.committedMessages || []),
-        { role: "question", text: question, time, sources: [] }, ...kept].slice(-40);
+      commitChatTurn(record, reply, question, partial ? { role: "answer", text: partial, time: Date.now(), sources: [] } : null);
       persistConversations();
       if (visible()) showAssistant("idle");
       return;
@@ -2990,11 +3247,32 @@ async function ask(question, reply, record = activeConversation) {
   } finally {
     finishThinking();
     if (!valid()) thinking?.remove();
-    if (record?.chatAbort === controller) delete record.chatAbort;
-    if (record) record.pending = false;
-    else setBusy(false);
-    renderConversations(); updateSend(); scrollToLatest();
+    if (!record) setBusy(false);
+    if (record?.requestNumber === requestNumber) {
+      delete record.chatAbort;
+      record.pending = false;
+    }
+    if (valid()) {
+      renderConversations(); updateSend();
+      if (!revise) scrollToLatest();
+    }
   }
+}
+function commitChatTurn(record, reply, text, answer) {
+  const time = Date.now();
+  const { turn, question = { role: "question", text, time, sources: [] } } = reply.chatTurn || {};
+  const position = record.messages.indexOf(question);
+  const committed = record.committedMessages || [];
+  const next = position >= 0 && record.messages.slice(position + 1)
+    .find(message => message.role === "question" && committed.includes(message));
+  const replies = answer ? [answer] : [];
+  record.messages.splice(position < 0 ? record.messages.length : position + 1, 0, ...replies);
+  committed.splice(next ? committed.indexOf(next) : committed.length, 0, question, ...replies);
+  record.messages = record.messages.slice(-40);
+  record.committedMessages = committed.slice(-40);
+  record.time = time;
+  record.saved = true;
+  if (turn && !record.photo) setupTurnActions(record, turn, question, answer);
 }
 // 입력 처리기는 하나다. 필기 패드가 열려 있으면 고친 구간을 따라 열기 전 자리를 옮긴다(#134). 포인터 처리기는 두지 않는다.
 input.addEventListener("input", event => {
@@ -3040,7 +3318,8 @@ composer.addEventListener("submit", event => {
   const record = activeConversation;
   // 입력 검사를 통과해 전송을 받아들인 이 시점에만 보관을 푼다. 위에서 돌려보낸 전송은 보관을 유지한다.
   if (record.archived === true) { record.archived = false; persistConversations(); }
-  record.messages.push({ role: "question", text: question, time: Date.now(), sources: [] });
+  const questionMessage = { role: "question", text: question, time: Date.now(), sources: [] };
+  record.messages.push(questionMessage);
   record.messages = record.messages.slice(-40);
   if (!chatView || !requestedChatView) setChatView(true);
   const turn = element("div", "turn");
@@ -3050,6 +3329,7 @@ composer.addEventListener("submit", event => {
   // 파일명은 화면에 적지 않는다. 사진을 붙였다는 사실만 보여 준다.
   if (file) prompt.append(element("span", "attachment", t("사진 1장")));
   const reply = element("div", file ? "reply photo" : "reply");
+  if (!file) reply.chatTurn = { turn, question: questionMessage };
   turn.append(prompt, reply, element("small", "reply-author", t("아이오")));
   record.turns.push(turn);
   if (record.turns.length > 20) record.turns.shift().remove();
