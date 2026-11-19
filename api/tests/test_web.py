@@ -594,12 +594,12 @@ class TestChatWeb(unittest.TestCase):
         self.assertEqual(image_addresses(parse_page(html)).count(f"{MAIN_LETTERING}?v={digest}"), 1)
         self.assertNotIn(f'"{MAIN_LETTERING}"', html)
         # 다른 그림 주소에는 지문을 붙이지 않는다.
-        self.assertEqual(html.count("?v="), 3)
+        self.assertEqual(sum("?v=" in src for src in image_addresses(parse_page(html))), 1)
 
         with patch.object(web_main, "read_prepared_images", return_value={}):
             html = call_app(create_app(), "GET", "/", allow_wait=True).text()
         self.assertEqual(image_addresses(parse_page(html)).count(MAIN_LETTERING), 1)
-        self.assertEqual(html.count("?v="), 2)
+        self.assertFalse(any("?v=" in src for src in image_addresses(parse_page(html))))
 
     def test_light_logo_addresses_are_fingerprinted_only_when_prepared(self):
         png = b"fictional light logo bytes"
@@ -610,12 +610,12 @@ class TestChatWeb(unittest.TestCase):
         # 상단 띠와 로그인 카드, 두 자리 모두 같은 지문이 붙는다.
         self.assertEqual(image_addresses(parse_page(html)).count(f"{LIGHT_LOGO}?v={digest}"), 2)
         self.assertNotIn(f'"{LIGHT_LOGO}"', html)
-        self.assertEqual(html.count("?v="), 4)
+        self.assertEqual(sum("?v=" in src for src in image_addresses(parse_page(html))), 2)
 
         with patch.object(web_main, "read_prepared_images", return_value={}):
             html = call_app(create_app(), "GET", "/", allow_wait=True).text()
         self.assertEqual(image_addresses(parse_page(html)).count(LIGHT_LOGO), 2)
-        self.assertEqual(html.count("?v="), 2)
+        self.assertFalse(any("?v=" in src for src in image_addresses(parse_page(html))))
 
     def test_image_fingerprint_depends_on_content_and_leaves_other_addresses(self):
         html = ('<img src="/chat-assets/main-lettering.png" alt="">'
@@ -723,13 +723,12 @@ class TestChatWeb(unittest.TestCase):
             self.assertNotIn(f'"{address}"', html)
         self.assertEqual(image_addresses(parse_page(html)).count(TITLE_LETTERING), 1)
         self.assertEqual(image_addresses(parse_page(html)).count(MAIN_LETTERING), 1)
-        # 스타일·스크립트 두 개에 영어 그림 두 개가 더해진다.
-        self.assertEqual(html.count("?v="), 4)
+        self.assertFalse(any("?v=" in src for src in image_addresses(parse_page(html))))
 
         with patch.object(web_main, "read_prepared_images", return_value={}):
             html = call_app(create_app(), "GET", "/", allow_wait=True).text()
         self.assertEqual(lettering_attrs(html), [address for _, _, address in LANGUAGE_LETTERINGS])
-        self.assertEqual(html.count("?v="), 2)
+        self.assertFalse(any("?v=" in src for src in image_addresses(parse_page(html))))
 
     def test_language_lettering_names_are_served_and_fingerprinted(self):
         page = parse_page(read_index())
@@ -826,6 +825,71 @@ class TestChatWeb(unittest.TestCase):
             with self.subTest(html=html), patch.object(Path, 'read_text', return_value=html):
                 with self.assertRaises(ValueError):
                     create_app()
+
+    def test_quick_action_fingerprints_require_both_address_and_file(self):
+        base_html = (
+            '<link rel="stylesheet" href="/chat-assets/chat.css">'
+            '<script src="/chat-assets/chat.js"></script>'
+            f'<div data-techmo-layout="{web_main.TECHMO_LAYOUT_SLOT}"></div>'
+        )
+        tags = {
+            "quick-actions.css": '<link rel="stylesheet" href="/chat-assets/quick-actions.css">',
+            "quick-actions.js": '<script src="/chat-assets/quick-actions.js"></script>',
+        }
+        files = {name: f"fictional {name}".encode() for name in tags}
+        index_path = CHAT_WEB_DIR / "index.html"
+        real_read_text = Path.read_text
+        real_read_bytes = Path.read_bytes
+
+        def read_text(path, **kwargs):
+            if path == index_path:
+                return source
+            return real_read_text(path, **kwargs)
+
+        def read_bytes(path):
+            if path.name in tags:
+                self.assertEqual(path.parent, CHAT_WEB_DIR / "assets")
+                if path.name not in prepared:
+                    raise FileNotFoundError(path.name)
+                return prepared[path.name]
+            return real_read_bytes(path)
+
+        cases = (
+            ("no addresses", "", files),
+            ("missing files", "".join(tags.values()), {}),
+            ("both files", "".join(tags.values()), files),
+            ("only CSS file", "".join(tags.values()), {"quick-actions.css": files["quick-actions.css"]}),
+            ("only JS file", "".join(tags.values()), {"quick-actions.js": files["quick-actions.js"]}),
+        )
+        with (
+            patch.object(Path, "read_text", autospec=True, side_effect=read_text),
+            patch.object(Path, "read_bytes", autospec=True, side_effect=read_bytes),
+        ):
+            for case, tag_html, prepared in cases:
+                with self.subTest(case=case):
+                    source = base_html + tag_html
+                    page = call_app(create_app(), "GET", "/", allow_wait=True)
+                    self.assertEqual(page.status, 200)
+                    html = page.text()
+                    for name, tag in tags.items():
+                        address = f"/chat-assets/{name}"
+                        if tag not in tag_html:
+                            self.assertNotIn(address, html)
+                        elif name in prepared:
+                            versioned = f"{address}?v={sha256(prepared[name]).hexdigest()}"
+                            self.assertIn(tag.replace(address, versioned), html)
+                            self.assertNotIn(tag, html)
+                        else:
+                            self.assertIn(tag, html)
+
+            prepared = {}
+            for name, tag in tags.items():
+                address = f"/chat-assets/{name}"
+                for suffix in ("", "?v=old", "#old"):
+                    with self.subTest(duplicate=name, suffix=suffix):
+                        source = base_html + tag + tag.replace(address, address + suffix)
+                        with self.assertRaisesRegex(ValueError, re.escape(name)):
+                            create_app()
 
     def test_techmo_layout_is_injected_once_into_the_pet_dock(self):
         raw = read_index()
@@ -1014,3 +1078,33 @@ class TestChatWeb(unittest.TestCase):
                 self.assertIn(response.headers["content-type"].split(";")[0], media_types)
                 self.assertTrue(response.body)
                 self.assertEqual(response.headers['cache-control'], 'no-cache')
+
+    def test_quick_action_assets_have_media_types_and_missing_files_return_404(self):
+        media_types = {"quick-actions.css": "text/css", "quick-actions.js": "text/javascript"}
+        for name, media_type in media_types.items():
+            with self.subTest(name=name):
+                self.assertEqual(web_main.CHAT_WEB_MEDIA_TYPES[name], media_type)
+                address = f"/chat-assets/{name}"
+                content = f"fictional {name}".encode()
+
+                def memory_response(path, *, media_type, headers):
+                    return web_main.Response(content, media_type=media_type, headers=headers)
+
+                with (
+                    patch.object(Path, "is_file", return_value=True),
+                    patch.object(web_main, "FileResponse", side_effect=memory_response) as file_response,
+                ):
+                    response = call_app(app, "GET", address, allow_wait=True)
+                file_response.assert_called_once_with(
+                    CHAT_WEB_DIR / "assets" / name,
+                    media_type=media_type,
+                    headers={"Cache-Control": "no-cache"},
+                )
+                self.assertEqual(response.status, 200)
+                self.assertEqual(response.headers["content-type"].split(";")[0], media_type)
+                self.assertEqual(response.headers["cache-control"], "no-cache")
+                self.assertEqual(response.body, content)
+                with patch.object(Path, "is_file", return_value=False):
+                    missing = call_app(app, "GET", address, allow_wait=True)
+                self.assertEqual(missing.status, 404)
+                self.assertEqual(missing.headers["cache-control"], "no-cache")

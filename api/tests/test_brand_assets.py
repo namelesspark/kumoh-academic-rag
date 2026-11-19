@@ -1545,6 +1545,13 @@ class TestScreenAssetReferences(unittest.TestCase):
             "'/chat-assets/campus-aerial.jpg', '/chat-assets/campus-other.jpg'")),
             ["campus-other.jpg"])
 
+    def test_quick_actions_addresses_are_allowed(self):
+        html = ('<link rel="stylesheet" href="/chat-assets/quick-actions.css">'
+                '<script src="/chat-assets/quick-actions.js" defer></script>')
+        names = html_asset_names(html)
+        self.assertEqual(names, ["quick-actions.css", "quick-actions.js"])
+        self.assertEqual(unlisted(names), [])
+
     def test_every_address_the_screen_requests_is_served(self):
         read = lambda *parts: web_main.CHAT_WEB_DIR.joinpath(*parts).read_text(encoding="utf-8")
         requested = {
