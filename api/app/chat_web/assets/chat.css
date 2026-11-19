@@ -1796,7 +1796,7 @@ button.login-lang:focus-visible, .login-lang .lang-pill:focus-visible { outline:
    --control-line(#6E8098)과 --danger는 이 면과 3:1에 못 미친다. 그래서 바깥에 닿는 선은 --text-muted·--accent로 긋고,
    위험 색은 안쪽 --surface에만 닿는 편집 칸 선과 실패 문구 글자에만 쓴다.
    680px 이하에서 대화 칸(.transcript)은 좌우 여백 없이 가로 넘침을 숨긴다. 그래서 초점 고리와 대기 점선을 차례 밖에 그리지 않는다.
-   조작 줄 안쪽에 초점 띠 폭(6px)만큼 여백을 두고, 대기 점선은 조작 줄 안쪽 가장자리에 긋는다.
+   조작 줄 안쪽에 초점 고리가 닿는 거리(4px)보다 넓은 6px 여백을 두고, 대기 점선은 조작 줄 안쪽 가장자리에 긋는다.
    test_chat_versions_style.py가 실제 선언을 모아 이 값들을 계산한다.
    경계는 1px 선이고 그림자·그라데이션·움직임(transition·animation)은 쓰지 않는다. */
 .turn-actions {
@@ -1842,11 +1842,12 @@ button.login-lang:focus-visible, .login-lang .lang-pill:focus-visible { outline:
 /* hover는 글자 밑줄로 알린다. 채움 위에 다른 색 선을 그으면 라이트 남색 선과 파랑 채움이 약 2.2:1이고,
    채움을 본문색으로 바꾸면 다크에서 밝은 면이 새로 생긴다(landing_design.test.mjs의 다크 밝은 면 목록). */
 .turn-editor-submit:not(:disabled):hover { text-decoration: underline; text-underline-offset: 3px; }
-/* 초점 고리는 공통 2px 고리 그대로이되, 뒤에 --surface 6px 띠를 깔아 사진 위에서도 고리 양옆이 늘 판 색이다. */
+/* 초점 고리는 공통 2px 고리 그대로다. 그림자 띠는 깔지 않는다(#140: 그림자 금지).
+   고리 양옆에는 바깥 대화 면(남색 대체 배경 포함) 또는 편집 폼의 --surface만 닿고, 라이트 남색·다크 흰 고리는 그 면들과 3:1을 넘는다.
+   고리가 닿는 거리(간격 2px + 굵기 2px)는 조작 줄 안쪽 여백 6px 안이라 좁은 화면에서도 잘리지 않는다. */
 :is(.turn-edit, .turn-regenerate, .version-prev, .version-next, .turn-editor-cancel, .turn-editor-submit):focus-visible {
   outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
-  box-shadow: 0 0 0 6px var(--surface);
 }
 /* 끝 버전의 화살표와 답을 받는 동안 잠근 버튼. 공통 규칙의 opacity .65는 글자를 사진에 비치게 하므로 되돌리고,
    흐린 글자색과 점선 경계로 잠김을 알린다. */

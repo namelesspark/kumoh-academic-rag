@@ -283,21 +283,28 @@ class ChatVersionsStyleTest(unittest.TestCase):
         count = self.computed(self.chain(element("span", ["version-count"])))
         self.assertEqual(count.get("min-height"), "44px")
 
-    def test_focus_ring_sits_on_a_surface_band(self):
+    def faces_behind(self, chain, theme):
+        """버튼 둘레(초점 고리 양옆)에 닿는 면. 편집 폼 안이면 폼 면, 조작 줄이면 투명한 줄 너머 바깥 대화 면이다."""
+        if chain[-2]["tag"] == "form":
+            return [self.color(theme, self.computed(chain[:-1])["background"])]
+        for depth in range(1, len(chain)):
+            self.assertNotIn("background", self.computed(chain[:depth]), "조작 줄과 버전 묶음은 투명이다")
+        return self.outer_backdrops(theme)
+
+    def test_focus_ring_clears_the_faces_around_it_without_shadow(self):
+        # #140은 그림자를 쓰지 않는다. 띠 없이 고리 자체가 둘레 면과 3:1을 넘어야 한다.
         for theme in self.themes:
             for label, chain in self.button_cases():
                 if "focus-visible" not in chain[-1]["states"]:
                     continue
                 with self.subTest(theme=theme, case=label):
                     decls = self.computed(chain)
+                    self.assertNotIn("box-shadow", decls)
                     width, style, ring = decls["outline"].split(" ", 2)
                     self.assertEqual((width, style), ("2px", "solid"))
-                    spread, band = re.fullmatch(r"0 0 0 (\d+)px (var\(--[\w-]+\))", decls["box-shadow"]).groups()
-                    # 고리 바깥 끝(간격+굵기)까지 띠가 깔려야 고리 양옆이 모두 띠 색이다.
-                    self.assertGreaterEqual(int(spread), int(decls["outline-offset"].rstrip("px")) + 2)
-                    band_color = self.color(theme, band)
-                    self.assertEqual(band_color[3], 1.0)
-                    self.assertGreaterEqual(contrast(over(self.color(theme, ring), band_color), band_color), 3.0)
+                    self.assertGreaterEqual(int(decls["outline-offset"].rstrip("px")), 1, "고리는 버튼 선과 떨어져 그린다")
+                    for face in self.faces_behind(chain, theme):
+                        self.assertGreaterEqual(contrast(over(self.color(theme, ring), face), face), 3.0)
 
     def test_actions_wrap_and_stack_at_390px(self):
         row = [element("div", ["turn"]), element("div", ["turn-actions"])]
@@ -332,7 +339,7 @@ class ChatVersionsStyleTest(unittest.TestCase):
         self.assertEqual(self.computed(regenerate).get("cursor"), "progress")
 
     def test_outlines_stay_inside_the_turn(self):
-        """680px 이하 대화 칸은 좌우 여백 없이 가로 넘침을 숨긴다. 초점 고리·띠와 대기 점선이 차례 밖으로 나가면 잘린다."""
+        """680px 이하 대화 칸은 좌우 여백 없이 가로 넘침을 숨긴다. 초점 고리와 대기 점선이 차례 밖으로 나가면 잘린다."""
         self.assertIn("overflow-x: hidden", self.raw)
         for media in (None, NARROW):
             row = self.computed(self.pending_row(None), media)
@@ -344,8 +351,7 @@ class ChatVersionsStyleTest(unittest.TestCase):
                     continue
                 with self.subTest(media=media, case=label):
                     decls = self.computed(chain, media)
-                    reach = max(int(decls["outline-offset"].rstrip("px")) + 2,
-                                int(re.match(r"0 0 0 (\d+)px", decls["box-shadow"]).group(1)))
+                    reach = int(decls["outline-offset"].rstrip("px")) + int(decls["outline"].split("px", 1)[0])
                     room = form_pad if chain[-2]["tag"] == "form" else pad
                     self.assertGreaterEqual(room, reach)
             pending = self.computed(self.pending_row(), media)
@@ -388,8 +394,7 @@ class ChatVersionsStyleTest(unittest.TestCase):
                         self.assertRegex(value, r"^[12]px ")
                         if key != "outline":
                             self.assertRegex(value, r"^1px ", "경계는 1px 선이다")
-                    if key == "box-shadow":
-                        self.assertIn(":focus-visible", head, "그림자는 초점 띠에만 쓴다")
+                    self.assertNotIn("shadow", key, "#140은 그림자를 쓰지 않는다")
 
     def test_text_contrast_uses_declared_colors(self):
         for theme in self.themes:
