@@ -35,6 +35,9 @@
   // compactRadius는 화면이 아주 작을 때 쓰는 44px 방울(조작 영역 하한)의 반지름이다.
   // 링이 덮으면 안 되는, 화면에 떠서 누를 수 있는 요소들(테크모 버튼·필기 패드·새 답변 알림).
   const floating = ["#pet", "#handwriting-pad", "#conversation-toast"];
+  // 방울이 덮으면 안 되는 누를 수 있는 것들. 초점을 받지 않게 한 것(tabindex="-1")은 뺀다.
+  // 질문 칸은 질문 폼 상자로 이미 피하므로 여기서 따로 찾지 않는다(링 코드는 질문 칸을 건드리지 않는다).
+  const pressable = "a[href], button, input, select, summary, [role='button'], [tabindex]:not([tabindex='-1'])";
   const bubbleRadius = 26, compactRadius = 22, hubRadius = 22, edge = 8, closeMs = 300, settleMs = 290, waitMs = 1500;
 
   const lang = () => {
@@ -262,7 +265,7 @@
     }
     return null;
   }
-  function place() {
+  function place(allowScroll = false) {
     const box = toggle.getBoundingClientRect();
     const anchor = { x: box.left + box.width / 2, y: box.top + box.height / 2 };
     // 화면을 확대(핀치 줌)하면 실제로 보이는 칸(visualViewport)이 창보다 작고 옮겨 가 있다. 그 칸 안에 놓는다.
@@ -284,7 +287,25 @@
       .filter(node => node && node.hidden !== true)
       .map(node => node.getBoundingClientRect?.())
       .filter(sized).map(local);
-    const result = layout({ x: anchor.x - view.left, y: anchor.y - view.top }, avoid, width, height, shown.length, others);
+    // 화면에 보이는 누를 수 있는 것(기능 카드·링크·버튼·입력 칸 등)도 피한다. 방울이 덮은 자리를 누르면 그 아래 카드 대신
+    // 링의 기능이 실행되기 때문이다. 링·질문 폼·떠 있는 요소는 이미 따로 셌다. 화면 절반 넘게 덮는 틀(굴러가는 칸 등)은 뺀다.
+    const skip = [ring, toggle, row, doc.querySelector("#composer"), ...floating.map(selector => doc.querySelector(selector))].filter(Boolean);
+    const interactive = Array.from(doc.querySelectorAll?.(pressable) ?? [])
+      .filter(node => node.hidden !== true && !skip.some(owner => owner === node || owner.contains?.(node)))
+      .map(node => node.getBoundingClientRect?.())
+      .filter(rect => sized(rect) && rect.width * rect.height < width * height / 2).map(local)
+      .filter(rect => rect.right > 0 && rect.left < width && rect.bottom > 0 && rect.top < height);
+    const point = { x: anchor.x - view.left, y: anchor.y - view.top };
+    let result = layout(point, avoid, width, height, shown.length, [...others, ...interactive]);
+    // 누를 것을 다 피할 자리가 없으면, 홈에서 열 때 한 번만 +를 화면 가운데로 굴려 다시 찾는다(즉시 옮김, 부드러운 굴림 없음).
+    // 채팅 화면은 굴리면 읽던 대화 칸이 움직이므로 굴리지 않는다.
+    if (!result && allowScroll && interactive.length && doc.body.getAttribute("data-view") === "home"
+      && typeof toggle.scrollIntoView === "function") {
+      toggle.scrollIntoView({ block: "center", inline: "nearest", behavior: "instant" });
+      return place(false);
+    }
+    // 그래도 없으면 질문 폼과 떠 있는 요소만 피하는 기준으로 놓는다. 링을 아예 못 여는 것보다 낫다.
+    if (!result && interactive.length) result = layout(point, avoid, width, height, shown.length, others);
     // 화면이 너무 작아 방울을 잘리지 않고 +도 덮지 않게 놓을 수 없으면 false를 돌려준다. 여는 쪽이 링을 열지 않는다.
     if (!result) return false;
     const { kind } = result;
@@ -353,7 +374,7 @@
     refresh();
     if (!enabled().length && !visible().length) return;
     // 방울을 화면 안에, +를 덮지 않게 놓을 자리가 없으면(키보드가 화면을 거의 가린 경우) 열지 않는다.
-    if (!place()) return;
+    if (!place(true)) return;
     open = true;
     if (hideTimer !== null) { clearTimeout(hideTimer); hideTimer = null; }
     ring.hidden = false;

@@ -14,7 +14,7 @@ const code = source.replace(/^\s*\/\/.*$/gm, "");
 const css = styles.replace(/\/\*[\s\S]*?\*\//g, "");
 
 function ringPage({ width = 1280, height = 800, view = "home", reduced = false, lang = "ko", missing = [], locked = [],
-  toggleRect = { left: 300, top: 700, width: 44, height: 44 }, visual = null } = {}) {
+  toggleRect = { left: 300, top: 700, width: 44, height: 44 }, visual = null, pressables = [] } = {}) {
   const state = { focused: null, reduced };
   let frames = [];
   const timers = new Map(), documentListeners = [], windowListeners = [], observers = [], mediaListeners = [];
@@ -77,10 +77,14 @@ function ringPage({ width = 1280, height = 800, view = "home", reduced = false, 
     "#handwriting-pad": pad, "#conversation-toast": toast, "#composer": composer,
     '[data-feature="graduation"]': cards.graduation, '[data-feature="biskit"]': cards.biskit, '[data-feature="calendar"]': cards.calendar,
   };
+  // 화면에 보이는 누를 수 있는 것(기능 카드 등). 크기를 준 버튼으로 만들어 querySelectorAll이 돌려준다.
+  const pressed = pressables.map((rect, index) => Object.assign(button(`pressable-${index}`), { rect }));
   const document = {
     body, documentElement: root,
     get activeElement() { return state.focused; },
     querySelector: selector => (missing.includes(selector) ? null : nodes[selector] ?? null),
+    // 실제 문서처럼 입력 줄 안의 버튼(+ 포함)과 링 안의 방울 버튼도 함께 돌려준다. 링 쪽이 이것들을 걸러 내야 한다.
+    querySelectorAll: () => [...pressed, ...row.all(), ...body.all().filter(node => node.tag === "button")],
     createElement: tag => new El(tag),
     createElementNS: (ns, tag) => new El(tag, ns),
     addEventListener: (type, listener, capture) => documentListeners.push({ type, listener, capture }),
@@ -111,7 +115,7 @@ function ringPage({ width = 1280, height = 800, view = "home", reduced = false, 
   return {
     state, row, photo, pen, cards, home, body, root, toggle, ring, menu, items, timers, observers,
     item: id => items.find(item => item.dataset.quickAction === id),
-    screen, window, pet, pad, toast, composer,
+    screen, window, pet, pad, toast, composer, pressed,
     reduce: () => { state.reduced = true; for (const listener of mediaListeners) listener({ matches: true }); },
     blobs: () => ring.all().filter(node => (node.getAttribute("class") ?? "").split(/\s+/).includes("quick-ring-blob")),
     frames: () => { const pending = frames; frames = []; for (const callback of pending) callback(16); return pending.length; },
@@ -519,6 +523,69 @@ test("질문 폼이 화면 위쪽에 있어 방울이 아래로 펼쳐져도 입
     }
     for (const [i, a] of centers.entries()) for (const b of centers.slice(i + 1)) assert.ok(Math.hypot(a.x - b.x, a.y - b.y) >= size * 2, `${width}: bubbles overlap`);
   }
+});
+
+// 상자 하나와 방울 가운데 사이의 가장 가까운 거리.
+const gapTo = (box, { x, y }) => Math.hypot(x - Math.min(Math.max(x, box.left), box.left + box.width),
+  y - Math.min(Math.max(y, box.top), box.top + box.height));
+
+test("390×700 홈에서 +가 화면 위쪽에 있으면 방울이 아래의 기능 카드를 덮지 않아, 카드 자리를 누르면 카드가 눌린다", () => {
+  // +의 윗변이 화면 위 10px이고 그 아래에 기능 카드 두 줄씩 세 단이 있다. 카드 아래 남은 띠에만 방울을 놓아야 한다.
+  const formBox = { left: 13, top: 2, width: 364, height: 170 };
+  const cardBoxes = [180, 312, 444].flatMap(top => [{ left: 13, top, width: 176, height: 120 }, { left: 201, top, width: 176, height: 120 }]);
+  const page = ringPage({ width: 390, height: 700, toggleRect: { left: 21, top: 10, width: 44, height: 44 }, pressables: cardBoxes });
+  page.row.rect = { left: 13, top: 2, width: 364, height: 60 };
+  page.composer.rect = formBox;
+  let scrolled = 0;
+  page.toggle.scrollIntoView = () => { scrolled++; };
+  page.toggle.click();
+  assert.equal(page.toggle.getAttribute("aria-expanded"), "true");
+  assert.equal(scrolled, 0, "room exists below the cards, so no scroll");
+  const size = page.ring.getAttribute("data-compact") === "" ? 22 : 26;
+  const centers = page.items.map(page.position).map(spot => ({ x: 43 + spot.x, y: 32 + spot.y }));
+  for (const center of centers) {
+    for (const box of [formBox, ...cardBoxes]) assert.ok(gapTo(box, center) >= size, `covers ${JSON.stringify(box)} at ${center.x},${center.y}`);
+    assert.ok(center.x - size >= 7.5 && center.x + size <= 390 - 7.5 && center.y - size >= 7.5 && center.y + size <= 700 - 7.5, "off screen");
+  }
+  for (const [i, a] of centers.entries()) for (const b of centers.slice(i + 1)) assert.ok(Math.hypot(a.x - b.x, a.y - b.y) >= size * 2, "bubbles overlap");
+});
+
+test("누를 것을 다 피할 자리가 없으면 홈에서는 +를 화면 가운데로 한 번 굴려 다시 찾고, 그래도 없으면 이전 기준으로 연다", () => {
+  // 화면 전체를 작은 카드로 채워 어디에도 놓을 수 없게 한다(카드 하나는 화면 절반보다 작아 장애물로 센다).
+  const tiles = [];
+  for (let top = 0; top < 700; top += 60) for (let left = 0; left < 390; left += 60) tiles.push({ left, top, width: 56, height: 56 });
+  for (const view of ["home", "chat"]) {
+    const page = ringPage({ width: 390, height: 700, view, toggleRect: { left: 21, top: 600, width: 44, height: 44 }, pressables: tiles });
+    page.row.rect = { left: 13, top: 592, width: 364, height: 60 };
+    const calls = [];
+    page.toggle.scrollIntoView = options => calls.push(options);
+    page.toggle.click();
+    // 홈에서만 한 번(즉시, 가운데로) 굴린다. 채팅 화면은 읽던 대화 칸이 움직이므로 굴리지 않는다.
+    assert.equal(calls.length, view === "home" ? 1 : 0, view);
+    if (view === "home") assert.deepEqual({ ...calls[0] }, { block: "center", inline: "nearest", behavior: "instant" });
+    // 굴려도 자리가 없으면 질문 폼·떠 있는 요소만 피하는 기준으로 링을 연다.
+    assert.equal(page.toggle.getAttribute("aria-expanded"), "true", view);
+    // 열린 뒤 다시 놓을 때(창 크기 변화 등)는 굴리지 않는다.
+    page.windowEvent("resize");
+    assert.equal(calls.length, view === "home" ? 1 : 0, `${view} after resize`);
+  }
+});
+
+test("링·입력 줄·질문 폼 안의 버튼과 화면 절반 넘게 덮는 틀은 장애물로 세지 않는다", () => {
+  // 화면 전체를 덮는 굴러가는 칸(초점을 받는 틀)이 있어도 평소 자리(+ 위 호)에 그대로 연다.
+  const page = ringPage({ width: 390, height: 700, toggleRect: { left: 21, top: 600, width: 44, height: 44 },
+    pressables: [{ left: 0, top: 0, width: 390, height: 700 }] });
+  page.row.rect = { left: 13, top: 592, width: 364, height: 60 };
+  page.photo.rect = { left: 70, top: 600, width: 44, height: 44 };
+  let scrolled = 0;
+  page.toggle.scrollIntoView = () => { scrolled++; };
+  const plain = ringPage({ width: 390, height: 700, toggleRect: { left: 21, top: 600, width: 44, height: 44 } });
+  plain.row.rect = { left: 13, top: 592, width: 364, height: 60 };
+  page.toggle.click();
+  plain.toggle.click();
+  assert.equal(scrolled, 0);
+  assert.equal(page.ring.getAttribute("data-layout"), plain.ring.getAttribute("data-layout"));
+  assert.deepEqual(page.items.map(page.position), plain.items.map(plain.position));
 });
 
 test("대화 목록 서랍이 열리면(화면 낭독기로 연 경우 포함) 열린 링을 닫고, 서랍이 열린 동안은 링을 열지 않는다", () => {
