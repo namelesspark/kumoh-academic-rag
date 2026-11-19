@@ -1931,8 +1931,11 @@ form.turn-editor textarea {
    주 한 줄(.acal-week)은 7열 4행 격자다. 날짜 칸은 1–4행을 모두 덮고, 기간 막대는 2·3행(data-lane 0·1)에 칸 위로 겹쳐 놓인다.
    막대 위치는 인라인 style 없이 data-col·data-span·data-lane 선택자로만 정한다(CSP default-src 'self').
    패널 안쪽 폭이 560px 미만이면(컨테이너 쿼리) 막대를 숨기고 칸마다 점을 보인다. 스크립트는 화면 폭을 몰라도 된다.
-   칸은 44px보다 좁아지지 않는다. 7칸 × 44px = 308px보다 좁은 패널에서는 격자(.acal-grid) 안에서만 가로로 스크롤한다.
-   그래서 초점 고리와 선택 테두리는 날짜 버튼 안쪽에 그린다. 스크롤 상자 밖으로 나간 선은 잘린다.
+   칸은 44px보다 좁아지지 않는다. 7칸 × 44px = 308px보다 좁은 패널에서는 요일 머리와 날짜 격자만 함께 가로로 스크롤한다.
+   chat.js는 요일 머리(.acal-weekdays)를 격자 밖, 달력 루트의 직속 자식으로 붙인다. 그래서 스크롤 상자는 루트(.acal)이고,
+   두 줄은 같은 폭(308px)으로 넘쳐 같이 밀린다. 나머지 직속 자식(머리 줄·고른 날 목록·목록 보기 줄)은 왼쪽에 붙어(sticky) 제자리에 있다.
+   격자만 스크롤하던 처음 규칙은 요일 머리가 제자리에 남아 날짜와 어긋났다(교차 검토 지적).
+   초점 고리와 선택 테두리는 날짜 버튼 안쪽에 그린다. 스크롤 상자 밖으로 나간 선은 잘린다.
    새 움직임(transition·animation)은 넣지 않는다. 달을 넘기면 바로 다시 그리므로 움직임 줄이기 설정에서 끌 것도 없다.
    test_academic_calendar_style.py가 실제 선언을 모아 이 값들을 계산한다. */
 .acal {
@@ -1943,11 +1946,15 @@ form.turn-editor textarea {
   grid-template-columns: minmax(0, 1fr);
   gap: 8px;
   min-width: 0;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
   padding: 8px;
   border-radius: 10px;
   background: var(--surface);
   color: var(--text);
 }
+/* 요일 머리와 격자 밖의 직속 자식은 루트가 가로로 밀려도 왼쪽 끝에 붙어 있다. 폭은 루트 안쪽 폭(격자 한 칸 너비)이다. */
+.acal > :not(.acal-weekdays):not(.acal-grid) { position: sticky; left: 0; min-width: 0; }
 .acal > :has(> .acal-title) { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .acal-title {
   flex: 1 1 8em;
@@ -1974,13 +1981,11 @@ form.turn-editor textarea {
 [data-acal-view-toggle][aria-pressed="true"] { border-color: var(--accent); background: var(--tint); }
 :is([data-acal-nav], [data-acal-view-toggle]):focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 
-/* 격자와 요일 머리. 칸은 minmax(44px, 1fr)라 패널이 좁아도 44px 아래로 줄지 않고, 넘친 만큼 격자가 스크롤된다. */
-.acal-grid {
-  min-width: 0;
-  overflow-x: auto;
-  overscroll-behavior-x: contain;
-  border-bottom: 1px solid var(--acal-line);
-}
+/* 격자와 요일 머리. 칸은 minmax(44px, 1fr)라 패널이 좁아도 44px 아래로 줄지 않는다. 두 줄 모두 최소 폭 그대로 넘쳐
+   루트 스크롤 안에서 함께 밀린다. 격자에 따로 스크롤을 주면 요일 머리와 어긋난다. */
+.acal-grid { border-bottom: 1px solid var(--acal-line); }
+/* 루트 격자 칸은 minmax(0, 1fr)라 자동 최소 폭이 0이다. 두 줄에 7 × 44px를 최소 폭으로 주어 상자째 넘치게 한다(선도 끝까지 그어진다). */
+.acal > :is(.acal-weekdays, .acal-grid) { min-width: 308px; }
 .acal-weekdays, .acal-week {
   display: grid;
   grid-template-columns: repeat(7, minmax(44px, 1fr));
@@ -2024,14 +2029,15 @@ form.turn-editor textarea {
   text-align: center;
   font-variant-numeric: tabular-nums;
 }
-/* 날짜 버튼은 칸 전체를 채운다. 숫자는 위, 「+N개」는 아래 끝에 놓인다. */
+/* 날짜 버튼은 칸 전체를 채운다. 안쪽 자식은 숫자 → 「+N개」 → 점 묶음 순서다(chat.js).
+   숫자는 위에 붙고, 「+N개」는 margin-top: auto로 아래 끝(4행, 막대 줄 아래)까지 내려간다. 점 묶음은 그 밑에 놓이고 넓은 패널에서는 높이가 없다. */
 .acal-day {
   position: relative;
   z-index: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   width: 100%;
   height: 100%;
   min-width: 44px;
@@ -2047,8 +2053,11 @@ form.turn-editor textarea {
   font-variant-numeric: tabular-nums;
 }
 .acal-day:hover { background: var(--tint); }
-/* 「+N개」는 날짜 버튼 안 마지막 자식 요소다. 막대 줄 아래 4행에 작은 굵은 글자로 놓인다. */
-.acal-day[data-more] > :last-child {
+/* 「+N개」는 점 묶음(.acal-dot을 품은 요소) 바로 앞 자식이다. 점이 묶음 없이 버튼에 바로 붙어도 첫 점 바로 앞이다.
+   처음에는 :last-child로 찾아 뒤에 붙는 점 묶음에 걸렸고, 「+N개」는 가운데로 밀려 막대에 가렸다(교차 검토 지적). */
+.acal-day[data-more] > :has(+ * .acal-dot),
+.acal-day[data-more] > :not(.acal-dot):has(+ .acal-dot) {
+  margin-top: auto;
   color: var(--text-muted);
   font-size: .72rem;
   font-weight: 700;
@@ -2141,9 +2150,10 @@ form.turn-editor textarea {
 }
 .acal-day-list :is(h3, h4, h5, h6, p, li) { margin: 0; color: var(--text); }
 .acal-day-list a { display: inline-flex; align-items: center; min-height: 44px; color: var(--link-ink); }
-/* 목록 보기에서는 격자와 고른 날 목록을 접고, 달 보기에서는 목록 줄(section.evidence)을 접는다. */
+/* 목록 보기에서는 격자와 고른 날 목록을 접고, 달 보기에서는 루트 바로 아래의 목록 줄(section.evidence)만 접는다.
+   고른 날 목록 안의 일정도 section.evidence로 그려지므로 자손 전체를 접으면 일정 이름·기간·출처가 사라진다(교차 검토 지적). */
 .acal[data-view="list"] :is(.acal-weekdays, .acal-grid, .acal-day-list) { display: none; }
-.acal[data-view="month"] section.evidence { display: none; }
+.acal[data-view="month"] > section.evidence { display: none; }
 
 /* 좁은 패널(안쪽 폭 560px 미만). 막대를 숨기고 칸 안 날짜 버튼 아래에 점을 한 줄로 놓는다. */
 @container acal (width < 560px) {

@@ -3,7 +3,10 @@
 브라우저를 띄우지 않고 실제 chat.css를 읽는다. #143 절의 규칙을 작은 선택자 판정기로 가상 요소(날짜 칸·날짜 버튼·
 막대·점·머리 버튼·고른 날 목록)에 걸어 그 요소가 실제로 받는 선언을 모으고, 그 색으로 라이트·다크(속성)·다크(시스템)
 대비를 계산한다. 사용자 변수(--acal-*)와 color-mix(in srgb, …)도 조상에서 물려받은 값으로 풀어 계산한다.
-선택자 판정기와 색 계산은 test_chat_versions_style.py의 것을 그대로 쓰고, 규칙 읽기만 @container까지 펼친다.
+색 계산과 한 요소 판정(compound_matches)은 test_chat_versions_style.py의 것을 쓴다. 규칙 읽기는 @container까지 펼치고,
+선택자 판정은 자식(>)과 자손을 구별하며 :has(…)를 가상 요소의 표시("has:…")로 읽는다.
+가상 요소는 chat.js가 실제로 그리는 순서를 따른다. 요일 머리는 격자 밖 루트 직속 자식이고, 날짜 버튼 안은 숫자 → 「+N개」 → 점 묶음이며,
+고른 날 목록의 일정도 section.evidence다. 처음에는 >를 자손처럼 보고 :last-child로 「+N개」를 만들어 세 결함을 놓쳤다(교차 검토 지적).
 """
 
 import re
@@ -11,7 +14,7 @@ import unittest
 from pathlib import Path
 
 from test_chat_versions_style import (
-    block_after, contrast, element, luminance, over, rgba, selector_matches, split_top, strip_comments, tokens,
+    block_after, compound_matches, contrast, element, luminance, over, rgba, split_top, strip_comments, tokens,
 )
 
 CSS_PATH = Path(__file__).resolve().parents[1] / "app" / "chat_web" / "assets" / "chat.css"
@@ -65,6 +68,39 @@ def mix(first, share, second):
     return channels + (alpha,)
 
 
+def compound_ok(compound, node):
+    """:has(…)는 요소가 그 관계를 가진다는 표시("has:…")가 있을 때만 맞는다. 나머지는 기존 판정에 맡긴다."""
+    for inner in re.findall(r":has\(([^()]*)\)", compound):
+        if "has:" + " ".join(inner.split()) not in node["states"]:
+            return False
+    return compound_matches(re.sub(r":has\([^()]*\)", "", compound), node)
+
+
+def selector_matches(selector, chain):
+    """chain은 바깥 조상부터 대상까지다. 자식(>)은 바로 위 요소만, 공백은 어느 조상이든 본다."""
+    text = re.sub(r"\s*>\s*", " > ", selector.strip())
+    compounds, combinators, pending = [], [], None
+    for piece in split_top(text, " "):
+        if piece == ">":
+            pending = ">"
+            continue
+        if compounds:
+            combinators.append(pending or " ")
+        compounds.append(piece)
+        pending = None
+
+    def at(i, j):
+        if j < 0 or not compound_ok(compounds[i], chain[j]):
+            return False
+        if i == 0:
+            return True
+        if combinators[i - 1] == ">":
+            return at(i - 1, j - 1)
+        return any(at(i - 1, k) for k in range(j - 1, -1, -1))
+
+    return bool(compounds) and at(len(compounds) - 1, len(chain) - 1)
+
+
 # 가상 문서. 달력 루트 → 격자 → 주 줄 → 칸 → 날짜 버튼 순서다.
 def acal(view="month"):
     return element("section", ["acal"], [f'[data-view="{view}"]'])
@@ -95,18 +131,24 @@ def bar_chain(col=1, span=1, lane=0, kind="neutral"):
 
 
 def dot_chain(kind):
-    return week() + [cell(3), element("span", ["acal-dot"], [f'[data-kind="{kind}"]'])]
+    """점은 날짜 버튼 안 마지막 자식인 점 묶음 안에 있다."""
+    return day_chain(more=True) + [DOT_GROUP, element("span", ["acal-dot"], [f'[data-kind="{kind}"]'])]
 
 
-# 「+N개」 글자. 날짜 버튼 안 마지막 자식 요소다.
-MORE_LABEL = element("span", states=["last-child"])
+# 날짜 버튼 안 자식. 「+N개」는 바로 뒤 형제(점 묶음)가 점을 품고, 점 묶음은 마지막 자식이다.
+MORE_LABEL = element("span", states=["has:+ * .acal-dot"])
+DOT_GROUP = element("span", states=["last-child", "has:.acal-dot", "has:> .acal-dot"])
+NUMBER = element("span", states=["first-child"])
 
 
 def head_button(kind, states=(), pressed=None):
     attrs = {"[data-acal-nav]", '[data-acal-nav="prev"]'} if kind == "nav" else {"[data-acal-view-toggle]"}
     if pressed is not None:
         attrs.add(f'[aria-pressed="{pressed}"]')
-    return [acal(), element("div", ["acal-head"]), element("button", [], attrs, states)]
+    return [acal(), HEAD_ROW, element("button", [], attrs, states)]
+
+
+HEAD_ROW = element("div", states=["has:> .acal-title"])
 
 
 class AcademicCalendarStyleTest(unittest.TestCase):
@@ -236,6 +278,30 @@ class AcademicCalendarStyleTest(unittest.TestCase):
         self.assertIn("font-size", more)
         self.assertNotIn("font-size", self.computed(day_chain() + [MORE_LABEL]), "+N개 글자 규칙은 data-more 버튼에만 걸린다")
 
+    def test_more_label_sits_below_the_bars_not_on_the_dot_group(self):
+        """chat.js는 버튼 안에 숫자 → 「+N개」 → 점 묶음 순서로 붙인다. 점 묶음이 마지막 자식이다.
+
+        :last-child로 찾으면 점 묶음에 글자 규칙이 걸리고, 가운데 정렬(space-between) 때문에 「+N개」가 막대 줄에 가렸다.
+        """
+        button = self.computed(day_chain(more=True))
+        self.assertEqual(button.get("justify-content"), "flex-start")
+        self.assertEqual(button.get("flex-direction"), "column")
+        more = self.computed(day_chain(more=True) + [MORE_LABEL])
+        self.assertEqual(more.get("margin-top"), "auto", "「+N개」는 버튼 아래 끝(막대 줄 아래)으로 내려간다")
+        loose = element("span", states=["has:+ .acal-dot"])
+        self.assertEqual(self.computed(day_chain(more=True) + [loose]).get("margin-top"), "auto", "점이 묶음 없이 붙어도 같다")
+        loose_dot = element("span", ["acal-dot"], ['[data-kind="exam"]'], ["has:+ .acal-dot"])
+        for label, child in (("점 묶음", DOT_GROUP), ("숫자", NUMBER), ("다음 점이 이어지는 점", loose_dot)):
+            with self.subTest(child=label):
+                decls = self.computed(day_chain(more=True) + [child])
+                self.assertNotIn("margin-top", decls)
+                self.assertNotIn("font-size", decls)
+        self.assertNotRegex(self.section, r"\.acal-day[^{]*:last-child", "마지막 자식은 점 묶음이라 「+N개」 찾기에 쓰지 않는다")
+        # 막대 두 줄(2·3행)이 끝난 뒤에야 4행이 시작한다. 「+N개」 줄 높이는 4행 최소 높이 안에 든다.
+        rows = split_top(self.computed(week())["grid-template-rows"], " ")
+        self.assertEqual(rows[3], "minmax(22px, auto)")
+        self.assertLessEqual(int(more["line-height"].rstrip("px")), 22)
+
     def test_hairlines_are_nine_percent_text(self):
         scope = self.scope([acal()])
         self.assertEqual(scope["--acal-line"], "color-mix(in srgb, var(--text) 9%, transparent)")
@@ -295,14 +361,34 @@ class AcademicCalendarStyleTest(unittest.TestCase):
                     self.assertEqual(decls.get("min-height"), "44px")
                     self.assertEqual(decls.get("min-width"), "44px")
 
-    def test_grid_scrolls_inside_below_308px(self):
+    def test_weekdays_and_grid_scroll_together_below_308px(self):
+        """chat.js는 요일 머리를 격자 밖, 루트 직속 자식으로 붙인다. 격자만 스크롤하면 요일 머리가 제자리에 남아 어긋난다.
+
+        그래서 스크롤 상자는 루트이고, 요일 머리와 격자는 같은 최소 폭(7 × 44px)으로 넘쳐 함께 밀린다.
+        머리 줄·고른 날 목록·목록 보기 줄은 sticky로 왼쪽에 붙어 제자리다.
+        """
         self.assertEqual(7 * 44, 308)
-        grid = self.computed(week()[:2])
-        self.assertEqual(grid.get("overflow-x"), "auto")
-        self.assertEqual(grid.get("min-width"), "0")
         root = self.computed([acal()])
+        self.assertEqual(root.get("overflow-x"), "auto")
         self.assertEqual(root.get("min-width"), "0")
         self.assertEqual(root.get("grid-template-columns"), "minmax(0, 1fr)")
+        weekdays = [acal(), element("div", ["acal-weekdays"])]
+        grid = [acal(), element("div", ["acal-grid"], ['[role="grid"]'])]
+        for chain in (weekdays, grid):
+            with self.subTest(target=chain[-1]["classes"]):
+                decls = self.computed(chain)
+                self.assertEqual(decls.get("min-width"), "308px")
+                self.assertNotIn("overflow-x", decls, "한 줄만 따로 스크롤하면 둘이 어긋난다")
+                self.assertNotIn("position", decls)
+        self.assertEqual(self.computed(weekdays)["grid-template-columns"], self.computed(week())["grid-template-columns"])
+        for label, child in (("머리 줄", HEAD_ROW), ("고른 날 목록", element("div", ["acal-day-list"])),
+                             ("목록 보기 줄", element("section", ["evidence"]))):
+            with self.subTest(child=label):
+                decls = self.computed([acal(), child])
+                self.assertEqual((decls.get("position"), decls.get("left")), ("sticky", "0"))
+        # 고른 날 목록 안의 일정은 루트 직속이 아니라 sticky 규칙을 받지 않는다.
+        inner = self.computed([acal(), element("div", ["acal-day-list"]), element("section", ["evidence"])])
+        self.assertNotIn("position", inner)
 
     def test_focus_and_selection_stay_inside_and_clear_three_to_one(self):
         for theme in self.themes:
@@ -465,7 +551,7 @@ class AcademicCalendarStyleTest(unittest.TestCase):
                     self.assertGreaterEqual(contrast(dot, face), 3.0)
         narrow_cell = self.computed(week() + [cell(3)], NARROW)
         self.assertEqual(narrow_cell.get("flex-wrap"), "wrap")
-        self.assertEqual(self.computed(day_chain(), NARROW).get("flex"), "1 1 100%", "점은 날짜 버튼 아래 줄에 놓인다")
+        self.assertEqual(self.computed(day_chain(), NARROW).get("flex"), "1 1 100%", "날짜 버튼은 좁은 칸 폭을 채운다")
 
     def test_day_list_stays_in_both_widths(self):
         chain = [acal(), element("div", ["acal-day-list"])]
@@ -482,6 +568,23 @@ class AcademicCalendarStyleTest(unittest.TestCase):
         evidence = element("section", ["evidence"])
         self.assertEqual(self.computed([acal("month"), evidence]).get("display"), "none")
         self.assertNotEqual(self.computed([acal("list"), evidence]).get("display"), "none")
+        # 고른 날 목록의 일정도 section.evidence다. 달 보기에서 이것까지 접으면 일정 이름·기간·출처가 사라진다.
+        picked = [acal("month"), element("div", ["acal-day-list"]), evidence]
+        self.assertNotEqual(self.computed(picked).get("display"), "none")
+        self.assertNotEqual(self.computed(picked + [element("p")]).get("display"), "none")
+        for media in (None, NARROW):
+            self.assertNotEqual(self.computed(picked, media).get("display"), "none")
+
+    def test_selector_reader_tells_child_from_descendant_and_reads_has(self):
+        root, day_list, evidence = acal("month"), element("div", ["acal-day-list"]), element("section", ["evidence"])
+        self.assertTrue(selector_matches('.acal[data-view="month"] > section.evidence', [root, evidence]))
+        self.assertFalse(selector_matches('.acal[data-view="month"] > section.evidence', [root, day_list, evidence]))
+        self.assertTrue(selector_matches('.acal[data-view="month"] section.evidence', [root, day_list, evidence]))
+        button = element("button", ["acal-day"], ["[data-more]"])
+        self.assertTrue(selector_matches(".acal-day[data-more] > :has(+ * .acal-dot)", [button, MORE_LABEL]))
+        self.assertFalse(selector_matches(".acal-day[data-more] > :has(+ * .acal-dot)", [button, DOT_GROUP]))
+        self.assertTrue(selector_matches(".acal > :not(.acal-weekdays):not(.acal-grid)", [root, HEAD_ROW]))
+        self.assertFalse(selector_matches(".acal > :not(.acal-weekdays):not(.acal-grid)", [root, element("div", ["acal-grid"])]))
 
     # --- 움직임·선·색 -----------------------------------------------------------------------------
 
