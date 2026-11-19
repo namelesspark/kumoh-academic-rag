@@ -362,6 +362,38 @@ test("52px 방울 자리가 모자라면 44px 방울로 줄이고, 그래도 모
   assert.notEqual(flat.ring.getAttribute("data-layout"), "row");
 });
 
+test("방울은 + 버튼뿐 아니라 입력 줄 전체(질문 칸·다른 버튼)를 덮지 않아, 질문 칸을 누르면 질문 칸이 받는다", () => {
+  // 입력 줄 상자를 실제 크기로 준다. 링은 + 버튼만이 아니라 이 상자 전체를 비켜야 한다.
+  // 폭 320·390·768·1280px, 높이 400px 이상 화면에서 +가 화면 위쪽·가운데·아래쪽에 있는 경우를 본다.
+  const cases = [
+    // [이름, 화면 너비, 높이, + 왼쪽 위, 입력 줄 상자, 질문 칸 안의 한 점]
+    ["390×400 홈, + 가운데 (43, 90)", 390, 400, [21, 68], { left: 13, top: 60, width: 364, height: 60 }, [97, 90]],
+    ["390×700 채팅, + 아래쪽", 390, 700, [21, 600], { left: 13, top: 592, width: 364, height: 60 }, [97, 622]],
+    ["320×400 홈, + 위쪽", 320, 400, [20, 58], { left: 12, top: 50, width: 296, height: 60 }, [90, 80]],
+    ["768×700 홈, + 가운데", 768, 700, [120, 300], { left: 112, top: 292, width: 544, height: 60 }, [200, 322]],
+    ["1280×800 채팅, + 아래쪽", 1280, 800, [300, 740], { left: 292, top: 732, width: 700, height: 60 }, [400, 762]],
+  ];
+  for (const [name, width, height, [left, top], rowBox, [qx, qy]] of cases) {
+    const page = ringPage({ width, height, toggleRect: { left, top, width: 44, height: 44 } });
+    page.row.rect = rowBox;
+    page.toggle.click();
+    assert.equal(page.toggle.getAttribute("aria-expanded"), "true", name);
+    const size = page.ring.getAttribute("data-compact") === "" ? 22 : 26;
+    const anchor = { x: left + 22, y: top + 22 };
+    const centers = page.items.map(page.position).map(spot => ({ x: anchor.x + spot.x, y: anchor.y + spot.y }));
+    const right = rowBox.left + rowBox.width, bottom = rowBox.top + rowBox.height;
+    for (const { x, y } of centers) {
+      assert.ok(x - size >= 7.5 && x + size <= width - 7.5 && y - size >= 7.5 && y + size <= height - 7.5, `${name}: off screen ${x},${y}`);
+      // 방울 원이 입력 줄 상자에 닿지 않는다.
+      const nearestX = Math.min(Math.max(x, rowBox.left), right), nearestY = Math.min(Math.max(y, rowBox.top), bottom);
+      assert.ok(Math.hypot(x - nearestX, y - nearestY) >= size, `${name}: covers the input row at ${x},${y}`);
+      // 질문 칸 안의 그 점을 누르면 방울이 아니라 질문 칸이 받는다.
+      assert.ok(Math.hypot(x - qx, y - qy) >= size, `${name}: (${qx},${qy}) hits a bubble`);
+    }
+    for (const [i, a] of centers.entries()) for (const b of centers.slice(i + 1)) assert.ok(Math.hypot(a.x - b.x, a.y - b.y) >= size * 2, `${name}: bubbles overlap`);
+  }
+});
+
 test("기본 반지름 호가 + 위·옆에 들지 않으면 + 옆 계산 호로 + 위쪽에 두고, 방울끼리도 겹치지 않는다", () => {
   // 320×700에서 + 가운데가 (80, 120)인 경우. 84px 호는 위로 들면 화면 위를, 옆으로 밀면 오른쪽을 넘는다.
   const page = ringPage({ width: 320, height: 700, toggleRect: { left: 58, top: 98, width: 44, height: 44 } });

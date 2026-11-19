@@ -139,18 +139,23 @@
     }
   }
   // 방울 자리. 화면 좌표(px)로 돌려준다. 묶음이 화면 가장자리 8px 안쪽에 들어오도록 통째로 민다.
-  function layout(anchor, width, height, count) {
+  // avoid는 방울이 덮으면 안 되는 상자다. 보통은 입력 줄 전체(질문 칸·클립·펜·답변 모드·보내기)이고,
+  // 입력 줄 크기를 모를 때만 + 버튼 상자다. 방울이 그 위에 얹히면 그 자리를 누르려던 손가락을 방울이 가로챈다.
+  function layout(anchor, avoid, width, height, count) {
     const narrow = width <= 480;
     const [from, to] = narrow ? [180, 0] : [210, -30];
     const shape = narrow ? "arc" : "radial";
     const shift = (low, high, size) => (low < edge ? edge - low : high > size - edge ? size - edge - high : 0);
-    // 묶음을 옆으로 밀면 끝 방울이 + 버튼 위에 얹힐 수 있다. 그러면 +를 다시 눌러 닫으려던 손가락이 방울을 누른다.
-    const clear = bubbleRadius + hubRadius + 6;
-    // 호 하나의 후보 자리. above는 + 위로 들거나(up) + 옆으로 통째로 밀어(side) 놓은 자리이고,
-    // 좁은 화면의 엄지 위쪽 호는 방울이 하나라도 + 가운데보다 내려가면 above로 치지 않는다.
-    // below는 + 아래로 내린 자리다. 화면을 넘거나 +를 덮으면 null이다. size는 방울 반지름이다.
+    // 방울(반지름 size)과 avoid 상자 사이를 6px 띄운다.
+    const away = size => size + 6;
+    const distance = (x, y) => Math.hypot(x - Math.min(Math.max(x, avoid.left), avoid.right), y - Math.min(Math.max(y, avoid.top), avoid.bottom));
+    // 마지막 확인: 모든 방울이 화면 가장자리 8px 안에 있고, avoid 상자를 덮지 않는다. 모든 후보가 이 검사를 거친다.
+    const valid = (points, size) => points.every(({ x, y }) => x - size >= edge - 0.5 && x + size <= width - edge + 0.5 &&
+      y - size >= edge - 0.5 && y + size <= height - edge + 0.5 && distance(x, y) >= size + 4 - 0.5);
+    const checked = result => (result && valid(result.points, result.compact ? compactRadius : bubbleRadius) ? result : null);
+    // 호 하나의 후보 자리. above는 상자 위로 들어 올린(up) 자리이고, 좁은 화면의 엄지 위쪽 호는 방울이 하나라도
+    // + 가운데보다 내려가면 above로 치지 않는다. below는 상자 아래로 내린 자리다. size는 방울 반지름이다.
     function arc(radius, size = bubbleRadius) {
-      const clear = size + hubRadius + 6;
       const points = Array.from({ length: count }, (_, index) => {
         const degrees = count === 1 ? (from + to) / 2 : from + (to - from) * index / (count - 1);
         const angle = degrees * Math.PI / 180;
@@ -159,7 +164,8 @@
       const xs = points.map(point => point.x), ys = points.map(point => point.y);
       const dx = shift(Math.min(...xs) - size, Math.max(...xs) + size, width);
       const fit = shift(Math.min(...ys) - size, Math.max(...ys) + size, height);
-      const covering = points.filter(point => Math.abs(point.x + dx - anchor.x) < clear);
+      // 가로로 상자와 겹치는 방울. 이 방울들이 상자 위(또는 아래)로 비켜날 만큼 묶음을 옮긴다.
+      const covering = points.filter(point => point.x + dx > avoid.left - away(size) && point.x + dx < avoid.right + away(size));
       // 밀어 넣은 뒤에도 가로·세로 모두 화면 안에 드는지 본다. 화면이 묶음보다 좁으면 한쪽을 맞춰도 반대쪽이 넘친다.
       const inside = (sx, sy) => Math.min(...xs) + sx - size >= edge - 0.5 && Math.max(...xs) + sx + size <= width - edge + 0.5 &&
         Math.min(...ys) + sy - size >= edge - 0.5 && Math.max(...ys) + sy + size <= height - edge + 0.5;
@@ -168,68 +174,78 @@
       const compact = size < bubbleRadius;
       const moved = (sx, sy) => ({ kind: shape, compact, points: points.map(point => ({ x: point.x + sx, y: point.y + sy })) });
       // 덮는 방울이 없으면 up은 화면 맞춤(fit)과 같다.
-      const up = Math.min(fit, ...covering.map(point => anchor.y - clear - point.y));
-      const down = Math.max(fit, ...covering.map(point => anchor.y + clear - point.y));
+      const up = Math.min(fit, ...covering.map(point => avoid.top - away(size) - point.y));
+      const down = Math.max(fit, ...covering.map(point => avoid.bottom + away(size) - point.y));
       return {
-        above: inside(dx, up) && high(up) ? moved(dx, up) : null,
-        below: !compact && inside(dx, down) ? moved(dx, down) : null,
+        above: inside(dx, up) && high(up) ? checked(moved(dx, up)) : null,
+        below: !compact && inside(dx, down) ? checked(moved(dx, down)) : null,
       };
     }
-    // + 옆에 두는 호를 정해진 반지름 몇 개로 고르지 않고 계산한다. 방울 가운데가 놓일 수 있는 띠는
-    // 화면 위 여백 아래(top)부터 + 가운데 높이(bottom)까지다. 이웃 방울 간격을 방울 지름 + 4px로 고정하고,
-    // 호가 벌어진 각도를 180°에서 5°씩 줄여 가며 호의 높이가 띠 안에 들고 + 옆 너비에 맞는 첫 호를 쓴다.
-    // 각도가 작을수록 호는 낮고 넓어지며 0°에서는 한 줄이 된다. 오른쪽을 먼저 보고, 안 되면 왼쪽을 본다.
-    function beside(size) {
-      const gap = size * 2 + 4, clearSide = size + hubRadius + 6;
-      const bottom = Math.min(anchor.y, height - edge - size), top = edge + size;
+    // 호의 모양만 계산한다(간격 = 방울 지름 + 4px, 벌어진 각도 span). 왼쪽 끝 x 0, 양 끝 높이 y 0, 가운데가 가장 높다.
+    function bow(size, span) {
+      const gap = size * 2 + 4;
+      let shapePoints;
+      if (span === 0 || count === 1) shapePoints = Array.from({ length: count }, (_, index) => ({ x: index * gap, y: 0 }));
+      else {
+        const stepAngle = span / (count - 1) * Math.PI / 180;
+        const radius = gap / (2 * Math.sin(stepAngle / 2));
+        const half = span / 2 * Math.PI / 180;
+        shapePoints = Array.from({ length: count }, (_, index) => {
+          const angle = Math.PI / 2 + half - index * stepAngle;
+          return { x: radius * Math.cos(angle), y: -radius * Math.sin(angle) };
+        });
+      }
+      const minX = Math.min(...shapePoints.map(point => point.x)), maxY = Math.max(...shapePoints.map(point => point.y));
+      const rel = shapePoints.map(point => ({ x: point.x - minX, y: point.y - maxY }));
+      return { rel, wide: Math.max(...rel.map(point => point.x)), tall: -Math.min(...rel.map(point => point.y)) };
+    }
+    // 정해진 띠(bottom 위로 top까지) 안에 들도록 호가 벌어진 각도를 180°에서 5°씩 줄여 찾는다. 0°에서는 한 줄이다.
+    // lefts(wide)는 그 호의 왼쪽 끝 후보 x를 돌려준다. 화면·상자 검사를 통과한 첫 자리를 쓴다.
+    function search(size, bottom, lefts) {
+      const top = edge + size;
       if (count < 1 || bottom < top - 0.5) return null;
       for (let span = 180; span >= 0; span -= 5) {
-        let shapePoints;
-        if (span === 0 || count === 1) shapePoints = Array.from({ length: count }, (_, index) => ({ x: index * gap, y: 0 }));
-        else {
-          const stepAngle = span / (count - 1) * Math.PI / 180;
-          const radius = gap / (2 * Math.sin(stepAngle / 2));
-          const half = span / 2 * Math.PI / 180;
-          shapePoints = Array.from({ length: count }, (_, index) => {
-            const angle = Math.PI / 2 + half - index * stepAngle;
-            return { x: radius * Math.cos(angle), y: -radius * Math.sin(angle) };
-          });
-        }
-        // 왼쪽 끝을 x 0, 양 끝 높이를 y 0으로 맞춘다. 가운데 방울이 가장 높다(y가 가장 작다).
-        const minX = Math.min(...shapePoints.map(point => point.x)), maxY = Math.max(...shapePoints.map(point => point.y));
-        const rel = shapePoints.map(point => ({ x: point.x - minX, y: point.y - maxY }));
-        const wide = Math.max(...rel.map(point => point.x)), tall = -Math.min(...rel.map(point => point.y));
+        const { rel, wide, tall } = bow(size, span);
         if (bottom - tall < top - 0.5) continue;
-        for (const left of [anchor.x + clearSide, anchor.x - clearSide - wide]) {
-          if (left - size < edge - 0.5 || left + wide + size > width - edge + 0.5) continue;
-          return { kind: span > 0 && count > 1 ? "arc" : "row", compact: size < bubbleRadius,
-            points: rel.map(point => ({ x: left + point.x, y: bottom + point.y })) };
+        for (const left of lefts(wide)) {
+          const found = checked({ kind: span > 0 && count > 1 ? "arc" : "row", compact: size < bubbleRadius,
+            points: rel.map(point => ({ x: left + point.x, y: bottom + point.y })) });
+          if (found) return found;
         }
       }
       return null;
     }
-    // 찾는 순서: + 위 가운데 호(기본 반지름 → 70px) → + 옆 계산 호(52px 방울) → + 위 가운데 58px 호(44px 방울)
-    // → + 옆 계산 호(44px 방울). 어느 경우든 방울은 + 가운데보다 내려가지 않고 서로 겹치지 않는다.
-    // 위·옆에 자리가 없을 때만 52px 방울을 + 아래로 내린다.
+    // + 옆 계산 호: 띠는 화면 위 여백부터 + 가운데 높이까지이고, 상자 오른쪽(안 되면 왼쪽)에 붙인다.
+    const beside = size => search(size, Math.min(anchor.y, height - edge - size),
+      wide => [avoid.right + away(size), avoid.left - away(size) - wide]);
+    // 상자 위 띠 호: 띠는 화면 위 여백부터 상자 위쪽(6px 띄움)까지이고, + 가운데에 맞춰 화면 안으로 민다.
+    // 입력 줄이 화면 가로를 다 차지해 옆자리가 없을 때 쓴다. 띠가 낮으면 낮고 넓은 호나 한 줄이 된다.
+    const band = size => search(size, Math.min(avoid.top - away(size), anchor.y, height - edge - size),
+      wide => [Math.min(Math.max(anchor.x - wide / 2, edge + size), width - edge - size - wide)]);
+    // 찾는 순서: 상자 위 가운데 호(기본 반지름 → 70px) → 옆 계산 호(52px 방울) → 상자 위 띠 호(52px 방울)
+    // → 상자 위 가운데 58px 호(44px 방울) → 옆 계산 호(44px) → 상자 위 띠 호(44px). 어느 경우든 방울은
+    // + 가운데보다 내려가지 않고 서로 겹치지 않으며 입력 줄을 덮지 않는다. 위·옆에 자리가 없을 때만 52px 방울을 상자 아래로 내린다.
     const arcs = [arc(narrow ? 84 : 92), arc(70), arc(58, compactRadius)];
-    const above = [() => arcs[0].above, () => arcs[1].above, () => beside(bubbleRadius), () => arcs[2].above, () => beside(compactRadius)];
+    const above = [() => arcs[0].above, () => arcs[1].above, () => beside(bubbleRadius), () => band(bubbleRadius),
+      () => arcs[2].above, () => beside(compactRadius), () => band(compactRadius)];
     for (const attempt of above) { const found = attempt(); if (found) return found; }
     for (const each of arcs) if (each.below) return each.below;
-    // 한 줄: + 오른쪽(자리가 없으면 왼쪽)에 + 버튼과 6px 떨어뜨려 놓는다. 높이는 화면 안으로 맞춘다.
+    // 한 줄: 상자 오른쪽(자리가 없으면 왼쪽)에 상자와 6px 떨어뜨려 + 높이에 놓는다. 높이는 화면 안으로 맞춘다.
     const step = bubbleRadius * 2 + 4, span = (count - 1) * step;
     const y = Math.min(Math.max(anchor.y, edge + bubbleRadius), height - edge - bubbleRadius);
-    const right = anchor.x + clear, left = anchor.x - clear - span;
+    const right = avoid.right + away(bubbleRadius), left = avoid.left - away(bubbleRadius) - span;
     // 화면 높이가 방울 하나와 위아래 여백(8px)보다 낮으면 한 줄도 화면 안에 들지 않는다.
     const rowFits = edge + bubbleRadius <= height - edge - bubbleRadius + 0.5;
-    const start = !rowFits ? null : right + span + bubbleRadius <= width - edge ? right : left - bubbleRadius >= edge ? left : null;
-    if (start !== null) return { kind: "row", points: Array.from({ length: count }, (_, index) => ({ x: start + index * step, y })) };
-    // 한 줄도 너비에 안 들어가면(좁고 낮은 화면) 화면 안 격자 칸 가운데 + 버튼과 겹치지 않는 칸만 남겨 + 에 가까운 칸부터 고른다.
+    for (const start of rowFits ? [right, left] : []) {
+      const found = checked({ kind: "row", points: Array.from({ length: count }, (_, index) => ({ x: start + index * step, y })) });
+      if (found) return found;
+    }
+    // 한 줄도 들어가지 않으면(좁고 낮은 화면) 화면 안 격자 칸 가운데 상자와 겹치지 않는 칸만 남겨 + 에 가까운 칸부터 고른다.
     // 칸 간격이 방울 지름보다 커서 방울끼리도 겹치지 않는다. 52px 방울로 칸이 모자라면 조작 영역 하한인 44px 방울(compact)로
-    // 한 번 더 찾는다. 그래도 모자라면 null을 돌려준다. 잘리거나 +를 덮는 배치를 보이느니 링을 열지 않는다.
-    const box = { left: anchor.x - hubRadius, right: anchor.x + hubRadius, top: anchor.y - hubRadius, bottom: anchor.y + hubRadius };
+    // 한 번 더 찾는다. 그래도 모자라면 null을 돌려준다. 잘리거나 입력 줄을 덮는 배치를 보이느니 링을 열지 않는다.
     for (const [radius, compact] of [[bubbleRadius, false], [compactRadius, true]]) {
       const gap = radius * 2 + 4;
-      const apart = (x, y) => Math.hypot(x - Math.min(Math.max(x, box.left), box.right), y - Math.min(Math.max(y, box.top), box.bottom)) >= radius + 4;
+      const apart = (x, y) => distance(x, y) >= radius + 4;
       const slots = [];
       for (let gy = edge + radius; gy <= height - edge - radius + 0.5; gy += gap) {
         for (let gx = edge + radius; gx <= width - edge - radius + 0.5; gx += gap) if (apart(gx, gy)) slots.push({ x: gx, y: gy });
@@ -249,7 +265,12 @@
     const view = visibleArea();
     const width = view.width, height = view.height;
     const shown = visible();
-    const result = layout({ x: anchor.x - view.left, y: anchor.y - view.top }, width, height, shown.length);
+    // 방울이 덮으면 안 되는 상자는 입력 줄 전체다. 크기를 모르면(그리기 전 등) + 버튼 상자로 대신한다.
+    const rowBox = row.getBoundingClientRect?.();
+    const guard = rowBox && rowBox.width > 0 && rowBox.height > 0 ? rowBox : box;
+    const avoid = { left: guard.left - view.left, right: guard.left + guard.width - view.left,
+      top: guard.top - view.top, bottom: guard.top + guard.height - view.top };
+    const result = layout({ x: anchor.x - view.left, y: anchor.y - view.top }, avoid, width, height, shown.length);
     // 화면이 너무 작아 방울을 잘리지 않고 +도 덮지 않게 놓을 수 없으면 false를 돌려준다. 여는 쪽이 링을 열지 않는다.
     if (!result) return false;
     const { kind } = result;
