@@ -3014,6 +3014,9 @@ const handwritingMargin = 16;
 const handwritingTimeoutMs = 30_000;
 // 넓은 화면에서 입력 줄 위에 패드를 둘 때 필요한 최소 높이. 필기 칸의 최소 높이(chat.css의 160px)와 같다.
 const handwritingMinRoom = 160;
+// 좁은 화면에서 위·아래 모두 최소 높이에 못 미칠 때, 화면 아래 시트로 입력 줄을 덮는 대신 더 넓은 쪽에 둘 수 있는 최소 높이.
+// 제목과 조작 버튼 한 줄(44px)이 보이고, 나머지는 패드 안에서 스크롤한다.
+const handwritingUsableRoom = 96;
 const handwritingMessages = {
   reading: "글씨를 읽는 중…",
   unreadable: "글씨를 읽지 못했어요. 또박또박 다시 쓰거나 고쳐 쓴 뒤 다시 넣어 주세요.",
@@ -3209,6 +3212,8 @@ function setupHandwriting() {
   if (![button, pad, canvas, status, undo, clear, cancel, insert].every(node => typeof node?.addEventListener === "function")) return;
   let opened = false, strokes = [], penSeen = false, reading = null, session = 0, selection = null, context = null, box = null, origin = null, ink = null, owner = null;
   let area = null, undoRanges = [], redoRanges = [], side = "above";
+  // 질문 칸에 입력이 들어오기 직전(beforeinput)의 선택 범위와 글. 이번 편집이 바꿀 범위다(noteEdit 참고).
+  let pendingEdit = null;
   const active = new Map();
   function controls() {
     const blank = strokes.length === 0, waiting = Boolean(reading);
@@ -3300,14 +3305,18 @@ function setupHandwriting() {
     // 1) 입력 줄 위쪽이 최소 높이(160px) 이상이면 줄 바로 위. 2) 아니고 아래쪽이 최소 높이 이상이면 줄 바로 아래.
     // 3) 둘 다 모자라면 예전처럼 화면 아래 시트(아래 안전 영역만큼 띄움). 위·아래에 둘 때는 입력 줄이 안전 영역을 비우므로 아래 여백 14px다.
     // 예전에는 좁은 화면에서 늘 줄 위에 두어, 입력 줄이 화면 위 20px에 있으면 시트 최대 높이가 4px로 접혔다.
+    // 위·아래 모두 160px에 못 미쳐도 더 넓은 쪽이 쓸 만하면(96px 이상: 제목·버튼 한 줄이 보이고 나머지는 패드 안에서 스크롤) 그쪽에 둔다.
+    // 화면 아래 시트는 질문 칸과 「첨부 제거」 버튼을 덮으므로, 위·아래 어디에도 쓸 만한 자리가 없을 때만 쓴다.
+    // 예전에는 둘 다 160px 미만이면 곧장 화면 아래 시트로 가, 질문 칸을 늘리고 사진을 붙인 390×500에서 입력 줄을 덮었다.
     const narrow = (window.innerWidth || 0) <= 680;
     if (narrow) {
-      if (above < handwritingMinRoom && below >= handwritingMinRoom) {
+      const roomy = side => side >= handwritingMinRoom || (Math.max(above, below) >= handwritingUsableRoom && side === Math.max(above, below));
+      if (!roomy(above) && roomy(below)) {
         pad.style?.setProperty("--handwriting-sheet-padding", "14px");
         putBelow();
         return;
       }
-      if (above < handwritingMinRoom) {
+      if (!roomy(above)) {
         side = "sheet";
         pad.style?.removeProperty("--handwriting-sheet-padding");
         pad.style?.setProperty("--handwriting-top", "auto");
@@ -3449,6 +3458,9 @@ function setupHandwriting() {
   // 위에서부터 찾아 그 범위로 돌아간다. 건너뛴 중간 기록은 브라우저도 다시 실행으로 들르지 않으므로 버린다.
   // 같은 글이 없으면 아래 보통 방식으로 옮긴다.
   function noteEdit(inputType) {
+    // 입력 직전에 받아 둔 범위는 이번 편집에만 쓴다(어느 길로 끝나든 비운다).
+    const announced = pendingEdit;
+    pendingEdit = null;
     if (!opened || !selection) return;
     const before = selection.value, after = input.value;
     if (before === after) return;
@@ -3466,14 +3478,27 @@ function setupHandwriting() {
         return;
       }
     }
-    const caretAt = Number.isInteger(input.selectionEnd) ? Math.min(input.selectionEnd, after.length) : after.length;
-    let suffix = 0;
-    while (suffix < before.length && suffix < after.length - caretAt &&
-      before[before.length - 1 - suffix] === after[after.length - 1 - suffix]) suffix++;
-    let prefix = 0;
-    while (prefix < before.length - suffix && prefix < after.length - suffix && before[prefix] === after[prefix]) prefix++;
     // 바뀐 구간: 옛 글 [prefix, editEnd) → 새 글 [prefix, prefix + added).
-    const editEnd = before.length - suffix, added = after.length - suffix - prefix;
+    // 브라우저가 입력 직전(beforeinput)에 알려 준 질문 칸의 선택 범위가 곧 바뀔 범위다. 이 값이 있으면 그대로 쓴다.
+    // 글자 비교만으로는 「B를 골라 BXY를 붙여넣기」와 「B 뒤에 XY 쓰기」처럼 결과 글이 같은 편집을 가를 수 없어,
+    // 새로 붙인 B를 옛 B로 보고 지웠다. 선택 없이 지우는 편집(Backspace 등)은 브라우저가 지울 범위를 미리 알려 주지 않으므로 글자 비교로 찾는다.
+    const target = announced && announced.value === before ? announced : null;
+    const known = target && (target.end > target.start || /^insert/.test(inputType || ""))
+      ? { prefix: target.start, editEnd: target.end, added: after.length - before.length + (target.end - target.start) } : null;
+    let prefix, editEnd, added;
+    if (known && known.added >= 0 && known.prefix + known.added <= after.length
+      && after.slice(0, known.prefix) === before.slice(0, known.prefix)
+      && after.slice(known.prefix + known.added) === before.slice(known.editEnd)) {
+      ({ prefix, editEnd, added } = known);
+    } else {
+      const caretAt = Number.isInteger(input.selectionEnd) ? Math.min(input.selectionEnd, after.length) : after.length;
+      let suffix = 0;
+      while (suffix < before.length && suffix < after.length - caretAt &&
+        before[before.length - 1 - suffix] === after[after.length - 1 - suffix]) suffix++;
+      prefix = 0;
+      while (prefix < before.length - suffix && prefix < after.length - suffix && before[prefix] === after[prefix]) prefix++;
+      editEnd = before.length - suffix; added = after.length - suffix - prefix;
+    }
     const inserted = prefix === editEnd;
     // 경계에 끼워 넣은 글은 고른 범위 밖이다. 범위 시작에서 넣으면 시작을 넣은 글 뒤로, 범위 끝에서 넣으면 끝을 넣은 글 앞에 둔다.
     // 커서만 있었으면 넣은 글 뒤에 둔다(이어 쓴 글 다음에 손글씨가 온다).
@@ -3772,6 +3797,14 @@ function setupHandwriting() {
   // 캡처 단계로 들어 안쪽 칸의 스크롤도 받는다. 좁은 화면 시트는 CSS가 화면 아래에 두므로 좌표 변수가 쓰이지 않는다.
   // 패드 안쪽이 스크롤돼도 이 신호가 오지만, 입력 줄 자리가 그대로라 relayout이 아무것도 하지 않는다.
   document.addEventListener?.("scroll", () => relayout(), { capture: true, passive: true });
+  // 질문 칸에 입력이 들어오기 직전의 선택 범위를 적어 둔다. 질문 칸 자체에는 처리기를 달지 않고(Scribble 보존 조건)
+  // 문서의 캡처 단계에서 받는다. 막거나 바꾸지 않고 읽기만 한다.
+  document.addEventListener?.("beforeinput", event => {
+    if (!opened || event?.target !== input) return;
+    const start = Number.isInteger(input.selectionStart) ? input.selectionStart : input.value.length;
+    const end = Number.isInteger(input.selectionEnd) ? input.selectionEnd : start;
+    pendingEdit = { start, end: Math.max(start, end), value: input.value };
+  }, { capture: true });
   // 질문 칸을 늘리거나 판 폭이 바뀌는 등 입력 줄·캔버스 크기만 바뀌면 scroll·resize 신호가 없다.
   // 두 크기를 지켜보다가 자리를 다시 재고 캔버스 그리기 버퍼(보이는 크기 × 기기 화소 비율)도 새로 맞춘다.
   // 버퍼를 그대로 두면 포인터 위치와 그려지는 획, 보내는 그림의 자르기 범위가 옛 폭에 머문다.

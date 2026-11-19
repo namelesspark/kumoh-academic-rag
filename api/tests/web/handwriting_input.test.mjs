@@ -297,6 +297,13 @@ function loadPad({ language, pixelRatio = 2, blobSize = pngBytes.length, innerWi
     input.selectionStart = input.selectionEnd = caretAt;
     input.dispatchEvent({ type: "input", inputType });
   };
+  // 실제 브라우저처럼 입력 직전에 문서 캡처 단계로 beforeinput을 보낸다. 그때 질문 칸의 선택 범위(replaced)가 바뀔 범위다.
+  page.typeOver = (value, caretAt, inputType, [start, end]) => {
+    input.selectionStart = start; input.selectionEnd = end;
+    const event = { type: "beforeinput", inputType, target: input };
+    for (const each of documentListeners) if (each.type === "beforeinput") each.listener(event);
+    page.type(value, caretAt, inputType);
+  };
   // 문서가 스크롤됐다는 신호를 보낸다.
   page.scroll = () => { for (const each of documentListeners) if (each.type === "scroll") each.listener({ type: "scroll" }); };
   page.systemThemeChanged = () => {
@@ -2182,6 +2189,64 @@ test("패드를 연 채 고른 범위 안쪽에 글을 끼워 넣으면 범위�
   await settle();
   // 새로 쓴 X를 지우지 않는다(예전에는 범위가 BXC로 늘어 「A가상D」).
   assert.equal(page.input.value, "ABX가상CD");
+});
+
+test("고른 글자를 다시 골라 같은 글자로 시작하는 글을 붙여넣어도 브라우저가 알려 준 범위로 새 글을 지키고 그 뒤에 넣는다", async () => {
+  // 「B」를 고른 채 패드를 연 뒤 질문 칸에서 B를 다시 골라 「BXY」를 붙여넣는다. 글자 비교로는 「B 뒤에 XY 쓰기」와 같아 보인다.
+  const paste = loadPad();
+  paste.input.value = "ABCD";
+  paste.input.selectionStart = 1; paste.input.selectionEnd = 2;
+  paste.button.click();
+  paste.typeOver("ABXYCD", 4, "insertFromPaste", [1, 2]);
+  paste.stroke([10, 10], [60, 60]);
+  paste.respond(ok("가상"));
+  paste.insert.click();
+  await settle();
+  // 새로 붙인 B를 지우지 않는다(예전에는 「A가상XYCD」).
+  assert.equal(paste.input.value, "ABXY가상CD");
+
+  // 앞서 고친 두 사례도 브라우저가 범위를 알려 주는 길에서 같은 결과다.
+  const replace = loadPad();
+  replace.input.value = "ABCD";
+  replace.input.selectionStart = 1; replace.input.selectionEnd = 2;
+  replace.button.click();
+  replace.typeOver("AXYD", 3, "insertText", [1, 3]);
+  replace.stroke([10, 10], [60, 60]);
+  replace.respond(ok("OCR"));
+  replace.insert.click();
+  await settle();
+  assert.equal(replace.input.value, "AXYOCRD");
+
+  const inside = loadPad();
+  inside.input.value = "ABCD";
+  inside.input.selectionStart = 1; inside.input.selectionEnd = 3;
+  inside.button.click();
+  inside.typeOver("ABXCD", 3, "insertText", [2, 2]);
+  inside.stroke([10, 10], [60, 60]);
+  inside.respond(ok("가상"));
+  inside.insert.click();
+  await settle();
+  assert.equal(inside.input.value, "ABX가상CD");
+});
+
+test("390×500에서 질문 칸을 늘리고 사진을 붙인 채 위·아래 모두 160px에 못 미치면 더 넓은 쪽에 두고 입력 줄을 덮지 않는다", () => {
+  const page = loadPad({ innerWidth: 390, innerHeight: 500 });
+  // 질문 칸을 100px까지 늘려 입력 줄 높이가 116px이다. 「첨부 제거」 버튼은 입력 줄 아래 8px에 44px 높이로 있다.
+  Object.assign(page.rowRect, { left: 12, right: 378, width: 366, top: 300, bottom: 416, height: 116 });
+  const clear = page.get("#photo-clear");
+  clear.getBoundingClientRect = () => ({ left: 12, right: 112, width: 100, top: page.rowRect.bottom + 8, bottom: page.rowRect.bottom + 52, height: 44 });
+  page.get("#photo-file").files = [{ name: "fictional.png", type: "image/png", size: 8 }];
+  page.get("#photo-file").fire("change");
+  page.button.click();
+  // 스크롤해 입력 줄 위 끝이 170px에 온다. 위쪽 154px, 아래쪽(버튼 아래 338부터) 146px로 둘 다 160px에 못 미친다.
+  Object.assign(page.rowRect, { top: 170, bottom: 286 });
+  page.scroll();
+  const props = page.pad.style.properties;
+  // 더 넓은 위쪽에 둔다(예전에는 화면 아래 시트로 질문 칸과 첨부 제거 버튼을 덮었다).
+  assert.equal(props.get("--handwriting-top"), "auto");
+  assert.equal(props.get("--handwriting-bottom"), "338px");
+  assert.equal(props.get("--handwriting-max-height"), "154px");
+  assert.ok(500 - parseFloat(props.get("--handwriting-bottom")) <= page.rowRect.top, "the sheet ends above the input row");
 });
 
 test("390×500에서 사진을 붙인 채 줄 아래로 옮기면 입력 줄 아래 「첨부 제거」 버튼까지 비운다", () => {
