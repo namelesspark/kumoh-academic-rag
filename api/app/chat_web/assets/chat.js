@@ -3463,7 +3463,10 @@ function setupHandwriting() {
     pendingEdit = null;
     if (!opened || !selection) return;
     const before = selection.value, after = input.value;
-    if (before === after) return;
+    // 글이 그대로여도 브라우저가 교체 범위를 알려 줬으면 편집이다. 「B」를 골라 같은 「B」를 붙여넣으면 글은 같지만
+    // 고른 글자는 새 글자로 바뀌었으므로 범위를 접어야 한다(예전에는 여기서 끝나 새로 붙인 B를 지웠다).
+    const replacedSame = before === after && announced && announced.value === before && announced.end > announced.start;
+    if (before === after && !replacedSame) return;
     const history = inputType === "historyUndo" ? [undoRanges, redoRanges] : inputType === "historyRedo" ? [redoRanges, undoRanges] : null;
     if (history) {
       const [from, to] = history;

@@ -2229,6 +2229,36 @@ test("고른 글자를 다시 골라 같은 글자로 시작하는 글을 붙여
   assert.equal(inside.input.value, "ABX가상CD");
 });
 
+test("고른 글자를 다시 골라 같은 글자를 붙여넣어 글이 그대로여도 새로 붙인 글자를 지우지 않는다", async () => {
+  const page = loadPad();
+  page.input.value = "ABCD";
+  // 「B」를 고른 채 패드를 연다.
+  page.input.selectionStart = 1; page.input.selectionEnd = 2;
+  page.button.click();
+  // 질문 칸에서 B를 다시 골라 같은 「B」를 붙여넣는다. 편집 전후 글은 「ABCD」로 같다.
+  page.typeOver("ABCD", 2, "insertFromPaste", [1, 2]);
+  page.stroke([10, 10], [60, 60]);
+  page.respond(ok("가상"));
+  page.insert.click();
+  await settle();
+  // 새로 붙인 B 뒤에 넣는다(예전에는 「A가상CD」).
+  assert.equal(page.input.value, "AB가상CD");
+});
+
+test("브라우저 범위 신호 없이 같은 글로 input 신호만 오면 고른 범위를 그대로 둔다", async () => {
+  const page = loadPad();
+  page.input.value = "ABCD";
+  page.input.selectionStart = 1; page.input.selectionEnd = 2;
+  page.button.click();
+  // 글도 그대로이고 바꿀 범위도 알려 주지 않은 신호는 편집이 아니다.
+  page.type("ABCD", 4, "insertText");
+  page.stroke([10, 10], [60, 60]);
+  page.respond(ok("가상"));
+  page.insert.click();
+  await settle();
+  assert.equal(page.input.value, "A가상CD");
+});
+
 test("390×500에서 질문 칸을 늘리고 사진을 붙인 채 위·아래 모두 160px에 못 미치면 더 넓은 쪽에 두고 입력 줄을 덮지 않는다", () => {
   const page = loadPad({ innerWidth: 390, innerHeight: 500 });
   // 질문 칸을 100px까지 늘려 입력 줄 높이가 116px이다. 「첨부 제거」 버튼은 입력 줄 아래 8px에 44px 높이로 있다.
