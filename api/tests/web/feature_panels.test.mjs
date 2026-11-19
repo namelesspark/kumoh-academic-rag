@@ -496,6 +496,11 @@ const campusPlace = (id = "fictional-hall") => ({
 });
 const petState = page => page.get("#pet-dock").attributes.get("data-state");
 const retryButton = page => descendants(page.content(4)).find(node => node.textContent === "다시 시도");
+function calendarList(page) {
+  const root = page.content(4).children[0];
+  descendants(root).find(node => Object.hasOwn(node.dataset, "acalViewToggle")).click();
+  return root;
+}
 
 test("학사 일정은 열 때 한 번 조회하고 지난 일정을 빼 시작일순으로 날짜만 표시한다", async () => {
   const page = loadPage();
@@ -509,11 +514,12 @@ test("학사 일정은 열 때 한 번 조회하고 지난 일정을 빼 시작�
     calendarEvent("가상 오늘", "2027-02-10"), calendarEvent("가상 진행 중", "2027-02-08", "2027-02-12"),
   ] });
   await setImmediate();
-  const content = page.content(4);
+  const content = calendarList(page);
   assert.equal(content.children[0].tagName, "H5");
   assert.match(content.children[0].textContent, /2027학년도 1학기/);
-  assert.equal(content.children.length, 4);
-  for (const row of content.children.slice(1)) {
+  const rows = descendants(content).filter(node => node.className === "evidence");
+  assert.equal(rows.length, 3);
+  for (const row of rows) {
     assert.equal(row.tagName, "SECTION");
     assert.equal(row.className, "evidence");
   }
@@ -523,6 +529,7 @@ test("학사 일정은 열 때 한 번 조회하고 지난 일정을 빼 시작�
   assert.ok(shown.indexOf("가상 오늘") < shown.indexOf("가상 내일"));
   assert.match(shown, /2027년/);
   assert.doesNotMatch(shown, /\d{1,2}:\d{2}|남은 시간|마감 시각/);
+  assert.equal(page.requests.length, 1);
   assert.equal(petState(page), "found");
   page.tick();
   assert.equal(petState(page), "answer");
@@ -534,7 +541,7 @@ test("한국 표준시 자정 경계로 오늘 종료 일정의 포함 여부를
     page.cards[4].click();
     page.finish({ events: [calendarEvent("가상 경계 일정", "2027-02-10")] });
     await setImmediate();
-    assert.equal(text(page.content(4)).includes("가상 경계 일정"), included);
+    assert.equal(text(calendarList(page)).includes("가상 경계 일정"), included);
     assert.equal(petState(page), included ? "found" : "hold");
   }
 });
@@ -544,8 +551,9 @@ test("빈 일정은 범위와 남은 일정이 없음을 알리고 답변을 보
   page.cards[4].click();
   page.finish({ events: [] });
   await setImmediate();
-  assert.match(text(page.content(4)), /2027학년도 1학기/);
-  assert.match(text(page.content(4)), /없/);
+  const content = calendarList(page);
+  assert.match(text(content), /2027학년도 1학기/);
+  assert.match(text(content), /없/);
   assert.equal(petState(page), "hold");
 });
 
@@ -554,7 +562,7 @@ test("시작일과 종료일이 같으면 한 번만 적고 범위 일정은 양
   page.cards[4].click();
   page.finish({ events: [calendarEvent("가상 하루", "2027-02-11"), calendarEvent("가상 기간", "2027-02-12", "2027-02-13")] });
   await setImmediate();
-  const times = descendants(page.content(4)).filter(node => node.tagName === "TIME");
+  const times = descendants(calendarList(page)).filter(node => node.tagName === "TIME");
   assert.equal(times.filter(node => node.dateTime === "2027-02-11").length, 1);
   assert.equal(times.filter(node => node.dateTime === "2027-02-12").length, 1);
   assert.equal(times.filter(node => node.dateTime === "2027-02-13").length, 1);
@@ -728,7 +736,7 @@ test("출처는 안전한 주소와 날짜 확인일을 함께 갖출 때만 링
   const sources = [guideSource, { ...guideSource, title: "가상 위험 주소", url: "javascript:alert(1)" }, { ...guideSource, title: "가상 확인일 없음", checked_on: null }];
   page.finish({ events: [{ ...calendarEvent("가상 링크 일정", "2027-02-11"), sources }] });
   await setImmediate();
-  const content = page.content(4);
+  const content = calendarList(page);
   assert.equal(descendants(content).filter(node => node.attributes.has("href")).length, 1);
   assert.match(text(content), /가상 위험 주소/);
   assert.match(text(content), /가상 확인일 없음/);
