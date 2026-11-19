@@ -208,6 +208,21 @@ const uiText = {
     "안내를 찾는 중…": "Looking it up…",
     "서버가 안내를 불러오지 못했어요.": "The server could not load the guide.",
     "서버 안내의 형식이 맞지 않아요.": "The server's guide data is malformed.",
+    "손글씨로 입력": "Handwriting input",
+    "필기 영역": "Writing area",
+    "되돌리기": "Undo",
+    "지우기": "Clear",
+    "넣기": "Insert",
+    "펜이나 손가락으로 쓰고 넣기를 누르면 읽은 글자가 입력창 커서 자리에 들어가요. 바로 보내지는 않아요.":
+      "Write with a pen or finger, then press Insert to put the recognized text at the cursor in the question box. It is not sent automatically.",
+    "글씨를 읽는 중…": "Reading your handwriting…",
+    "글씨를 읽지 못했어요. 또박또박 다시 쓰거나 고쳐 쓴 뒤 다시 넣어 주세요.": "Could not read the handwriting. Write more clearly or fix it, then press Insert again.",
+    "글씨 그림이 너무 커요. 일부를 지우고 다시 넣어 주세요.": "The handwriting image is too large. Erase part of it and press Insert again.",
+    "지금은 손글씨를 읽을 수 없어요. 잠시 뒤 다시 넣어 주세요.": "Handwriting cannot be read right now. Press Insert again in a moment.",
+    "읽는 시간이 너무 오래 걸렸어요. 다시 넣어 주세요.": "Reading took too long. Press Insert again.",
+    "서버에 연결하지 못했어요. 네트워크를 확인한 뒤 다시 넣어 주세요.": "Could not reach the server. Check your network and press Insert again.",
+    "서버가 글씨를 처리하지 못했어요. 다시 넣어 주세요.": "The server could not process the handwriting. Press Insert again.",
+    "읽은 글자를 입력창에 넣었어요. 확인한 뒤 보내 주세요.": "The recognized text is in the question box. Check it, then send.",
   },
   zh: {
     "테마": "主题",
@@ -407,6 +422,21 @@ const uiText = {
     "안내를 찾는 중…": "正在查找…",
     "서버가 안내를 불러오지 못했어요.": "服务器无法加载指南。",
     "서버 안내의 형식이 맞지 않아요.": "服务器指南数据格式不正确。",
+    "손글씨로 입력": "手写输入",
+    "필기 영역": "书写区域",
+    "되돌리기": "撤销",
+    "지우기": "清除",
+    "넣기": "插入",
+    "펜이나 손가락으로 쓰고 넣기를 누르면 읽은 글자가 입력창 커서 자리에 들어가요. 바로 보내지는 않아요.":
+      "用笔或手指书写后点击「插入」，识别出的文字会放到输入框的光标处，不会自动发送。",
+    "글씨를 읽는 중…": "正在识别手写内容…",
+    "글씨를 읽지 못했어요. 또박또박 다시 쓰거나 고쳐 쓴 뒤 다시 넣어 주세요.": "未能识别手写内容。请写得更工整或修改后再次点击「插入」。",
+    "글씨 그림이 너무 커요. 일부를 지우고 다시 넣어 주세요.": "手写图片过大。请擦除一部分后再次点击「插入」。",
+    "지금은 손글씨를 읽을 수 없어요. 잠시 뒤 다시 넣어 주세요.": "目前无法识别手写内容。请稍后再次点击「插入」。",
+    "읽는 시간이 너무 오래 걸렸어요. 다시 넣어 주세요.": "识别时间过长。请再次点击「插入」。",
+    "서버에 연결하지 못했어요. 네트워크를 확인한 뒤 다시 넣어 주세요.": "无法连接服务器。请检查网络后再次点击「插入」。",
+    "서버가 글씨를 처리하지 못했어요. 다시 넣어 주세요.": "服务器未能处理手写内容。请再次点击「插入」。",
+    "읽은 글자를 입력창에 넣었어요. 확인한 뒤 보내 주세요.": "识别出的文字已放入输入框。请确认后再发送。",
   },
 };
 let uiLang = "ko";
@@ -715,6 +745,8 @@ function persistConversations() {
 }
 function switchHistoryAccount(account) {
   dismissConversationToast();
+  // 계정이 바뀌면 열린 필기 패드와 읽던 요청을 버린다. 첫 화면에서 로그아웃해도 이전 계정의 인식 글자가 남지 않는다(#134).
+  if (typeof closeHandwritingPad === "function") closeHandwritingPad(false);
   if (window.location?.hash === "#chat") {
     window.history?.replaceState(null, "", window.location.pathname + window.location.search);
   }
@@ -740,6 +772,7 @@ function closeDrawer(restoreFocus = true) {
 }
 function openDrawer() {
   if (window.matchMedia?.("(max-width: 960px)")?.matches === false) return;
+  if (typeof closeHandwritingPad === "function") closeHandwritingPad(false);
   drawerOpen = true;
   if (sidebar) sidebar.inert = false;
   if (sidebar) sidebar.hidden = false;
@@ -762,6 +795,8 @@ function setChatView(next, push = true) {
   if (confirmRequest || menuRecord) focusInputAfterView = true;
   if (confirmRequest) closeConfirm(false, false);
   closeMenu(false);
+  // 입력 줄 자리가 바뀌므로 열린 필기 패드는 닫는다(#134).
+  if (next !== requestedChatView && typeof closeHandwritingPad === "function") closeHandwritingPad(false);
   requestedChatView = next;
   const sequence = ++screenSequence;
   const changed = next !== chatView;
@@ -825,6 +860,8 @@ function renderActiveConversation() {
 }
 function openConversation(record) {
   if (!conversations.includes(record)) return;
+  // 다른 대화로 옮기면 열린 필기 패드와 읽던 요청을 버린다. 인식 글자가 옮겨 간 대화의 질문 칸에 들어가지 않는다(#134).
+  if (record !== activeConversation && typeof closeHandwritingPad === "function") closeHandwritingPad(false);
   if (toastRecord === record) dismissConversationToast();
   activeConversation = record;
   record.unread = false;
@@ -1111,7 +1148,11 @@ function askDelete(record, origin) {
 function removeConversation(record) {
   conversations = conversations.filter(value => value !== record);
   if (toastRecord === record) dismissConversationToast();
-  if (activeConversation === record) { activeConversation = null; renderActiveConversation(); }
+  if (activeConversation === record) {
+    // 보고 있던 대화를 지우면 그 대화에서 쓰던 필기 패드도 버린다(#134).
+    if (typeof closeHandwritingPad === "function") closeHandwritingPad(false);
+    activeConversation = null; renderActiveConversation();
+  }
   persistConversations(); renderConversations(); updateSend();
 }
 function confirmDialog() {
@@ -1218,6 +1259,7 @@ document.querySelector("#conversation-close")?.addEventListener("click", () => c
 homeButton?.addEventListener("click", () => setChatView(false));
 document.querySelector(".brand")?.addEventListener("click", () => setChatView(false));
 function startNewConversation() {
+  if (typeof closeHandwritingPad === "function") closeHandwritingPad(false);
   activeConversation = null;
   input.value = "";
   photoFile.value = "";
@@ -1233,6 +1275,7 @@ clearButton?.addEventListener("click", () => openConfirm({
   run: () => {
     clearConversations(historyStorage(), historyAccount);
     dismissConversationToast();
+    if (typeof closeHandwritingPad === "function") closeHandwritingPad(false);
     conversations = []; activeConversation = null; renderConversations(); renderActiveConversation(); updateSend();
   },
   restore: () => (listVisible() ? clearButton : input).focus(),
@@ -1295,6 +1338,7 @@ function loginMessage(line, pose = "guide") {
   setTechmoBubbleVisibility(loginPet, true);
 }
 function showScreen(main) {
+  if (!main && typeof closeHandwritingPad === "function") closeHandwritingPad(false);
   if (loginScreen) loginScreen.hidden = main;
   if (mainScreen) mainScreen.hidden = !main;
   document.body?.setAttribute("data-screen", main ? "main" : "login");
@@ -1643,6 +1687,8 @@ function updateSend() {
   photoFile.disabled = pending;
   photoAttach.disabled = pending;
   reset.disabled = pending;
+  // 첨부 제거 버튼이 나타나거나 사라지면 입력 줄이 크기 변화 없이 위아래로 움직인다. 열린 필기 패드 자리를 바로 다시 잰다(#134).
+  if (typeof placeHandwritingPad === "function") placeHandwritingPad();
 }
 
 function setBusy(pending, message = "서버에 질문을 보내는 중…") {
@@ -2496,6 +2542,8 @@ function applyTheme() {
   document.documentElement?.setAttribute?.("data-theme-mode", themeMode);
   document.documentElement?.setAttribute?.("data-theme", actual);
   renderThemeButtons();
+  // 열린 필기 패드의 잉크를 새 테마 글자색으로 바로 다시 그린다. 다음 획을 기다리면 그사이 대비가 무너진다(#134).
+  if (typeof redrawHandwritingPad === "function") redrawHandwritingPad();
 }
 function renderThemeButtons() {
   const name = t(themeChoices.find(choice => choice.value === themeMode).name);
@@ -2547,7 +2595,7 @@ const staticSources = new WeakMap();
 // 문서에 적힌 고정 문구만 바꾼다. 아래 자리는 스크립트가 직접 그리거나(메뉴·확인 창·제목), 서버 글과 사용자 글이 들어간다.
 const staticSkip = [".turn", "#conversation-list", "[data-panel-content]", ".title-fallback", ".main-title-fallback",
   "#ai-mode-button", ".lang-pill", ".choice-menu", ".conversation-menu", ".confirm-scrim", "#campus-caption",
-  "#demo-label", "#conversation-toast-open", "#conversation-announce", ".quicklink-track"].join(", ");
+  "#demo-label", "#conversation-toast-open", "#conversation-announce", ".quicklink-track", "#handwriting-status"].join(", ");
 function langChoice(value) {
   return langChoices.find(choice => choice.value === value) ?? langChoices[0];
 }
@@ -2830,7 +2878,11 @@ async function ask(question, reply, record = activeConversation) {
     renderConversations(); updateSend(); scrollToLatest();
   }
 }
-input.addEventListener("input", updateSend);
+// 입력 처리기는 하나다. 필기 패드가 열려 있으면 고친 구간을 따라 열기 전 자리를 옮긴다(#134). 포인터 처리기는 두지 않는다.
+input.addEventListener("input", event => {
+  updateSend();
+  if (typeof noteHandwritingEdit === "function") noteHandwritingEdit(event?.inputType);
+});
 input.addEventListener("keydown", event => {
   if (event.key !== "Enter" || event.shiftKey || event.isComposing || event.keyCode === 229) return;
   event.preventDefault();
@@ -2853,6 +2905,9 @@ composer.addEventListener("submit", event => {
     }
   }
 
+  // 질문을 보내면 쓰던 초안은 끝났다. 같은 대화든 새 대화든 열린 필기 패드와 읽던 요청을 버려,
+  // 늦은 인식 글자가 비운 질문 칸(다음 질문의 초안)에 들어가지 않게 한다(#134).
+  if (typeof closeHandwritingPad === "function") closeHandwritingPad(false);
   if (!activeConversation || Boolean(activeConversation.photo) !== Boolean(file) || !requestedChatView) {
     activeConversation = { id: `conversation-${Date.now()}-${++conversationSequence}`, time: Date.now(),
       title: Array.from(question).slice(0, 29).join(""), messages: [], turns: [], photo: Boolean(file), unread: false };
@@ -2913,6 +2968,8 @@ photoClear.addEventListener("click", () => {
 
 reset.addEventListener("click", () => {
   if (busy || (requestedChatView && activeConversation?.pending)) return;
+  // 입력창을 비우는 새 대화이므로 열린 필기 패드와 읽던 요청도 버린다(#134).
+  if (typeof closeHandwritingPad === "function") closeHandwritingPad(false);
   changeFeature(null, { animate: false, focus: false });
   sessionId = null;
   graduationTurn = null;
@@ -2944,6 +3001,855 @@ for (const control of landingControls) {
     landingActions[action]();
   });
 }
+
+// 손글씨 입력(#134). 펜 버튼이 form 밖의 필기 패드를 연다. 넓은 화면은 입력 줄 바로 위, 좁은 화면은 아래 시트다(chat.css).
+// 질문 칸(textarea)에는 처리기·덮개·touch-action을 붙이지 않는다. iPad 기본 손글씨 입력(Scribble)이 그 칸에서 그대로 동작해야 한다.
+// 이 패드를 연 동안 펜 입력을 한 번 보면 진행 중인 손가락 획을 지우고 이후 손가락은 무시한다(손바닥 거부).
+// 넣기는 잉크 범위에 여백을 두고 잘라 흰 바탕 PNG(긴 변 1024px 이하)로 서버에 보낸다. 그림은 저장하지 않는다.
+// 받은 글자는 패드를 열기 전 커서 자리에 넣기만 하고 보내지 않는다. 실패하면 획을 그대로 두어 다시 넣을 수 있다.
+const handwritingPath = "/api/v1/handwriting";
+const handwritingMaxBytes = 2_000_000;
+const handwritingMaxSide = 1024;
+const handwritingMargin = 16;
+const handwritingTimeoutMs = 30_000;
+// 넓은 화면에서 입력 줄 위에 패드를 둘 때 필요한 최소 높이. 필기 칸의 최소 높이(chat.css의 160px)와 같다.
+const handwritingMinRoom = 160;
+// 좁은 화면에서 위·아래 모두 최소 높이에 못 미칠 때, 화면 아래 시트로 입력 줄을 덮는 대신 더 넓은 쪽에 둘 수 있는 최소 높이.
+// 제목과 조작 버튼 한 줄(44px)이 보이고, 나머지는 패드 안에서 스크롤한다.
+const handwritingUsableRoom = 96;
+const handwritingMessages = {
+  reading: "글씨를 읽는 중…",
+  unreadable: "글씨를 읽지 못했어요. 또박또박 다시 쓰거나 고쳐 쓴 뒤 다시 넣어 주세요.",
+  tooLarge: "글씨 그림이 너무 커요. 일부를 지우고 다시 넣어 주세요.",
+  unavailable: "지금은 손글씨를 읽을 수 없어요. 잠시 뒤 다시 넣어 주세요.",
+  timeout: "읽는 시간이 너무 오래 걸렸어요. 다시 넣어 주세요.",
+  offline: "서버에 연결하지 못했어요. 네트워크를 확인한 뒤 다시 넣어 주세요.",
+  failed: "서버가 글씨를 처리하지 못했어요. 다시 넣어 주세요.",
+  inserted: "읽은 글자를 입력창에 넣었어요. 확인한 뒤 보내 주세요.",
+};
+const handwritingStatusMessages = { 413: "tooLarge", 422: "unreadable", 503: "unavailable", 504: "timeout" };
+// 펜은 압력(0~1)으로 굵기를 바꾼다. 압력을 주지 않는 손가락·마우스는 같은 굵기다.
+function handwritingWidth(stroke, point) {
+  return stroke.type === "pen" ? 1.2 + 4 * point.p : 3;
+}
+// 화면이 실제로 그리는 굵기. 긋는 동안(pointermove) 선분 굵기를 점의 w에 한 번만 적어 두고, 그리기·자르기·범위 계산이 모두 이 값을 읽는다.
+// 예전에는 세 곳이 압력에서 굵기를 따로 다시 계산해(큰 쪽, 평균, 새 점 하나) 서로 어긋났다.
+// 칸 경계에서 잘라 만든 점에 새 압력을 붙여도 그 조각의 굵기는 자르기 전 선분 그대로다.
+// w가 없는 점(직접 만든 획)은 예전 규칙(점은 제 굵기, 선분은 두 점 평균, 길이 0인 선분은 큰 쪽)으로 계산한다.
+function handwritingDrawnWidth(stroke, point, before = null) {
+  if (Number.isFinite(point.w)) return point.w;
+  if (!before) return handwritingWidth(stroke, point);
+  const a = handwritingWidth(stroke, before), b = handwritingWidth(stroke, point);
+  return before.x === point.x && before.y === point.y ? Math.max(a, b) : (a + b) / 2;
+}
+// 점마다 그 점을 찍을 때 보이던 칸(point.clip, 없으면 stroke.clip)을 둔다. 좌표는 캔버스 CSS 픽셀이다.
+// 칸은 왼쪽 0부터 오른쪽 끝 width까지, 위 y(없으면 0)부터 아래 끝 height까지다. 패드 스크롤 상자가 캔버스 위·아래를
+// 가리면 보이는 칸은 캔버스 전체가 아니라 가운데 띠가 된다(가로는 캔버스 폭이 100%라 가려지지 않는다).
+const handwritingClipOf = (stroke, point) => point.clip ?? stroke.clip ?? null;
+const handwritingTop = rect => rect?.y ?? 0;
+// 넓이가 없는 칸(겹치지 않는 두 띠의 교집합 등). 이런 칸에는 아무것도 그리지 않는다.
+// 높이가 음수인 사각형을 그대로 clip()에 넘기면 캔버스가 위아래를 뒤집어 그 틈에 잉크를 그린다.
+const handwritingEmpty = rect => Boolean(rect) && (rect.width <= 0 || rect.height <= handwritingTop(rect));
+// 두 칸이 겹치는 부분.
+function handwritingClipMeet(a, b) {
+  if (a === b || !b) return a;
+  if (!a) return b;
+  return { y: Math.max(handwritingTop(a), handwritingTop(b)), width: Math.min(a.width, b.width), height: Math.min(a.height, b.height) };
+}
+// 획 하나를 그린다. from을 주면 그 점부터 이어 그린다(움직이는 동안 새 조각만 그리기).
+// 선분마다 그을 때 보이던 칸을 캔버스 clip()으로 걸고 그린다. 화면과 보내는 그림이 같은 칸으로 잘리므로,
+// 그 뒤 칸이 넓어져도(긋는 도중이어도) 그을 때 보이지 않던 픽셀(둥근 끝, 굵기 절반이 경계 밖으로 나간 부분 포함)은 나타나지 않는다.
+// 첫 점과 gap 점(다시 시작한 자리)은 그 점의 굵기로 점을 찍는다. 펜을 세게 눌러 시작하면 첫 점이 뒤 선보다 굵기 때문이다.
+function drawHandwritingStroke(context, stroke, from = 0) {
+  const points = stroke.points;
+  let current, saved = false;
+  const use = clip => {
+    if (clip === current) return;
+    if (saved) context.restore();
+    saved = false; current = clip;
+    if (!clip) return;
+    context.save(); saved = true;
+    context.beginPath();
+    context.rect(0, handwritingTop(clip), Math.max(0, clip.width), Math.max(0, clip.height - handwritingTop(clip)));
+    context.clip();
+  };
+  for (let index = from; index < points.length; index++) {
+    const point = points[index];
+    if (index === 0 || point.gap) {
+      use(handwritingClipOf(stroke, point));
+      context.beginPath();
+      context.arc(point.x, point.y, handwritingDrawnWidth(stroke, point) / 2, 0, Math.PI * 2);
+      context.fill();
+      continue;
+    }
+    const before = points[index - 1];
+    // 선분은 끝 점을 찍을 때(그 선분을 그을 때)의 칸으로 자른다. 칸을 넓힌 뒤 그은 선분은 앞 점이 옛 칸 경계에 붙어 있어도 새 칸에서 온전히 보인다.
+    use(handwritingClipOf(stroke, point));
+    // 좌표는 그대로이고 압력만 바뀐 신호는 길이 0인 선이다. 캔버스는 길이 0인 선을 그리지 않으므로 점으로 찍는다.
+    if (before.x === point.x && before.y === point.y) {
+      context.beginPath();
+      context.arc(point.x, point.y, handwritingDrawnWidth(stroke, point, before) / 2, 0, Math.PI * 2);
+      context.fill();
+      continue;
+    }
+    context.lineWidth = handwritingDrawnWidth(stroke, point, before);
+    context.beginPath();
+    context.moveTo(before.x, before.y);
+    context.lineTo(point.x, point.y);
+    context.stroke();
+  }
+  if (saved) context.restore();
+}
+// 잉크 범위(굵기 절반 포함)에 여백을 더한 상자. 좌표는 캔버스의 CSS 픽셀이다.
+// area(보이는 필기 칸)를 주면 그 안의 잉크만 센다. 획이 칸 밖으로 나갔다 돌아와도 화면에서 잘린 부분은 보내지 않는다.
+// 칸 밖으로 나간 선분은 잘라 보이는 부분만 센다(Liang–Barsky 선분 자르기). 바깥 점이 범위를 늘리지 않는다.
+// 잉크는 중심선에서 굵기 절반(half)만큼 퍼지므로, 칸을 그만큼 넓힌 상자로 자른다. 중심선이 칸 바로 밖이어도 칸 안에 보이는 잉크는 남는다.
+function clipHandwritingSegment(from, to, area, half = 0) {
+  if (handwritingEmpty(area)) return null;
+  const dx = to.x - from.x, dy = to.y - from.y;
+  let enter = 0, leave = 1;
+  const y0 = handwritingTop(area);
+  for (const [p, q] of [[-dx, from.x + half], [dx, area.width + half - from.x], [-dy, from.y - y0 + half], [dy, area.height + half - from.y]]) {
+    if (p === 0) { if (q < 0) return null; continue; }
+    const ratio = q / p;
+    if (p < 0) { if (ratio > leave) return null; enter = Math.max(enter, ratio); }
+    else { if (ratio < enter) return null; leave = Math.min(leave, ratio); }
+  }
+  return [{ x: from.x + enter * dx, y: from.y + enter * dy }, { x: from.x + leave * dx, y: from.y + leave * dy }];
+}
+// 중심 좌표가 칸 안(경계 포함)인지. 칸이 없으면 안으로 본다.
+const handwritingInside = (point, rect) => !rect || (point.x >= 0 && point.y >= handwritingTop(rect) && point.x <= rect.width && point.y <= rect.height);
+// 점(원)과 칸 사이 거리. 칸 안이면 0이다.
+function handwritingRectDistance(point, rect) {
+  const dx = Math.max(-point.x, 0, point.x - rect.width), dy = Math.max(handwritingTop(rect) - point.y, 0, point.y - rect.height);
+  return Math.hypot(dx, dy);
+}
+// 반지름 half로 그린 점·선분이 칸 안에 픽셀을 하나라도 남기는지. 굵기를 상자로 넓혀 따지면 모서리 근처의
+// 보이지 않는 잉크도 있다고 보므로, 칸까지의 실제 거리가 반지름보다 짧을 때만 보인다고 본다.
+function handwritingInkVisible(from, to, half, rect) {
+  if (!rect) return true;
+  if (handwritingEmpty(rect)) return false;
+  if (clipHandwritingSegment(from, to, rect, 0)) return true;
+  if (handwritingRectDistance(from, rect) < half || handwritingRectDistance(to, rect) < half) return true;
+  const dx = to.x - from.x, dy = to.y - from.y, length = dx * dx + dy * dy;
+  if (!length) return false;
+  const y0 = handwritingTop(rect);
+  for (const corner of [{ x: 0, y: y0 }, { x: rect.width, y: y0 }, { x: 0, y: rect.height }, { x: rect.width, y: rect.height }]) {
+    const t = Math.min(1, Math.max(0, ((corner.x - from.x) * dx + (corner.y - from.y) * dy) / length));
+    if (Math.hypot(from.x + t * dx - corner.x, from.y + t * dy - corner.y) < half) return true;
+  }
+  return false;
+}
+function handwritingBounds(strokes, area = null) {
+  let left = Infinity, top = Infinity, right = -Infinity, bottom = -Infinity;
+  // 점·선분마다 그을 때 보이던 칸 안으로 범위를 가둔다. 그릴 때 같은 칸으로 clip()하므로 범위도 같은 칸을 넘지 않는다.
+  let clip = null;
+  // 점의 잉크 상자(굵기 절반)가 칸과 닿으면 칸 안으로 눌러 넣어 센다. 경계에 정확히 닿은 점(경계에서 잘라 저장한 점)은
+  // 폭이 0이 되어도 범위를 경계까지 늘려야 하므로 빼지 않는다. 칸과 전혀 겹치지 않는 점만 뺀다.
+  const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
+  const add = (point, half) => {
+    let x0 = point.x - half, y0 = point.y - half, x1 = point.x + half, y1 = point.y + half;
+    if (clip) {
+      if (handwritingEmpty(clip)) return;
+      const clipTop = handwritingTop(clip);
+      if (x0 > clip.width || y0 > clip.height || x1 < 0 || y1 < clipTop) return;
+      x0 = clamp(x0, 0, clip.width); x1 = clamp(x1, 0, clip.width); y0 = clamp(y0, clipTop, clip.height); y1 = clamp(y1, clipTop, clip.height);
+    }
+    left = Math.min(left, x0); top = Math.min(top, y0);
+    right = Math.max(right, x1); bottom = Math.max(bottom, y1);
+  };
+  for (const stroke of strokes) {
+    const points = stroke.points;
+    for (let index = 0; index < points.length; index++) {
+      const point = points[index];
+      // 범위를 가두는 칸은 그 점·선분을 그을 때의 칸과 지금 보이는 칸이 겹치는 곳이다.
+      // 반지름은 drawHandwritingStroke와 같은 함수(handwritingDrawnWidth)로 읽는다.
+      // 첫 점과 gap 점은 그 점의 굵기로 찍은 점이고, 선분은 끝 점의 칸으로 자른다(drawHandwritingStroke와 같다).
+      const before = index === 0 || point.gap ? point : points[index - 1];
+      clip = handwritingClipMeet(handwritingClipOf(stroke, point), area);
+      const half = handwritingDrawnWidth(stroke, point, before === point ? null : before) / 2;
+      if (!handwritingInkVisible(before, point, half, clip)) continue;
+      const piece = clip ? clipHandwritingSegment(before, point, clip, half) : [before, point];
+      for (const end of piece ?? [before, point]) add(end, half);
+    }
+  }
+  if (area) {
+    left = Math.max(left, 0); top = Math.max(top, handwritingTop(area));
+    right = Math.min(right, area.width); bottom = Math.min(bottom, area.height);
+  }
+  if (!Number.isFinite(left) || right <= left || bottom <= top) return null;
+  return { x: left - handwritingMargin, y: top - handwritingMargin,
+    width: right - left + 2 * handwritingMargin, height: bottom - top + 2 * handwritingMargin };
+}
+// 흰 바탕에 검은 잉크로 다시 그려 PNG로 만든다. 화면 테마와 상관없이 같은 그림이 나간다.
+// 배율은 기기 화소 비율을 따르되 긴 변이 1024px를 넘지 않게 줄인다. 잉크는 보이는 필기 칸(area) 안만 그린다.
+function handwritingImage(strokes, pixelRatio = 1, area = null) {
+  const box = handwritingBounds(strokes, area);
+  if (!box) return Promise.resolve(null);
+  const scale = Math.min(pixelRatio, handwritingMaxSide / Math.max(box.width, box.height));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.min(handwritingMaxSide, Math.max(1, Math.round(box.width * scale)));
+  canvas.height = Math.min(handwritingMaxSide, Math.max(1, Math.round(box.height * scale)));
+  const context = canvas.getContext?.("2d");
+  if (!context || typeof canvas.toBlob !== "function") return Promise.resolve(null);
+  context.fillStyle = "#ffffff";
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  context.setTransform(scale, 0, 0, scale, -box.x * scale, -box.y * scale);
+  if (area) {
+    context.beginPath();
+    context.rect(0, handwritingTop(area), Math.max(0, area.width), Math.max(0, area.height - handwritingTop(area)));
+    context.clip();
+  }
+  context.fillStyle = "#000000"; context.strokeStyle = "#000000";
+  context.lineCap = "round"; context.lineJoin = "round";
+  for (const stroke of strokes) drawHandwritingStroke(context, stroke);
+  return new Promise(resolve => canvas.toBlob(resolve, "image/png"));
+}
+function setupHandwriting() {
+  const find = id => document.querySelector(`#handwriting-${id}`);
+  const button = find("button"), pad = find("pad"), canvas = find("canvas"), status = find("status");
+  const undo = find("undo"), clear = find("clear"), cancel = find("cancel"), insert = find("insert");
+  if (![button, pad, canvas, status, undo, clear, cancel, insert].every(node => typeof node?.addEventListener === "function")) return;
+  let opened = false, strokes = [], penSeen = false, reading = null, session = 0, selection = null, context = null, box = null, origin = null, ink = null, owner = null;
+  let area = null, undoRanges = [], redoRanges = [], side = "above";
+  // 질문 칸에 입력이 들어오기 직전(beforeinput)의 선택 범위와 글. 이번 편집이 바꿀 범위다(noteEdit 참고).
+  let pendingEdit = null;
+  const active = new Map();
+  function controls() {
+    const blank = strokes.length === 0, waiting = Boolean(reading);
+    undo.disabled = blank || waiting;
+    clear.disabled = blank || waiting;
+    insert.disabled = blank || waiting;
+    // 대화 상자 전체에 aria-busy를 걸지 않는다. 걸면 읽기 도구가 안의 상태 줄 안내를 미룰 수 있다.
+  }
+  function show(message, error = false) {
+    say(status, message || "");
+    status.classList?.toggle("is-error", Boolean(message) && error);
+    // 상태 줄이 생기거나 사라지면 패드 높이가 바뀌므로 자리를 다시 잰다.
+    if (opened) place();
+  }
+  // 화면 잉크는 캔버스 글자색(--ink)이다. 테마가 바뀌어 색이 달라지면 이미 쓴 획도 새 색으로 다시 그린다.
+  const inkColor = () => window.getComputedStyle?.(canvas)?.color || "#0A2540";
+  function paint() {
+    if (!context) return;
+    ink = inkColor();
+    context.strokeStyle = ink; context.fillStyle = ink;
+    context.lineCap = "round"; context.lineJoin = "round";
+  }
+  // 지금 보이는 필기 칸(CSS 픽셀). 크기가 같으면 같은 객체를 돌려줘, 같은 칸에서 찍은 점끼리 clip()을 한 번만 건다.
+  const visibleArea = () => area;
+  function redraw() {
+    if (!context) return;
+    // 보이는 칸이 캔버스보다 작을 수 있어(패드 스크롤) 캔버스 전체를 지운다.
+    context.clearRect(0, 0, box?.width || canvas.width, box?.height || canvas.height);
+    paint();
+    for (const stroke of strokes) drawHandwritingStroke(context, stroke);
+  }
+  // 점은 캔버스 왼쪽 위 기준 CSS 픽셀로 저장하고 바꾸지 않는다. 칸 크기가 바뀌어도 배율을 곱하지 않아,
+  // 600px 칸의 x=110 점은 400px로 줄여도 x=110에 그대로 있고, 지금 칸 밖으로 나간 부분만 잘려 보이지 않는다(보내지도 않는다).
+  // 칸을 다시 넓히면 그을 때 보이던 부분까지만 다시 보인다(점마다 저장한 칸으로 clip()).
+  // 긋는 도중 칸이 넓어져도 이미 저장한 점의 칸은 넓히지 않는다. 그 뒤에 찍는 점부터 새 칸을 쓴다.
+  // 칸 크기가 바뀌어도 그리던 획은 끝내지 않는다. 그 뒤 브라우저가 포인터를 취소하면(pointercancel) 그 획을 찾아 버릴 수 있어야 한다.
+  // 캔버스 화소는 보이는 크기 × 기기 화소 비율이다.
+  // 보이는 칸 = 캔버스 ∩ 패드의 스크롤 상자 안쪽 ∩ 화면(세로). 패드 높이가 모자라 안쪽이 스크롤되면 캔버스 위·아래가 가려지는데,
+  // 그 부분에 쓴 잉크는 학생이 볼 수 없으므로 기록하지도 보내지도 않는다. 값이 같으면 같은 객체를 그대로 둔다.
+  // 캔버스가 화면 밖이거나 모두 가려지면 크기 0인 칸이 되어 어떤 잉크도 보이지 않는다.
+  function measureArea() {
+    if (!(box?.width > 0 && box?.height > 0)) { area = null; return false; }
+    const shell = pad.getBoundingClientRect?.();
+    const innerTop = shell ? shell.top + (Number(pad.clientTop) || 0) : -Infinity;
+    const innerBottom = shell ? (Number.isFinite(pad.clientHeight) && pad.clientHeight > 0 ? innerTop + pad.clientHeight : shell.bottom) : Infinity;
+    const screenBottom = window.innerHeight > 0 ? window.innerHeight : Infinity;
+    const y = Math.max(0, innerTop - box.top, -box.top);
+    const height = Math.max(y, Math.min(box.height, innerBottom - box.top, screenBottom - box.top));
+    if (area && handwritingTop(area) === y && area.width === box.width && area.height === height) return false;
+    area = y > 0 ? { y, width: box.width, height } : { width: box.width, height };
+    return true;
+  }
+  function prepare() {
+    box = canvas.getBoundingClientRect?.() ?? null;
+    measureArea();
+    origin = box ? { left: box.left, top: box.top } : null;
+    const ratio = window.devicePixelRatio || 1;
+    canvas.width = Math.max(1, Math.round((box?.width || 0) * ratio));
+    canvas.height = Math.max(1, Math.round((box?.height || 0) * ratio));
+    context = canvas.getContext?.("2d") ?? null;
+    context?.setTransform(ratio, 0, 0, ratio, 0, 0);
+    redraw();
+  }
+  // 넓은 화면에서 입력 줄 바로 위에 놓는다(자세한 규칙은 아래). 좁은 화면은 CSS가 아래 시트로 덮어쓴다.
+  // allowBelow는 학생이 패드를 연 뒤 스크롤·창 크기·입력 줄 크기를 바꿔 자리를 다시 잴 때만 참이다.
+  function place(allowBelow = side === "below") {
+    const row = document.querySelector(".composer-row")?.getBoundingClientRect?.();
+    const height = window.innerHeight || 0;
+    if (!row || !(row.width > 0) || !height) return;
+    pad.style?.setProperty("--handwriting-x", `${Math.max(8, row.left)}px`);
+    pad.style?.setProperty("--handwriting-width", `${row.width}px`);
+    // 수용 조건대로 넓은 화면에서는 패드를 입력 줄 위(8px 띄움)에 연다. 위쪽이 필기 칸 최소 높이(160px)보다 좁으면
+    // 열 때 문서를 위로 굴려 자리를 만든다(makeRoom). 실제 화면에서는 입력 줄 위에 머리글(76px 이상)이 있어 대개 자리가 난다.
+    // 위에 놓을 때는 아래 끝(bottom)을 입력 줄 위 8px에 묶되 화면 안(위아래 8px)에 가두고,
+    // 최대 높이는 입력 줄 위쪽 남은 높이와 화면 안 남은 높이 중 작은 쪽이다. 상태 줄이 생겨 커져도 입력 줄을 덮지 않는다.
+    // 연 뒤 학생이 스크롤해 입력 줄이 화면 위쪽에 붙어 위쪽이 최소 높이보다 좁아지고 아래쪽이 더 넓으면, 그때만 줄 아래(top 고정)로 옮긴다.
+    // 스크롤 중에 문서를 대신 굴리면 학생의 스크롤과 다투므로, 패드를 옮겨 필기 칸과 버튼이 0px로 접히지 않게 한다.
+    // 줄 아래에 둘 때는 입력 줄 바로 아래의 첨부 조작(「첨부 제거」 버튼)까지 비운다. 입력 줄 아래 끝만 재면 시트가 그 버튼을 덮었다.
+    const controlsBottom = attachControlsBottom(row);
+    const above = row.top - 16, below = height - controlsBottom - 16;
+    const putBelow = () => {
+      side = "below";
+      const top = Math.min(height - 8, Math.max(8, controlsBottom + 8));
+      pad.style?.setProperty("--handwriting-bottom", "auto");
+      pad.style?.setProperty("--handwriting-top", `${top}px`);
+      pad.style?.setProperty("--handwriting-max-height", `${Math.max(0, height - top - 8)}px`);
+    };
+    // 좁은 화면(680px 이하) 시트는 폭 전체를 쓰고, 입력 줄을 덮지 않게 다음 순서로 놓는다(열 때 문서를 굴려 자리를 만든 뒤 잰다, makeRoom).
+    // 1) 입력 줄 위쪽이 최소 높이(160px) 이상이면 줄 바로 위. 2) 아니고 아래쪽이 최소 높이 이상이면 줄 바로 아래.
+    // 3) 둘 다 모자라면 예전처럼 화면 아래 시트(아래 안전 영역만큼 띄움). 위·아래에 둘 때는 입력 줄이 안전 영역을 비우므로 아래 여백 14px다.
+    // 예전에는 좁은 화면에서 늘 줄 위에 두어, 입력 줄이 화면 위 20px에 있으면 시트 최대 높이가 4px로 접혔다.
+    // 위·아래 모두 160px에 못 미쳐도 더 넓은 쪽이 쓸 만하면(96px 이상: 제목·버튼 한 줄이 보이고 나머지는 패드 안에서 스크롤) 그쪽에 둔다.
+    // 화면 아래 시트는 질문 칸과 「첨부 제거」 버튼을 덮으므로, 위·아래 어디에도 쓸 만한 자리가 없을 때만 쓴다.
+    // 예전에는 둘 다 160px 미만이면 곧장 화면 아래 시트로 가, 질문 칸을 늘리고 사진을 붙인 390×500에서 입력 줄을 덮었다.
+    const narrow = (window.innerWidth || 0) <= 680;
+    if (narrow) {
+      const roomy = side => side >= handwritingMinRoom || (Math.max(above, below) >= handwritingUsableRoom && side === Math.max(above, below));
+      if (!roomy(above) && roomy(below)) {
+        pad.style?.setProperty("--handwriting-sheet-padding", "14px");
+        putBelow();
+        return;
+      }
+      if (!roomy(above)) {
+        side = "sheet";
+        pad.style?.removeProperty("--handwriting-sheet-padding");
+        pad.style?.setProperty("--handwriting-top", "auto");
+        pad.style?.setProperty("--handwriting-bottom", "0px");
+        pad.style?.setProperty("--handwriting-max-height", `${Math.max(0, height - 16)}px`);
+        return;
+      }
+      pad.style?.setProperty("--handwriting-sheet-padding", "14px");
+    } else if (allowBelow && above < handwritingMinRoom && below > above) {
+      putBelow();
+      return;
+    }
+    side = "above";
+    const bottom = Math.min(height - 8, Math.max(8, height - row.top + 8));
+    pad.style?.setProperty("--handwriting-top", "auto");
+    pad.style?.setProperty("--handwriting-bottom", `${bottom}px`);
+    pad.style?.setProperty("--handwriting-max-height", `${Math.max(0, Math.min(above, height - bottom - 8))}px`);
+  }
+  // 넓은 화면에서 입력 줄 위쪽이 최소 높이보다 좁고 문서가 아래로 굴러가 있으면, 모자란 만큼 위로 굴려 입력 줄 위에 자리를 만든다.
+  // 여는 순간에만 한 번 한다(스크롤할 때마다 하면 학생의 스크롤과 다툰다). 좁은 화면에서도 한다(아래 makeRoom 참고).
+  // 입력 줄의 자리·크기와 캔버스 크기를 한 줄로 적어 둔 값. 크기 감시 알림이 실제 변화인지 가를 때 쓴다.
+  let padLayout = "";
+  // 입력 줄 아래 끝과, 보이는 「첨부 제거」 버튼 아래 끝 중 아래쪽. 첨부를 붙이면 이 버튼이 입력 줄 바로 아래에 나타난다.
+  function attachControlsBottom(row) {
+    const clear = !photoClear?.hidden ? photoClear?.getBoundingClientRect?.() : null;
+    return clear?.height > 0 ? Math.max(row.bottom, clear.bottom) : row.bottom;
+  }
+  function layoutKey() {
+    const row = document.querySelector(".composer-row")?.getBoundingClientRect?.();
+    const own = canvas.getBoundingClientRect?.();
+    // 첨부 제거 버튼이 나타나거나 사라져도(입력 줄 자리는 그대로일 수 있다) 줄 아래 자리가 바뀌므로 함께 적는다.
+    return [row?.left, row?.top, row?.width, row?.height, row ? attachControlsBottom(row) : "", own?.width, own?.height, window.innerWidth, window.innerHeight, window.devicePixelRatio].join();
+  }
+  function layoutChanged() {
+    const key = layoutKey();
+    if (key === padLayout) return false;
+    padLayout = key;
+    return true;
+  }
+  // 연 뒤 자리를 다시 재는 길은 이 함수 하나다. 문서·패드 안쪽 스크롤, 크기 감시 알림(첫 알림 포함), 창 크기 변화,
+  // 질문 칸 입력·첨부 변화가 모두 여기로 온다. 입력 줄 자리·크기, 캔버스 크기, 창 크기가 마지막으로 잰 값과 같으면
+  // 아무것도 하지 않는다. 신호마다 따로 비교를 붙이다 빠뜨리면, 바뀐 것 없이 패드가 줄 아래로 옮겨 가는 결함이 되풀이됐다.
+  function relayout() {
+    if (!opened) return;
+    if (layoutChanged()) { place(true); prepare(); return; }
+    // 자리는 그대로여도 패드 안쪽 스크롤로 캔버스의 보이는 띠가 바뀔 수 있다. 패드는 옮기지 않고 보이는 칸만 다시 잰다.
+    const rect = canvas.getBoundingClientRect?.();
+    if (rect) { box = rect; origin = { left: rect.left, top: rect.top }; if (measureArea()) redraw(); }
+  }
+  // 좁은 화면도 같다. 입력 줄이 화면 위쪽에 붙어 있으면 먼저 굴려 시트를 줄 위에 둘 자리를 만들고, 그래도 모자랄 때만 줄 아래·화면 아래로 놓는다.
+  function makeRoom() {
+    const row = document.querySelector(".composer-row")?.getBoundingClientRect?.();
+    const scrolled = Number(window.scrollY) || 0;
+    if (!row || scrolled <= 0) return;
+    const deficit = handwritingMinRoom - (row.top - 16);
+    if (deficit > 0) window.scrollBy?.(0, -Math.min(deficit, scrolled));
+  }
+  function openPad() {
+    if (opened) { canvas.focus(); return; }
+    opened = true; session++;
+    strokes = []; active.clear(); penSeen = false; reading = null; box = null; area = null;
+    selection = caret();
+    undoRanges = []; redoRanges = []; side = "above";
+    // 패드는 연 순간의 계정·대화에 묶인다. 그 뒤 대화가 바뀌면(사진을 붙여 새 대화로 보낸 경우 등) 넣기 전에 버린다.
+    owner = { account: historyAccount, conversation: activeConversation };
+    pad.hidden = false;
+    button.setAttribute("aria-expanded", "true");
+    show("");
+    makeRoom(); place(); prepare(); controls();
+    padLayout = layoutKey();
+    canvas.focus();
+  }
+  // 닫으면 읽던 요청을 끊고, 늦게 온 응답은 회차(session)가 달라 버린다.
+  function closePad(restore = true) {
+    if (!opened) return;
+    opened = false; session++;
+    reading?.abort(); reading = null;
+    for (const id of active.keys()) if (canvas.hasPointerCapture?.(id)) canvas.releasePointerCapture?.(id);
+    active.clear(); strokes = []; penSeen = false;
+    context?.clearRect(0, 0, visibleArea()?.width || canvas.width, visibleArea()?.height || canvas.height);
+    pad.hidden = true;
+    button.setAttribute("aria-expanded", "false");
+    show(""); controls();
+    if (restore) button.focus();
+  }
+  // 커서 자리. 패드를 열기 전에 적어 두어, 패드로 초점이 옮겨 가도 그 자리에 넣는다.
+  function caret() {
+    const length = input.value.length;
+    const start = Number.isInteger(input.selectionStart) ? input.selectionStart : length;
+    const end = Number.isInteger(input.selectionEnd) ? input.selectionEnd : start;
+    return { start, end, value: input.value };
+  }
+  // 패드를 연 사이 질문 칸의 글이 바뀌었으면 열기 전 자리를 새 글 위에서 다시 찾는다. 지금 커서는 쓰지 않는다.
+  // 후보 자리마다 "열기 전 범위 바로 앞 글자(32자까지)가 후보 앞과 얼마나 이어지는가 + 바로 뒤 글자가 후보 뒤와 얼마나 이어지는가"를 센다.
+  // 고른 글자가 있으면 같은 글자가 나오는 곳만, 커서만 있었으면 모든 자리가 후보다. 가장 많이 이어지는 곳을 고르고, 같으면 원래 자리에 가까운 곳이다.
+  // 그래서 양끝을 고치거나 같은 말을 앞에 새로 붙여도 원래 범위 쪽을 찾는다. 이어지는 글자가 하나도 없을 때만 아래 공통 부분 방식으로 옮긴다.
+  function savedRange() {
+    const before = selection?.value ?? input.value, after = input.value;
+    const start = Math.min(selection?.start ?? after.length, before.length);
+    const end = Math.min(Math.max(selection?.end ?? start, start), before.length);
+    if (before === after) return { start, end };
+    const picked = before.slice(start, end);
+    const left = before.slice(Math.max(0, start - 32), start), right = before.slice(end, end + 32);
+    const sameEnd = (a, b) => { let n = 0; while (n < a.length && n < b.length && a[a.length - 1 - n] === b[b.length - 1 - n]) n++; return n; };
+    const sameStart = (a, b) => { let n = 0; while (n < a.length && n < b.length && a[n] === b[n]) n++; return n; };
+    let best = -1, bestScore = 0;
+    for (let at = 0; at + picked.length <= after.length; at++) {
+      if (picked && !after.startsWith(picked, at)) continue;
+      const score = sameEnd(left, after.slice(Math.max(0, at - 32), at)) + sameStart(right, after.slice(at + picked.length, at + picked.length + 32));
+      // 앞뒤 글자로도 가를 수 없는 동점(같은 글이 통째로 반복될 때)은 늘어난 글이 범위 앞에 붙었다고 보고,
+      // 원래 자리에서 길이 차만큼 민 곳에 가까운 후보를 고른다.
+      const guess = start + after.length - before.length;
+      if (score > bestScore || (score === bestScore && best >= 0 && Math.abs(at - guess) < Math.abs(best - guess))) { best = at; bestScore = score; }
+    }
+    // 고른 글자는 찾았는데 앞뒤가 하나도 안 이어지면, 같은 글자 가운데 원래 자리에 가까운 곳을 쓴다.
+    if (best < 0 && picked) {
+      for (let at = after.indexOf(picked); at >= 0; at = after.indexOf(picked, at + 1)) {
+        if (best < 0 || Math.abs(at - start) < Math.abs(best - start)) best = at;
+      }
+    }
+    if (best >= 0) return { start: best, end: best + picked.length };
+    let prefix = 0;
+    while (prefix < before.length && prefix < after.length && before[prefix] === after[prefix]) prefix++;
+    let suffix = 0;
+    while (suffix < before.length - prefix && suffix < after.length - prefix &&
+      before[before.length - 1 - suffix] === after[after.length - 1 - suffix]) suffix++;
+    const move = position => position <= prefix ? position
+      : position >= before.length - suffix ? position + after.length - before.length
+        : after.length - suffix;
+    return { start: move(start), end: move(end) };
+  }
+  // 패드가 열린 동안 질문 칸에서 글이 바뀔 때마다(키보드·Scribble 모두 input 이벤트) 적어 둔 자리를 옮긴다.
+  // 글자 비교만으로는 같은 글을 앞에 붙였는지 뒤에 붙였는지 가를 수 없어, 고친 직후의 커서를 기준으로 삼는다.
+  // 커서 뒤 글자는 이번 편집에서 그대로이므로 공통 끝 부분을 커서 뒤까지만 인정하고, 공통 앞 부분은 그 나머지 안에서만 센다.
+  // 실행 취소·다시 실행은 브라우저가 알려 주는 입력 종류(inputType의 historyUndo·historyRedo)로만 알아본다.
+  // 같은 글이 다시 나왔다는 것만으로 되돌리면, 앞에 A를 붙이고 끝의 A를 지운 보통 편집도 실행 취소로 잘못 본다.
+  // 보통 편집 때마다 직전 범위를 실행 취소 목록에 쌓고(아래 noteEdit 끝), 실행 취소는 거기서 꺼내 다시 실행 목록으로 옮긴다.
+  // 브라우저는 이어 친 삭제처럼 여러 편집을 한 번에 되돌리기도 하므로, 맨 위 하나가 아니라 지금 글과 같은 기록을
+  // 위에서부터 찾아 그 범위로 돌아간다. 건너뛴 중간 기록은 브라우저도 다시 실행으로 들르지 않으므로 버린다.
+  // 같은 글이 없으면 아래 보통 방식으로 옮긴다.
+  function noteEdit(inputType) {
+    // 입력 직전에 받아 둔 범위는 이번 편집에만 쓴다(어느 길로 끝나든 비운다).
+    const announced = pendingEdit;
+    pendingEdit = null;
+    if (!opened || !selection) return;
+    const before = selection.value, after = input.value;
+    // 글이 그대로여도 브라우저가 교체 범위를 알려 줬으면 편집이다. 「B」를 골라 같은 「B」를 붙여넣으면 글은 같지만
+    // 고른 글자는 새 글자로 바뀌었으므로 범위를 접어야 한다(예전에는 여기서 끝나 새로 붙인 B를 지웠다).
+    const replacedSame = before === after && announced && announced.value === before && announced.end > announced.start;
+    if (before === after && !replacedSame) return;
+    const history = inputType === "historyUndo" ? [undoRanges, redoRanges] : inputType === "historyRedo" ? [redoRanges, undoRanges] : null;
+    if (history) {
+      const [from, to] = history;
+      // 직전 범위는 기록에서 찾든 못 찾든 반대쪽 목록에 먼저 쌓는다. 패드를 열기 전 글로 실행 취소한 뒤 다시 실행해도
+      // 돌아올 범위가 남는다(그 이전 글은 패드가 본 적이 없어 기록에 없다).
+      to.push({ ...selection });
+      const index = from.map(entry => entry.value).lastIndexOf(after);
+      if (index >= 0) {
+        const saved = from[index];
+        from.length = index;
+        selection = { ...saved };
+        return;
+      }
+    }
+    // 바뀐 구간: 옛 글 [prefix, editEnd) → 새 글 [prefix, prefix + added).
+    // 브라우저가 입력 직전(beforeinput)에 알려 준 질문 칸의 선택 범위가 곧 바뀔 범위다. 이 값이 있으면 그대로 쓴다.
+    // 글자 비교만으로는 「B를 골라 BXY를 붙여넣기」와 「B 뒤에 XY 쓰기」처럼 결과 글이 같은 편집을 가를 수 없어,
+    // 새로 붙인 B를 옛 B로 보고 지웠다. 선택 없이 지우는 편집(Backspace 등)은 브라우저가 지울 범위를 미리 알려 주지 않으므로 글자 비교로 찾는다.
+    const target = announced && announced.value === before ? announced : null;
+    const known = target && (target.end > target.start || /^insert/.test(inputType || ""))
+      ? { prefix: target.start, editEnd: target.end, added: after.length - before.length + (target.end - target.start) } : null;
+    let prefix, editEnd, added;
+    if (known && known.added >= 0 && known.prefix + known.added <= after.length
+      && after.slice(0, known.prefix) === before.slice(0, known.prefix)
+      && after.slice(known.prefix + known.added) === before.slice(known.editEnd)) {
+      ({ prefix, editEnd, added } = known);
+    } else {
+      const caretAt = Number.isInteger(input.selectionEnd) ? Math.min(input.selectionEnd, after.length) : after.length;
+      let suffix = 0;
+      while (suffix < before.length && suffix < after.length - caretAt &&
+        before[before.length - 1 - suffix] === after[after.length - 1 - suffix]) suffix++;
+      prefix = 0;
+      while (prefix < before.length - suffix && prefix < after.length - suffix && before[prefix] === after[prefix]) prefix++;
+      editEnd = before.length - suffix; added = after.length - suffix - prefix;
+    }
+    const inserted = prefix === editEnd;
+    // 경계에 끼워 넣은 글은 고른 범위 밖이다. 범위 시작에서 넣으면 시작을 넣은 글 뒤로, 범위 끝에서 넣으면 끝을 넣은 글 앞에 둔다.
+    // 커서만 있었으면 넣은 글 뒤에 둔다(이어 쓴 글 다음에 손글씨가 온다).
+    const move = (position, edge) => {
+      if (position < prefix) return position;
+      if (position > editEnd) return position + after.length - before.length;
+      if (inserted) return edge === "end" ? prefix : prefix + added;
+      return position === prefix ? prefix : prefix + added;
+    };
+    const collapsed = selection.start === selection.end;
+    const previous = selection;
+    // 편집이 고른 범위 안쪽을 건드렸으면 범위를 넓히지 않고 바뀐 구간 끝 한 점으로 접어, 새로 쓴 글을 지우지 않고 그 뒤에 넣는다.
+    // - 고른 글자 일부라도 지운 편집(바뀐 옛 구간 [prefix, editEnd)와 고른 범위가 겹침): 「ABCD」에서 B를 고른 뒤 BC를 XY로 바꾸면
+    //   OCR을 넣어 「AXYOCRD」다(예전에는 XY까지 지워 「AOCRD」).
+    // - 고른 범위 안쪽에 끼워 넣은 글(경계가 아닌 자리): 「ABCD」에서 BC를 고른 뒤 B와 C 사이에 X를 쓰면 「ABX가상CD」다
+    //   (예전에는 범위가 BXC로 늘어 X까지 지워 「A가상D」). 경계에 끼워 넣은 글은 예전처럼 범위 밖으로 둔다.
+    const overlaps = !collapsed && (inserted
+      ? prefix > selection.start && prefix < selection.end
+      : prefix < selection.end && editEnd > selection.start);
+    if (overlaps) selection = { start: prefix + added, end: prefix + added, value: after };
+    else {
+      const start = move(selection.start, "start");
+      selection = { start, end: collapsed ? start : Math.max(start, move(selection.end, "end")), value: after };
+    }
+    if (history) return;
+    // 편집마다 직전 글과 범위를 모두 쌓는다. 브라우저가 실행 취소를 어떻게 묶는지(이어 친 삭제, 커서 이동, Delete·Backspace)는
+    // 추측하지 않는다. 브라우저가 몇 개를 한 번에 되돌려도 돌아간 글은 반드시 이 기록 가운데 하나라, 위에서 같은 글을 찾으면 된다.
+    // 상한(1,000개)을 넘으면 맨 앞(패드를 열 때의 범위)은 남기고 가장 오래된 중간 기록부터 버린다.
+    undoRanges.push({ ...previous });
+    if (undoRanges.length > 1000) undoRanges.splice(1, 1);
+    redoRanges = [];
+  }
+  function placeText(text) {
+    const spot = savedRange();
+    const length = input.value.length;
+    const start = Math.min(spot.start, length);
+    const end = Math.min(Math.max(spot.end, start), length);
+    if (typeof input.setRangeText === "function") input.setRangeText(text, start, end, "end");
+    else {
+      input.value = input.value.slice(0, start) + text + input.value.slice(end);
+      input.setSelectionRange?.(start + text.length, start + text.length);
+    }
+    // 입력 이벤트로 보내기 버튼 상태를 다시 맞춘다. 보내지는 않는다.
+    if (typeof input.dispatchEvent === "function" && typeof Event === "function") input.dispatchEvent(new Event("input", { bubbles: true }));
+    else updateSend();
+  }
+  async function read() {
+    if (!opened || reading || !strokes.length) return;
+    // 넣기를 누른 순간까지의 획만 보낸다. 다른 손가락으로 넣기를 누른 채 펜이 아직 닿아 있어도
+    // 그리던 획을 여기서 끝내, 화면의 획과 보내는 그림이 어긋나지 않게 한다. 읽는 동안에는 새 획도 받지 않는다.
+    for (const id of active.keys()) if (canvas.hasPointerCapture?.(id)) canvas.releasePointerCapture?.(id);
+    active.clear();
+    // 보내는 그림은 지금 캔버스 전체(크기)로 자른다. 지금 스크롤로 가려진 띠는 자르지 않는다. 넣기 버튼까지 패드를 스크롤하면
+    // 캔버스 위쪽이 가려지는데, 그곳 잉크도 쓸 때는 보였던 것이다(쓸 때 보이지 않던 잉크는 점마다 저장한 칸이 이미 잘라 둔다).
+    // 캔버스를 줄여 칸 밖으로 나간 잉크는 지금처럼 빼고 보낸다.
+    const area = box?.width > 0 && box?.height > 0 ? { width: box.width, height: box.height } : null;
+    if (!handwritingBounds(strokes, area)) {
+      // 모든 잉크가 보이는 칸 밖에 있으면 보낼 글씨가 없다.
+      show(handwritingMessages.unreadable, true);
+      return;
+    }
+    // 패드를 닫으면 회차가 달라져 늦은 응답을 버린다. 패드를 연 계정이나 대화에서 벗어났는데 패드가 남아 있으면
+    // 그때 닫고 버린다. 그래서 인식 글자는 패드를 연 그 대화의 질문 칸에만 들어간다.
+    const ticket = session;
+    const stale = () => {
+      if (ticket !== session) return true;
+      if (owner?.account === historyAccount && owner?.conversation === activeConversation) return false;
+      closePad(false);
+      return true;
+    };
+    if (stale()) return;
+    const controller = new AbortController();
+    reading = controller;
+    let timedOut = false, message = null, text = "";
+    const timer = setTimeout(() => { timedOut = true; controller.abort(); }, handwritingTimeoutMs);
+    show(handwritingMessages.reading); controls();
+    // 넣기 버튼이 잠기면 브라우저가 초점을 문서 밖으로 놓친다. 그 전에 취소로 옮겨 두어 Esc·취소가 계속 듣게 한다.
+    cancel.focus();
+    try {
+      const image = await handwritingImage(strokes, window.devicePixelRatio || 1, area);
+      if (stale()) return;
+      if (!image) message = handwritingMessages.failed;
+      else if (image.size > handwritingMaxBytes) message = handwritingMessages.tooLarge;
+      else {
+        const form = new FormData();
+        form.append("image", image, "handwriting.png");
+        form.append("lang", uiLang);
+        const response = await fetch(handwritingPath, { method: "POST", headers: { Accept: "application/json" }, body: form, signal: controller.signal });
+        if (stale()) return;
+        if (response.ok) {
+          // 본문 받기와 JSON 해석을 나눈다. 받는 도중의 실패(시간 초과로 끊음·연결 끊김)는 바깥 catch로 넘겨
+          // 시간 초과·연결 문구를 띄운다. 예전처럼 response.json()의 실패를 모두 삼키면, 상태 200을 먼저 받고 본문을
+          // 기다리다 시간 초과된 경우에도 「서버가 글씨를 처리하지 못했어요」가 떴다. 받은 본문이 JSON이 아닐 때만 서버 응답 문제다.
+          const body = await response.text();
+          if (stale()) return;
+          let payload = null;
+          try { payload = JSON.parse(body); } catch { payload = null; }
+          text = typeof payload?.text === "string" ? payload.text.trim() : "";
+          if (payload === null) message = handwritingMessages.failed;
+          else if (!text) message = handwritingMessages.unreadable;
+        } else message = handwritingMessages[handwritingStatusMessages[response.status] ?? "failed"];
+      }
+    } catch {
+      if (stale()) return;
+      message = timedOut ? handwritingMessages.timeout : handwritingMessages.offline;
+    } finally {
+      clearTimeout(timer);
+      if (reading === controller) reading = null;
+    }
+    if (stale()) return;
+    if (message) {
+      // 획은 그대로 둔다. 고쳐 쓰거나 바로 다시 넣을 수 있다.
+      show(message, true); controls();
+      insert.focus();
+      return;
+    }
+    placeText(text);
+    closePad(false);
+    // 패드 안 상태 줄은 패드와 함께 사라지므로, 넣었다는 안내는 늘 문서에 있는 읽기 전용 알림 줄에 남긴다.
+    say(document.querySelector("#conversation-announce"), handwritingMessages.inserted);
+    input.focus();
+  }
+  function point(event) {
+    const pressure = typeof event.pressure === "number" && event.pressure > 0 ? Math.min(1, event.pressure) : .5;
+    // 화면 좌표를 캔버스 왼쪽 위 기준 CSS 픽셀로 바꾼다.
+    return { x: event.clientX - (origin?.left || 0), y: event.clientY - (origin?.top || 0), p: pressure };
+  }
+  function dropStroke(stroke) {
+    const index = strokes.indexOf(stroke);
+    if (index >= 0) strokes.splice(index, 1);
+  }
+  canvas.addEventListener("pointerdown", event => {
+    if (!opened || event.button > 0) return;
+    const type = event.pointerType || "mouse";
+    // 읽는 동안에는 새 획을 받지 않지만, 그 사이 닿은 펜도 이번 패드에서 펜을 봤다는 기록으로 남긴다.
+    // 그래야 읽기가 실패한 뒤에도 손가락(손바닥) 입력을 계속 무시한다.
+    if (type === "pen" && reading) penSeen = true;
+    if (reading) return;
+    if (type === "pen" && !penSeen) {
+      penSeen = true;
+      for (const [id, stroke] of active) {
+        if (stroke.type !== "touch") continue;
+        active.delete(id); dropStroke(stroke);
+        if (canvas.hasPointerCapture?.(id)) canvas.releasePointerCapture?.(id);
+      }
+      redraw();
+    }
+    if (type === "touch" && penSeen) return;
+    event.preventDefault?.();
+    // 오류 문구는 여기서 지우지 않는다. 지우면 상태 줄이 사라져 패드 높이가 줄고 캔버스가 화면에서 움직이는데,
+    // 그 뒤에 잰 위치로 이미 누른 점을 바꾸면 첫 점이 엉뚱한 자리(위로 20px 밀린 y=−15 등)에 찍힌다.
+    // 문구는 펜을 뗀 뒤(pointerup) 지운다. 그러면 긋는 동안에는 캔버스가 움직이지 않는다.
+    // 좁은 화면 시트는 안에서 스크롤될 수 있어, 획을 시작할 때마다 캔버스의 화면 위치를 다시 잰다.
+    const rect = canvas.getBoundingClientRect?.();
+    if (rect) { origin = { left: rect.left, top: rect.top }; box = rect; if (measureArea()) redraw(); }
+    if (context && inkColor() !== ink) redraw();
+    canvas.setPointerCapture?.(event.pointerId);
+    const first = point(event);
+    // last는 잘라 내기 전의 마지막 포인터 자리다. 다음 선분을 칸 경계에서 자를 때 쓴다.
+    // 점마다 clip에 그 점을 찍을 때 보이던 칸을 적는다. 화면에 그릴 때와 보낼 그림을 만들 때 이 칸으로 자른다.
+    first.clip = visibleArea();
+    // lastArea·lastInside는 앞 포인터 자리를 잴 때의 칸과, 그 자리가 그 칸 안이었는지다(pointermove 참고).
+    // lastClient는 마지막 신호의 화면 좌표다. 펜을 뗀 자리가 화면에서 그대로인지 가를 때 쓴다(extend 참고).
+    const stroke = { type, points: [first], last: first, broken: false, lastArea: first.clip, lastInside: handwritingInside(first, first.clip),
+      lastClient: { x: event.clientX, y: event.clientY } };
+    first.w = handwritingWidth(stroke, first);
+    strokes.push(stroke); active.set(event.pointerId, stroke);
+    if (context) { paint(); drawHandwritingStroke(context, stroke); }
+    controls();
+  });
+  canvas.addEventListener("pointermove", event => {
+    const stroke = active.get(event.pointerId);
+    if (!stroke) return;
+    event.preventDefault?.();
+    const coalesced = typeof event.getCoalescedEvents === "function" ? event.getCoalescedEvents() : [];
+    extend(stroke, coalesced?.length ? coalesced : [event]);
+  });
+  // 포인터 신호(이동·떼기)의 좌표를 획에 잇는다. release는 펜을 뗀 신호다. 펜은 뗄 때 압력이 0으로 오므로
+  // 그 신호에는 앞 신호의 압력을 그대로 써 끝 굵기가 바뀌지 않게 한다.
+  function extend(stroke, samples, release = false) {
+    // 획을 긋는 동안 휠·스크롤로 패드가 움직일 수 있어, 신호마다 캔버스의 화면 위치를 다시 잰다.
+    const rect = canvas.getBoundingClientRect?.();
+    if (rect) { origin = { left: rect.left, top: rect.top }; box = rect; if (measureArea()) redraw(); }
+    const from = stroke.points.length;
+    // 선분마다 쓰는 순간의 보이는 칸 경계(굵기 절반만큼 넓힌 상자)에서 잘라 그 안의 조각만 저장한다.
+    // 칸 밖으로 나간 부분은 기록하지 않으므로, 나중에 칸이 넓어져도 처음 잘린 잉크가 되살아나거나 서버로 가지 않는다.
+    // 칸 밖에 나갔다 다시 들어오면 들어온 자리를 gap 점으로 넣어 앞 조각과 잇지 않는다.
+    const area = visibleArea();
+    for (const each of samples) {
+      // 신호의 화면 좌표가 마지막 신호와 같으면 펜은 화면에서 움직이지 않은 것이다(압력만 바뀐 신호).
+      // 그 사이 패드가 스크롤돼 캔버스만 움직였어도 새 캔버스 좌표로 선을 긋지 않고, 마지막 획 좌표에서 굵기만 갱신한다.
+      // 떼기 신호라면 더할 것이 없다. 캔버스 좌표로 비교하면 움직이지 않은 펜에 가짜 선이 붙는다(이동·떼기 모두 같은 규칙).
+      const still = stroke.lastClient && each.clientX === stroke.lastClient.x && each.clientY === stroke.lastClient.y;
+      if (still && release) continue;
+      if (still) {
+        // 압력만 바뀐 신호는 선분 처리(자르기·칸 비교)를 타지 않는다. 새 위치를 만들지 않고, 이미 기록한 마지막 잉크의 굵기만 갱신한다.
+        // 선분 처리를 타면 칸 밖이던 옛 포인터 자리(600 칸의 x=700)를 넓힌 칸 기준으로 다시 해석해, 압력 변화만으로 새 점이 생겼다.
+        // 마지막 포인터 자리가 칸 밖이라 그 자리에 잉크가 없으면(broken이거나 끝 점이 경계에서 잘린 자리) 갱신할 것도 없다.
+        // 갱신한 점은 마지막 잉크를 기록할 때의 칸으로 자른다.
+        const p = typeof each.pressure === "number" && each.pressure > 0 ? Math.min(1, each.pressure) : stroke.last.p;
+        stroke.last = { ...stroke.last, p };
+        const tail = stroke.points[stroke.points.length - 1];
+        if (!stroke.broken && tail && tail.x === stroke.last.x && tail.y === stroke.last.y) {
+          const w = Math.max(handwritingDrawnWidth(stroke, tail), handwritingWidth(stroke, stroke.last));
+          stroke.points.push({ x: tail.x, y: tail.y, p, w, clip: handwritingClipOf(stroke, tail) });
+        }
+        continue;
+      }
+      stroke.lastClient = { x: each.clientX, y: each.clientY };
+      const next = point(each);
+      if (release) next.p = stroke.last.p;
+      // 자르기 전 선분(앞 포인터 자리 → 새 자리)의 굵기를 한 번 정해, 잘라 낸 조각의 모든 점에 w로 적는다.
+      // 자른 점에 새 압력만 붙여 굵기를 다시 계산하면, 세게 누르다 약하게 경계 밖으로 이어 간 선이 가늘어져 칸 안 잉크가 사라진다.
+      const w = handwritingDrawnWidth(stroke, next, stroke.last);
+      // 이 선분을 자를 칸. 보통은 지금 칸이다. 앞 포인터 자리가 그때 칸 밖이었고 그 사이 칸이 바뀌었으면(넓힘·줄임·패드 스크롤),
+      // 이 선분은 옛 칸과 지금 칸이 겹치는 곳에서만 그린다. 그 자리에서 출발한 선이 새로 드러난 영역(600→750의 600~750)에
+      // 나타나지 않고, 겹치는 곳으로 돌아온 부분과 끝 점은 남는다. 앞 자리가 칸 안이었으면(599.9 등) 지금 칸 전체를 쓴다.
+      // 칸이 바뀌었는지는 값으로 비교한다(600→400→600은 바뀌지 않음).
+      const same = (a, b) => (a?.width ?? null) === (b?.width ?? null) && (a?.height ?? null) === (b?.height ?? null) && handwritingTop(a) === handwritingTop(b);
+      const bridge = !stroke.lastInside && !same(stroke.lastArea, area) ? handwritingClipMeet(stroke.lastArea, area) : area;
+      const piece = bridge ? clipHandwritingSegment(stroke.last, next, bridge, w / 2) : [stroke.last, next];
+      stroke.last = next; stroke.lastArea = area; stroke.lastInside = handwritingInside(next, area);
+      // 칸이 바뀐 직후 선분(bridge가 지금 칸과 다를 때)은 겹치는 칸으로만 그리므로, 끝 점이 지금 칸에서 보여도 그 점의 잉크가
+      // 겹치는 칸 밖이면 잘린다. 그래서 이런 선분 끝에는 좌표를 따지지 않고 늘 지금 칸으로 끝 점을 새로 찍어 다시 시작한다.
+      // "선이 끝 점에 닿았나·앞 점과 좌표가 같나"로 가르면, 그리는 칸과 따지는 칸이 달라 새 칸의 첫 점이 되풀이해 빠졌다.
+      // 이미 같은 자리에 선 끝이 있어도 같은 잉크 위에 한 번 더 찍을 뿐이라 모양이 바뀌지 않는다.
+      const restart = () => {
+        if (bridge === area) return false;
+        const own = handwritingWidth(stroke, next);
+        if (!handwritingInkVisible(next, next, own / 2, area)) return false;
+        stroke.points.push({ x: next.x, y: next.y, p: next.p, w: own, clip: area, gap: true });
+        stroke.broken = false;
+        return true;
+      };
+      if (!piece) { if (!restart()) stroke.broken = true; continue; }
+      const [enter, leave] = piece;
+      const tail = stroke.points[stroke.points.length - 1];
+      const add = (at, clip, gap = false) => stroke.points.push({ x: at.x, y: at.y, p: next.p, w, clip, ...(gap ? { gap } : {}) });
+      // 선분은 끝 점(leave)의 칸으로 그린다. 긋는 도중 칸이 넓어져도 이미 저장한 점과 선분은 옛 칸 그대로라
+      // 떼기 전에 넓혀도 잘린 잉크가 되살아나지 않고, 넓힌 뒤 새로 그은 선분은 경계 근처에서도 새 칸에서 온전히 보인다.
+      if (stroke.broken || enter.x !== tail.x || enter.y !== tail.y) add(enter, bridge, true);
+      stroke.broken = false;
+      add(leave, bridge);
+      restart();
+    }
+    if (context && stroke.points.length > from) { paint(); drawHandwritingStroke(context, stroke, from); }
+  }
+  // 펜을 뗀 뒤에야 이전 오류 문구를 지운다(pointerdown 참고). 모든 획이 끝났을 때만 지워, 다른 손가락이 긋는 중에 캔버스가 움직이지 않는다.
+  // 떼기(pointerup)에도 좌표가 있다. 마지막 이동 신호 뒤 떼는 자리까지 움직였으면 그 선분을 더해 획 끝이 잘리지 않게 한다.
+  // 포인터 잡기를 잃은 신호(lostpointercapture)는 떼기 뒤에도 오므로 좌표를 더하지 않는다.
+  for (const name of ["pointerup", "lostpointercapture"]) canvas.addEventListener(name, event => {
+    const stroke = active.get(event.pointerId);
+    if (stroke && name === "pointerup" && Number.isFinite(event.clientX) && Number.isFinite(event.clientY)) extend(stroke, [event], true);
+    const ended = active.delete(event.pointerId);
+    if (ended && !active.size && !reading && status.classList?.contains("is-error")) show("");
+  });
+  // 브라우저가 포인터를 취소하면(손바닥·스크롤 몸짓으로 판정한 경우 등) 그 획은 쓰다 만 것이라 버린다.
+  canvas.addEventListener("pointercancel", event => {
+    const stroke = active.get(event.pointerId);
+    active.delete(event.pointerId);
+    if (!stroke) return;
+    dropStroke(stroke); redraw(); controls();
+  });
+  undo.addEventListener("click", () => {
+    if (reading || !strokes.length) return;
+    const last = strokes.pop();
+    for (const [id, stroke] of active) if (stroke === last) active.delete(id);
+    show(""); redraw(); controls();
+    if (!strokes.length) canvas.focus();
+  });
+  clear.addEventListener("click", () => {
+    if (reading || !strokes.length) return;
+    strokes = []; active.clear();
+    show(""); redraw(); controls();
+    canvas.focus();
+  });
+  cancel.addEventListener("click", () => closePad(true));
+  insert.addEventListener("click", () => { void read(); });
+  // Tab은 가로채지 않는다. 펜 버튼을 누르면 초점이 캔버스로 옮겨 가므로 펜 버튼 → 캔버스 → 되돌리기 → 지우기 → 취소 → 넣기가 되고,
+  // 넣기 다음은 문서 순서대로 테크모로 나간다. 펜 버튼에서 누른 Tab은 원래대로 질문 칸·답변 모드·보내기로 간다.
+  // Tab을 이어 붙이면 입력 줄을 건너뛰거나 입력 줄과 패드 사이를 맴돌게 되어 둘 다 막혔다.
+  pad.addEventListener("keydown", event => {
+    if (event.key !== "Escape") return;
+    event.preventDefault?.(); event.stopPropagation?.();
+    closePad(true);
+  });
+  // 초점이 패드 밖(질문 칸 등)에 있어도 열린 동안 Esc는 패드를 닫고 읽던 요청을 끊는다.
+  // 선택 메뉴처럼 Esc를 먼저 처리하고 전파를 멈춘 곳은 건드리지 않는다.
+  document.addEventListener?.("keydown", event => {
+    if (!opened || event.key !== "Escape" || event.defaultPrevented) return;
+    event.preventDefault?.();
+    closePad(true);
+  });
+  button.addEventListener("click", openPad);
+  // 넓은 화면의 패드는 화면에 고정돼 있어, 문서나 안쪽 칸이 스크롤되면 입력 줄 바로 위로 다시 옮긴다.
+  // 캡처 단계로 들어 안쪽 칸의 스크롤도 받는다. 좁은 화면 시트는 CSS가 화면 아래에 두므로 좌표 변수가 쓰이지 않는다.
+  // 패드 안쪽이 스크롤돼도 이 신호가 오지만, 입력 줄 자리가 그대로라 relayout이 아무것도 하지 않는다.
+  document.addEventListener?.("scroll", () => relayout(), { capture: true, passive: true });
+  // 질문 칸에 입력이 들어오기 직전의 선택 범위를 적어 둔다. 질문 칸 자체에는 처리기를 달지 않고(Scribble 보존 조건)
+  // 문서의 캡처 단계에서 받는다. 막거나 바꾸지 않고 읽기만 한다.
+  document.addEventListener?.("beforeinput", event => {
+    if (!opened || event?.target !== input) return;
+    const start = Number.isInteger(input.selectionStart) ? input.selectionStart : input.value.length;
+    const end = Number.isInteger(input.selectionEnd) ? input.selectionEnd : start;
+    pendingEdit = { start, end: Math.max(start, end), value: input.value };
+  }, { capture: true });
+  // 질문 칸을 늘리거나 판 폭이 바뀌는 등 입력 줄·캔버스 크기만 바뀌면 scroll·resize 신호가 없다.
+  // 두 크기를 지켜보다가 자리를 다시 재고 캔버스 그리기 버퍼(보이는 크기 × 기기 화소 비율)도 새로 맞춘다.
+  // 버퍼를 그대로 두면 포인터 위치와 그려지는 획, 보내는 그림의 자르기 범위가 옛 폭에 머문다.
+  // 입력 줄 크기는 그대로인 채 자리만 바뀌는 경우(질문 폼 안 다른 줄이 생기거나 사라질 때)도 있어 질문 폼 전체 크기도 지켜본다.
+  const composerRow = document.querySelector(".composer-row");
+  // 질문 폼은 맨 위에서 찾아 둔 composer를 그대로 쓴다. 다시 찾지 않는다.
+  // 크기 감시(ResizeObserver)는 지켜보기 시작할 때와 패드를 보일 때 크기가 그대로여도 첫 알림을 보낸다.
+  // 그 알림을 "연 뒤 자리가 바뀜"으로 처리하면 스크롤·크기 변화 없이 패드가 줄 아래로 옮겨 가므로,
+  // 입력 줄의 자리·크기나 캔버스 크기가 마지막으로 잰 값과 달라졌을 때만 다시 잰다.
+  if (typeof ResizeObserver === "function") {
+    for (const node of [composerRow, composer, canvas]) {
+      if (node) new ResizeObserver(() => relayout()).observe(node);
+    }
+  }
+  refreshHandwritingPad.run = () => relayout();
+  // 자리만 다시 잰다. 캔버스 크기는 그대로라 그리기 버퍼는 건드리지 않는다(질문 칸에 글을 쓸 때마다 불린다).
+  placeHandwritingPad.run = () => relayout();
+  closeHandwritingPad.run = closePad;
+  redrawHandwritingPad.run = () => { if (opened) redraw(); };
+  noteHandwritingEdit.run = noteEdit;
+}
+// 질문 칸의 input 처리기가 불러, 패드가 열린 동안 고친 구간을 따라 넣을 자리를 옮긴다.
+function noteHandwritingEdit(inputType) {
+  noteHandwritingEdit.run?.(inputType);
+}
+// 테마가 바뀌면 applyTheme이 불러 열린 패드의 잉크를 새 글자색으로 다시 그린다.
+function redrawHandwritingPad() {
+  redrawHandwritingPad.run?.();
+}
+// 창 크기 신호는 테크모 resize 처리기 하나가 받아 이 함수를 부른다. 처리기를 따로 늘리지 않는다.
+// 두 함수는 초기화 순서와 상관없이 부를 수 있게 함수 속성에 실제 동작을 단다.
+function refreshHandwritingPad() {
+  refreshHandwritingPad.run?.();
+}
+function placeHandwritingPad() {
+  placeHandwritingPad.run?.();
+}
+// 서랍을 열거나 첫 화면·채팅 화면을 오가면 입력 줄 자리가 바뀌므로 패드를 닫는다(초점은 옮기지 않는다).
+function closeHandwritingPad(restore = false) {
+  closeHandwritingPad.run?.(restore);
+}
+setupHandwriting();
 
 // 좌표는 버튼 테두리의 왼쪽 위를 기준으로 한다. 저장할 때만 화면 크기로 나눈다.
 function techmoClampPosition(position, viewport, size) {
@@ -3149,6 +4055,8 @@ window.addEventListener?.("resize", () => {
   techmoBubble();
   // ResizeObserver가 없는 브라우저에서도 퀵링크 캐러셀 버튼 상태를 다시 잰다.
   if (typeof measureQuickLinks === "function") measureQuickLinks();
+  // 열린 필기 패드는 입력 줄 자리와 캔버스 화소를 다시 잰다(#134).
+  if (typeof refreshHandwritingPad === "function") refreshHandwritingPad();
 });
 try {
   const saved = historyStorage()?.getItem(techmoPositionKey);

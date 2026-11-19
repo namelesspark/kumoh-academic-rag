@@ -224,8 +224,15 @@ class TestChatWeb(unittest.TestCase):
 
         by_id = {attributes["id"]: (owner, tag, attributes) for owner, tag, attributes in composer.found if "id" in attributes}
 
-        # 밝은 상자 한 줄: 클립 버튼, 입력창, 답변 모드, 보내기.
-        self.assertEqual(ids("composer-row"), ["photo-attach", "question", "ai-mode-button", "send"])
+        # 밝은 상자 한 줄: 클립 버튼, 손글씨 펜 버튼(#134), 입력창, 답변 모드, 보내기.
+        self.assertEqual(ids("composer-row"), ["photo-attach", "handwriting-button", "question", "ai-mode-button", "send"])
+        _, tag, pen = by_id["handwriting-button"]
+        self.assertEqual((tag, pen.get("type"), pen.get("aria-label")), ("button", "button", "손글씨로 입력"))
+        self.assertEqual(pen.get("aria-controls"), "handwriting-pad")
+        self.assertNotIn("data-action", pen)
+        # 필기 패드는 질문 폼 밖의 대화 상자다.
+        self.assertNotIn("handwriting-pad", by_id)
+        self.assertNotIn("handwriting-canvas", by_id)
         # 상자 아래 묶음: 첨부 제거, 알림, 안내문 한 문단.
         self.assertEqual(ids("composer-meta"), ["photo-clear", "photo-note", "photo-hint"])
         # 화면 설정은 사진 안내 묶음 아래에 따로 둔다.

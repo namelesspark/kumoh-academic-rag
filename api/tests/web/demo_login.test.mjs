@@ -22,7 +22,8 @@ test("문서 안 실행 코드와 스타일, 외부 라이브러리를 추가하
   assert.equal([...html.matchAll(/<script\b/g)].length, 1);
   assert.match(html, /<script src="\/chat-assets\/chat.js" defer><\/script>/);
   assert.doesNotMatch(html, /\sstyle\s*=|<style\b|\son\w+\s*=/i);
-  assert.doesNotMatch(script, /document\.cookie|\.src\s*=|\.style\b(?!\??\.(?:setProperty|removeProperty)\(["`]--(?:techmo|conversation-menu|choice-menu)-)/);
+  // 스타일은 좌표 변수만 쓴다. 손글씨 패드(#134)의 입력 줄 위 자리도 --handwriting- 변수다.
+  assert.doesNotMatch(script, /document\.cookie|\.src\s*=|\.style\b(?!\??\.(?:setProperty|removeProperty)\(["`]--(?:techmo|conversation-menu|choice-menu|handwriting)-)/);
   assert.match(script, /setTimeout/);
   assert.equal([...script.matchAll(/prefers-reduced-motion/g)].length, 1);
 });
