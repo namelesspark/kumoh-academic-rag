@@ -2001,8 +2001,10 @@ form.turn-editor textarea {
   font-weight: 700;
   text-align: center;
 }
+/* 주 줄 행은 숫자 줄, 막대 두 줄, 「+N개」 줄이다. 글꼴 크기를 키우면(브라우저 기본 글꼴 32px 등) 글이 커지므로 행도 rem으로 함께 커진다.
+   날짜 버튼도 같은 행 격자(.acal-day)를 써서 「+N개」를 4행에 못 박는다. */
 .acal-week {
-  grid-template-rows: 36px 22px 22px minmax(22px, auto);
+  grid-template-rows: 2.25rem 1.375rem 1.375rem minmax(1.375rem, auto);
   border-top: 1px solid var(--acal-line);
 }
 .acal-cell {
@@ -2026,49 +2028,55 @@ form.turn-editor textarea {
 .acal-cell:is([data-col="1"], [data-col="7"]) { background: var(--acal-weekend); }
 /* 이웃 달 칸은 버튼 없이 흐린 숫자만 둔다. 흐린 글자도 4.5:1을 넘는 --text-muted다. */
 .acal-cell[data-outside] {
-  padding-top: 12px;
+  padding-top: calc(.5rem + 1px);
   color: var(--text-muted);
   font-size: .88rem;
-  line-height: 20px;
+  line-height: 1.25rem;
   text-align: center;
   font-variant-numeric: tabular-nums;
 }
 /* 날짜 버튼은 칸 전체를 채운다. 안쪽 자식은 숫자 → 「+N개」 → 점 묶음 순서다(chat.js).
-   숫자는 위에 붙고, 「+N개」는 margin-top: auto로 아래 끝(4행, 막대 줄 아래)까지 내려간다. 점 묶음은 그 밑에 놓이고 넓은 패널에서는 높이가 없다. */
+   버튼 안도 주 줄과 같은 행 격자다. 첫 행만 위 테두리 2px를 뺀 높이라, 버튼의 4행이 주 줄 4행(두 번째 막대 아래)과 같은 높이에서 시작한다.
+   숫자는 1행, 「+N개」는 4행, 점 묶음은 5행이다. 「+N개」가 두 줄이 되면 버튼 내용이 늘고, 칸이 덮은 주 줄 4행(auto)이 그만큼 늘어난다.
+   처음에는 flex 열 끝에 margin-top: auto로 붙였는데, 행 높이가 px로 고정되고 칸 내용이 네 행보다 짧으면 4행이 늘지 않아
+   글꼴을 키운 영어 화면에서 두 줄 「+10 more」가 두 번째 막대 밑으로 올라갔다(교차 검토 지적). */
 .acal-day {
   position: relative;
   z-index: 0;
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: calc(2.25rem - 2px) 1.375rem 1.375rem;
+  grid-auto-rows: auto;
+  align-content: start;
   align-items: center;
-  justify-content: flex-start;
+  justify-items: center;
   width: 100%;
   height: 100%;
   min-width: 44px;
   min-height: 44px;
   margin: 0;
-  padding: 10px 2px 4px;
+  padding: 0 2px 4px;
   border: 2px solid transparent;
   border-radius: 6px;
   background: transparent;
   color: var(--text);
   font-size: .88rem;
-  line-height: 20px;
+  line-height: 1.25rem;
   font-variant-numeric: tabular-nums;
 }
+/* 점 묶음은 5행이다. 넓은 패널에서는 점이 숨어 높이가 없다. */
+.acal-day > :has(.acal-dot) { grid-row: 5; }
 .acal-day:hover { background: var(--tint); }
-/* 「+N개」는 점 묶음(.acal-dot을 품은 요소) 바로 앞 자식이다. 점이 묶음 없이 버튼에 바로 붙어도 첫 점 바로 앞이다.
+/* 「+N개」는 점 묶음(.acal-dot을 품은 요소) 바로 앞 자식이다.
    처음에는 :last-child로 찾아 뒤에 붙는 점 묶음에 걸렸고, 「+N개」는 가운데로 밀려 막대에 가렸다(교차 검토 지적). */
-.acal-day[data-more] > :has(+ * .acal-dot),
-.acal-day[data-more] > :not(.acal-dot):has(+ .acal-dot) {
-  margin-top: auto;
+.acal-day[data-more] > :has(+ * .acal-dot) {
+  grid-row: 4;
   color: var(--text-muted);
   font-size: .72rem;
   font-weight: 700;
-  line-height: 16px;
+  line-height: 1rem;
   /* 44px 칸의 글자 폭은 36px(좌우 여백 2px·테두리 2px)다. 「+10 more」(약 57px)처럼 넓은 글은 칸 안에서 줄을 나누고,
-     띄어 쓰지 않은 긴 글도 글자 단위로 끊는다. 처음에는 nowrap이라 영어 화면에서 이웃 칸의 글과 겹쳤다(교차 검토 지적).
-     4행은 minmax(22px, auto)라 두 줄이 되면 주 줄이 그만큼 늘어난다. */
+     띄어 쓰지 않은 긴 글도 글자 단위로 끊는다. 처음에는 nowrap이라 영어 화면에서 이웃 칸의 글과 겹쳤다(교차 검토 지적). */
   min-width: 0;
   max-width: 100%;
   white-space: normal;
@@ -2084,11 +2092,12 @@ form.turn-editor textarea {
   content: "";
   position: absolute;
   z-index: -1;
-  top: 6px;
+  /* 1행(위 테두리 아래 calc(2.25rem - 2px)) 가운데에 놓는다. 숫자와 같은 rem이라 글꼴을 키워도 숫자를 감싼다. */
+  top: calc(.25rem - 1px);
   left: 50%;
-  width: 28px;
-  height: 28px;
-  margin-left: -14px;
+  width: 1.75rem;
+  height: 1.75rem;
+  margin-left: -.875rem;
   border: 2px solid var(--accent);
   border-radius: 50%;
   background: var(--acal-today-fill);
@@ -2107,7 +2116,7 @@ form.turn-editor textarea {
   color: var(--acal-neutral-ink);
   font-size: .75rem;
   font-weight: 700;
-  line-height: 20px;
+  line-height: calc(1.375rem - 2px);
   white-space: nowrap;
   pointer-events: none;
 }
@@ -2172,6 +2181,8 @@ form.turn-editor textarea {
   .acal-week { grid-template-rows: auto; }
   .acal-cell { grid-row: 1; display: flex; flex-wrap: wrap; align-content: flex-start; justify-content: center; gap: 3px; padding-bottom: 6px; }
   .acal-cell > .acal-day { flex: 1 1 100%; height: auto; }
+  /* 막대가 없으니 버튼 안 막대 두 행도 비운다. 숫자 행만 정하고 나머지(빈 2·3행, 「+N개」, 점 묶음)는 내용 높이다. */
+  .acal-day { grid-template-rows: calc(2.25rem - 2px); }
   .acal-bar { display: none; }
   .acal-dot { display: inline-block; }
 }

@@ -11,6 +11,7 @@
 처음에는 >를 자손처럼 보고 :last-child로 「+N개」를 만들었고, 다음 판은 요일 머리를 루트 직속으로 꾸며 결함을 놓쳤다(교차 검토 지적).
 """
 
+import ast
 import re
 import unittest
 from pathlib import Path
@@ -68,6 +69,33 @@ def mix(first, share, second):
         return (0, 0, 0, 0.0)
     channels = tuple((first[i] * first[3] * share + second[i] * second[3] * (1 - share)) / alpha for i in range(3))
     return channels + (alpha,)
+
+
+def length(value, base_font=16):
+    """CSS 길이 값을 px로 푼다. px·rem과 calc(… + …)·calc(… - …)만 읽는다. 1rem은 브라우저 기본 글꼴 크기다.
+
+    표준 라이브러리 ast로 덧셈·뺄셈·괄호만 계산한다. 그 밖의 식이 오면 실패해 검사가 조용히 넘어가지 않게 한다.
+    """
+    text = value.strip()
+    if text.startswith("calc(") and text.endswith(")"):
+        text = text[4:]
+    text = re.sub(r"(-?[\d.]+)(px|rem)\b",
+                  lambda m: repr(float(m.group(1)) * (base_font if m.group(2) == "rem" else 1)), text)
+    tree = ast.parse(text, mode="eval")
+
+    def walk(node):
+        if isinstance(node, ast.Expression):
+            return walk(node.body)
+        if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
+            return float(node.value)
+        if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
+            return -walk(node.operand)
+        if isinstance(node, ast.BinOp) and isinstance(node.op, (ast.Add, ast.Sub)):
+            left, right = walk(node.left), walk(node.right)
+            return left + right if isinstance(node.op, ast.Add) else left - right
+        raise AssertionError(f"길이로 읽을 수 없는 값: {value}")
+
+    return walk(tree)
 
 
 def compound_ok(compound, node):
@@ -307,24 +335,54 @@ class AcademicCalendarStyleTest(unittest.TestCase):
 
         :last-child로 찾으면 점 묶음에 글자 규칙이 걸리고, 가운데 정렬(space-between) 때문에 「+N개」가 막대 줄에 가렸다.
         """
-        button = self.computed(day_chain(more=True))
-        self.assertEqual(button.get("justify-content"), "flex-start")
-        self.assertEqual(button.get("flex-direction"), "column")
         more = self.computed(day_chain(more=True) + [MORE_LABEL])
-        self.assertEqual(more.get("margin-top"), "auto", "「+N개」는 버튼 아래 끝(막대 줄 아래)으로 내려간다")
-        loose = element("span", states=["has:+ .acal-dot"])
-        self.assertEqual(self.computed(day_chain(more=True) + [loose]).get("margin-top"), "auto", "점이 묶음 없이 붙어도 같다")
-        loose_dot = element("span", ["acal-dot"], ['[data-kind="exam"]'], ["has:+ .acal-dot"])
-        for label, child in (("점 묶음", DOT_GROUP), ("숫자", NUMBER), ("다음 점이 이어지는 점", loose_dot)):
+        self.assertEqual(more.get("grid-row"), "4", "「+N개」는 버튼 안 4행, 막대 두 줄 아래에 못 박힌다")
+        self.assertEqual(self.computed(day_chain(more=True) + [DOT_GROUP]).get("grid-row"), "5")
+        for label, child in (("점 묶음", DOT_GROUP), ("숫자", NUMBER)):
             with self.subTest(child=label):
                 decls = self.computed(day_chain(more=True) + [child])
-                self.assertNotIn("margin-top", decls)
+                self.assertNotEqual(decls.get("grid-row"), "4")
                 self.assertNotIn("font-size", decls)
+        self.assertNotIn("grid-row", self.computed(day_chain(more=True) + [NUMBER]), "숫자는 자동 배치로 1행에 든다")
         self.assertNotRegex(self.section, r"\.acal-day[^{]*:last-child", "마지막 자식은 점 묶음이라 「+N개」 찾기에 쓰지 않는다")
-        # 막대 두 줄(2·3행)이 끝난 뒤에야 4행이 시작한다. 「+N개」 줄 높이는 4행 최소 높이 안에 든다.
-        rows = split_top(self.computed(week())["grid-template-rows"], " ")
-        self.assertEqual(rows[3], "minmax(22px, auto)")
-        self.assertLessEqual(int(more["line-height"].rstrip("px")), 22)
+        self.assertNotIn("margin-top", more, "끝으로 미는 방식은 칸 내용이 짧으면 막대 줄로 올라간다")
+
+    def test_more_label_never_overlaps_the_second_bar_at_any_text_size(self):
+        """글꼴을 키운 영어 화면에서 두 줄 「+10 more」가 두 번째 막대 밑으로 올라가던 결함(교차 검토 지적)을 세로 위치로 잰다.
+
+        브라우저 기본 글꼴 16px·24px·32px에서 실제 선언의 길이(px·rem·calc)를 풀어 다음을 계산한다.
+        - 주 줄: 두 번째 막대(3행)의 아래 끝
+        - 날짜 버튼: 위 테두리 + 버튼 1~3행 높이 = 「+N개」가 놓이는 4행의 위 끝
+        그리고 숫자·오늘 원·막대 글 줄이 각자 행 안에 드는지도 본다. 리뷰 재현값(32px에서 「+N개」 64px, 막대 59~79px)도 함께 막는다.
+        """
+        week_rows = split_top(self.computed(week())["grid-template-rows"], " ")
+        button = self.computed(day_chain(more=True))
+        button_rows = split_top(button["grid-template-rows"], " ")
+        more = self.computed(day_chain(more=True) + [MORE_LABEL])
+        bar = self.computed(bar_chain(2, 5, 1, "exam"))
+        ring = self.computed(day_chain(today=True)[:-1] + [element("button", ["acal-day"], ['[aria-current="date"]'], ["before"])])
+        self.assertEqual(len(button_rows), 3, "버튼은 숫자 행과 막대 두 행을 정하고 4행부터는 내용 높이다")
+        self.assertTrue(week_rows[3].startswith("minmax(") and week_rows[3].endswith("auto)"), "4행은 「+N개」 높이만큼 는다")
+        for base in (16, 24, 32):
+            with self.subTest(base_font=base):
+                rows = [length(value, base) for value in week_rows[:3]]
+                border = length(button["border"].split(" ")[0], base)
+                bar_margin = length(split_top(bar["margin"], " ")[0], base)
+                second_bar_bottom = rows[0] + rows[1] + rows[2] - bar_margin
+                label_top = border + sum(length(value, base) for value in button_rows)
+                self.assertGreaterEqual(label_top, second_bar_bottom, "「+N개」 첫 줄이 두 번째 막대 위에 그려지면 안 된다")
+                self.assertAlmostEqual(label_top, sum(rows), msg="버튼 4행과 주 줄 4행이 같은 높이에서 시작한다")
+                # 각 줄이 자기 행 안에 든다. 글꼴과 함께 커지는 rem이라 어느 크기에서도 맞는다.
+                self.assertLessEqual(length(button["line-height"], base), length(button_rows[0], base))
+                self.assertLessEqual(length(ring["height"], base), length(button_rows[0], base))
+                self.assertLessEqual(length(bar["line-height"], base) + 2 * bar_margin, rows[2] + 0.001)
+                ring_center = border + length(ring["top"], base) + length(ring["height"], base) / 2
+                number_center = border + length(button_rows[0], base) / 2
+                self.assertAlmostEqual(ring_center, number_center, msg="오늘 원이 숫자를 가운데로 감싼다")
+                if base == 32:
+                    self.assertGreaterEqual(label_top, 79, "리뷰 재현: 두 번째 막대는 59~79px 구간이었다")
+        self.assertIn("rem", more["line-height"])
+        self.assertTrue(all("rem" in value for value in week_rows[:3]), "행 높이는 글꼴을 따라 커진다")
 
     def test_more_label_wraps_inside_a_44px_cell_in_every_language(self):
         """영어 「+10 more」가 44px 칸 밖으로 넘쳐 이웃 칸 글과 겹치던 결함(교차 검토 지적)을 폭으로 잰다.
@@ -400,7 +458,8 @@ class AcademicCalendarStyleTest(unittest.TestCase):
             ring = self.computed(chain[:-1] + [element("button", ["acal-day"], ['[aria-current="date"]'], ["before"])])
             self.assertEqual(ring.get("border-radius"), "50%")
             self.assertEqual(ring.get("border"), "2px solid var(--accent)")
-            self.assertGreaterEqual(int(ring["width"].rstrip("px")), 24)
+            self.assertGreaterEqual(length(ring["width"]), 24)
+            self.assertEqual(ring["width"], ring["height"])
             for theme in self.themes:
                 with self.subTest(theme=theme, col=col):
                     cell_face = self.face(chain, theme)
@@ -507,8 +566,9 @@ class AcademicCalendarStyleTest(unittest.TestCase):
         # 1. 달 보기에서 고른 날 일정(section.evidence)이 접히지 않는다.
         self.assertNotEqual(self.computed(day_list("month") + [evidence]).get("display"), "none")
         # 2. 「+N개」 규칙은 마지막 자식인 점 묶음이 아니라 그 앞 요소에 걸린다.
-        self.assertEqual(self.computed(day_chain(more=True) + [MORE_LABEL]).get("margin-top"), "auto")
-        self.assertNotIn("margin-top", self.computed(day_chain(more=True) + [DOT_GROUP]))
+        self.assertEqual(self.computed(day_chain(more=True) + [MORE_LABEL]).get("grid-row"), "4")
+        self.assertEqual(self.computed(day_chain(more=True) + [DOT_GROUP]).get("grid-row"), "5")
+        self.assertNotIn("font-size", self.computed(day_chain(more=True) + [DOT_GROUP]))
         # 3. 요일 머리와 격자는 같은 스크롤 상자 안에서 같은 최소 폭으로 넘친다.
         for name in ("acal-weekdays", "acal-grid"):
             chain = inside() + [element("div", [name])]

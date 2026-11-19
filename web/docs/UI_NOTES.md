@@ -1589,10 +1589,15 @@ node --test api/tests/web/campus_backdrop.test.mjs api/tests/web/chat_layout.tes
 
 ### 배치
 
-- 주 줄(`.acal-week`)은 `repeat(7, minmax(44px, 1fr))` 열과 `36px 22px 22px minmax(22px, auto)` 행이다. 날짜 칸은 네 행을 모두 덮고(`grid-row: 1 / 5`),
-  숫자는 1행, 막대는 2·3행, 「+N개」는 버튼 아래 끝인 4행 자리에 온다.
+- 주 줄(`.acal-week`)은 `repeat(7, minmax(44px, 1fr))` 열과 `2.25rem 1.375rem 1.375rem minmax(1.375rem, auto)` 행이다(기본 글꼴 16px에서 36·22·22px).
+  날짜 칸은 네 행을 모두 덮고(`grid-row: 1 / 5`), 숫자는 1행, 막대는 2·3행, 「+N개」는 4행이다.
+- 날짜 버튼 안도 같은 행 격자다(`calc(2.25rem - 2px) 1.375rem 1.375rem`, 첫 행만 위 테두리 2px를 뺀다). 그래서 버튼 4행이 주 줄 4행과 같은 높이에서 시작하고,
+  「+N개」(`grid-row: 4`)는 글꼴 크기와 상관없이 두 번째 막대 아래에 놓인다. 점 묶음은 5행이다. 「+N개」가 두 줄이면 버튼 내용이 늘고, 칸이 덮은 주 줄 4행(auto)이 함께 는다.
+- 행 높이·줄 높이·오늘 원 크기는 rem이라 브라우저 기본 글꼴을 키우면 함께 커진다. 처음에는 px 행에 flex 열 끝으로 「+N개」를 밀었는데(`margin-top: auto`),
+  칸 내용이 네 행보다 짧으면 4행이 늘지 않아, 기본 글꼴 32px의 영어 화면에서 두 줄 「+10 more」가 64px에서 시작해 두 번째 막대(59~79px)에 가렸다(교차 검토 지적).
+  `test_more_label_never_overlaps_the_second_bar_at_any_text_size`가 기본 글꼴 16·24·32px에서 실제 선언의 px·rem·calc를 풀어 「+N개」 위 끝과 두 번째 막대 아래 끝을 비교한다.
 - 44px 칸에서 「+N개」가 쓸 수 있는 글 폭은 36px(좌우 안쪽 여백 2px·테두리 2px)다. 영어 「+10 more」는 약 57px라 칸 안에서 두 줄로 나누고,
-  띄어 쓰지 않은 긴 글도 글자 단위로 끊는다(`white-space: normal`, `overflow-wrap: anywhere`, `max-width: 100%`). 4행은 `minmax(22px, auto)`라 두 줄이면 주 줄이 늘어난다.
+  띄어 쓰지 않은 긴 글도 글자 단위로 끊는다(`white-space: normal`, `overflow-wrap: anywhere`, `max-width: 100%`). 4행은 `minmax(1.375rem, auto)`라 두 줄이면 주 줄이 늘어난다.
   처음에는 `nowrap`이라 영어 화면에서 이웃 칸의 「+N more」와 겹쳤다(교차 검토 지적). `test_more_label_wraps_inside_a_44px_cell_in_every_language`가
   ko·en·zh 글 폭을 넉넉하게 어림해 선언에서 계산한 칸 폭과 비교한다.
 - 막대 위치는 인라인 style 없이 `data-col` → `grid-column-start`, `data-span` → `grid-column-end: span N`, `data-lane` 0·1 → `grid-row` 2·3 선택자로만 정한다.
