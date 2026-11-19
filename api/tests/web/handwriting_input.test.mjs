@@ -2168,6 +2168,43 @@ test("패드를 연 채 고른 글자와 겹치게 고치면 범위를 넓히지
   assert.equal(page.input.value, "AXYOCRD");
 });
 
+test("패드를 연 채 고른 범위 안쪽에 글을 끼워 넣으면 범위를 넓히지 않고 새로 쓴 글 뒤에 넣는다", async () => {
+  const page = loadPad();
+  page.input.value = "ABCD";
+  // 「BC」를 고른다.
+  page.input.selectionStart = 1; page.input.selectionEnd = 3;
+  page.button.click();
+  // 질문 칸의 B와 C 사이에 X를 쓴다(커서는 X 뒤).
+  page.type("ABXCD", 3, "insertText");
+  page.stroke([10, 10], [60, 60]);
+  page.respond(ok("가상"));
+  page.insert.click();
+  await settle();
+  // 새로 쓴 X를 지우지 않는다(예전에는 범위가 BXC로 늘어 「A가상D」).
+  assert.equal(page.input.value, "ABX가상CD");
+});
+
+test("390×500에서 사진을 붙인 채 줄 아래로 옮기면 입력 줄 아래 「첨부 제거」 버튼까지 비운다", () => {
+  const page = loadPad({ innerWidth: 390, innerHeight: 500 });
+  Object.assign(page.rowRect, { left: 12, right: 378, width: 366, top: 300, bottom: 360 });
+  // 「첨부 제거」 버튼은 입력 줄 바로 아래(y 368~412)에 나타난다. 입력 줄이 움직이면 함께 움직인다.
+  const clear = page.get("#photo-clear");
+  clear.getBoundingClientRect = () => ({ left: 12, right: 112, width: 100, top: page.rowRect.bottom + 8, bottom: page.rowRect.bottom + 52, height: 44 });
+  page.get("#photo-file").files = [{ name: "fictional.png", type: "image/png", size: 8 }];
+  page.get("#photo-file").fire("change");
+  assert.equal(clear.hidden, false);
+  page.button.click();
+  // 스크롤해 입력 줄 위 끝이 화면 위 100px에 온다. 위쪽 84px로는 모자라 줄 아래에 둔다.
+  Object.assign(page.rowRect, { top: 100, bottom: 160 });
+  page.scroll();
+  const props = page.pad.style.properties;
+  assert.equal(props.get("--handwriting-bottom"), "auto");
+  // 시트 위 끝은 첨부 제거 버튼 아래 끝(212) + 8 = 220이다(예전에는 입력 줄 아래 168에 붙어 버튼을 덮었다).
+  assert.equal(props.get("--handwriting-top"), "220px");
+  assert.ok(parseFloat(props.get("--handwriting-top")) >= clear.getBoundingClientRect().bottom);
+  assert.equal(props.get("--handwriting-max-height"), "272px");
+});
+
 test("상태 200을 받은 뒤 본문을 기다리다 시간 제한이 지나도 시간 초과를 알리고 획을 남겨 다시 넣을 수 있다", async () => {
   const page = loadPad();
   page.button.click();

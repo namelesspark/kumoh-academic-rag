@@ -3286,10 +3286,12 @@ function setupHandwriting() {
     // 최대 높이는 입력 줄 위쪽 남은 높이와 화면 안 남은 높이 중 작은 쪽이다. 상태 줄이 생겨 커져도 입력 줄을 덮지 않는다.
     // 연 뒤 학생이 스크롤해 입력 줄이 화면 위쪽에 붙어 위쪽이 최소 높이보다 좁아지고 아래쪽이 더 넓으면, 그때만 줄 아래(top 고정)로 옮긴다.
     // 스크롤 중에 문서를 대신 굴리면 학생의 스크롤과 다투므로, 패드를 옮겨 필기 칸과 버튼이 0px로 접히지 않게 한다.
-    const above = row.top - 16, below = height - row.bottom - 16;
+    // 줄 아래에 둘 때는 입력 줄 바로 아래의 첨부 조작(「첨부 제거」 버튼)까지 비운다. 입력 줄 아래 끝만 재면 시트가 그 버튼을 덮었다.
+    const controlsBottom = attachControlsBottom(row);
+    const above = row.top - 16, below = height - controlsBottom - 16;
     const putBelow = () => {
       side = "below";
-      const top = Math.min(height - 8, Math.max(8, row.bottom + 8));
+      const top = Math.min(height - 8, Math.max(8, controlsBottom + 8));
       pad.style?.setProperty("--handwriting-bottom", "auto");
       pad.style?.setProperty("--handwriting-top", `${top}px`);
       pad.style?.setProperty("--handwriting-max-height", `${Math.max(0, height - top - 8)}px`);
@@ -3328,10 +3330,16 @@ function setupHandwriting() {
   // 여는 순간에만 한 번 한다(스크롤할 때마다 하면 학생의 스크롤과 다툰다). 좁은 화면에서도 한다(아래 makeRoom 참고).
   // 입력 줄의 자리·크기와 캔버스 크기를 한 줄로 적어 둔 값. 크기 감시 알림이 실제 변화인지 가를 때 쓴다.
   let padLayout = "";
+  // 입력 줄 아래 끝과, 보이는 「첨부 제거」 버튼 아래 끝 중 아래쪽. 첨부를 붙이면 이 버튼이 입력 줄 바로 아래에 나타난다.
+  function attachControlsBottom(row) {
+    const clear = !photoClear?.hidden ? photoClear?.getBoundingClientRect?.() : null;
+    return clear?.height > 0 ? Math.max(row.bottom, clear.bottom) : row.bottom;
+  }
   function layoutKey() {
     const row = document.querySelector(".composer-row")?.getBoundingClientRect?.();
     const own = canvas.getBoundingClientRect?.();
-    return [row?.left, row?.top, row?.width, row?.height, own?.width, own?.height, window.innerWidth, window.innerHeight, window.devicePixelRatio].join();
+    // 첨부 제거 버튼이 나타나거나 사라져도(입력 줄 자리는 그대로일 수 있다) 줄 아래 자리가 바뀌므로 함께 적는다.
+    return [row?.left, row?.top, row?.width, row?.height, row ? attachControlsBottom(row) : "", own?.width, own?.height, window.innerWidth, window.innerHeight, window.devicePixelRatio].join();
   }
   function layoutChanged() {
     const key = layoutKey();
@@ -3477,10 +3485,14 @@ function setupHandwriting() {
     };
     const collapsed = selection.start === selection.end;
     const previous = selection;
-    // 편집이 고른 글자 일부라도 지웠으면(바뀐 옛 구간 [prefix, editEnd)와 고른 범위가 겹치면) 고른 글자는 이미 없다.
-    // 이때 범위를 넓히지 않고 바뀐 구간 끝 한 점으로 접어, 새로 쓴 글을 지우지 않고 그 뒤에 넣는다.
-    // 예: 「ABCD」에서 B를 고른 뒤 BC를 XY로 바꾸면 범위는 XY 뒤 한 점이라 OCR을 넣으면 「AXYOCRD」다(예전에는 XY까지 지워 「AOCRD」).
-    const overlaps = !collapsed && !inserted && prefix < selection.end && editEnd > selection.start;
+    // 편집이 고른 범위 안쪽을 건드렸으면 범위를 넓히지 않고 바뀐 구간 끝 한 점으로 접어, 새로 쓴 글을 지우지 않고 그 뒤에 넣는다.
+    // - 고른 글자 일부라도 지운 편집(바뀐 옛 구간 [prefix, editEnd)와 고른 범위가 겹침): 「ABCD」에서 B를 고른 뒤 BC를 XY로 바꾸면
+    //   OCR을 넣어 「AXYOCRD」다(예전에는 XY까지 지워 「AOCRD」).
+    // - 고른 범위 안쪽에 끼워 넣은 글(경계가 아닌 자리): 「ABCD」에서 BC를 고른 뒤 B와 C 사이에 X를 쓰면 「ABX가상CD」다
+    //   (예전에는 범위가 BXC로 늘어 X까지 지워 「A가상D」). 경계에 끼워 넣은 글은 예전처럼 범위 밖으로 둔다.
+    const overlaps = !collapsed && (inserted
+      ? prefix > selection.start && prefix < selection.end
+      : prefix < selection.end && editEnd > selection.start);
     if (overlaps) selection = { start: prefix + added, end: prefix + added, value: after };
     else {
       const start = move(selection.start, "start");
