@@ -1,0 +1,148 @@
+/* 입력 줄 모핑(#137). 빠른 실행 링, 답변 모드 선택 표시, 보내기↔정지 버튼의 모양과 움직임을 여기 모은다.
+   색은 #131의 이름표(--accent·--surface·--popup·--line·--control-line·--tint·--focus-ring)만 쓰고 새 색을 만들지 않는다.
+   움직임은 transition만 쓴다. 열고 닫는 도중에 상태가 바뀌면 그 자리에서 반대로 돌아간다.
+   보내기 화살표의 모양 변화는 CSS d 속성 대신 chat.js가 화면 갱신마다 경로를 다시 쓴다(iOS Safari가 d 애니메이션을 지원하지 않는다).
+   그림 파일이나 url()로 부르는 자원은 없다. 방울 필터는 quick-actions.js가 SVG 속성으로 건다. */
+
+/* + 버튼. 모양과 44px 조작 영역은 chat.css의 .attach-button을 그대로 받는다. 열린 동안은 ×로 돌고 테두리 색이 바뀐다. */
+.quick-toggle svg { transition: transform 180ms ease-out; }
+.quick-toggle[aria-expanded="true"] { border-color: var(--focus-ink); background: var(--tint); }
+.quick-toggle[aria-expanded="true"] svg { transform: rotate(45deg); }
+
+/* 좁은 화면은 줄이 좁아 질문 칸이 60px 아래로 줄어든다. 링이 켜진 줄에서는 클립·펜 버튼을 링 안으로만 둔다.
+   두 버튼은 문서에 그대로 남아 링이 대신 누르고, 필기 패드를 닫으면 초점은 + 버튼으로 돌아간다. */
+@media (max-width: 480px) {
+  .composer-row[data-quick-actions] > #photo-attach, .composer-row[data-quick-actions] > #handwriting-button { display: none; }
+}
+
+/* 링 전체. body 바로 아래 화면 고정 층이다. 테크모(20) 위, 선택 메뉴(30)·삭제 확인 창(40) 아래에 뜬다. */
+.quick-ring { position: fixed; inset: 0; z-index: 26; pointer-events: none; }
+.quick-ring[hidden] { display: none; }
+.quick-ring-blobs { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+/* 방울 층. 원은 모두 + 버튼 가운데에서 출발해 제자리(--qa-x·--qa-y)로 나간다. 필터가 가까운 원을 한 덩어리로 잇는다.
+   방울 바탕(--accent)과 아이콘(--surface)은 라이트 약 6.9:1, 다크 약 7:1이다. */
+.quick-ring-goo { fill: var(--accent); }
+.quick-ring-hub { opacity: 0; transition: opacity 120ms ease-out; }
+.quick-ring-blob {
+  opacity: 0;
+  transform-box: fill-box;
+  transform-origin: center;
+  transform: translate(0px, 0px) scale(.45);
+  transition: transform 220ms cubic-bezier(.22, 1, .36, 1), opacity 160ms ease-out;
+  transition-delay: calc(var(--qa-index, 0) * 16ms);
+}
+.quick-ring-blob.is-disabled { fill: var(--line); }
+.quick-ring[data-open] .quick-ring-hub { opacity: 1; }
+.quick-ring[data-open] .quick-ring-blob { opacity: 1; transform: translate(var(--qa-x, 0px), var(--qa-y, 0px)) scale(1); }
+
+/* 가운데 원 위의 × 표시. 원(--accent) 위 그림색(--surface)은 방울 아이콘과 같은 대비이고, 누름은 아래 + 버튼으로 넘긴다. */
+.quick-ring-close {
+  position: absolute;
+  left: var(--qa-anchor-x, 0px);
+  top: var(--qa-anchor-y, 0px);
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  margin: -22px 0 0 -22px;
+  color: var(--surface);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 120ms ease-out;
+}
+.quick-ring-close svg { display: block; width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; transform: rotate(45deg); }
+.quick-ring[data-open] .quick-ring-close { opacity: 1; }
+
+/* 버튼 층. 필터 밖이라 아이콘과 초점 고리가 흐려지지 않는다. 방울과 같은 자리·같은 곡선으로 움직인다. */
+.quick-ring-menu { position: absolute; inset: 0; }
+.quick-item {
+  position: absolute;
+  left: var(--qa-anchor-x, 0px);
+  top: var(--qa-anchor-y, 0px);
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  margin: -26px 0 0 -26px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--surface);
+  cursor: pointer;
+  opacity: 0;
+  transform: translate(0px, 0px) scale(.45);
+  transition: transform 220ms cubic-bezier(.22, 1, .36, 1), opacity 160ms ease-out;
+  transition-delay: calc(var(--qa-index, 0) * 16ms);
+}
+.quick-item[hidden] { display: none; }
+/* 화면이 아주 작아 52px 방울을 놓을 칸이 모자라면 조작 영역 하한인 44px 방울로 줄인다(quick-actions.js가 data-compact를 붙인다). */
+.quick-ring[data-compact] .quick-item { width: 44px; height: 44px; margin: -22px 0 0 -22px; }
+.quick-item svg { display: block; width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.quick-item:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.quick-item:disabled { cursor: not-allowed; }
+.quick-ring[data-open] .quick-item { opacity: 1; transform: translate(var(--qa-x, 0px), var(--qa-y, 0px)); }
+/* 방울은 다 펼쳐진 뒤(data-settled)에만 누름을 받는다. 출발 중인 방울은 + 버튼 위에 있어 두 번째 누름을 가로챌 수 있다. */
+.quick-item { pointer-events: none; }
+.quick-ring[data-settled] .quick-item { pointer-events: auto; }
+
+/* 이름표 한 장. 초점이나 마우스가 가리키는 방울의 이름을 묶음 위에 보인다. 읽기 도구는 버튼 이름을 읽는다. */
+.quick-ring-caption {
+  position: absolute;
+  left: var(--qa-caption-x, 50%);
+  top: var(--qa-caption-y, 50%);
+  max-width: min(240px, calc(100vw - 16px));
+  margin: 0;
+  padding: 4px 10px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--popup);
+  color: var(--text);
+  font-size: .82rem;
+  font-weight: 700;
+  line-height: 1.5;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: 0;
+  transform: translate(-50%, -100%);
+  transition: opacity 160ms ease-out;
+}
+.quick-ring[data-open] .quick-ring-caption { opacity: 1; }
+
+/* 답변 모드 메뉴의 선택 표시. chat.js가 초점·마우스가 가리키는 항목의 자리(--choice-menu-indicator-y·h)를 준다.
+   옮길 때는 두 항목을 함께 덮게 늘어났다가(stretch, 90ms) 목표 자리에 안착한다(settle). 기본 곡선은 cubic-bezier이고,
+   스프링 곡선 linear()는 지원하는 브라우저에서만 쓴다. 항목 바탕은 비워 표시 한 장만 움직인다.
+   고른 항목은 테두리·체크 표시·aria-checked로 계속 알린다. */
+.choice-menu[data-indicator] { isolation: isolate; }
+.choice-menu[data-indicator] .choice-menu-item, .choice-menu[data-indicator] .choice-menu-item:hover { position: relative; z-index: 1; background: transparent; }
+.choice-menu-indicator {
+  position: absolute;
+  top: 0;
+  left: 6px;
+  right: 6px;
+  z-index: 0;
+  height: var(--choice-menu-indicator-h, 0px);
+  border: 1px solid var(--control-line);
+  border-radius: 10px;
+  background: var(--tint);
+  pointer-events: none;
+  transform: translateY(var(--choice-menu-indicator-y, 0px));
+  transition: transform 90ms ease-out, height 90ms ease-out;
+}
+.choice-menu-indicator[data-phase="rest"] { transition: none; }
+.choice-menu-indicator[data-phase="settle"] { transition: transform 260ms cubic-bezier(.34, 1.4, .64, 1), height 260ms cubic-bezier(.34, 1.4, .64, 1); }
+@supports (transition-timing-function: linear(0, 1)) {
+  .choice-menu-indicator[data-phase="settle"] {
+    transition-timing-function: linear(0, .25 8%, .66 18%, .96 30%, 1.08 42%, 1.06 52%, 1.01 64%, .99 78%, 1);
+  }
+}
+
+/* 보내기 버튼. 글자는 읽기 도구용으로 남기고 화살표·정지 그림 하나를 보인다. 흰 그림과 버튼 바탕은 4.5:1을 넘는다(chat.css). */
+#send:has(> .send-glyph) { display: inline-grid; place-items: center; min-width: 44px; padding-inline: 11px; }
+#send .send-glyph { display: block; width: 22px; height: 22px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .quick-toggle svg, .quick-ring-hub, .quick-ring-close, .quick-ring-blob, .quick-item, .quick-ring-caption,
+  .choice-menu-indicator, .choice-menu-indicator[data-phase="settle"] { transition: none !important; }
+}

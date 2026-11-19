@@ -86,6 +86,7 @@ const uiText = {
     "사진 첨부": "Attach photo",
     "아이오에게 물어보세요 · 사진만 보내도 돼요": "Ask AIO · or just send a photo",
     "보내기": "Send",
+    "답변 멈추기": "Stop answer",
     "첨부 제거": "Remove attachment",
     "글자가 보이는 사진 한 장(JPEG·PNG, 5MB 이하). 서버는 사진을 저장하지 않아요. 얼굴이나 개인정보가 찍힌 사진은 올리지 마세요. 학번, 이름 같은 개인정보는 입력하지 마세요.":
       "One photo with readable text (JPEG or PNG, up to 5 MB). The server does not store photos. Do not upload photos showing faces or personal information. Do not type personal details such as your student number or name.",
@@ -300,6 +301,7 @@ const uiText = {
     "사진 첨부": "附加照片",
     "아이오에게 물어보세요 · 사진만 보내도 돼요": "问问 AIO · 只发照片也可以",
     "보내기": "发送",
+    "답변 멈추기": "停止回答",
     "첨부 제거": "移除附件",
     "글자가 보이는 사진 한 장(JPEG·PNG, 5MB 이하). 서버는 사진을 저장하지 않아요. 얼굴이나 개인정보가 찍힌 사진은 올리지 마세요. 학번, 이름 같은 개인정보는 입력하지 마세요.":
       "一张文字清晰的照片（JPEG·PNG，5MB 以内）。服务器不会保存照片。请勿上传含有人脸或个人信息的照片。请勿输入学号、姓名等个人信息。",
@@ -1146,6 +1148,8 @@ function askDelete(record, origin) {
 }
 // 기다리던 요청이 있으면 그 요청의 유효성 검사가 늦은 답을 버린다.
 function removeConversation(record) {
+  // 답을 만들던 대화를 지우면 그 요청도 끊는다. 결과는 어차피 버려지므로 연결만 일찍 닫는다(#137).
+  record?.chatAbort?.abort();
   conversations = conversations.filter(value => value !== record);
   if (toastRecord === record) dismissConversationToast();
   if (activeConversation === record) {
@@ -1678,10 +1682,14 @@ function element(tag, className, text) {
 }
 
 // 보내기 버튼과 첨부 제거 버튼은 여기 한 곳에서만 켜고 끈다. 질문이나 사진 중 하나만 있어도 보낼 수 있다.
+// 보고 있는 대화가 글 답을 만드는 동안(ask가 취소 신호를 둔 동안)에만 보내기 버튼이 정지 버튼이 된다(#137).
+// 사진·졸업 요청은 취소 신호가 없어 그동안은 잠긴 보내기 버튼 그대로다.
 function updateSend() {
   const attached = Boolean(photoFile.files?.length);
   const pending = busy || (requestedChatView && Boolean(activeConversation?.pending));
-  send.disabled = pending || (!input.value.trim() && !attached);
+  const stoppable = requestedChatView && Boolean(activeConversation?.pending && activeConversation?.chatAbort);
+  send.disabled = stoppable ? false : pending || (!input.value.trim() && !attached);
+  if (typeof renderSendMode === "function") renderSendMode(stoppable);
   photoClear.hidden = !attached;
   photoClear.disabled = pending;
   photoFile.disabled = pending;
@@ -1733,7 +1741,8 @@ async function runPhotoRequest(record, message, work) {
   }
   try {
     const succeeded = await work();
-    if (account !== historyAccount || !conversations.includes(record)) return;
+    // null은 학생이 정지 버튼으로 멈춘 요청이다(#137). 알림도 읽지 않음 표시도 남기지 않는다.
+    if (succeeded === null || account !== historyAccount || !conversations.includes(record)) return;
     if (!requestedChatView || activeConversation !== record || document.hidden) {
       if (succeeded) notifyConversation(record);
       else record.unread = true;
@@ -2246,18 +2255,39 @@ function textAnswer(result) {
 // 사진 없이 글자만 보낸다. 실패하면 같은 글자로만 다시 시도한다.
 async function answerFromText(question, recognized, answer, record = null) {
   const account = historyAccount;
+  // 읽은 글자로 답을 만드는 동안에도 보내기 버튼이 정지 버튼이 된다(#137). 사진을 읽는 단계에는 신호를 두지 않는다.
+  // 「고쳐서 다시 묻기」로 같은 자리에 새 답을 받다가 멈추면, 지우기 전의 답을 그대로 되돌려 놓는다.
+  const controller = record && typeof AbortController === "function" ? new AbortController() : null;
+  // 되돌리는 것은 앞서 받은 답뿐이다. 「다시 시도」로 연 경우 앞의 오류 상자(문구와 다시 시도 버튼)는 이미 끝난 실패라 되살리지 않는다.
+  const failed = node => node?.className === "error" || node?.classList?.contains?.("error") === true;
+  const previous = controller ? Array.from(answer.childNodes ?? answer.children ?? []).filter(node => !failed(node)) : [];
   say(statusLine, photoMessages.asking);
   photoNote.textContent = "";
   answer.replaceChildren();
-
-  const { result, failure, status } = await requestJson("/api/v1/photo-question", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Accept: "application/json" },
-    body: JSON.stringify({ question, recognized_text: recognized, session_id: record ? record.sessionId || null : sessionId }),
-    signal: AbortSignal.timeout(90_000),
-  }, photoMessages.textFailed);
+  if (controller) { record.chatAbort = controller; updateSend(); }
+  let response;
+  try {
+    response = await requestJson("/api/v1/photo-question", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ question, recognized_text: recognized, session_id: record ? record.sessionId || null : sessionId }),
+      signal: chatSignal(controller?.signal ?? null, 90_000),
+    }, photoMessages.textFailed);
+  } finally {
+    if (record?.chatAbort === controller) delete record.chatAbort;
+    if (controller) updateSend();
+  }
+  const { result, failure, status } = response;
 
   if (record && (account !== historyAccount || !conversations.includes(record))) return false;
+  // 학생이 멈춘 답은 새로 받은 글이 없다. 앞서 있던 답만 되돌리고, 오류 문구·다시 시도·알림·읽지 않음 표시를 내지 않는다.
+  // null은 runPhotoRequest에 「멈춤」을 알린다. 실패(false)로 넘기면 그사이 탭을 숨겼을 때 읽지 않음 표시가 붙는다.
+  if (controller?.signal.aborted) {
+    answer.replaceChildren(...previous);
+    say(photoNote, "");
+    showAssistant("idle");
+    return null;
+  }
   let message = failure;
   if (!failure) {
     try {
@@ -2423,7 +2453,49 @@ const aiModeKey = "kumoh-chat-ai-mode:v1";
 let aiMode = "fast";
 let chatRequestNumber = 0;
 let activeChoiceMenu = null;
-function openChoiceMenu(button, title, choices, onSelect) {
+// indicator를 켜면 초점·마우스가 가리키는 항목 뒤로 선택 표시 한 장이 따라간다(#137). 옮길 때는 지금 자리와 목표를
+// 함께 덮도록 늘어났다가(stretch) 목표 자리에 안착한다(settle). 곡선과 시간은 quick-actions.css가 정한다.
+function choiceIndicator(menu, items) {
+  const indicator = element("span", "choice-menu-indicator");
+  indicator.setAttribute("aria-hidden", "true");
+  menu.setAttribute("data-indicator", "");
+  menu.append(indicator);
+  let current = null, timer = null;
+  const box = item => typeof item?.offsetTop === "number" ? { top: item.offsetTop, height: item.offsetHeight } : null;
+  const place = ({ top, height }, phase) => {
+    indicator.setAttribute("data-phase", phase);
+    indicator.style.setProperty("--choice-menu-indicator-y", `${top}px`);
+    indicator.style.setProperty("--choice-menu-indicator-h", `${height}px`);
+  };
+  function move(item) {
+    const to = box(item), from = box(current);
+    if (!to || item === current) return;
+    if (timer !== null) clearTimeout(timer);
+    timer = null;
+    current = item;
+    if (!from || reducedMotion() || typeof setTimeout !== "function") { place(to, "rest"); return; }
+    const top = Math.min(from.top, to.top);
+    place({ top, height: Math.max(from.top + from.height, to.top + to.height) - top }, "stretch");
+    timer = setTimeout(() => { timer = null; if (current === item) place(to, "settle"); }, 90);
+  }
+  // 늘어난 채 안착을 기다리는 동안 동작 줄이기를 켜면 예약을 버리고 목표 자리에 바로 놓는다.
+  settleChoiceIndicator = () => {
+    if (timer === null) return;
+    clearTimeout(timer);
+    timer = null;
+    const to = box(current);
+    if (to) place(to, "rest");
+  };
+  for (const item of items) item.addEventListener("pointerenter", () => move(item));
+  return { move };
+}
+// 지금 열린 선택 표시 하나만 기억한다. 설정 변화 처리기는 한 번만 붙인다. 화면 조각만 떼어 도는 테스트처럼
+// 설정 읽기 함수(motionPreference)가 없는 곳에서는 붙이지 않는다.
+let settleChoiceIndicator = null;
+if (typeof motionPreference === "function") {
+  motionPreference()?.addEventListener?.("change", event => { if (event.matches) settleChoiceIndicator?.(); });
+}
+function openChoiceMenu(button, title, choices, onSelect, { indicator = false } = {}) {
   activeChoiceMenu?.close();
   const menu = element("div", "choice-menu");
   menu.setAttribute("role", "menu"); menu.setAttribute("aria-label", title);
@@ -2446,10 +2518,13 @@ function openChoiceMenu(button, title, choices, onSelect) {
     if (activeChoiceMenu?.menu === menu) activeChoiceMenu = null;
     if (restore) button.focus();
   }
+  const marker = indicator ? choiceIndicator(menu, items) : null;
   menu.addEventListener("keydown", event => {
     const index = Math.max(0, items.indexOf(document.activeElement));
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-      event.preventDefault(); items[(index + (event.key === "ArrowDown" ? 1 : items.length - 1)) % items.length].focus();
+      event.preventDefault();
+      const next = items[(index + (event.key === "ArrowDown" ? 1 : items.length - 1)) % items.length];
+      next.focus(); marker?.move(next);
     } else if (event.key === "Enter" || event.key === " ") {
       event.preventDefault(); items[index].click();
     } else if (event.key === "Escape") {
@@ -2467,7 +2542,8 @@ function openChoiceMenu(button, title, choices, onSelect) {
   menu.style.setProperty("--choice-menu-x", `${Math.max(16, Math.min(anchor.right - box.width, width - box.width - 16))}px`);
   menu.style.setProperty("--choice-menu-y", `${Math.max(16, Math.min(top, height - box.height - 16))}px`);
   activeChoiceMenu = { menu, button, close };
-  items[Math.max(0, choices.findIndex(choice => choice.checked))]?.focus();
+  const first = items[Math.max(0, choices.findIndex(choice => choice.checked))];
+  first?.focus(); marker?.move(first);
   return activeChoiceMenu;
 }
 document.addEventListener?.("pointerdown", event => {
@@ -2494,14 +2570,15 @@ function setupAiMode() {
     row?.classList.toggle("is-deep", deep);
     button.classList.remove("is-bursting", "is-flowing"); row?.classList.remove("is-deep-enter");
     button.querySelectorAll(".mode-spark").forEach(spark => spark.remove());
-    if (!deep || reducedMotion()) return;
-    button.classList.add("is-flowing");
-    if (!animate) return;
-    button.classList.add("is-bursting"); row?.classList.add("is-deep-enter");
-    const sparks = Array.from({ length: 7 }, () => element("span", "mode-spark", "✦"));
+    // 효과는 학생이 깊이 모드를 새로 고른 때 한 번만 돈다(#137). 저장해 둔 깊이 모드로 다시 열거나 언어를 바꿔 다시 그릴 때는
+    // 고정 테두리만 보이고, 흐르는 테두리·빛줄기도 효과 시간이 끝나면 떼어 계속 움직이지 않는다.
+    if (!deep || reducedMotion() || !animate) return;
+    button.classList.add("is-flowing", "is-bursting"); row?.classList.add("is-deep-enter");
+    // 조각 모양은 chat.css의 clip-path가 그린다. 글자 기호를 넣지 않아 글꼴마다 다른 별 그림이 섞이지 않는다.
+    const sparks = Array.from({ length: 7 }, () => element("span", "mode-spark"));
     sparks.forEach(spark => { spark.setAttribute("aria-hidden", "true"); button.append(spark); });
-    setTimeout(() => { sparks.forEach(spark => spark.remove()); if (version === effectVersion) button.classList.remove("is-bursting"); }, 700);
-    setTimeout(() => { if (version === effectVersion) row?.classList.remove("is-deep-enter"); }, 900);
+    setTimeout(() => { sparks.forEach(spark => spark.remove()); if (version === effectVersion) button.classList.remove("is-bursting", "is-flowing"); }, 700);
+    setTimeout(() => { if (version === effectVersion) row?.classList.remove("is-deep-enter"); }, 450);
   }
   render();
   // 언어를 바꾸면 효과 없이 이름만 다시 그린다.
@@ -2518,7 +2595,7 @@ function setupAiMode() {
         storage.setItem(aiModeKey, value); aiMode = value;
       } catch { aiMode = "fast"; }
       render(previous !== aiMode && aiMode === "deep");
-    });
+    }, { indicator: true });
   }
   button.addEventListener("click", open);
   button.addEventListener("keydown", event => {
@@ -2595,7 +2672,9 @@ const staticSources = new WeakMap();
 // 문서에 적힌 고정 문구만 바꾼다. 아래 자리는 스크립트가 직접 그리거나(메뉴·확인 창·제목), 서버 글과 사용자 글이 들어간다.
 const staticSkip = [".turn", "#conversation-list", "[data-panel-content]", ".title-fallback", ".main-title-fallback",
   "#ai-mode-button", ".lang-pill", ".choice-menu", ".conversation-menu", ".confirm-scrim", "#campus-caption",
-  "#demo-label", "#conversation-toast-open", "#conversation-announce", ".quicklink-track", "#handwriting-status"].join(", ");
+  "#demo-label", "#conversation-toast-open", "#conversation-announce", ".quicklink-track", "#handwriting-status",
+  // 빠른 실행 링(#137)은 quick-actions.js가 자기 사전으로 <html lang>을 따라 다시 쓴다.
+  ".quick-ring", ".quick-toggle"].join(", ");
 function langChoice(value) {
   return langChoices.find(choice => choice.value === value) ?? langChoices[0];
 }
@@ -2741,9 +2820,24 @@ async function readChatStream(response, onEvent) {
     reader.releaseLock();
   }
 }
-async function requestChatAnswer(body, onEvent) {
+// stop은 학생이 정지 버튼으로 끊는 신호다(#137). 시간 제한 신호와 함께 걸고, 끊긴 요청은 JSON 주소로 다시 묻지 않는다.
+// 신호를 묶는 AbortSignal.any가 없는 브라우저는 새 취소 신호 하나를 두고 두 신호 중 먼저 오는 쪽을 따라 끊는다.
+// 그래야 정지 버튼을 단 요청도 시간 제한이 그대로 걸린다. 학생이 멈췄는지는 호출한 쪽이 stop.aborted로 따로 본다.
+function chatSignal(stop, ms = 100_000) {
+  const timeout = AbortSignal.timeout(ms);
+  if (!stop) return timeout;
+  if (typeof AbortSignal.any === "function") return AbortSignal.any([stop, timeout]);
+  if (typeof AbortController !== "function" || typeof timeout?.addEventListener !== "function") return stop;
+  const both = new AbortController();
+  const end = () => both.abort();
+  if (stop.aborted || timeout.aborted) end();
+  stop.addEventListener("abort", end, { once: true });
+  timeout.addEventListener("abort", end, { once: true });
+  return both.signal;
+}
+async function requestChatAnswer(body, onEvent, stop = null) {
   const options = { method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body), signal: AbortSignal.timeout(100_000) };
+    body: JSON.stringify(body), signal: chatSignal(stop) };
   let meta = null, answer = "", notice, done = null;
   try {
     const response = await fetch("/api/v1/chat/stream", options);
@@ -2760,9 +2854,10 @@ async function requestChatAnswer(body, onEvent) {
     const result = { ...meta, answer, notice, guided: done?.guided === true };
     if (typeof done?.answered === "boolean") result.answered = done.answered;
     return result;
-  } catch {
+  } catch (error) {
+    if (stop?.aborted) throw error;
     onEvent("reset", {});
-    const response = await fetch("/api/v1/chat", { ...options, signal: AbortSignal.timeout(100_000) });
+    const response = await fetch("/api/v1/chat", { ...options, signal: chatSignal(stop) });
     if (!response.ok) throw new Error("Chat request failed");
     return response.json();
   }
@@ -2771,6 +2866,9 @@ async function requestChatAnswer(body, onEvent) {
 async function ask(question, reply, record = activeConversation) {
   if (record?.pending) return;
   const account = historyAccount;
+  // 대화마다 요청 하나에 취소 신호 하나를 둔다. 이 신호가 있는 동안 그 대화를 보고 있으면 보내기 버튼이 정지 버튼이 된다(#137).
+  const controller = record && typeof AbortController === "function" ? new AbortController() : null;
+  if (controller) record.chatAbort = controller;
   if (record) record.pending = true;
   else setBusy(true);
   showAssistant("searching");
@@ -2803,11 +2901,14 @@ async function ask(question, reply, record = activeConversation) {
     thinkingLabel.textContent = t("아이오가 {seconds}초 동안 생각함", { seconds: Math.max(0, Math.round((Date.now() - thinkingStarted) / 1000)) });
   }
   startThinking();
+  let streamed = "";
   try {
     const result = await requestChatAnswer({ message: question,
       session_id: record ? record.sessionId || null : sessionId, use_academic_data: false, mode, lang }, (name, data) => {
       if (!valid()) return;
       if (name === "reset") {
+        // 스트림이 끝맺지 못해 JSON으로 다시 묻는 동안 학생이 멈추면, 그때까지 스트림으로 받은 글을 되살린다(#137).
+        if (answerNode?.textContent.trim()) streamed = answerNode.textContent;
         finishThinking(); reply.replaceChildren(); answerNode = null; thinking = null; thinkingContent = null; thinkingLabel = null;
       }
       if (name === "thinking" && mode === "deep" && data.text) {
@@ -2822,7 +2923,7 @@ async function ask(question, reply, record = activeConversation) {
         if (visible()) showAssistant("answer");
       }
       if (visible()) scrollToLatest();
-    });
+    }, controller?.signal ?? null);
     if (record && (account !== historyAccount || !conversations.includes(record))) return;
     if (record) record.sessionId = result.session_id;
     else sessionId = result.session_id;
@@ -2856,6 +2957,22 @@ async function ask(question, reply, record = activeConversation) {
     else showAssistant("hold");
   } catch {
     if (record && (account !== historyAccount || !conversations.includes(record))) return;
+    // 학생이 멈춘 답은 받은 부분까지만 남긴다. 다시 묻지 않고, 오류 문구·다시 시도·새 답변 알림도 내지 않는다.
+    if (controller?.signal.aborted) {
+      finishThinking();
+      const partial = answerNode && answerNode.textContent.trim() ? answerNode.textContent : streamed;
+      if (partial && !answerNode) { answerNode = element("p"); answerNode.textContent = partial; reply.append(answerNode); }
+      const time = Date.now();
+      const kept = partial ? [{ role: "answer", text: partial, time, sources: [] }] : [];
+      record.messages.push(...kept);
+      record.messages = record.messages.slice(-40);
+      record.time = time; record.saved = true;
+      record.committedMessages = [...(record.committedMessages || []),
+        { role: "question", text: question, time, sources: [] }, ...kept].slice(-40);
+      persistConversations();
+      if (visible()) showAssistant("idle");
+      return;
+    }
     const retry = element("button", "retry", t("다시 시도"));
     retry.type = "button";
     retry.addEventListener("click", () => {
@@ -2873,6 +2990,7 @@ async function ask(question, reply, record = activeConversation) {
   } finally {
     finishThinking();
     if (!valid()) thinking?.remove();
+    if (record?.chatAbort === controller) delete record.chatAbort;
     if (record) record.pending = false;
     else setBusy(false);
     renderConversations(); updateSend(); scrollToLatest();
@@ -2886,6 +3004,10 @@ input.addEventListener("input", event => {
 input.addEventListener("keydown", event => {
   if (event.key !== "Enter" || event.shiftKey || event.isComposing || event.keyCode === 229) return;
   event.preventDefault();
+  // 답을 만드는 동안 보내기 버튼은 정지 버튼이다. Enter는 답을 멈추지도, 같은 대화에 다시 보내지도 않는다(#137).
+  // 길게 눌러 되풀이되는 Enter는 보내지 않는다. 정지 버튼에서 Enter를 누른 채로 있으면 멈춘 뒤 초점이 질문 칸으로
+  // 옮겨 오는데, 그 뒤 들어오는 반복 키가 적어 둔 초안을 보내면 안 된다.
+  if (event.repeat || sendMode === "stop") return;
   if (!send.disabled) composer.requestSubmit();
 });
 
@@ -3001,6 +3123,113 @@ for (const control of landingControls) {
     landingActions[action]();
   });
 }
+
+// 보내기↔정지 모핑(#137). 보내기 버튼 안에 SVG 경로 하나를 두고, 위 화살표와 정지(■) 모양 사이를 오간다.
+// 두 모양은 명령 순서(M, L 여섯 번, Z)와 점 개수(7)가 같아 점마다 좌표를 섞으면 된다. iOS Safari는 CSS d 속성
+// 애니메이션을 지원하지 않으므로 화면 갱신(requestAnimationFrame)마다 d 값을 다시 쓴다. 진행 중에 방향이 바뀌면
+// 지금 섞인 자리에서 반대로 돌아가고, 움직임 줄이기 설정이거나 화면 갱신 함수가 없으면 최종 모양을 바로 그린다.
+// 문서의 「보내기」 글자 노드는 그대로 옮겨 언어 바꾸기(translateStatic)가 계속 번역하고, 「답변 멈추기」는 여기서 쓴다.
+// 상태는 var로 둔다. updateSend가 이 묶음보다 먼저 불려도 선언 전 접근 오류가 나지 않는다.
+var sendGlyph = null;
+var sendMode = null;
+const sendShapes = {
+  send: [[12, 4], [19, 11], [14, 11], [14, 20], [10, 20], [10, 11], [5, 11]],
+  stop: [[12, 7], [17, 7], [17, 12], [17, 17], [7, 17], [7, 12], [7, 7]],
+};
+const sendMorphMs = 180;
+function sendPath(progress) {
+  const points = sendShapes.send.map(([x, y], index) => {
+    const [toX, toY] = sendShapes.stop[index];
+    return `${+(x + (toX - x) * progress).toFixed(2)} ${+(y + (toY - y) * progress).toFixed(2)}`;
+  });
+  return `M${points[0]} ${points.slice(1).map(point => `L${point}`).join(" ")} Z`;
+}
+function drawSendGlyph() {
+  sendGlyph?.path.setAttribute("d", sendPath(sendGlyph.progress));
+}
+function settleSendGlyph() {
+  if (!sendGlyph) return;
+  if (sendGlyph.frame !== null) window.cancelAnimationFrame?.(sendGlyph.frame);
+  sendGlyph.frame = null;
+  sendGlyph.progress = sendGlyph.target;
+  drawSendGlyph();
+}
+function morphSendGlyph(target) {
+  const glyph = sendGlyph;
+  if (!glyph) return;
+  glyph.target = target;
+  if (reducedMotion() || typeof window.requestAnimationFrame !== "function") { settleSendGlyph(); return; }
+  if (glyph.frame !== null) window.cancelAnimationFrame?.(glyph.frame);
+  const from = glyph.progress;
+  // 남은 거리에 비례한 시간만 쓴다. 반쯤 간 모양을 되돌리면 절반 시간에 돌아온다.
+  const duration = sendMorphMs * Math.abs(target - from);
+  let start = null;
+  const step = now => {
+    if (start === null) start = now;
+    const done = duration <= 0 ? 1 : Math.min(1, (now - start) / duration);
+    glyph.progress = from + (target - from) * (1 - (1 - done) ** 3);
+    if (done >= 1) { glyph.progress = target; glyph.frame = null; }
+    else glyph.frame = window.requestAnimationFrame(step);
+    drawSendGlyph();
+  };
+  glyph.frame = window.requestAnimationFrame(step);
+}
+function renderSendMode(stop) {
+  const mode = stop ? "stop" : "send";
+  if ((sendMode ?? "send") === mode) return;
+  sendMode = mode;
+  send.setAttribute?.("data-send-mode", mode);
+  if (!sendGlyph) return;
+  sendGlyph.label.hidden = stop;
+  sendGlyph.stopLabel.hidden = !stop;
+  morphSendGlyph(stop ? 1 : 0);
+}
+function setupSendGlyph() {
+  if (!send || typeof document.createElementNS !== "function" || typeof send.replaceChildren !== "function" || !send.childNodes) return;
+  const svgNs = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(svgNs, "svg");
+  for (const [name, value] of [["class", "send-glyph"], ["viewBox", "0 0 24 24"], ["width", "22"], ["height", "22"],
+    ["aria-hidden", "true"], ["focusable", "false"]]) svg.setAttribute(name, value);
+  const path = document.createElementNS(svgNs, "path");
+  path.setAttribute("fill", "currentColor");
+  path.setAttribute("stroke", "currentColor");
+  path.setAttribute("stroke-width", "1.6");
+  path.setAttribute("stroke-linejoin", "round");
+  svg.append(path);
+  const label = element("span", "sr-only send-label");
+  label.append(...Array.from(send.childNodes));
+  const stopLabel = element("span", "sr-only send-stop-label", t("답변 멈추기"));
+  stopLabel.hidden = true;
+  send.replaceChildren(svg, label, stopLabel);
+  const stop = sendMode === "stop";
+  sendGlyph = { path, label, stopLabel, progress: stop ? 1 : 0, target: stop ? 1 : 0, frame: null };
+  label.hidden = stop;
+  stopLabel.hidden = !stop;
+  drawSendGlyph();
+  onLangChange(() => { stopLabel.textContent = t("답변 멈추기"); });
+}
+// 정지 버튼은 보고 있는 대화의 요청만 끊는다. 보내기(submit)로 이어지지 않게 클릭의 기본 동작을 막는다.
+// 끊긴 뒤 보내기 버튼은 잠길 수 있으므로 초점은 질문 칸으로 옮긴다.
+function stopActiveAnswer() {
+  const controller = requestedChatView ? activeConversation?.chatAbort : null;
+  if (!controller) return false;
+  controller.abort();
+  input.focus?.();
+  return true;
+}
+// 보내기 버튼에 초점을 두고 Enter·Space를 길게 누르면, 첫 입력이 질문을 보내고 버튼이 곧바로 정지 버튼이 된다.
+// 이어 들어오는 반복 키가 방금 시작한 답을 멈추지 않게, 반복 키의 기본 동작(click)을 막는다.
+send?.addEventListener?.("keydown", event => {
+  if ((event.key === "Enter" || event.key === " ") && event.repeat) event.preventDefault?.();
+});
+send?.addEventListener?.("click", event => {
+  if (sendMode !== "stop") return;
+  event.preventDefault?.();
+  stopActiveAnswer();
+});
+motionPreference()?.addEventListener?.("change", event => { if (event.matches) settleSendGlyph(); });
+setupSendGlyph();
+// 보내기↔정지 모핑 끝.
 
 // 손글씨 입력(#134). 펜 버튼이 form 밖의 필기 패드를 연다. 넓은 화면은 입력 줄 바로 위, 좁은 화면은 아래 시트다(chat.css).
 // 질문 칸(textarea)에는 처리기·덮개·touch-action을 붙이지 않는다. iPad 기본 손글씨 입력(Scribble)이 그 칸에서 그대로 동작해야 한다.
@@ -3400,7 +3629,12 @@ function setupHandwriting() {
     pad.hidden = true;
     button.setAttribute("aria-expanded", "false");
     show(""); controls();
-    if (restore) button.focus();
+    // 좁은 화면에서 빠른 실행 링(quick-actions.js)을 켜면 펜 버튼이 링 안으로 들어가 줄에서 숨는다(#137).
+    // 그때는 패드를 연 링의 + 버튼으로 초점을 돌린다. 그 밖에는 늘 펜 버튼이다.
+    if (restore) {
+      const shown = typeof button.getClientRects !== "function" || button.getClientRects().length > 0;
+      (shown ? button : document.querySelector(".quick-toggle") ?? button).focus();
+    }
   }
   // 커서 자리. 패드를 열기 전에 적어 두어, 패드로 초점이 옮겨 가도 그 자리에 넣는다.
   function caret() {
