@@ -62,6 +62,9 @@ function ringPage({ width = 1280, height = 800, view = "home", reduced = false, 
   const home = button("home-button");
   // 끌어 옮길 수 있는 테크모 버튼. 크기를 주지 않으면(rect 없음) 배치에 끼지 않는다.
   const pet = button("pet");
+  // 입력 줄 위에 여는 필기 패드와 다른 대화의 답이 오면 뜨는 알림. 둘 다 숨긴 채 시작한다.
+  const pad = Object.assign(new El("section"), { id: "handwriting-pad", hidden: true });
+  const toast = Object.assign(new El("div"), { id: "conversation-toast", hidden: true });
   const screen = Object.assign(new El("div"), { id: "main-screen" });
   const body = new El("body");
   body.setAttribute("data-view", view);
@@ -69,6 +72,7 @@ function ringPage({ width = 1280, height = 800, view = "home", reduced = false, 
   root.setAttribute("lang", lang);
   const nodes = {
     ".composer-row": row, "#photo-attach": photo, "#handwriting-button": pen, "#home-button": home, "#main-screen": screen, "#pet": pet,
+    "#handwriting-pad": pad, "#conversation-toast": toast,
     '[data-feature="graduation"]': cards.graduation, '[data-feature="biskit"]': cards.biskit, '[data-feature="calendar"]': cards.calendar,
   };
   const document = {
@@ -105,7 +109,7 @@ function ringPage({ width = 1280, height = 800, view = "home", reduced = false, 
   return {
     state, row, photo, pen, cards, home, body, root, toggle, ring, menu, items, timers, observers,
     item: id => items.find(item => item.dataset.quickAction === id),
-    screen, window, pet,
+    screen, window, pet, pad, toast,
     reduce: () => { state.reduced = true; for (const listener of mediaListeners) listener({ matches: true }); },
     blobs: () => ring.all().filter(node => (node.getAttribute("class") ?? "").split(/\s+/).includes("quick-ring-blob")),
     frames: () => { const pending = frames; frames = []; for (const callback of pending) callback(16); return pending.length; },
@@ -488,6 +492,57 @@ test("링이 다 펼쳐진 뒤 테크모가 나타나 방울 자리가 바뀌면
   for (const observer of still.observers) observer([]);
   assert.equal(still.ring.getAttribute("data-settled"), "");
   assert.equal(still.timers.size, 0);
+});
+
+test("입력 줄 위에 필기 패드를 연 채 링을 열면 방울이 패드(취소·넣기 버튼)를 덮지 않는다", () => {
+  // 390×700. 필기 패드는 입력 줄 바로 위, 화면 가로를 거의 다 차지한다.
+  const rowBox = { left: 13, top: 592, width: 364, height: 60 };
+  const padBox = { left: 13, top: 272, width: 364, height: 312 };
+  const page = ringPage({ width: 390, height: 700, toggleRect: { left: 21, top: 600, width: 44, height: 44 } });
+  page.row.rect = rowBox;
+  page.pad.rect = padBox;
+  page.pad.hidden = false;
+  page.toggle.click();
+  assert.equal(page.toggle.getAttribute("aria-expanded"), "true");
+  const size = page.ring.getAttribute("data-compact") === "" ? 22 : 26;
+  const gap = (rect, { x, y }) => Math.hypot(x - Math.min(Math.max(x, rect.left), rect.left + rect.width), y - Math.min(Math.max(y, rect.top), rect.top + rect.height));
+  const centers = page.items.map(page.position).map(spot => ({ x: 43 + spot.x, y: 622 + spot.y }));
+  for (const spot of centers) {
+    assert.ok(gap(padBox, spot) >= size, `covers the handwriting pad at ${spot.x},${spot.y}`);
+    assert.ok(gap(rowBox, spot) >= size, `covers the input row at ${spot.x},${spot.y}`);
+    assert.ok(spot.x - size >= 7.5 && spot.x + size <= 390 - 7.5 && spot.y - size >= 7.5 && spot.y + size <= 700 - 7.5, `off screen ${spot.x},${spot.y}`);
+  }
+  for (const [i, a] of centers.entries()) for (const b of centers.slice(i + 1)) assert.ok(Math.hypot(a.x - b.x, a.y - b.y) >= size * 2, "bubbles overlap");
+});
+
+test("링을 연 뒤 새 답변 알림이 방울 자리에 늦게 나타나면 방울을 옮기고, 옮겨 가는 동안 누름을 막아 알림 버튼이 받게 한다", () => {
+  // 390×460 채팅. 다른 대화의 답이 오면 알림이 뜬다.
+  const rowBox = { left: 13, top: 392, width: 364, height: 60 };
+  const page = ringPage({ width: 390, height: 460, toggleRect: { left: 21, top: 400, width: 44, height: 44 } });
+  page.row.rect = rowBox;
+  page.toggle.click();
+  page.frames();
+  page.tick();
+  assert.equal(page.ring.getAttribute("data-settled"), "");
+  const anchor = { x: 43, y: 422 };
+  const before = page.items.map(page.position);
+  const center = before.map(spot => ({ x: anchor.x + spot.x, y: anchor.y + spot.y }))[2];
+  // 알림 상자가 가운데 방울 자리에 겹쳐 나타난다(대화 열기·닫기 버튼이 그 안에 있다).
+  const toastBox = { left: 12, top: center.y - 35, width: 366, height: 70 };
+  page.toast.rect = toastBox;
+  page.toast.hidden = false;
+  for (const observer of page.observers) observer([]);
+  assert.equal(page.toggle.getAttribute("aria-expanded"), "true");
+  assert.notDeepEqual(page.items.map(page.position), before);
+  assert.equal(page.ring.getAttribute("data-settled"), null, "bubbles take no presses while they move off the toast");
+  const size = page.ring.getAttribute("data-compact") === "" ? 22 : 26;
+  const gap = (rect, { x, y }) => Math.hypot(x - Math.min(Math.max(x, rect.left), rect.left + rect.width), y - Math.min(Math.max(y, rect.top), rect.top + rect.height));
+  for (const spot of page.items.map(page.position).map(each => ({ x: anchor.x + each.x, y: anchor.y + each.y }))) {
+    assert.ok(gap(toastBox, spot) >= size, `covers the toast at ${spot.x},${spot.y}`);
+    assert.ok(gap(rowBox, spot) >= size, `covers the input row at ${spot.x},${spot.y}`);
+  }
+  page.tick();
+  assert.equal(page.ring.getAttribute("data-settled"), "");
 });
 
 test("로그아웃처럼 본문 화면이 숨어 로그인 화면으로 바뀌면, 포인터 누름이 없어도 열린 링을 닫는다", () => {

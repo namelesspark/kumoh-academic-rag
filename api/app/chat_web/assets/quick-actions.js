@@ -33,6 +33,8 @@
     .map(action => [action.feature, doc.querySelector(`[data-feature="${action.feature}"]`)]));
   // settleMs는 quick-actions.css의 방울 이동(220ms)과 마지막 방울의 출발 지연(16ms × 4)을 더한 값이다.
   // compactRadius는 화면이 아주 작을 때 쓰는 44px 방울(조작 영역 하한)의 반지름이다.
+  // 링이 덮으면 안 되는, 화면에 떠서 누를 수 있는 요소들(테크모 버튼·필기 패드·새 답변 알림).
+  const floating = ["#pet", "#handwriting-pad", "#conversation-toast"];
   const bubbleRadius = 26, compactRadius = 22, hubRadius = 22, edge = 8, closeMs = 300, settleMs = 290, waitMs = 1500;
 
   const lang = () => {
@@ -274,10 +276,12 @@
     const local = rect => ({ left: rect.left - view.left, right: rect.left + rect.width - view.left,
       top: rect.top - view.top, bottom: rect.top + rect.height - view.top });
     const avoid = local(sized(rowBox) ? rowBox : box);
-    // 테크모 버튼은 어디로든 끌어 옮길 수 있다. 보이는 동안에는 그 자리도 방울이 덮지 않는다(링이 테크모보다 위층이다).
-    const pet = doc.querySelector("#pet");
-    const petBox = pet && pet.hidden !== true ? pet.getBoundingClientRect?.() : null;
-    const others = sized(petBox) ? [local(petBox)] : [];
+    // 링보다 아래층에 떠서 누를 수 있는 것들도 보이는 동안에는 방울이 덮지 않는다. 끌어 옮기는 테크모, 입력 줄 위에 여는
+    // 필기 패드, 다른 대화의 답이 오면 뜨는 알림이다. 셋 다 늦게 나타나거나 옮겨 갈 수 있어 열린 링이 그때마다 다시 놓는다.
+    const others = floating.map(selector => doc.querySelector(selector))
+      .filter(node => node && node.hidden !== true)
+      .map(node => node.getBoundingClientRect?.())
+      .filter(sized).map(local);
     const result = layout({ x: anchor.x - view.left, y: anchor.y - view.top }, avoid, width, height, shown.length, others);
     // 화면이 너무 작아 방울을 잘리지 않고 +도 덮지 않게 놓을 수 없으면 false를 돌려준다. 여는 쪽이 링을 열지 않는다.
     if (!result) return false;
@@ -542,10 +546,10 @@
       new MutationObserver(() => { if (open && screen.hidden) closeRing(false); })
         .observe(screen, { attributes: true, attributeFilter: ["hidden"] });
     }
-    // 테크모는 그림을 받은 뒤에야 보이고(hidden이 풀림) 끌어 옮기면 자리가 바뀐다. 열린 링이 그사이 테크모를 덮지 않게
-    // 테크모 버튼과 그 줄의 속성이 바뀌면 방울을 다시 놓고, 놓을 자리가 없으면 닫는다.
+    // 떠 있는 것들(테크모·필기 패드·알림)은 늦게 나타나거나(hidden이 풀림) 자리를 옮긴다. 열린 링이 그사이 그것들을 덮지 않게
+    // 속성이 바뀌면 방울을 다시 놓고, 놓을 자리가 없으면 닫는다. 자리가 바뀌면 place가 새 자리에 닿을 때까지 누름을 막는다.
     const relayout = new MutationObserver(() => { if (open && !place()) closeRing(false); });
-    for (const selector of ["#pet", "#pet-dock"]) {
+    for (const selector of [...floating, "#pet-dock"]) {
       const node = doc.querySelector(selector);
       if (node) relayout.observe(node, { attributes: true });
     }
