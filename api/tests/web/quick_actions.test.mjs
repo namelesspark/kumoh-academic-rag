@@ -254,6 +254,31 @@ test("+는 제자리인데 창 높이만 줄면 링을 닫지 않고 새 화면 
   assert.equal(page.toggle.getAttribute("aria-expanded"), "false");
 });
 
+test("좁고 낮아 한 줄도 들어가지 않는 화면에서는 + 버튼을 비운 격자 칸에 방울을 놓아 잘리거나 +를 덮지 않는다", () => {
+  // 320×700에서 + 가운데를 (54, 90)에 두고 연 뒤, 키보드가 올라와 높이가 220px·132px로 줄어든 경우.
+  const page = ringPage({ width: 320, height: 700, toggleRect: { left: 32, top: 68, width: 44, height: 44 } });
+  page.toggle.click();
+  for (const height of [220, 132]) {
+    page.window.innerHeight = height;
+    page.windowEvent("resize");
+    assert.equal(page.toggle.getAttribute("aria-expanded"), "true", String(height));
+    assert.equal(page.ring.getAttribute("data-layout"), "grid", String(height));
+    const centers = page.items.map(page.position).map(spot => ({ x: 54 + spot.x, y: 90 + spot.y }));
+    for (const { x, y } of centers) {
+      assert.ok(x - 26 >= 8 - 0.5 && x + 26 <= 320 - 8 + 0.5 && y - 26 >= 8 - 0.5 && y + 26 <= height - 8 + 0.5, `${height}: off screen ${x},${y}`);
+      // + 버튼 칸(32~76, 68~112)의 어느 점도 방울 원 안에 들지 않는다. (54, 108)을 누르면 +가 받는다.
+      const nearestX = Math.min(Math.max(x, 32), 76), nearestY = Math.min(Math.max(y, 68), 112);
+      assert.ok(Math.hypot(x - nearestX, y - nearestY) >= 26, `${height}: covers + ${x},${y}`);
+      assert.ok(Math.hypot(x - 54, y - 108) >= 26, `${height}: (54,108) hits a bubble`);
+    }
+    // 방울끼리도 겹치지 않는다.
+    for (const [i, a] of centers.entries()) for (const b of centers.slice(i + 1)) assert.ok(Math.hypot(a.x - b.x, a.y - b.y) >= 52, `${height}: bubbles overlap`);
+    // 화살표 순서는 위 줄부터, 같은 줄은 왼쪽부터다.
+    const order = centers.map(({ x, y }) => [y, x]);
+    assert.deepEqual(order, [...order].sort((a, b) => a[0] - b[0] || a[1] - b[1]));
+  }
+});
+
 test("열린 링의 가운데 원 위에 × 표시를 다시 그려 +의 닫기 표시가 가려지지 않고, 누름은 아래 + 버튼이 받는다", () => {
   const page = ringPage();
   const close = page.ring.children.find(node => node.className === "quick-ring-close");

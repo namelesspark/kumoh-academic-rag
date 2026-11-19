@@ -168,8 +168,19 @@
     const y = Math.min(Math.max(anchor.y, edge + bubbleRadius), height - edge - bubbleRadius);
     const right = anchor.x + clear, left = anchor.x - clear - span;
     const start = right + span + bubbleRadius <= width - edge ? right : left - bubbleRadius >= edge ? left : null;
-    if (start === null) return moved(fit);
-    return { kind: "row", points: Array.from({ length: count }, (_, index) => ({ x: start + index * step, y })) };
+    if (start !== null) return { kind: "row", points: Array.from({ length: count }, (_, index) => ({ x: start + index * step, y })) };
+    // 한 줄도 너비에 안 들어가면(좁고 낮은 화면) 화면 안 격자 칸(56px 간격) 가운데 + 버튼과 겹치지 않는 칸만 남겨
+    // + 에 가까운 칸부터 고른다. 칸 간격이 방울 지름보다 커서 방울끼리도 겹치지 않는다. 칸이 모자라면 화면 안만 지킨다.
+    const box = { left: anchor.x - hubRadius, right: anchor.x + hubRadius, top: anchor.y - hubRadius, bottom: anchor.y + hubRadius };
+    const apart = (x, y) => Math.hypot(x - Math.min(Math.max(x, box.left), box.right), y - Math.min(Math.max(y, box.top), box.bottom)) >= bubbleRadius + 4;
+    const slots = [];
+    for (let gy = edge + bubbleRadius; gy <= height - edge - bubbleRadius + 0.5; gy += step) {
+      for (let gx = edge + bubbleRadius; gx <= width - edge - bubbleRadius + 0.5; gx += step) if (apart(gx, gy)) slots.push({ x: gx, y: gy });
+    }
+    if (slots.length < count) return moved(fit);
+    const chosen = slots.sort((a, b) => Math.hypot(a.x - anchor.x, a.y - anchor.y) - Math.hypot(b.x - anchor.x, b.y - anchor.y)).slice(0, count);
+    // 화살표 키 순서가 화면 순서와 맞게 위 줄부터, 같은 줄은 왼쪽부터 놓는다.
+    return { kind: "grid", points: chosen.sort((a, b) => a.y - b.y || a.x - b.x) };
   }
   function place() {
     const box = toggle.getBoundingClientRect();

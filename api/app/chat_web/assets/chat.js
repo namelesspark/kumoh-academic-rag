@@ -2991,7 +2991,9 @@ input.addEventListener("keydown", event => {
   if (event.key !== "Enter" || event.shiftKey || event.isComposing || event.keyCode === 229) return;
   event.preventDefault();
   // 답을 만드는 동안 보내기 버튼은 정지 버튼이다. Enter는 답을 멈추지도, 같은 대화에 다시 보내지도 않는다(#137).
-  if (sendMode === "stop") return;
+  // 길게 눌러 되풀이되는 Enter는 보내지 않는다. 정지 버튼에서 Enter를 누른 채로 있으면 멈춘 뒤 초점이 질문 칸으로
+  // 옮겨 오는데, 그 뒤 들어오는 반복 키가 적어 둔 초안을 보내면 안 된다.
+  if (event.repeat || sendMode === "stop") return;
   if (!send.disabled) composer.requestSubmit();
 });
 

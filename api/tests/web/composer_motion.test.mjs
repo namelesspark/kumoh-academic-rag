@@ -491,6 +491,27 @@ test("정지 버튼은 보고 있는 대화가 답을 만들 때만 켜지고 �
   assert.equal(page.counts.submits, 1);
 });
 
+test("정지 버튼에서 Enter를 길게 누르면 멈춘 뒤 질문 칸으로 옮겨 온 반복 키가 적어 둔 초안을 보내지 않는다", async () => {
+  const held = heldStream();
+  const page = askPage(held.route);
+  const done = page.ask();
+  await settle();
+  page.input.value = "가상 다음 질문 초안";
+  // 정지 버튼 위 첫 Enter는 버튼의 click이다. 답이 멈추고 초점이 질문 칸으로 온다.
+  page.send.fire("click");
+  await done;
+  assert.equal(page.state.focused, page.input);
+  assert.equal(page.mode(), "send");
+  assert.equal(page.send.disabled, false, "the draft could be sent by a fresh Enter");
+  // 같은 키를 누르고 있어 브라우저가 되풀이해 보내는 Enter(repeat)는 막기만 한다.
+  for (let i = 0; i < 3; i++) assert.equal(page.input.fire("keydown", { key: "Enter", repeat: true }).defaultPrevented, true);
+  assert.equal(page.counts.submits, 0);
+  assert.equal(page.input.value, "가상 다음 질문 초안");
+  // 손을 뗐다가 새로 누른 Enter는 그대로 보낸다.
+  page.input.fire("keydown", { key: "Enter" });
+  assert.equal(page.counts.submits, 1);
+});
+
 // ── 답변 모드 선택 표시 ──────────────────────────────────────────────────────────
 function indicatorPage({ reduced = false } = {}) {
   const state = { focused: null };
