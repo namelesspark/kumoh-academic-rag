@@ -196,13 +196,16 @@
   function place() {
     const box = toggle.getBoundingClientRect();
     const anchor = { x: box.left + box.width / 2, y: box.top + box.height / 2 };
-    const width = window.innerWidth || doc.documentElement?.clientWidth || 360;
-    const height = window.innerHeight || doc.documentElement?.clientHeight || 640;
+    // 화면을 확대(핀치 줌)하면 실제로 보이는 칸(visualViewport)이 창보다 작고 옮겨 가 있다. 그 칸 안에 놓는다.
+    // 배치는 보이는 칸 왼쪽 위를 (0, 0)으로 두고 계산한 뒤 화면 좌표로 되돌린다. 보이는 칸을 모르면 창 크기를 쓴다.
+    const view = visibleArea();
+    const width = view.width, height = view.height;
     const shown = visible();
-    const result = layout(anchor, width, height, shown.length);
+    const result = layout({ x: anchor.x - view.left, y: anchor.y - view.top }, width, height, shown.length);
     // 화면이 너무 작아 방울을 잘리지 않고 +도 덮지 않게 놓을 수 없으면 false를 돌려준다. 여는 쪽이 링을 열지 않는다.
     if (!result) return false;
-    const { kind, points } = result;
+    const { kind } = result;
+    const points = result.points.map(point => ({ x: point.x + view.left, y: point.y + view.top }));
     const compact = result.compact === true;
     // 삼각함수 오차(-1e-14 같은 값)가 CSS 값에 섞이지 않게 0.01px 단위로 자른다.
     const px = value => `${Math.round(value * 100) / 100 || 0}px`;
@@ -228,9 +231,17 @@
     // 이름표는 묶음 맨 위 방울 위에 한 장만 둔다. 이름을 방울마다 달면 호 위에서 서로 겹친다.
     const top = Math.min(...points.map(point => point.y), anchor.y) - bubbleRadius - 10;
     const middle = points.reduce((sum, point) => sum + point.x, 0) / Math.max(1, points.length);
-    ring.style.setProperty("--qa-caption-x", px(Math.min(width - 96, Math.max(96, middle))));
-    ring.style.setProperty("--qa-caption-y", px(Math.max(edge + 28, top)));
+    ring.style.setProperty("--qa-caption-x", px(Math.min(view.left + width - 96, Math.max(view.left + 96, middle))));
+    ring.style.setProperty("--qa-caption-y", px(Math.max(view.top + edge + 28, top)));
     return true;
+  }
+  function visibleArea() {
+    const zoomed = window.visualViewport;
+    if (zoomed && zoomed.width > 0 && zoomed.height > 0) {
+      return { left: Number(zoomed.offsetLeft) || 0, top: Number(zoomed.offsetTop) || 0, width: zoomed.width, height: zoomed.height };
+    }
+    return { left: 0, top: 0, width: window.innerWidth || doc.documentElement?.clientWidth || 360,
+      height: window.innerHeight || doc.documentElement?.clientHeight || 640 };
   }
   function show(key) {
     captionKey = key;
@@ -380,7 +391,11 @@
   };
   // 창 크기만 바뀌고 +는 제자리면(키보드가 열리고 닫히는 등) 닫지 않고 새 화면 크기에 맞춰 방울을 다시 놓는다.
   // 새 크기에 놓을 자리가 없으면 잘린 링을 남기지 않고 닫는다.
-  window.addEventListener?.("resize", () => { if (moved() === false && !place()) closeRing(false); });
+  const resized = () => { if (moved() === false && !place()) closeRing(false); };
+  window.addEventListener?.("resize", resized);
+  // 확대·축소와 확대한 채 화면을 끄는 움직임은 창 크기 대신 보이는 칸(visualViewport)의 신호로만 온다.
+  window.visualViewport?.addEventListener?.("resize", resized);
+  window.visualViewport?.addEventListener?.("scroll", resized);
   doc.addEventListener("scroll", moved, true);
   window.matchMedia?.("(prefers-reduced-motion: reduce)")?.addEventListener?.("change", event => {
     if (event.matches && !open && hideTimer !== null) { clearTimeout(hideTimer); hideTimer = null; ring.hidden = true; }

@@ -2478,8 +2478,22 @@ function choiceIndicator(menu, items) {
     place({ top, height: Math.max(from.top + from.height, to.top + to.height) - top }, "stretch");
     timer = setTimeout(() => { timer = null; if (current === item) place(to, "settle"); }, 90);
   }
+  // 늘어난 채 안착을 기다리는 동안 동작 줄이기를 켜면 예약을 버리고 목표 자리에 바로 놓는다.
+  settleChoiceIndicator = () => {
+    if (timer === null) return;
+    clearTimeout(timer);
+    timer = null;
+    const to = box(current);
+    if (to) place(to, "rest");
+  };
   for (const item of items) item.addEventListener("pointerenter", () => move(item));
   return { move };
+}
+// 지금 열린 선택 표시 하나만 기억한다. 설정 변화 처리기는 한 번만 붙인다. 화면 조각만 떼어 도는 테스트처럼
+// 설정 읽기 함수(motionPreference)가 없는 곳에서는 붙이지 않는다.
+let settleChoiceIndicator = null;
+if (typeof motionPreference === "function") {
+  motionPreference()?.addEventListener?.("change", event => { if (event.matches) settleChoiceIndicator?.(); });
 }
 function openChoiceMenu(button, title, choices, onSelect, { indicator = false } = {}) {
   activeChoiceMenu?.close();

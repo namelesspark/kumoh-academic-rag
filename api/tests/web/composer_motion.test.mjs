@@ -514,8 +514,8 @@ test("정지 버튼에서 Enter를 길게 누르면 멈춘 뒤 질문 칸으로 
 
 // ── 답변 모드 선택 표시 ──────────────────────────────────────────────────────────
 function indicatorPage({ reduced = false } = {}) {
-  const state = { focused: null };
-  const timers = new Map();
+  const state = { focused: null, reduced };
+  const timers = new Map(), motion = [];
   let nextTimer = 0, row = 0;
   const node = tag => new El(tag, state);
   const body = node("body");
@@ -523,7 +523,9 @@ function indicatorPage({ reduced = false } = {}) {
   const context = {
     document: { body, get activeElement() { return state.focused; }, addEventListener() {} },
     window: { innerWidth: 1280, innerHeight: 800 },
-    reducedMotion: () => reduced, within: () => false,
+    reducedMotion: () => state.reduced, within: () => false,
+    // 동작 줄이기 설정 변화 신호를 테스트에서 직접 보낼 수 있게 처리기를 모아 둔다.
+    motionPreference: () => ({ addEventListener: (type, listener) => motion.push(listener) }),
     setTimeout: (callback, delay) => { timers.set(++nextTimer, { callback, delay }); return nextTimer; },
     clearTimeout: id => timers.delete(id),
     element(tag, className, text) {
@@ -541,7 +543,7 @@ function indicatorPage({ reduced = false } = {}) {
     { value: "deep", name: "가상 깊이", description: "", checked: false },
   ];
   return {
-    state, timers, button,
+    state, timers, button, motion,
     open: indicator => runInNewContext("openChoiceMenu", context)(button, "가상 답변 모드", choices, () => {}, indicator ? { indicator: true } : undefined),
     menu: () => body.children.find(child => child.className === "choice-menu"),
     indicator() { return this.menu().children.find(child => child.className === "choice-menu-indicator"); },
@@ -572,6 +574,23 @@ test("답변 모드 메뉴의 선택 표시는 목표 쪽으로 늘어났다가 
   assert.equal(page.timers.size, 1, "only the latest settle is scheduled");
   page.tick();
   assert.deepEqual(spot(indicator), ["settle", "92px", "52px"]);
+});
+
+test("늘어난 선택 표시가 안착을 기다리는 사이 동작 줄이기를 켜면 예약을 버리고 목표 자리에 바로 놓는다", () => {
+  const page = indicatorPage();
+  page.open(true);
+  page.menu().fire("keydown", { key: "ArrowDown" });
+  assert.deepEqual(spot(page.indicator()), ["stretch", "38px", "106px"]);
+  assert.equal(page.timers.size, 1);
+  // 90ms가 지나기 전에 운영체제 설정을 바꾼다.
+  page.state.reduced = true;
+  assert.equal(page.motion.length, 1, "one settings listener for every menu");
+  for (const listener of page.motion) listener({ matches: true });
+  assert.deepEqual(spot(page.indicator()), ["rest", "92px", "52px"]);
+  assert.equal(page.timers.size, 0, "the pending settle is cancelled");
+  // 설정을 끄는 신호는 아무것도 옮기지 않는다.
+  for (const listener of page.motion) listener({ matches: false });
+  assert.deepEqual(spot(page.indicator()), ["rest", "92px", "52px"]);
 });
 
 test("동작 줄이기 설정에서는 선택 표시가 늘어나지 않고 바로 목표 자리에 놓이며, 다른 메뉴에는 선택 표시가 없다", () => {

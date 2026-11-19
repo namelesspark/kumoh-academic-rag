@@ -14,7 +14,7 @@ const code = source.replace(/^\s*\/\/.*$/gm, "");
 const css = styles.replace(/\/\*[\s\S]*?\*\//g, "");
 
 function ringPage({ width = 1280, height = 800, view = "home", reduced = false, lang = "ko", missing = [], locked = [],
-  toggleRect = { left: 300, top: 700, width: 44, height: 44 } } = {}) {
+  toggleRect = { left: 300, top: 700, width: 44, height: 44 }, visual = null } = {}) {
   const state = { focused: null };
   let frames = [];
   const timers = new Map(), documentListeners = [], windowListeners = [], observers = [];
@@ -82,6 +82,8 @@ function ringPage({ width = 1280, height = 800, view = "home", reduced = false, 
     matchMedia: query => ({ matches: reduced && query.includes("prefers-reduced-motion"), addEventListener() {} }),
     requestAnimationFrame: callback => { frames.push(callback); return frames.length; },
     addEventListener: (type, listener) => windowListeners.push({ type, listener }),
+    // 확대(핀치 줌)했을 때 실제로 보이는 칸. 주면 그 칸의 크기·위치와 신호를 쓴다.
+    visualViewport: visual ? { ...visual, addEventListener: (type, listener) => windowListeners.push({ type: `visual-${type}`, listener }) } : undefined,
   };
   runInNewContext(source, {
     document, window, Date,
@@ -325,6 +327,29 @@ test("52px 방울 칸이 모자라면 44px 방울로 줄이고, 그래도 모자
   flat.windowEvent("resize");
   assert.equal(flat.toggle.getAttribute("aria-expanded"), "false");
   assert.notEqual(flat.ring.getAttribute("data-layout"), "row");
+});
+
+test("화면을 확대해 보이는 칸이 창보다 작으면 그 칸 안에 방울을 놓고, 확대한 채 화면을 끌면 다시 놓는다", () => {
+  // 390×700 창을 두 배로 확대해 보이는 칸이 195×350, 위에서 150px 내려가 있다. + 가운데는 (30, 300)이다.
+  const visual = { width: 195, height: 350, offsetLeft: 0, offsetTop: 150 };
+  const page = ringPage({ width: 390, height: 700, toggleRect: { left: 8, top: 278, width: 44, height: 44 }, visual });
+  page.toggle.click();
+  assert.equal(page.toggle.getAttribute("aria-expanded"), "true");
+  const inView = ({ left, top, width, height }) => {
+    for (const spot of page.items.map(page.position)) {
+      const x = 30 + spot.x, y = 300 + spot.y;
+      assert.ok(x - 26 >= left + 8 - 0.5 && x + 26 <= left + width - 8 + 0.5, `x ${x} outside the visible ${left}..${left + width}`);
+      assert.ok(y - 26 >= top + 8 - 0.5 && y + 26 <= top + height - 8 + 0.5, `y ${y} outside the visible ${top}..${top + height}`);
+      const nearestX = Math.min(Math.max(x, 8), 52), nearestY = Math.min(Math.max(y, 278), 322);
+      assert.ok(Math.hypot(x - nearestX, y - nearestY) >= 26, `covers + ${x},${y}`);
+    }
+  };
+  inView({ left: 0, top: 150, width: 195, height: 350 });
+  // 확대한 채 보이는 칸을 위로 30px 끌면(+는 창에서 제자리) 보이는 칸의 신호로 다시 놓는다.
+  page.window.visualViewport.offsetTop = 120;
+  page.windowEvent("visual-scroll");
+  assert.equal(page.toggle.getAttribute("aria-expanded"), "true");
+  inView({ left: 0, top: 120, width: 195, height: 350 });
 });
 
 test("채팅에서 Enter로 방울을 고른 뒤 키를 누르고 있어도, +로 돌아온 반복 Enter가 링을 다시 열어 실행을 취소하지 않는다", () => {
