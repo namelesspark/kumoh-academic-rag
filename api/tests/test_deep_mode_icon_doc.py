@@ -1,5 +1,8 @@
 """답변 모드 선택기 절(#167)이 깊이 아이콘을 선 아이콘으로 설명하는지 본다.
 
+핵심 판정은 절의 목록 항목을 기대 글(EXPECTED_ITEMS)과 글자 그대로 맞춰 보는 것이다. 필요한 문장이 있는지만
+보면 같은 절에 반대 설명을 덧붙여도 통과하기 때문이다. 아래의 경계·형태·기호 처리는 앞선 검토에서 더한 보조 검사다.
+
 표준 라이브러리만 쓰고 `web/docs/UI_NOTES.md` 하나만 읽는다.
 절은 「### 답변 모드 선택기」 다음 줄부터 다음 제목 앞까지다. 앞에 공백을 둔 `#` 제목, `####` 이하 제목,
 `---`·`===` 밑줄형 제목, HTML `<h1>`~`<h6>` 제목도 경계로 본다.
@@ -67,6 +70,30 @@ RESTORE_RULE = "새로고침 뒤 저장된 깊이 모드도 같은 모습으로 
 FLOW_RULE = "빛줄기는 깊이 모드를 새로 고르고 움직임 줄이기가 꺼져 있을 때만 한 번 지나간다(아래 표의 `.mode-pill.is-flowing`)."
 # 알약에서 두 모드가 어떤 아이콘을 쓰는지 소개하는 문장. index.html의 깊이 SVG는 선 그림이다.
 ICON_INTRO = "빠르게는 번개 아이콘과 「빠르게」, 깊이는 선으로 그린 아이콘과 「깊이 생각」을 보이고 끝에 꺾쇠를 둔다."
+
+# 절 전체의 기대 글. 목록 항목 하나가 한 줄이고, 이어지는 줄은 공백 하나로 붙인다.
+# 필요한 문장이 들어 있는지만 보면 같은 절에 반대 설명을 덧붙여도 통과한다. 그래서 항목을 글자 그대로 맞춰 본다.
+# 이 절을 고치면 이 목록도 함께 고친다.
+EXPECTED_ITEMS = (
+    "입력 상자 밖의 `fieldset#ai-mode` 라디오를 없앴다. `.composer-row` 안의 `#question`과 `#send` 사이에 "
+    "알약 버튼 `#ai-mode-button.mode-pill`을 둔다. " + ICON_INTRO + " 아이콘 SVG는 `index.html`에 직접 둔다. "
+    "보안 정책 `default-src 'self'`가 CSS 안의 `data:` 그림을 막기 때문이다.",
+    "깊이 아이콘(#167)은 다른 선 아이콘과 같은 규칙으로 그린다. " + LINE_RULE + " 24×24 좌표계, 18px 표시, "
+    '`aria-hidden="true"`, `focusable="false"`, 처음 상태의 `hidden`은 그대로다. '
+    "경로는 1~3개로 줄여 18px에서 선이 뭉치지 않게 한다.",
+    CLONE_RULE + " " + SINGLE_SOURCE_RULE,
+    " ".join((BAN_RULE, DISPLAY_RULE, NARROW_RULE, RESTORE_RULE, FLOW_RULE)),
+    "누르면 버튼 위쪽에 「답변 모드」 메뉴가 뜬다. 항목은 아이콘·이름·한 줄 설명·체크 표시다.",
+    "빠르게 — 바로 답해요 · 보통 1~3초",
+    "깊이 생각하기 — 생각 과정을 보여 주며 꼼꼼히 답해요 · 10~30초",
+    "키보드: 위아래 화살표로 이동하고 끝에서 처음으로 돈다. Enter·Space로 고른다. Esc는 메뉴만 닫고 "
+    "버튼으로 초점을 돌린다. 대화 메뉴나 서랍까지 닫지 않는다. 바깥 클릭과 Tab은 닫되, 사용자가 옮긴 초점을 빼앗지 않는다.",
+    "저장: 키 `kumoh-chat-ai-mode:v1`과 요청 본문의 `mode` 값은 그대로다. 저장에 실패하면 상태·버튼 글자· "
+    "`aria-label`·체크·깊이 표시를 모두 빠르게로 되돌린다.",
+    "진행 중 변경: 답을 받는 중에 바꾸면 다음 질문부터 적용한다. 요청마다 보낼 때의 모드를 기억한다.",
+    "메뉴는 버튼·머리글·항목 목록·선택 콜백을 받는 작은 함수(`openChoiceMenu` 꼴)다. 답변 모드 전용 값은 함수 밖에 둔다. "
+    "다음 이슈의 머리글 언어 선택이 같은 함수와 `.choice-menu` 스타일을 다시 쓴다.",
+)
 
 # 규칙 문장을 인용해 놓고 부정하는 말. 실제 문서의 이 절에는 없다.
 CONTRADICTION = re.compile(r"틀렸다|틀린 설명|사실이 아니|사실과 다르|맞지 않|빠르게로 돌아간")
@@ -166,8 +193,38 @@ def icon_doc_problems(notes):
         problems.append("절에 예전 별 표현 '네 갈래 별'이 남았다.")
     problems.extend(f"절에 별·반짝이 기호 {glyph!r}이(가) 보인다." for glyph in star_glyphs(flat))
     problems.extend(f"절에 복제 규칙을 뒤집는 {found!r}이(가) 있다." for found in NEGATED_CLONE.findall(flat))
+    problems.extend(item_problems(section))
     problems.extend(f"절에 규칙을 부정하는 {found!r}이(가) 있다." for found in CONTRADICTION.findall(flat))
     problems.extend(f"절에 {phrase!r}이(가) 한 문장으로 없다." for phrase in REQUIRED if not standalone(phrase, flat))
+    return problems
+
+
+def section_items(section):
+    """절의 목록 항목을 한 줄씩. `- `·`  - `로 새 항목을 열고, 나머지 줄은 앞 항목에 공백 하나로 붙인다."""
+    items = []
+    for line in section.splitlines():
+        text = line.strip()
+        if not text:
+            continue
+        if line.startswith(("- ", "  - ")) or not items:
+            items.append(text[2:] if text.startswith("- ") else text)
+        else:
+            items[-1] += " " + text
+    return tuple(" ".join(item.split()) for item in items)
+
+
+def item_problems(section):
+    """기대 글과 다른 항목, 빠진 항목, 늘어난 항목을 알린다."""
+    actual = section_items(section)
+    if actual == EXPECTED_ITEMS:
+        return []
+    problems = [
+        f"절의 {index + 1}번째 항목이 기대 글과 다르다: {got!r}"
+        for index, (got, want) in enumerate(zip(actual, EXPECTED_ITEMS))
+        if got != want
+    ]
+    if len(actual) != len(EXPECTED_ITEMS):
+        problems.append(f"절의 항목 수가 {len(actual)}개다. 기대는 {len(EXPECTED_ITEMS)}개다.")
     return problems
 
 
@@ -255,6 +312,28 @@ class DeepModeIconDocTest(unittest.TestCase):
                 quoted, count = re.subn(pattern, lambda found: f"「{found.group(0)}」라는 설명", self.section, count=1)
                 self.assertEqual(count, 1)
                 self.assertTrue(icon_doc_problems(self.notes.replace(self.section, quoted, 1)))
+
+    def test_section_matches_expected_items_exactly(self):
+        self.assertEqual(section_items(self.section), EXPECTED_ITEMS)
+
+    def test_added_contradiction_fails(self):
+        # 교차 검토 재현: 복원 문장 앞뒤에 안내 문장과 반대 설명을 덧붙인 경우.
+        wrapped = self.notes.replace(
+            RESTORE_RULE,
+            f"이전 안내는 다음과 같다. {RESTORE_RULE} 실제로는 새로고침할 때마다 기본 모드로 초기화한다.",
+            1,
+        )
+        # 부정 낱말 없이 새 항목으로 반대 설명을 넣거나, 기존 항목 끝에 붙이거나, 항목 하나를 지운 경우도 본다.
+        new_item = self.notes.replace(self.section, f"{self.section}- 새로고침하면 기본 모드로 초기화한다.\n", 1)
+        tail = self.notes.replace(
+            "`.mode-pill.is-flowing`).", "`.mode-pill.is-flowing`). 다만 저장된 모드는 다시 그리지 않는다.", 1
+        )
+        dropped = self.notes.replace("- 진행 중 변경: 답을 받는 중에 바꾸면 다음 질문부터 적용한다. 요청마다 보낼 때의 모드를 기억한다.\n", "", 1)
+        for case, modified in {"앞뒤 덧붙임": wrapped, "새 항목": new_item, "항목 끝": tail, "항목 삭제": dropped}.items():
+            with self.subTest(case=case):
+                self.assertNotEqual(modified, self.notes)
+                self.assertTrue(item_problems(mode_section(modified)))
+                self.assertTrue(icon_doc_problems(modified))
 
     def test_indented_heading_splits_section(self):
         # 교차 검토 재현: 복제 규칙 바로 위에 들여쓴 제목을 넣어 규칙을 절 밖으로 밀어낸 경우.
