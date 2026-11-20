@@ -38,6 +38,16 @@ EXPECTED_ERROR_ITEM = " ".join((
 # 「### 그리기」 절의 되돌리기 설명. 규칙과 어긋나지 않도록 이 항목이 그대로 있어야 한다.
 DRAW_HEADING = "### 그리기"
 DRAW_UNDO_ITEM = "- 되돌리기는 마지막 획 하나, 지우기는 모든 획을 지운다. 획이 없으면 되돌리기·지우기·넣기가 잠긴다."
+# 그리기 절에서 「되돌리」(되돌리기는·되돌리기를·되돌린 등 모든 꼴)가 든 항목 전체. 실제 문서의 두 항목과 같아야 한다.
+# 낱말 하나(「되돌리기는」)로 거르면 「되돌리기를 누르면 …」처럼 조사만 바꾼 충돌 항목을 놓친다.
+DRAW_UNDO_STEM = "되돌리"
+EXPECTED_DRAW_UNDO_ITEMS = [
+    " ".join((
+        "- Pointer Events로 그린다. 획마다 `setPointerCapture`를 걸고, `getCoalescedEvents`가 있으면 묶인 신호를 모두 점으로 쓴다.",
+        "캔버스 화소는 보이는 크기 × `devicePixelRatio`이고, 획은 CSS 픽셀 좌표로 저장해 되돌리기·크기 변화 때 다시 그린다.",
+    )),
+    DRAW_UNDO_ITEM,
+]
 
 
 def subsection(pad, heading):
@@ -77,9 +87,8 @@ def undo_doc_problems(notes):
     if copies != 1:
         problems.append(f"{PAD_HEADING!r} 절에 되돌리기 규칙 문장이 {copies}번 있다. 정확히 한 번이어야 한다.")
     draw = subsection(pad, DRAW_HEADING)
-    # 그리기 절에서 되돌리기가 무엇을 지우는지 말하는 항목(「되돌리기는」)은 기존 항목 하나뿐이어야 한다.
-    # 「되돌리기·크기 변화 때 다시 그린다」처럼 지나가며 언급한 항목은 세지 않는다.
-    if draw is None or [item for item in list_items(draw) if "되돌리기는" in item] != [DRAW_UNDO_ITEM]:
+    # 그리기 절에서 되돌리기를 말하는 항목은 실제 문서의 두 항목뿐이어야 한다. 항목을 더하거나 고치면 실패한다.
+    if draw is None or [item for item in list_items(draw) if DRAW_UNDO_STEM in item] != EXPECTED_DRAW_UNDO_ITEMS:
         problems.append(f"{DRAW_HEADING!r} 절에 되돌리기 항목 {DRAW_UNDO_ITEM!r}이(가) 그대로 있어야 한다.")
     return problems
 
@@ -173,11 +182,17 @@ class HandwritingUndoDocTest(unittest.TestCase):
 
     def test_conflicting_undo_item_added_to_draw_section_fails(self):
         # 교차 검토 재현: 그리기 절의 되돌리기 항목 바로 뒤에 마지막 획 두 개를 지운다는 항목을 더한 경우.
-        modified = self.replaced(f"{DRAW_UNDO_ITEM}\n", f"{DRAW_UNDO_ITEM}\n- 펜으로 입력하면 되돌리기는 마지막 획 두 개를 지운다.\n")
-        self.assertEqual(
-            undo_doc_problems(modified),
-            [f"{DRAW_HEADING!r} 절에 되돌리기 항목 {DRAW_UNDO_ITEM!r}이(가) 그대로 있어야 한다."],
-        )
+        # 두 번째 문장은 「되돌리기는」 대신 「되돌리기를」로 조사만 바꾼 경우다.
+        for added in (
+            "- 펜으로 입력하면 되돌리기는 마지막 획 두 개를 지운다.",
+            "- 펜으로 입력하다 되돌리기를 누르면 마지막 획 두 개를 지운다.",
+        ):
+            with self.subTest(added=added):
+                modified = self.replaced(f"{DRAW_UNDO_ITEM}\n", f"{DRAW_UNDO_ITEM}\n{added}\n")
+                self.assertEqual(
+                    undo_doc_problems(modified),
+                    [f"{DRAW_HEADING!r} 절에 되돌리기 항목 {DRAW_UNDO_ITEM!r}이(가) 그대로 있어야 한다."],
+                )
 
     def test_missing_heading_fails(self):
         cases = {
