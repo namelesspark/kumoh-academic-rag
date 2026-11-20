@@ -2471,6 +2471,7 @@ const notes = readFileSync(new URL("../../../web/docs/UI_NOTES.md", import.meta.
 const PAD_HEADING = "## 손글씨 입력 필기 패드 (#134)";
 const INSERT_HEADING = "### 넣기";
 const boundary = /^#{2,4}(?:[ \t]|$)/;
+const levelTwo = /^##(?:[ \t]|$)/;
 
 function timeoutDocProblems(scriptText, notesText) {
   const problems = [];
@@ -2480,12 +2481,16 @@ function timeoutDocProblems(scriptText, notesText) {
   if (ms % 1000 !== 0) return [`handwritingTimeoutMs ${ms}ms가 초 단위가 아님`];
   const seconds = ms / 1000;
 
+  // 손글씨 패드 ## 절(다음 ## 제목 전까지) 안에서만 ### 넣기를 찾는다. 다른 기능의 ### 넣기는 상관없다.
   const lines = notesText.split(/\r?\n/);
-  const starts = lines.flatMap((line, index) => (line === INSERT_HEADING ? [index] : []));
-  if (starts.length !== 1) return [`${INSERT_HEADING} 줄이 ${starts.length}개`];
+  const pads = lines.flatMap((line, index) => (line === PAD_HEADING ? [index] : []));
+  if (pads.length !== 1) return [`${PAD_HEADING} 줄이 ${pads.length}개`];
+  let padEnd = lines.findIndex((line, index) => index > pads[0] && levelTwo.test(line));
+  if (padEnd === -1) padEnd = lines.length;
+  const starts = [];
+  for (let index = pads[0] + 1; index < padEnd; index++) if (lines[index] === INSERT_HEADING) starts.push(index);
+  if (starts.length !== 1) return [`손글씨 패드 절 안 ${INSERT_HEADING} 줄이 ${starts.length}개`];
   const start = starts[0];
-  const parent = lines.slice(0, start).reverse().find(line => /^##(?:[ \t]|$)/.test(line));
-  if (parent !== PAD_HEADING) problems.push(`${INSERT_HEADING} 위 ## 제목이 ${JSON.stringify(parent)}`);
   let end = lines.findIndex((line, index) => index > start && boundary.test(line));
   if (end === -1) end = lines.length;
   const section = lines.slice(start + 1, end).join("\n");
@@ -2500,28 +2505,43 @@ test("넣기 시간 제한 상수와 설계 문서 「### 넣기」 절의 초�
   assert.deepEqual(timeoutDocProblems(script, notes), []);
 });
 
-test("넣기 시간 제한 상수나 문서 초가 한쪽만 바뀌면 검사가 잡는다(메모리 사본)", () => {
-  const constantLine = "const handwritingTimeoutMs = 30_000;";
-  const docPhrase = "시간 제한 30초";
-  assert.ok(script.includes(constantLine) && notes.includes(docPhrase), "변이 기준 문구가 그대로다");
+test("넣기 시간 제한 비교는 상수나 문서 초가 한쪽만 바뀌면 실패한다(가상 스크립트·가상 문서)", () => {
+  // 실제 파일 값과 상관없는 가상 기준값 12초로 비교 규칙만 확인한다.
+  const constantLine = "const handwritingTimeoutMs = 12_000;";
+  const docPhrase = "시간 제한 12초";
+  const fakeScript = ["// 가상 스크립트", "const otherTimeoutMs = 99_000;", constantLine, ""].join("\n");
+  const fakeNotes = [
+    "# 가상 노트", "", "## 가상 기능", "", INSERT_HEADING, "", "- 가상 기능의 넣기. 시간 제한 99초", "",
+    PAD_HEADING, "", "### 그리기", "", "- 가상 그리기.", "", INSERT_HEADING, "",
+    "- 가상 넣기 문장.", `  ${docPhrase}는 가상 시작부터 가상 끝까지 잰다.`, "- 가상 마무리.", "",
+    "### 대비", "", "- 가상 대비. 시간 제한 77초", "", "## 다음 가상 기능", "", INSERT_HEADING, "", "- 시간 제한 55초", "",
+  ].join("\n");
+  assert.deepEqual(timeoutDocProblems(fakeScript, fakeNotes), [], "다른 절의 ### 넣기와 다른 초는 상관없다");
+
   const failing = {
-    "상수만 45초로 바꿈": [script.replace(constantLine, "const handwritingTimeoutMs = 45_000;"), notes],
-    "상수를 밑줄 없이 45초로 바꿈": [script.replace(constantLine, "const handwritingTimeoutMs = 45000;"), notes],
-    "문서만 45초로 바꿈": [script, notes.replace(docPhrase, "시간 제한 45초")],
-    "넣기 절에 다른 초를 더 적음": [script, notes.replace(docPhrase, `${docPhrase}. 시간 제한 45초`)],
-    "문서 문구를 지움": [script, notes.replace(docPhrase, "시간 제한")],
-    "문구 앞에 ### 제목을 끼움": [script, notes.replace(`  ${docPhrase}`, `### 가상 제목\n  ${docPhrase}`)],
-    "문구 앞에 ##\\t 제목을 끼움": [script, notes.replace(`  ${docPhrase}`, `##\t가상 제목\n  ${docPhrase}`)],
-    "문구 앞에 #### 제목을 끼움": [script, notes.replace(`  ${docPhrase}`, `####\n  ${docPhrase}`)],
-    "넣기 제목을 바꿈": [script, notes.replace(/^### 넣기$/m, "### 넣기 (가상)")],
-    "상수 줄이 둘": [`${script}\n${constantLine}`, notes],
+    "상수만 45초로 바꿈": [fakeScript.replace(constantLine, "const handwritingTimeoutMs = 45_000;"), fakeNotes],
+    "상수를 밑줄 없이 45초로 바꿈": [fakeScript.replace(constantLine, "const handwritingTimeoutMs = 45000;"), fakeNotes],
+    "상수가 초 단위가 아님": [fakeScript.replace(constantLine, "const handwritingTimeoutMs = 12_500;"), fakeNotes],
+    "상수 줄이 둘": [`${fakeScript}${constantLine}\n`, fakeNotes],
+    "문서만 45초로 바꿈": [fakeScript, fakeNotes.replace(docPhrase, "시간 제한 45초")],
+    "넣기 절에 다른 초를 더 적음": [fakeScript, fakeNotes.replace(docPhrase, `${docPhrase}. 시간 제한 45초`)],
+    "문서 문구를 지움": [fakeScript, fakeNotes.replace(docPhrase, "시간 제한")],
+    "문구를 ### 대비 절로 옮김": [fakeScript, fakeNotes.replace(`  ${docPhrase}`, "  가상 문장").replace("- 가상 대비.", `- 가상 대비. ${docPhrase}`)],
+    "문구 앞에 ## 제목을 끼움": [fakeScript, fakeNotes.replace(`  ${docPhrase}`, `## 가상 제목\n  ${docPhrase}`)],
+    "문구 앞에 ##\\t 제목을 끼움": [fakeScript, fakeNotes.replace(`  ${docPhrase}`, `##\t가상 제목\n  ${docPhrase}`)],
+    "문구 앞에 ### 제목을 끼움": [fakeScript, fakeNotes.replace(`  ${docPhrase}`, `### 가상 제목\n  ${docPhrase}`)],
+    "문구 앞에 #### 제목을 끼움": [fakeScript, fakeNotes.replace(`  ${docPhrase}`, `####\n  ${docPhrase}`)],
+    "패드 절의 넣기 제목을 바꿈": [fakeScript, fakeNotes.replace(`- 가상 그리기.\n\n${INSERT_HEADING}`, "- 가상 그리기.\n\n### 넣기 (가상)")],
+    "패드 절에 넣기 제목이 둘": [fakeScript, fakeNotes.replace("### 대비", `${INSERT_HEADING}\n\n### 대비`)],
+    "넣기 절을 다른 ## 아래로 옮김": [fakeScript, fakeNotes.replace("### 그리기", "### 그리기\n\n## 가상 다른 기능")],
+    "패드 제목이 없음": [fakeScript, fakeNotes.replace(PAD_HEADING, "## 가상 패드")],
   };
   for (const [name, [scriptText, notesText]] of Object.entries(failing)) {
-    assert.notEqual(scriptText + notesText, script + notes, `${name}: 사본이 실제로 바뀌었다`);
+    assert.notEqual(scriptText + notesText, fakeScript + fakeNotes, `${name}: 사본이 실제로 바뀌었다`);
     assert.notDeepEqual(timeoutDocProblems(scriptText, notesText), [], name);
   }
   // 상수와 문서를 함께 바꾸면 통과한다.
   assert.deepEqual(timeoutDocProblems(
-    script.replace(constantLine, "const handwritingTimeoutMs = 45_000;"),
-    notes.replace(docPhrase, "시간 제한 45초")), []);
+    fakeScript.replace(constantLine, "const handwritingTimeoutMs = 45_000;"),
+    fakeNotes.replace(docPhrase, "시간 제한 45초")), []);
 });
