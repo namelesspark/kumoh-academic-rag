@@ -57,11 +57,21 @@ SINGLE_SOURCE_RULE = "그래서 아이콘은 `index.html` 한 곳에만 두고, 
 BAN_RULE = "반짝임 별이나 반짝이 이모지 꼴 아이콘은 쓰지 않는다(2026-11-18 팀 피드백)."
 # chat.js render()는 모드 표시를 먼저 바꾸고, 새로 고를 때만 움직임이 허용되면 빛줄기를 붙인다.
 DISPLAY_RULE = "깊이 모드는 움직임과 상관없이 「깊이 생각」 이름과 이 선 아이콘으로 표시한다."
+# chat.css의 480px 이하 규칙은 `.mode-pill-label`을 숨기고, chat.js render()는 aria-label에 이름을 넣는다.
+NARROW_RULE = (
+    "480px 이하 좁은 화면에서는 버튼 이름을 숨기고 아이콘과 꺾쇠만 남기며, "
+    "읽기 도구에는 `aria-label`로 이름을 전한다."
+)
+# setupAiMode()는 저장된 값을 읽은 뒤 render()로 같은 표시를 그린다.
+RESTORE_RULE = "새로고침 뒤 저장된 깊이 모드도 같은 모습으로 표시한다."
 FLOW_RULE = "빛줄기는 깊이 모드를 새로 고르고 움직임 줄이기가 꺼져 있을 때만 한 번 지나간다(아래 표의 `.mode-pill.is-flowing`)."
 # 알약에서 두 모드가 어떤 아이콘을 쓰는지 소개하는 문장. index.html의 깊이 SVG는 선 그림이다.
 ICON_INTRO = "빠르게는 번개 아이콘과 「빠르게」, 깊이는 선으로 그린 아이콘과 「깊이 생각」을 보이고 끝에 꺾쇠를 둔다."
 
-REQUIRED = (ICON_INTRO, LINE_RULE, CLONE_RULE, SINGLE_SOURCE_RULE, BAN_RULE, DISPLAY_RULE, FLOW_RULE)
+REQUIRED = (
+    ICON_INTRO, LINE_RULE, CLONE_RULE, SINGLE_SOURCE_RULE, BAN_RULE,
+    DISPLAY_RULE, NARROW_RULE, RESTORE_RULE, FLOW_RULE,
+)
 
 
 def visible_text(text):
@@ -209,6 +219,10 @@ class DeepModeIconDocTest(unittest.TestCase):
             # 교차 검토 재현: 깊이 아이콘을 번개로 잘못 소개한 경우와 빛줄기 문장 끝을 뒤집은 경우.
             "깊이 아이콘 바꾸기": ("깊이는 선으로 그린 아이콘과", "깊이는 번개 아이콘과"),
             "빛줄기 문장 끝 뒤집기": ("한 번 지나간다(아래 표", "한 번 지나간다는 설명은 틀렸다(아래 표"),
+            # 교차 검토 재현: 저장 복원 문장을 뒤집은 경우와 좁은 화면 예외를 지운 경우.
+            "저장 복원 뒤집기": (RESTORE_RULE, "새로고침 뒤 저장된 깊이 모드는 표시하지 않는다."),
+            "좁은 화면 예외 지우기": ("버튼 이름을 숨기고", "버튼 이름도 보이고"),
+            "읽기 도구 이름 지우기": ("`aria-label`로 이름을 전한다", "이름을 전하지 않는다"),
         }
         for case, (before, after) in cases.items():
             with self.subTest(case=case):
