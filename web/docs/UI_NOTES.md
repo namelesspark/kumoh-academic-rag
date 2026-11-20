@@ -1583,7 +1583,7 @@ node --test api/tests/web/campus_backdrop.test.mjs api/tests/web/chat_layout.tes
 
 ## 학사일정 월 달력 보기 (#143)
 
-팀 피드백(2026-11-18) 6단계다. 학사일정 패널은 월 달력을 기본 보기로 두고, 기존 `/api/v1/academic-calendar` 응답 한 번으로 달 이동과 목록 전환을 처리한다.
+팀 피드백(2026-11-18) 6단계다. 학사일정 패널은 월 달력을 기본 보기로 두고, 기존 `/api/v1/academic-calendar/{year}/{term}` 응답 한 번으로 달 이동과 목록 전환을 처리한다.
 동작은 `chat.js`가, 모양은 `chat.css` 끝의 #143 절이 맡는다. 일정 이름은 아래 그림에서 모두 가상이다.
 
 ### 와이어프레임
@@ -1653,10 +1653,11 @@ node --test api/tests/web/campus_backdrop.test.mjs api/tests/web/chat_layout.tes
 - 출처 규칙: 대상 문구에 분류 단어가 없고 `sources` 배열에 `url`이 공식 주소 `https://www.kumoh.ac.kr/ko/schedule_reg.do`와 글자 하나까지 같은 항목이 있으면 `enroll`이다. 배열 몇 번째에 있는지는 따지지 않는다.
 - 출처가 없을 때: 분류 단어가 있으면 `sources`가 빈 배열이거나 없어도 그 단어의 분류다. 분류 단어도 없으면 오류 없이 `neutral`이다.
 - 주소 비교: 주소는 정확히 같을 때만 맞는다. 분류 단어가 없는 일정에 `http://`로 시작하거나 끝에 `/`나 조회 문자열이 붙거나 호스트가 다른 주소만 있으면 `neutral`이다.
-- 단어 우선 이유: 이 주소는 수강신청만 담은 페이지가 아니라 학교 학사일정 전체 페이지다. 출처를 먼저 보면 같은 페이지에서 옮긴 시험 일정까지 파랑이 되므로, 대상 문구에 「시험」이 있으면 공식 출처가 있어도 `exam`이다.
+- 단어 우선 이유: 이 주소는 수강신청만 담은 페이지가 아니라 학교 학사일정 전체 페이지다. 출처를 먼저 보면 같은 페이지에서 옮긴 시험 일정까지 파랑이 되므로, 대상 문구에 「수강신청」 없이 「시험」이 있으면 공식 출처가 있어도 `exam`이다.
+- 단어가 여럿일 때: 위 순서에서 앞선 단어가 이긴다. 가상 대상 문구 「수강신청·시험」은 `enroll`이다.
 - 막대와 점: 막대(`.acal-bar`)와 점(`.acal-dot`)은 같은 분류 결과(`data-kind`)를 쓴다. 분류 한 곳만 고치면 두 표시가 함께 바뀐다.
 - 응답 한 번: 달력 패널을 열 때 `/api/v1/academic-calendar/{year}/{term}`을 한 번 요청한다. 이전·다음 달 이동과 목록 보기 전환은 받아 둔 응답으로 다시 그리고, 다시 요청하지 않는다.
-- 검사: 서버 응답과 API 계약은 바꾸지 않았다. `api/tests/test_calendar_source_kind_doc.py`가 이 소절의 규칙 줄과 `academic_calendar.py`의 출처 `url`, `chat.css`의 두 분류 주석을 글자 그대로 비교한다.
+- 검사: 서버 응답과 API 계약은 바꾸지 않았다. `api/tests/test_calendar_source_kind_doc.py`가 이 소절의 줄 전체와 `academic_calendar.py`의 출처 `url`, `chat.css`의 두 분류 주석을 글자 그대로 비교한다. 줄을 더하거나 고치면 검사의 줄 목록도 함께 고친다.
 
 ### 배치
 

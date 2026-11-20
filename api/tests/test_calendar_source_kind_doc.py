@@ -3,8 +3,9 @@
 화면(`chat.js`)은 대상 문구 단어를 먼저 보고, 단어가 없을 때만 공식 학사일정 출처로 `enroll`을 고른다.
 문서가 출처를 먼저 본다고 적거나 주소가 서버 출처와 어긋나면, 고치는 사람이 시험 일정까지 파랑으로 칠할 수 있다.
 
-규칙은 낱말이 아니라 줄 전체로 비교한다. 낱말만 찾으면 결과를 `enroll`에서 `neutral`로 바꾸거나 설명 절반을
-지워도 통과한다(교차 검토 재현). 규칙을 고칠 때는 아래 줄도 함께 고친다.
+소절은 빈 줄을 뺀 줄 목록 전체로 비교한다. 낱말만 찾으면 결과를 `enroll`에서 `neutral`로 바꾸거나 설명 절반을
+지워도 통과하고, 필요한 줄만 찾으면 반대 규칙 줄을 더해도 통과한다(교차 검토 재현). 소절을 고칠 때는 아래 줄도 함께 고친다.
+서버 주소는 `ast`로 `url=` 인자의 값을 읽는다. 이어 붙인 문자열 조각도 파이썬이 합친 값 그대로 비교한다.
 
 app을 가져오지 않고 `web/docs/UI_NOTES.md`, `api/app/services/academic_calendar.py`, `chat.css`를 글자로만 읽는다.
 학교 원문이나 학생 데이터는 쓰지 않는다.
@@ -13,6 +14,7 @@ app을 가져오지 않고 `web/docs/UI_NOTES.md`, `api/app/services/academic_ca
     python -B -m unittest api.tests.test_calendar_source_kind_doc
 """
 
+import ast
 import re
 import unittest
 from pathlib import Path
@@ -31,7 +33,7 @@ INLINE_STARTERS = frozenset("[]<>" + BACKSLASH)
 
 
 def rule_lines(url):
-    """소절 목록에 그대로 있어야 하는 줄. 공식 주소는 서버 코드에서 읽은 값을 끼운다."""
+    """소절의 빈 줄이 아닌 줄 전체, 차례대로. 공식 주소는 서버 코드에서 읽은 값을 끼운다."""
     return (
         "- 분류 순서: 대상 문구의 단어로 먼저 고르고(`enroll` → `exam` → `holiday` → `register`), "
         "맞는 단어가 없을 때만 출처를 본다. 분류 단어도, 공식 주소와 정확히 같은 출처도 없을 때만 `neutral`이다.",
@@ -43,10 +45,23 @@ def rule_lines(url):
         "끝에 `/`나 조회 문자열이 붙거나 호스트가 다른 주소만 있으면 `neutral`이다.",
         "- 단어 우선 이유: 이 주소는 수강신청만 담은 페이지가 아니라 학교 학사일정 전체 페이지다. "
         "출처를 먼저 보면 같은 페이지에서 옮긴 시험 일정까지 파랑이 되므로, "
-        "대상 문구에 「시험」이 있으면 공식 출처가 있어도 `exam`이다.",
+        "대상 문구에 「수강신청」 없이 「시험」이 있으면 공식 출처가 있어도 `exam`이다.",
+        "- 단어가 여럿일 때: 위 순서에서 앞선 단어가 이긴다. 가상 대상 문구 「수강신청·시험」은 `enroll`이다.",
+        "- 막대와 점: 막대(`.acal-bar`)와 점(`.acal-dot`)은 같은 분류 결과(`data-kind`)를 쓴다. "
+        "분류 한 곳만 고치면 두 표시가 함께 바뀐다.",
         "- 응답 한 번: 달력 패널을 열 때 `/api/v1/academic-calendar/{year}/{term}`을 한 번 요청한다. "
         "이전·다음 달 이동과 목록 보기 전환은 받아 둔 응답으로 다시 그리고, 다시 요청하지 않는다.",
+        "- 검사: 서버 응답과 API 계약은 바꾸지 않았다. `api/tests/test_calendar_source_kind_doc.py`가 "
+        "이 소절의 줄 전체와 `academic_calendar.py`의 출처 `url`, `chat.css`의 두 분류 주석을 글자 그대로 비교한다. "
+        "줄을 더하거나 고치면 검사의 줄 목록도 함께 고친다.",
     )
+
+# #143 장 도입부에 있어야 하는 요청 주소 문장. 학년도·학기가 빠진 옛 주소는 없어야 한다.
+INTRO_LINE = (
+    "팀 피드백(2026-11-18) 6단계다. 학사일정 패널은 월 달력을 기본 보기로 두고, "
+    "기존 `/api/v1/academic-calendar/{year}/{term}` 응답 한 번으로 달 이동과 목록 전환을 처리한다."
+)
+OLD_REQUEST = "`/api/v1/academic-calendar` 응답"
 
 
 # chat.css 분류 주석 두 곳. 여는 글자로 찾고, 공백을 하나로 줄여 주석 전체를 비교한다.
@@ -91,9 +106,16 @@ def inline_problem(line):
     return f"코드 조각 밖에서 {' '.join(used)}를 쓰지 않는다." if used else None
 
 
+def filled_lines(lines):
+    return [line for line in lines if line.strip()]
+
+
 def service_url(source):
-    found = re.findall(r'url="([^"]+)"', source)
-    return found[0] if len(found) == 1 else None
+    """`url=` 키워드 인자가 하나이고 그 값이 문자열 상수면 파이썬이 합친 값을, 아니면 None을 돌려준다."""
+    values = [node.value for node in ast.walk(ast.parse(source)) if isinstance(node, ast.keyword) and node.arg == "url"]
+    if len(values) != 1 or not isinstance(values[0], ast.Constant) or not isinstance(values[0].value, str):
+        return None
+    return values[0].value
 
 
 def css_comment(css, start):
@@ -117,11 +139,13 @@ class CalendarSourceKindDocTest(unittest.TestCase):
         self.assertIsNotNone(subsection(self.notes))
         self.assertTrue(self.lines)
 
-    def test_rule_lines_are_written_as_is(self):
+    def test_subsection_is_exactly_the_rule_lines(self):
         self.assertIsNotNone(self.url)
-        for line in rule_lines(self.url):
-            with self.subTest(line=line[:20]):
-                self.assertIn(line, self.lines)
+        self.assertEqual(filled_lines(self.lines), list(rule_lines(self.url)))
+
+    def test_intro_names_the_year_and_term_path(self):
+        self.assertIn(INTRO_LINE, self.notes.splitlines())
+        self.assertNotIn(OLD_REQUEST, self.notes)
 
     def test_only_the_service_url_is_named(self):
         urls = set(re.findall(r"https://[^\s`]+", "\n".join(self.lines)))
@@ -148,9 +172,8 @@ class ReviewReproTest(unittest.TestCase):
         cls.url = service_url(SERVICE.read_text(encoding="utf-8"))
         cls.css = CHAT_CSS.read_text(encoding="utf-8")
 
-    def rules_hold(self, notes):
-        lines = subsection(notes) or []
-        return all(line in lines for line in rule_lines(self.url))
+    def rules_hold(self, notes, url=None):
+        return filled_lines(subsection(notes) or []) == list(rule_lines(self.url if url is None else url))
 
     def changed(self, old, new, text=None):
         text = self.notes if text is None else text
@@ -166,16 +189,30 @@ class ReviewReproTest(unittest.TestCase):
             "달 이동 설명 삭제": ("이전·다음 달 이동과 목록 보기 전환은 받아 둔 응답으로 다시 그리고, ", ""),
             "별도 소절로 옮김": ("- 출처 규칙:", "#### 가상 별도 절\n\n- 출처 규칙:"),
             "중립 조건 넓힘": ("분류 단어도, 공식 주소와 정확히 같은 출처도 없을 때만", "출처가 비었으면"),
-            "요청 주소에서 학기 빠짐": ("`/api/v1/academic-calendar/{year}/{term}`", "`/api/v1/academic-calendar`"),
+            "요청 주소에서 학기 빠짐": ("열 때 `/api/v1/academic-calendar/{year}/{term}`을", "열 때 `/api/v1/academic-calendar`을"),
+            "반대 규칙 줄 추가": ("다시 요청하지 않는다.\n", "다시 요청하지 않는다.\n- 달을 이동할 때마다 다시 요청한다.\n"),
+            "섞인 단어 예시 뒤집기": ("「수강신청·시험」은 `enroll`이다.", "「수강신청·시험」은 `exam`이다."),
         }
         for case, (old, new) in cases.items():
             with self.subTest(case=case):
                 self.assertFalse(self.rules_hold(self.changed(old, new)))
 
+    def test_old_intro_path_fails(self):
+        old_intro = self.changed("기존 `/api/v1/academic-calendar/{year}/{term}` 응답", OLD_REQUEST)
+        self.assertNotIn(INTRO_LINE, old_intro.splitlines())
+
     def test_other_service_url_fails(self):
         self.assertNotIn(self.url.replace("https://", "http://"), "\n".join(rule_lines(self.url)))
         moved = self.changed(f"`{self.url}`", "`https://example.invalid/ko/schedule_reg.do`")
         self.assertFalse(self.rules_hold(moved))
+
+    def test_concatenated_service_url_is_read_whole(self):
+        source = SERVICE.read_text(encoding="utf-8")
+        old = f'url="{self.url}"'
+        self.assertIn(old, source)
+        joined = service_url(source.replace(old, f'url="{self.url}" "/v2"', 1))
+        self.assertEqual(joined, self.url + "/v2")
+        self.assertFalse(self.rules_hold(self.notes, joined))
 
     def test_bare_angle_bracket_fails(self):
         self.assertIsNotNone(inline_problem("- 가상 > 인용 표시"))
