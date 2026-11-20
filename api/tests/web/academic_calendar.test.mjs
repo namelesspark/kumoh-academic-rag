@@ -134,6 +134,65 @@ test("겹친 기간은 주마다 빈 줄을 채우고 날짜별로 넘친 일정
   assert.equal(all(page.list(), node => attr(node, "href") === "https://example.invalid/calendar").length, 1);
 });
 
+const officialCalendarSource = {
+  title: "가상 학사일정 출처",
+  url: "https://www.kumoh.ac.kr/ko/schedule_reg.do",
+  checked_on: "2028-02-01",
+};
+
+test("공식 출처를 단 가상 일정 네 건은 막대와 점이 모두 수강신청이며 다시 조회하지 않는다", async () => {
+  const otherSource = { ...officialCalendarSource, url: "https://example.invalid/calendar" };
+  const page = await openCalendar([
+    event("가상 수강신청 대상", "2028-02-07", "2028-02-07", [officialCalendarSource]),
+    event("가상 A반", "2028-02-08", "2028-02-08", [officialCalendarSource]),
+    event("가상 B반", "2028-02-09", "2028-02-09", [officialCalendarSource]),
+    event("가상 C반", "2028-02-10", "2028-02-10", [otherSource, officialCalendarSource]),
+  ]);
+  assert.deepEqual(byClass(page.root, "acal-bar").map(bar => bar.dataset.kind),
+    ["enroll", "enroll", "enroll", "enroll"]);
+  for (const date of [7, 8, 9, 10]) {
+    assert.deepEqual(byClass(page.day(date), "acal-dot").map(dot => dot.dataset.kind), ["enroll"], `2월 ${date}일`);
+  }
+
+  page.nav("prev").click();
+  assert.equal(page.title(), "2028년 1월");
+  page.nav("next").click();
+  assert.equal(page.title(), "2028년 2월");
+  page.toggle.click();
+  assert.equal(page.root.dataset.view, "list");
+  assert.deepEqual(page.requests, ["/api/v1/academic-calendar/2027/1"]);
+});
+
+test("공식 출처는 주소가 정확히 같을 때만 쓰고 대상 문구의 분류를 우선한다", async () => {
+  const officialUrl = officialCalendarSource.url;
+  const similarUrls = [
+    officialUrl.replace("https:", "http:"),
+    `${officialUrl}/`,
+    `${officialUrl}?view=month`,
+    officialUrl.replace("www.kumoh.ac.kr", "example.invalid"),
+  ];
+  const page = await openCalendar([
+    ...similarUrls.map((url, index) => {
+      const date = `2028-02-1${index}`;
+      return event("가상 설명회", date, date, [{ ...officialCalendarSource, url }]);
+    }),
+    event("가상 설명회", "2028-02-14"),
+    { audience: "가상 설명회", starts_on: "2028-02-15", ends_on: "2028-02-15" },
+    event("가상 설명회", "2028-02-16", "2028-02-16", officialCalendarSource),
+    event("가상 시험", "2028-02-17", "2028-02-17", [officialCalendarSource]),
+  ]);
+  for (const date of [10, 11, 12, 13, 14, 15, 16, 17]) {
+    const kinds = [date === 17 ? "exam" : "neutral"];
+    const day = page.day(date);
+    assert.deepEqual(byClass(day, "acal-dot").map(dot => dot.dataset.kind), kinds, `2월 ${date}일 점`);
+
+    const week = byClass(page.root, "acal-week").find(row => byClass(row, "acal-day").includes(day));
+    const column = String(byClass(week, "acal-day").indexOf(day) + 1);
+    const bars = byClass(week, "acal-bar").filter(bar => bar.dataset.col === column);
+    assert.deepEqual(bars.map(bar => bar.dataset.kind), kinds, `2월 ${date}일 막대`);
+  }
+});
+
 test("2월 27일에 겹친 가상 일정 세 건의 점·막대·초과 표시와 출처, 세 언어의 날짜 버튼 이름을 확인한다", async () => {
   const entries = [
     { title: "가상 수강신청", start: "2028-02-25", end: "2028-02-27", kind: "enroll" },

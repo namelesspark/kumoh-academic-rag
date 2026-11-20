@@ -4853,12 +4853,21 @@ function panelSources(sources) {
 
 const calendarDayMs = 86_400_000;
 const calendarMonthNames = "1월 2월 3월 4월 5월 6월 7월 8월 9월 10월 11월 12월";
+const calendarOfficialSourceUrl = "https://www.kumoh.ac.kr/ko/schedule_reg.do";
 const calendarKinds = [
   ["enroll", /수강\s*신청/],
   ["exam", /시험/],
   ["holiday", /휴일/],
   ["register", /등록/],
 ];
+
+function calendarEventKind(event) {
+  const kind = calendarKinds.find(([, keyword]) => keyword.test(event.audience))?.[0];
+  if (kind) return kind;
+  const hasOfficialSource = Array.isArray(event.sources) &&
+    event.sources.some(source => source?.url === calendarOfficialSourceUrl);
+  return hasOfficialSource ? "enroll" : "neutral";
+}
 
 function calendarDate(value) {
   return new Date(`${value}T00:00:00Z`);
@@ -4897,7 +4906,7 @@ function renderCalendar(content, result, current) {
   const today = panelTodayInKorea();
   const events = result.events.map(event => ({
     ...event, start: +calendarDate(event.starts_on), end: +calendarDate(event.ends_on),
-    kind: calendarKinds.find(([, keyword]) => keyword.test(event.audience))?.[0] ?? "neutral",
+    kind: calendarEventKind(event),
   })).sort((a, b) => a.start - b.start);
   const remaining = events.filter(event => event.ends_on >= today);
   const now = calendarDate(today);
