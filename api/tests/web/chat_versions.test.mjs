@@ -30,6 +30,8 @@ const controller = [
   section("function isSafeSourceUrl(", "function citationCard("),
   section("async function readChatStream(", 'input.addEventListener("input"'),
   section("function stopActiveAnswer(", "// 보내기 버튼에 초점을 두고"),
+  // #173: 입력창 제출 처리기를 그대로 돌려 새 질문을 보낸다. 사진 첨부 분기는 쓰지 않는다.
+  section('composer.addEventListener("submit"', "// 클립 버튼은"),
 ].join("\n");
 
 function page(values = new Map([[historyKey, JSON.stringify([{ id: "fictional-chat", time: 1, messages: legacy }])]])) {
@@ -141,7 +143,7 @@ function page(values = new Map([[historyKey, JSON.stringify([{ id: "fictional-ch
     },
     transcript, empty: get("#empty"), composer: get("#composer"),
     input: get("#question"), reset: get("#reset"), assistant: get("#pet-dock"),
-    photoFile: get("#photo-file"), photoClear: get("#photo-clear"), photoAttach: get("#photo-attach"), send: get("#send"),
+    photoFile: get("#photo-file"), photoNote: get("#photo-note"), photoClear: get("#photo-clear"), photoAttach: get("#photo-attach"), send: get("#send"),
     aiMode: "fast", busy: false, sessionId: null, chatRequestNumber: 0,
     setTimeout() {}, clearTimeout() {}, reducedMotion: () => true,
     techmoBubble() {}, scrollToLatest() {}, showAssistant() {}, celebrate() {}, localizeReplyAuthors() {},
@@ -511,6 +513,70 @@ for (const [name, work, workedQuestion] of [
     for (const view of [p, reopened, older, latest]) assert.equal(view.requests.length, view === p ? requested : 0);
   });
 }
+
+// #173: 문답 20쌍(말풍선 40개)을 채운 가상 기록이다. 두 번째 질문은 버전 두 개 가운데 첫 버전(1/2)을 고른 상태다.
+const pairTitle = "가상 한도 대화 제목";
+const pairVersions = [
+  { question: message("question", "가상 기록 질문 2"), answer: message("answer", "가상 기록 답 2") },
+  { question: message("question", "가상 기록 고친 질문 2"), answer: message("answer", "가상 기록 고친 답 2") },
+];
+const pairHistory = Array.from({ length: 20 }, (_, index) => index === 1
+  ? [{ ...pairVersions[0].question, versions: pairVersions, selected: 0 }, pairVersions[0].answer]
+  : [message("question", `가상 기록 질문 ${index + 1}`), message("answer", `가상 기록 답 ${index + 1}`)]).flat();
+const pairPage = (values = new Map([[historyKey, JSON.stringify([
+  { id: "fictional-pair-chat", time: 1, title: pairTitle, messages: pairHistory },
+])]])) => page(values);
+
+test("40개 기록에서 새 질문 전송이 실패해도 저장 기록을 화면과 같은 차례에서 자르고 다시 시도는 한 차례만 더한다", async () => {
+  const p = pairPage();
+  assert.equal(savedMessages(p).length, 40);
+  const newQuestion = "가상 한도 새 질문";
+  p.run(`input.value = ${JSON.stringify(newQuestion)}; composer.fire("submit");`);
+  assert.equal(p.requests.length, 1);
+  assert.equal(sentQuestion(p.requests[0]), newQuestion);
+  assert.equal(p.run("activeConversation.messages.length"), 39);
+  // 스트림과 JSON 응답이 모두 실패한 일반 실패다.
+  p.requests[0].resolve({ ok: false });
+  await setImmediate();
+  assert.equal(p.requests[1].path, "/api/v1/chat");
+  p.requests[1].resolve({ ok: false });
+  await setImmediate();
+  const retry = p.transcript.querySelector("button.retry");
+  assert.ok(retry, "실패한 질문에 다시 시도 버튼이 없다");
+
+  // 가장 오래된 한 쌍만 빠지고 나머지 순서·제목·버전 선택은 그대로 저장한다. 실패한 질문은 저장하지 않는다.
+  const expected = pairHistory.slice(2).map(entry => entry.text);
+  const saved = savedMessages(p);
+  assertTurnAligned(saved);
+  assert.deepEqual(saved.map(entry => entry.text), expected);
+  assert.equal(JSON.parse(p.raw())[0].title, pairTitle);
+  assert.deepEqual(saved[0].versions, pairVersions);
+  assert.equal(saved[0].selected, 0);
+
+  // 저장소 복사본으로 연 새 화면은 남은 19쌍만 그리고 고른 첫 버전을 보여 준다.
+  const reopened = pairPage(new Map(p.values));
+  assert.equal(reopened.transcript.querySelectorAll(".turn").length, 19);
+  assert.doesNotMatch(reopened.transcript.textContent, /가상 기록 답 1(?!\d)/);
+  assert.equal(reopened.transcript.textContent.includes(newQuestion), false);
+  assert.equal(find(reopened, ".version-count").textContent, "1/2");
+  assert.match(find(reopened, ".question").textContent, /가상 기록 질문 2(?!\d)/);
+  assert.equal(replyText(reopened), "가상 기록 답 2");
+  assert.deepEqual(savedMessages(reopened).map(entry => entry.text), expected);
+  assert.equal(reopened.requests.length, 0);
+
+  // 원래 화면에서 다시 시도가 성공하면 새 질문과 답이 한 번만 붙는다.
+  retry.click();
+  assert.equal(p.requests.length, 3);
+  assert.equal(sentQuestion(p.requests[2]), newQuestion);
+  await finish(p.requests[2], "가상 한도 새 답");
+  const after = savedMessages(p);
+  assert.equal(after.length, 40);
+  assertTurnAligned(after);
+  assert.deepEqual(after.map(entry => entry.text), [...expected, newQuestion, "가상 한도 새 답"]);
+  assert.equal(after.filter(entry => entry.text === newQuestion).length, 1);
+  assert.equal(after[0].selected, 0);
+  assert.equal(p.run("activeConversation.messages.length"), 40);
+});
 
 test("저장할 수 없는 여섯 번째 후보 때문에 기존 다섯 버전을 버리지 않는다", async () => {
   const p = page();
