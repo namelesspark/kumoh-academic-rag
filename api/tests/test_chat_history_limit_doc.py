@@ -5,7 +5,8 @@
 
 마크다운의 뜻을 해석하지 않는다. 쓸 수 있는 문법을 좁혀, 좁힌 문법 안에서는 판정이 CommonMark와 같게 한다.
 
-문서 전체 규칙(본문 수준 제목을 한 기준으로 정확히 세기 위해)
+문서 앞부분 규칙(본문 수준 제목을 한 기준으로 정확히 세기 위해). 문서 처음부터 #170 절이 끝나는 제목 줄까지만
+따진다. 마크다운 블록은 앞에서부터 정해지고 이 구간에는 링크가 없어, 뒤쪽 글은 앞 구간의 판정을 바꾸지 못한다.
 - 줄은 LF·CRLF·CR로만 나눈다(CommonMark 줄 끝). U+2028 같은 문자는 줄을 나누지 않는다.
 - 코드 블록 울타리(백틱·물결 세 개 이상)는 들여쓰기·목록·인용 없이 줄 맨 앞에 두고 짝을 맞춘다.
 - 코드 블록 밖 코드 조각은 한 줄 안의 백틱 한 개 짝으로만 쓰고, 코드 조각 밖에서는 대괄호·꺾쇠·백슬래시를 쓰지 않는다.
@@ -60,7 +61,6 @@ UNDERLINE_LIKE = re.compile(r"(=+|-+)[ \t]*$")
 INLINE_STARTERS = frozenset("[]<" + BACKSLASH)
 
 # #170 절 본문 허용 목록.
-SECTION_END = re.compile(r"#{1,3}(?=[ \t]|$)")
 SUBHEADING = re.compile(r"#### (?=[^ \t])")
 LIST_ITEM = re.compile(r"- (?=[^ \t])")
 # 백틱은 코드 조각으로 줄을 시작할 수 있어 빼고, 울타리는 코드 블록 판정으로 따로 막는다.
@@ -123,10 +123,13 @@ def inline_problem(line):
 
 
 def code_blocks(lines):
-    """(코드 블록 안 줄 번호 집합, 문서 전체 규칙 위반 목록). 울타리 줄도 코드 블록에 넣는다."""
-    fenced, problems, fence = set(), [], None
+    """(코드 블록 안 줄 번호 집합, [(줄 번호, 좁은 문법 위반 이유)]). 울타리 줄도 코드 블록에 넣는다.
+
+    위반은 문서 끝까지 모으고, 어디까지 따질지는 `find_section`이 정한다.
+    닫히지 않은 코드 블록은 여는 울타리 줄 번호로 적는다.
+    """
+    fenced, problems, fence, opened = set(), [], None, None
     for index, line in enumerate(lines):
-        number = index + 1
         body = strip_container(line)
         found = FENCE.match(body)
         if fence:
@@ -135,27 +138,27 @@ def code_blocks(lines):
             if re.fullmatch(rf"{re.escape(char)}{{{size},}}[ \t]*", line):
                 fence = None
             elif found and found.group(1)[0] == char and len(found.group(1)) >= size and is_blank(found.group(2)):
-                problems.append(f"{number}번째 줄: 닫는 울타리는 줄 맨 앞에 둔다.")
+                problems.append((index, "닫는 울타리는 줄 맨 앞에 둔다."))
             continue
         if found:
             if body != line:
-                problems.append(f"{number}번째 줄: 코드 블록 울타리는 들여쓰기·목록·인용 없이 줄 맨 앞에 둔다.")
+                problems.append((index, "코드 블록 울타리는 들여쓰기·목록·인용 없이 줄 맨 앞에 둔다."))
             if found.group(1)[0] == "`" and "`" in found.group(2):
-                problems.append(f"{number}번째 줄: 백틱 울타리 뒤 설명 글에 백틱을 쓰지 않는다.")
+                problems.append((index, "백틱 울타리 뒤 설명 글에 백틱을 쓰지 않는다."))
             fenced.add(index)
-            fence = (found.group(1)[0], len(found.group(1)))
+            fence, opened = (found.group(1)[0], len(found.group(1))), index
             continue
         shallow = indent_columns(line) <= 3
         if shallow and indent_columns(line) and HEADING_LIKE.match(line.lstrip(" ")):
-            problems.append(f"{number}번째 줄: 제목은 줄 맨 앞에 쓴다.")
+            problems.append((index, "제목은 줄 맨 앞에 쓴다."))
         if (shallow and UNDERLINE_LIKE.match(line.lstrip(" ")) and index > 0
                 and (index - 1) not in fenced and not is_blank(lines[index - 1])):
-            problems.append(f"{number}번째 줄: 밑줄 제목은 쓰지 않고, 구분선 앞에는 빈 줄을 둔다.")
+            problems.append((index, "밑줄 제목은 쓰지 않고, 구분선 앞에는 빈 줄을 둔다."))
         reason = inline_problem(line)
         if reason:
-            problems.append(f"{number}번째 줄: {reason}")
+            problems.append((index, reason))
     if fence:
-        problems.append("닫히지 않은 코드 블록이 있다.")
+        problems.append((opened, "닫히지 않은 코드 블록이 있다."))
     return fenced, problems
 
 
@@ -187,23 +190,27 @@ def section_line_problem(line):
 def find_section(text):
     """(#170 본문 줄 목록, 문제 목록). 문제가 있으면 본문은 None."""
     lines = split_lines(text)
-    fenced, problems = code_blocks(lines)
-    if problems:
-        return None, problems
+    fenced, violations = code_blocks(lines)
     marks = boundaries(lines, fenced)
     starts = [index for index, _ in marks if lines[index] == SECTION_HEADING]
-    parent = None
-    if len(starts) == 1:
-        parent = next((index for index, level in reversed(marks) if index < starts[0] and level <= 2), None)
+    start = starts[0] if len(starts) == 1 else None
+    # 좁은 문법은 문서 처음부터 #170 절 끝 제목 줄까지만 따진다. 마크다운 블록은 앞에서부터 정해지고,
+    # 이 구간에는 링크가 없어 뒤쪽의 링크 정의도 앞 글을 바꾸지 못한다. 그래서 #170 뒤 절은 자유롭게 쓴다.
+    # #170 제목을 찾지 못하면 문서 전체를 따진다.
+    end = len(lines) if start is None else next(
+        (index for index, level in marks if index > start and level <= 3), len(lines))
+    problems = [f"{index + 1}번째 줄: {reason}" for index, reason in violations if index <= end]
+    if problems:
+        return None, problems
+    parent = None if start is None else next(
+        (index for index, level in reversed(marks) if index < start and level <= 2), None)
     if parent is None or lines[parent] != PARENT_HEADING:
         return None, [f"{PARENT_HEADING!r} 아래 코드 블록 밖에 {SECTION_HEADING!r} 제목이 한 번 있어야 한다."]
-    body, index = [], starts[0] + 1
-    while index < len(lines) and not SECTION_END.match(lines[index]):
+    body = lines[start + 1 : end]
+    for index in range(start + 1, end):
         reason = "코드 블록을 두지 않는다." if index in fenced else section_line_problem(lines[index])
         if reason:
             problems.append(f"{index + 1}번째 줄(#170 절): {reason}")
-        body.append(lines[index])
-        index += 1
     return (None, problems) if problems else (body, [])
 
 
@@ -249,8 +256,30 @@ class ChatHistoryLimitDocTest(unittest.TestCase):
         self.assertNotEqual(modified, self.notes)
         return modified
 
-    def test_document_follows_the_narrow_syntax(self):
-        self.assertEqual(code_blocks(split_lines(self.notes))[1], [])
+    def after_section(self, snippet):
+        """#170 절이 끝난 뒤, 「## 학사일정 월 달력 보기 (#143)」 제목 아래에 빈 줄을 두고 끼운다."""
+        heading = "## 학사일정 월 달력 보기 (#143)"
+        modified = self.notes.replace(heading, f"{heading}\n\n{snippet}", 1)
+        self.assertNotEqual(modified, self.notes)
+        self.assertGreater(modified.index(snippet), modified.index(SECTION_HEADING))
+        return modified
+
+    def test_syntax_after_the_section_is_free(self):
+        # #170 절이 끝난 뒤의 문법은 시작·부모 제목과 #170 본문 판정에 영향을 주지 않아 따지지 않는다(교차 검토 재현).
+        snippets = {
+            "일반 링크": "[Example](https://example.invalid)",
+            "링크 정의": "[가상]: https://example.invalid",
+            "HTML 제목": "<h3>가상</h3>",
+            "HTML 주석": "<!-- 가상 -->",
+            "이스케이프": "가상 " + BACKSLASH + "* 글",
+            "밑줄 제목": "가상 장\n===",
+            "앞 공백 제목": "  ## 가상 장",
+            "인용 안 울타리": "> ```\n> 가상\n> ```",
+            "닫히지 않은 울타리": "````\n가상",
+        }
+        for case, snippet in snippets.items():
+            with self.subTest(case=case):
+                self.assertEqual(history_doc_problems(self.after_section(snippet)), [])
 
     def test_section_has_failure_rules(self):
         self.assertIsNotNone(self.section)
