@@ -9,7 +9,10 @@
 - 글 줄 바로 아래에 `=`나 `-`만 있는 줄(밑줄 제목). 이때 경계는 밑줄 위 글 줄이다.
 그래서 실제 제목을 놓쳐 다른 절의 문구를 이 절로 잘못 세는 일은 없다.
 대신 #170 절 안에는 코드 블록이나 주석 속이라도 제목처럼 보이는 줄을 두지 않는다.
-규칙 문구는 HTML 주석을 모두 걷어 낸 글에서 찾는다. 주석 속 문구는 화면에 보이지 않기 때문이다.
+
+시작 제목과 부모 제목은 반대로 좁게 잡는다. 코드 블록이나 숨는 HTML(주석, `<pre>`·`<script>` 등) 안일
+여지가 있거나 바로 앞 줄이 빈 줄이 아니면 제목으로 치지 않는다. 규칙 문구는 그런 줄과 HTML 주석을 걷어 낸 글에서 찾는다.
+어느 쪽이든 판정이 애매하면 실패 쪽으로 기운다.
 """
 
 import re
@@ -28,6 +31,13 @@ CONTAINER = re.compile(r"(?:[ \t]+|(?:[-*+]|\d{1,9}[.)])(?=[ \t])|>)*")
 HEADING_LIKE = re.compile(r"(#{1,6})(?=[ \t]|$)")
 UNDERLINE_LIKE = re.compile(r"(=+|-+)[ \t]*$")
 COMMENT = re.compile(r"<!--.*?(?:-->|\Z)", re.DOTALL)
+FENCE_LIKE = re.compile(r"(`{3,}|~{3,})")
+# 화면에서 글을 숨기거나 제목을 글자로 바꿀 수 있는 HTML 시작과 그 끝 표시(소문자로 비교).
+HTML_OPEN = re.compile(
+    r"(?P<comment><!--)|(?P<cdata><!\[cdata\[)|(?P<pi><\?)|(?P<decl><![a-z])"
+    r"|(?P<raw><(?:pre|script|style|textarea))(?=[\s>]|$)"
+)
+HTML_END = {"comment": "-->", "cdata": "]]>", "pi": "?>", "decl": ">"}
 
 # 절에 꼭 남아야 하는 규칙 문구. 확정 기록 경계, 새 대화 예외, 실패 뒤 저장, 재시도 한 차례.
 REQUIRED = (
@@ -54,19 +64,80 @@ def boundaries(lines):
     return sorted(set(found))
 
 
+def hidden_lines(lines):
+    """코드 블록이나 숨는 HTML 안일 수 있는 줄 번호 집합. 넓게 잡아, 숨었을 수도 있으면 넣는다.
+
+    - 코드 블록: 줄 앞 공백·목록·인용 기호를 걷어 낸 뒤 백틱이나 `~` 세 개 이상으로 시작하면 연다.
+      닫는 줄은 앞 공백 세 칸 이하에 같은 문자, 같거나 긴 길이, 뒤에 공백만 있을 때만 인정한다.
+    - HTML: 줄 어디든 `<!--`·`<?`·`<![CDATA[`·`<!`+글자·`<pre`·`<script`·`<style`·`<textarea`가 있으면
+      그 줄부터 짝이 되는 끝 표시가 나오는 줄까지 숨은 것으로 본다. 백틱 코드 조각 안이어도 가리지 않는다.
+    """
+    hidden, fence, html_end = set(), None, None
+    for index, line in enumerate(lines):
+        if fence:
+            hidden.add(index)
+            char, size = fence
+            if re.fullmatch(rf" {{0,3}}{re.escape(char)}{{{size},}}[ \t]*", line):
+                fence = None
+            continue
+        lowered = line.lower()
+        if html_end:
+            hidden.add(index)
+            closed = lowered.find(html_end)
+            if closed < 0:
+                continue
+            # 끝 표시 뒤에 새 HTML이 또 열리는지 같은 줄에서 이어 본다.
+            html_end = pending_html(lowered, closed + len(html_end))
+            continue
+        body = line[CONTAINER.match(line).end() :]
+        opener = FENCE_LIKE.match(body)
+        if opener:
+            hidden.add(index)
+            fence = (opener.group(1)[0], len(opener.group(1)))
+            continue
+        if HTML_OPEN.search(lowered):
+            hidden.add(index)
+            html_end = pending_html(lowered, 0)
+    return hidden
+
+
+def pending_html(lowered, position):
+    """줄의 position부터 HTML 시작과 끝을 차례로 짝지어, 줄 끝에서 아직 열린 HTML의 끝 표시(없으면 None)."""
+    while True:
+        match = HTML_OPEN.search(lowered, position)
+        if not match:
+            return None
+        end = HTML_END.get(match.lastgroup) or f"</{match.group('raw')[1:]}>"
+        closed = lowered.find(end, match.end())
+        if closed < 0:
+            return end
+        position = closed + len(end)
+
+
+def real_heading(lines, index, hidden):
+    """숨었을 여지가 없는 제목 줄인가. 빈 줄(또는 문서 처음) 바로 뒤여야 HTML 블록에 이어 붙은 줄이 아니다."""
+    return index not in hidden and (index == 0 or not lines[index - 1].strip())
+
+
 def history_section(text):
-    """#140 절 아래 #170 절 본문(주석 포함 원문). 제목이 한 번이 아니거나 #140 절 밖에 있으면 None."""
+    """#140 절 아래 #170 절의 보이는 본문. 제목이 한 번이 아니거나 #140 절 밖에 있으면 None.
+
+    경계는 넓게(제목일 수도 있으면 경계), 시작 제목과 부모 제목은 좁게(숨었을 수도 있으면 제목 아님) 잡는다.
+    """
     lines = text.splitlines()
     marks = boundaries(lines)
-    starts = [index for index, _ in marks if lines[index] == SECTION_HEADING]
+    hidden = hidden_lines(lines)
+    starts = [index for index, line in enumerate(lines)
+              if line == SECTION_HEADING and real_heading(lines, index, hidden)]
     if len(starts) != 1:
         return None
     start = starts[0]
     parent = next((index for index, level in reversed(marks) if index < start and level <= 2), None)
-    if parent is None or lines[parent] != PARENT_HEADING:
+    if parent is None or lines[parent] != PARENT_HEADING or not real_heading(lines, parent, hidden):
         return None
     end = next((index for index, level in marks if index > start and level <= 3), len(lines))
-    return "\n".join(lines[start + 1 : end])
+    shown = [lines[index] for index in range(start + 1, end) if index not in hidden]
+    return "\n".join(shown)
 
 
 def history_doc_problems(notes):
@@ -160,6 +231,35 @@ class ChatHistoryLimitDocTest(unittest.TestCase):
             with self.subTest(case=case):
                 self.assertNotEqual(modified, self.notes)
                 self.assertTrue(history_doc_problems(modified))
+
+    def test_hidden_section_heading_does_not_start_the_section(self):
+        # 시작 제목이 숨었을 수도 있으면 제목으로 치지 않는다. 그러면 규칙은 앞의 다른 절에 속한다.
+        wrappers = {
+            "주석": "<!--\n{heading}\n-->",
+            "물결 코드 블록": "~~~\n{heading}\n~~~",
+            "백틱 코드 블록": "```text\n{heading}\n```",
+            "목록 안 코드 블록": "- ~~~\n  {heading}\n  ~~~",
+            "닫는 길이가 짧은 울타리": "````\n```\n{heading}\n```",
+            "같은 줄에 닫힌 뒤 다시 열린 주석": "<!-- 가상 --> <!--\n{heading}\n-->",
+            "pre 블록": "<pre>\n\n{heading}\n\n</pre>",
+            "HTML 블록에 이어 붙음": "<div>\n{heading}\n</div>",
+        }
+        for case, wrapper in wrappers.items():
+            with self.subTest(case=case):
+                replacement = "### Other section\n\n" + wrapper.format(heading=SECTION_HEADING)
+                modified = self.notes.replace(SECTION_HEADING, replacement, 1)
+                self.assertNotEqual(modified, self.notes)
+                self.assertTrue(history_doc_problems(modified))
+
+    def test_hidden_parent_heading_fails(self):
+        modified = self.notes.replace(PARENT_HEADING, f"## 다른 장\n\n<!--\n{PARENT_HEADING}\n-->", 1)
+        self.assertTrue(history_doc_problems(modified))
+
+    def test_hidden_copy_does_not_count_twice(self):
+        # 숨은 사본은 시작 제목으로 세지 않으므로, 진짜 제목 하나만 있으면 통과한다.
+        modified = self.notes.replace("## 화면 구성", f"<!--\n{SECTION_HEADING}\n-->\n\n## 화면 구성", 1)
+        self.assertNotEqual(modified, self.notes)
+        self.assertEqual(history_doc_problems(modified), [])
 
     def test_heading_moved_or_duplicated_fails(self):
         cases = {
