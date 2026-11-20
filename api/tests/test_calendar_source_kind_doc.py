@@ -29,6 +29,8 @@ SUBSECTION_HEADING = "### 분류 정하기 (#176)"
 # 옛 주석 두 문장(「열쇠말이 없으면 중립」, 「열쇠말이 없으면 data-kind가 neutral」)에 함께 든 글자.
 # 새 주석은 「열쇠말이 없어도」·「없으면 공식 학사일정 출처」로 써서 이 글자를 품지 않는다.
 OLD_COMMENT = "열쇠말이 없으면"
+# 줄바꿈·공백이 끼어도 같은 글자로 본다(교차 검토 재현: 「열쇠말이」와 「없으면」 사이 줄바꿈).
+OLD_COMMENT_PATTERN = re.compile(r"열쇠말이\s*없으면")
 BACKSLASH = chr(92)
 # 코드 조각 밖에서 쓰지 않는 문자: 대괄호, 여닫는 꺾쇠, 백슬래시.
 INLINE_STARTERS = frozenset("[]<>" + BACKSLASH)
@@ -90,8 +92,22 @@ CSS_COMMENTS = {
 }
 
 
+def calendar_chapter(text):
+    """#143 장 제목 다음 줄부터 다음 `## `·`# ` 제목 앞까지. 장 제목이 하나가 아니면 빈 목록."""
+    lines = text.replace("\r\n", "\n").split("\n")
+    if lines.count(CALENDAR_HEADING) != 1:
+        return []
+    start = lines.index(CALENDAR_HEADING) + 1
+    end = next((i for i in range(start, len(lines)) if re.match(r"#{1,2} ", lines[i])), len(lines))
+    return lines[start:end]
+
+
 def subsection(text):
-    """#143 장 안 「분류 정하기」 소절 본문 줄. 다음 `#` 제목(수준 무관) 앞에서 끝난다. 없거나 둘이면 None."""
+    """#143 장 안 「분류 정하기」 소절 본문 줄. 다음 1~3단계 제목 앞에서 끝난다. 없거나 둘이면 None.
+
+    `####` 소제목은 소절 안 줄로 남긴다. 그러면 줄 목록 비교에서 끼어든 소제목이 드러나고,
+    소제목 줄의 금지 기호도 검사한다(교차 검토 재현: 「### 배치」 위 `#### ` 뒤 대괄호).
+    """
     lines = text.replace("\r\n", "\n").split("\n")
     starts = [i for i, line in enumerate(lines) if line == SUBSECTION_HEADING]
     if len(starts) != 1:
@@ -100,8 +116,16 @@ def subsection(text):
     parent = next((line for line in reversed(lines[:start]) if re.match(r"#{1,2} ", line)), None)
     if parent != CALENDAR_HEADING:
         return None
-    end = next((i for i in range(start + 1, len(lines)) if lines[i].startswith("#")), len(lines))
+    end = next((i for i in range(start + 1, len(lines)) if re.match(r"#{1,3} ", lines[i])), len(lines))
     return lines[start + 1 : end]
+
+
+# #143 장 어디에도 없어야 하는 반대 규칙. 달 이동·목록 전환은 받아 둔 응답으로만 다시 그린다.
+REFETCH = re.compile(r"(?:다시|새로)\s*요청한다")
+
+
+def refetch_lines(chapter):
+    return [line for line in chapter if REFETCH.search(line)]
 
 
 def inline_problem(line):
@@ -175,8 +199,13 @@ class CalendarSourceKindDocTest(unittest.TestCase):
             with self.subTest(line=number):
                 self.assertIsNone(inline_problem(line), line)
 
+    def test_calendar_chapter_has_no_refetch_rule(self):
+        chapter = calendar_chapter(self.notes)
+        self.assertTrue(chapter)
+        self.assertEqual(refetch_lines(chapter), [])
+
     def test_css_comments_follow_the_new_rule(self):
-        self.assertNotIn(OLD_COMMENT, self.css)
+        self.assertIsNone(OLD_COMMENT_PATTERN.search(self.css))
         for start, expected in CSS_COMMENTS.items():
             with self.subTest(start=start):
                 self.assertEqual(css_comment(self.css, start), expected)
@@ -239,7 +268,24 @@ class ReviewReproTest(unittest.TestCase):
         old = "/* 응답 글자에 열쇠말이 없으면 data-kind가 neutral이거나 비어 있어 중립색이다. */"
         leftover = self.css[:end] + "\n" + old + self.css[end:]
         self.assertEqual(css_comment(leftover, "/* 분류 색."), CSS_COMMENTS["/* 분류 색."])
-        self.assertIn(OLD_COMMENT, leftover)
+        self.assertIsNotNone(OLD_COMMENT_PATTERN.search(leftover))
+        # 교차 검토 재현: 「열쇠말이」와 「없으면」 사이를 줄바꿈한다.
+        split = self.css[:end] + "\n/* 응답 글자에 열쇠말이\n   없으면 data-kind가 neutral이다. */" + self.css[end:]
+        self.assertNotIn(OLD_COMMENT, split)
+        self.assertIsNotNone(OLD_COMMENT_PATTERN.search(split))
+
+    def test_heading_with_bracket_inside_subsection_fails(self):
+        # 교차 검토 재현: 「### 배치」 바로 위에 대괄호가 든 `#### ` 소제목을 넣는다.
+        added = self.changed("### 배치\n", "#### [example]\n\n### 배치\n")
+        lines = subsection(added) or []
+        self.assertIn("#### [example]", lines)
+        self.assertTrue(any(inline_problem(line) for line in lines))
+        self.assertFalse(self.rules_hold(added))
+
+    def test_refetch_rule_elsewhere_in_the_chapter_fails(self):
+        # 교차 검토 재현: 같은 #143 장의 「### 움직임」 첫 목록 항목으로 반대 규칙을 넣는다.
+        added = self.changed("### 움직임\n\n", "### 움직임\n\n- 달을 이동할 때마다 서버에 일정을 다시 요청한다.\n")
+        self.assertEqual(len(refetch_lines(calendar_chapter(added))), 1)
 
     def test_spaced_enroll_example_is_required(self):
         changed = self.changed("「수강신청·시험」과 「수강 신청·시험」은 둘 다", "「수강신청·시험」은")
