@@ -19,7 +19,10 @@
 그 위에서 시작 제목과 부모 제목은 코드 블록 밖에서 문자열이 정확히 같은 줄 하나만 친다.
 절 끝은 제목이 될 수 있는 줄을 모두 경계로 넓게 잡는다. 앞 공백·목록·인용 기호를 걷은 `#` 줄과,
 글 아래 밑줄 줄이 만드는 밑줄 제목이다. 밑줄 제목은 위 문단 전체가 제목이므로 문단 첫 줄이 경계다.
-규칙 문구는 절 안 코드 블록 밖의 글에서 찾는다.
+규칙 문구는 절 안 코드 블록 밖에서, 네 칸 미만으로 들여쓴 줄에서만 찾는다(들여쓴 코드 예시를 빼기 위해).
+
+빈 줄과 들여쓰기는 CommonMark 기준을 따른다. 빈 줄은 공백(U+0020)과 탭만 있는 줄이고, 탭은 4칸 단위로 넓힌다.
+U+00A0·U+3000 같은 유니코드 공백은 글자로 본다. Python의 str.strip()과 str.splitlines()는 이 기준과 달라 쓰지 않는다.
 """
 
 import re
@@ -57,6 +60,24 @@ def split_lines(text):
     return text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
 
 
+def is_blank(line):
+    """CommonMark 빈 줄: 공백(U+0020)과 탭만 있는 줄. str.strip()은 U+00A0 같은 유니코드 공백도 지워 쓰지 않는다."""
+    return not line.strip(" \t")
+
+
+def indent_columns(line):
+    """줄 앞 공백의 칸 수. 탭은 다음 4의 배수 칸까지 넓힌다(CommonMark 탭 규칙)."""
+    columns = 0
+    for char in line:
+        if char == " ":
+            columns += 1
+        elif char == "\t":
+            columns += 4 - columns % 4
+        else:
+            break
+    return columns
+
+
 def strip_container(line):
     return line[CONTAINER.match(line).end() :]
 
@@ -91,7 +112,7 @@ def code_blocks(lines):
             char, size = fence
             if re.fullmatch(rf"{re.escape(char)}{{{size},}}[ \t]*", line):
                 fence = None
-            elif found and found.group(1)[0] == char and len(found.group(1)) >= size and not found.group(2).strip():
+            elif found and found.group(1)[0] == char and len(found.group(1)) >= size and is_blank(found.group(2)):
                 problems.append(f"{number}번째 줄: 닫는 울타리는 줄 맨 앞에 둔다.")
             continue
         if found:
@@ -124,12 +145,12 @@ def boundaries(lines, fenced=frozenset()):
             found.append((index, len(heading.group(1))))
             continue
         underline = UNDERLINE_LIKE.match(body)
-        if not (underline and index > 0 and lines[index - 1].strip()):
+        if not (underline and index > 0 and not is_blank(lines[index - 1])):
             continue
         first = index - 1
         while first > 0:
             above = lines[first - 1]
-            if not above.strip() or (first - 1) in fenced or HEADING_LIKE.match(strip_container(above)):
+            if is_blank(above) or (first - 1) in fenced or HEADING_LIKE.match(strip_container(above)):
                 break
             first -= 1
         found.append((first, 1 if underline.group(1)[0] == "=" else 2))
@@ -151,7 +172,9 @@ def history_section(text):
     if parent is None or parent in fenced or lines[parent] != PARENT_HEADING:
         return None
     end = next((index for index, level in marks if index > start and level <= 3), len(lines))
-    return "\n".join(lines[index] for index in range(start + 1, end) if index not in fenced)
+    # 네 칸 이상 들여쓴 줄은 들여쓴 코드 예시일 수 있어 규칙 문구로 세지 않는다(문단 이어 쓰기여도 뺀다).
+    return "\n".join(lines[index] for index in range(start + 1, end)
+                     if index not in fenced and indent_columns(lines[index]) < 4)
 
 
 def history_doc_problems(notes):
@@ -279,6 +302,14 @@ class ChatHistoryLimitDocTest(unittest.TestCase):
             "여러 줄 밑줄 1단계 제목": f"\n{joined}\n가상 글\nOther section\n===\n",
             # 이스케이프한 닫는 대괄호가 든 링크 정의는 화면에 보이지 않는다.
             "링크 정의 제목 글": f"\n[example\\]label]: /example '{joined}'\n",
+            # U+00A0·U+3000·U+2003만 있는 줄은 CommonMark 빈 줄이 아니라 문단 글이라, 밑줄 제목이 위로 이어진다.
+            "U+00A0 줄 뒤 밑줄 제목": f"\n{joined}\n \nOther section\n---\n",
+            "U+3000 줄 뒤 밑줄 제목": f"\n{joined}\n　\nOther section\n---\n",
+            "U+2003 줄 뒤 밑줄 제목": f"\n{joined}\n \nOther section\n===\n",
+            # 네 칸 이상 들여쓴 줄은 들여쓴 코드 예시일 수 있어 규칙으로 세지 않는다.
+            "공백 네 칸 들여쓴 코드": f"\n\n    {joined}\n",
+            "탭 들여쓴 코드": f"\n\n\t{joined}\n",
+            "공백 두 칸과 탭": f"\n\n  \t{joined}\n",
         }
         for case, body in cases.items():
             with self.subTest(case=case):
@@ -289,6 +320,23 @@ class ChatHistoryLimitDocTest(unittest.TestCase):
     def test_underline_heading_starts_at_paragraph_first_line(self):
         lines = ["### 가상", "첫 줄", "둘째 줄", "---", "", "셋째", "==="]
         self.assertEqual(boundaries(lines), [(0, 3), (1, 2), (5, 1)])
+        # 공백·탭만 있는 줄은 빈 줄이라 문단을 끊고, U+00A0만 있는 줄은 끊지 않는다.
+        self.assertEqual(boundaries(["앞 글", " \t", "뒤 글", "---"]), [(2, 2)])
+        self.assertEqual(boundaries(["앞 글", " ", "뒤 글", "---"]), [(0, 2)])
+
+    def test_blank_and_indent_follow_commonmark(self):
+        self.assertTrue(is_blank(" \t "))
+        for line in (" ", "　", " ", "​"):
+            with self.subTest(line=repr(line)):
+                self.assertFalse(is_blank(line))
+        self.assertEqual(indent_columns("   가"), 3)
+        self.assertEqual(indent_columns("\t가"), 4)
+        self.assertEqual(indent_columns("  \t가"), 4)
+        self.assertEqual(indent_columns("    가"), 0)
+
+    def test_section_is_read_from_the_real_lines(self):
+        # 지금 #170 절에는 코드 블록이나 들여쓴 줄이 없어, 읽은 본문이 원문 그대로여야 한다.
+        self.assertIn(f"{SECTION_HEADING}\n{self.section}\n### ", self.notes)
 
     def test_lines_that_cannot_be_headings_keep_the_section(self):
         snippets = {
