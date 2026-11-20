@@ -14,11 +14,19 @@ const code = source.replace(/^\s*\/\/.*$/gm, "");
 const css = styles.replace(/\/\*[\s\S]*?\*\//g, "");
 
 function ringPage({ width = 1280, height = 800, view = "home", reduced = false, lang = "ko", missing = [], locked = [],
+  animationFrame = true, cancelFrame = true,
   toggleRect = { left: 300, top: 700, width: 44, height: 44 }, visual = null, pressables = [] } = {}) {
   const state = { focused: null, reduced };
-  let frames = [];
+  const frames = new Map();
   const timers = new Map(), documentListeners = [], windowListeners = [], observers = [], mediaListeners = [];
-  let nextTimer = 0;
+  let nextTimer = 0, nextFrame = 0;
+  function runOne(queue, id, run) {
+    if (!queue.has(id)) return false;
+    const entry = queue.get(id);
+    queue.delete(id);
+    run(entry);
+    return true;
+  }
   class El {
     constructor(tag, ns = null) {
       Object.assign(this, { tag, ns, children: [], attributes: new Map(), listeners: new Map(), dataset: {}, hidden: false,
@@ -96,7 +104,8 @@ function ringPage({ width = 1280, height = 800, view = "home", reduced = false, 
       get matches() { return state.reduced && query.includes("prefers-reduced-motion"); },
       addEventListener: (type, listener) => { if (query.includes("prefers-reduced-motion") && type === "change") mediaListeners.push(listener); },
     }),
-    requestAnimationFrame: callback => { frames.push(callback); return frames.length; },
+    requestAnimationFrame: animationFrame ? callback => { frames.set(++nextFrame, callback); return nextFrame; } : undefined,
+    cancelAnimationFrame: animationFrame && cancelFrame ? id => frames.delete(id) : undefined,
     addEventListener: (type, listener) => windowListeners.push({ type, listener }),
     // 확대(핀치 줌)했을 때 실제로 보이는 칸. 주면 그 칸의 크기·위치와 신호를 쓴다.
     visualViewport: visual ? { ...visual, addEventListener: (type, listener) => windowListeners.push({ type: `visual-${type}`, listener }) } : undefined,
@@ -113,13 +122,15 @@ function ringPage({ width = 1280, height = 800, view = "home", reduced = false, 
   const menu = ring?.children.find(node => node.className === "quick-ring-menu");
   const items = menu?.children ?? [];
   return {
-    state, row, photo, pen, cards, home, body, root, toggle, ring, menu, items, timers, observers,
+    state, row, photo, pen, cards, home, body, root, toggle, ring, menu, items, timers, observers, pendingFrames: frames,
     item: id => items.find(item => item.dataset.quickAction === id),
     screen, window, pet, pad, toast, composer, pressed,
-    reduce: () => { state.reduced = true; for (const listener of mediaListeners) listener({ matches: true }); },
+    reduce: (matches = true) => { state.reduced = matches; for (const listener of mediaListeners) listener({ matches }); },
     blobs: () => ring.all().filter(node => (node.getAttribute("class") ?? "").split(/\s+/).includes("quick-ring-blob")),
-    frames: () => { const pending = frames; frames = []; for (const callback of pending) callback(16); return pending.length; },
-    tick: () => { for (const [id, timer] of [...timers]) { timers.delete(id); timer.callback(); } },
+    frame: (id = frames.keys().next().value) => runOne(frames, id, callback => callback(16)),
+    timer: (id = timers.keys().next().value) => runOne(timers, id, timer => timer.callback()),
+    frames: () => [...frames.keys()].filter(id => runOne(frames, id, callback => callback(16))).length,
+    tick: () => { for (const id of [...timers.keys()]) runOne(timers, id, timer => timer.callback()); },
     key: (key, values = {}) => menu.fire("keydown", { key, ...values }),
     outside: target => { const event = { type: "pointerdown", target, defaultPrevented: false, preventDefault() { event.defaultPrevented = true; } };
       for (const each of documentListeners) if (each.type === "pointerdown") each.listener(event); return event; },
@@ -603,6 +614,139 @@ test("390×600 채팅에서 연 뒤 넓은 링크 12개가 굴러 들어와 피�
   assert.equal(page.ring.hidden, true);
   // 앞서 고친 한 줄짜리 링크(자리가 남는 경우)는 닫지 않고 다시 놓는다. 앞 테스트가 그 경우를 따로 본다.
 });
+
+const timerDelays = page => [...page.timers.values()].map(timer => timer.delay);
+
+test("첫 화면 갱신 전에 열고 닫고 다시 열면 새 회차만 펼쳐진다", () => {
+  for (const cancelFrame of [true, false]) {
+    const page = ringPage({ cancelFrame });
+    page.toggle.click();
+    const [previousId, previousFrame] = page.pendingFrames.entries().next().value;
+    page.toggle.click();
+    assert.equal(page.pendingFrames.has(previousId), !cancelFrame);
+    page.toggle.click();
+    // 취소 API가 없거나 이전 콜백이 이미 실행 대기열로 넘어갔다고 가정한다.
+    if (!page.frame(previousId)) previousFrame(16);
+    assert.equal(page.ring.getAttribute("data-open"), null);
+    assert.deepEqual(timerDelays(page), []);
+    assert.equal(page.frame(), true);
+    assert.equal(page.ring.getAttribute("data-open"), "true");
+    assert.equal(page.ring.getAttribute("data-settled"), null);
+    assert.deepEqual(timerDelays(page), [290]);
+    assert.equal(page.timer(), true);
+    assert.equal(page.ring.getAttribute("data-settled"), "");
+  }
+});
+
+test("이전 누름 허용 콜백이 뒤늦게 도착해도 새 회차를 건드리지 않는다", () => {
+  const page = ringPage();
+  page.toggle.click();
+  page.frame();
+  const [previousSettle] = page.timers.values();
+  page.key("Escape");
+  assert.equal(page.state.focused, page.toggle);
+  assert.equal(page.toggle.getAttribute("aria-expanded"), "false");
+  page.toggle.click();
+  page.frame();
+  previousSettle.callback();
+  assert.equal(page.ring.getAttribute("data-settled"), null);
+  page.key("Escape");
+  assert.deepEqual(timerDelays(page), [300]);
+});
+
+test("이전 숨김 콜백이 뒤늦게 도착해도 새 닫힘을 끝내지 않는다", () => {
+  const page = ringPage();
+  page.toggle.click();
+  page.frame();
+  page.key("Escape");
+  const [previousHide] = page.timers.values();
+  page.toggle.click();
+  page.frame();
+  page.key("Escape");
+  previousHide.callback();
+  assert.equal(page.ring.hidden, false);
+  assert.equal(page.timer(), true);
+  assert.equal(page.ring.hidden, true);
+});
+
+test("이전 본문 재배치 콜백은 다시 연 링에서 실행되지 않는다", () => {
+  const page = ringPage();
+  const content = page.observers.at(-1);
+  page.toggle.click();
+  page.frame();
+  content([{ target: page.screen }]);
+  const [previousId, previousFrame] = page.pendingFrames.entries().next().value;
+  page.toggle.click();
+  page.toggle.click();
+  content([{ target: page.screen }]);
+  // 현재 회차의 예약을 막거나 이전 회차에서 열린 링을 닫지 않아야 한다.
+  page.toggle.rect.left += 10;
+  if (!page.frame(previousId)) previousFrame(16);
+  assert.equal(page.toggle.getAttribute("aria-expanded"), "true");
+  page.toggle.rect.left -= 10;
+  assert.equal(page.frames(), 2, "the new opening and its content relayout are both queued");
+});
+
+test("열기 화면 갱신 전후로 크기가 바뀌어도 최신 누름 허용 타이머 하나만 남는다", () => {
+  const page = ringPage();
+  page.toggle.click();
+  page.window.innerWidth = 390;
+  page.windowEvent("resize");
+  assert.equal(page.ring.getAttribute("data-open"), null);
+  page.frame();
+  assert.deepEqual(timerDelays(page), [290]);
+  const [previousSettle] = page.timers.values();
+  page.window.innerWidth = 1280;
+  page.windowEvent("resize");
+  assert.deepEqual(timerDelays(page), [290]);
+  previousSettle.callback();
+  assert.equal(page.ring.getAttribute("data-settled"), null);
+  assert.equal(page.timer(), true);
+  assert.equal(page.ring.getAttribute("data-settled"), "");
+});
+
+test("화면 갱신 API가 없으면 닫을 때 16ms 예약을 지우고 이전 콜백도 무시한다", () => {
+  const page = ringPage({ animationFrame: false });
+  page.toggle.click();
+  const [previousFrame] = page.timers.values();
+  assert.deepEqual(timerDelays(page), [16]);
+  page.toggle.click();
+  assert.deepEqual(timerDelays(page), [300]);
+  page.toggle.click();
+  previousFrame.callback();
+  assert.equal(page.ring.getAttribute("data-open"), null);
+  assert.deepEqual(timerDelays(page), [16]);
+  assert.equal(page.timer(), true);
+  assert.equal(page.ring.getAttribute("data-open"), "true");
+  assert.deepEqual(timerDelays(page), [290]);
+  assert.equal(page.timer(), true);
+  assert.equal(page.ring.getAttribute("data-settled"), "");
+});
+
+for (const [phase, label] of [["waiting", "화면 갱신 대기 중"], ["opening", "펼침 중"], ["closing", "닫힘 중"]]) {
+  test(`동작 줄이기를 ${label} 켜면 전환을 마치고 다시 꺼도 재개하지 않는다`, () => {
+    const page = ringPage();
+    page.toggle.click();
+    if (phase !== "waiting") page.frame();
+    if (phase === "closing") page.key("Escape");
+    const pendingFrame = page.pendingFrames.values().next().value;
+    const pendingTimer = page.timers.values().next().value;
+    page.reduce();
+    const closed = phase === "closing";
+    assert.equal(page.ring.hidden, closed, phase);
+    assert.equal(page.ring.getAttribute("data-open"), closed ? null : "true", phase);
+    assert.equal(page.ring.getAttribute("data-settled"), closed ? null : "", phase);
+    assert.deepEqual(timerDelays(page), [], phase);
+    assert.equal(page.pendingFrames.size, 0, phase);
+    page.reduce(false);
+    pendingFrame?.(16);
+    pendingTimer?.callback();
+    assert.deepEqual(timerDelays(page), [], phase);
+    assert.equal(page.ring.hidden, closed, phase);
+    assert.equal(page.ring.getAttribute("data-open"), closed ? null : "true");
+    assert.equal(page.ring.getAttribute("data-settled"), closed ? null : "");
+  });
+}
 
 test("굴림 없이 본문에 링크가 붙어 방울 밑에 들어와도 다음 화면 갱신에서 다시 놓는다", () => {
   const page = ringPage({ width: 390, height: 700, view: "chat", toggleRect: { left: 21, top: 640, width: 44, height: 44 },

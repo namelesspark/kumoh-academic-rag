@@ -119,8 +119,26 @@
   doc.body.append(ring);
 
   let open = false, hideTimer = null, settleTimer = null, captionKey = null, waiting = 0, openedAt = null, openedView = null, lastLayoutKey = null;
+  let ringCycle = 0, cancelOpenFrame = null, cancelContentFrame = null;
   const visible = () => entries.filter(entry => !entry.item.hidden);
   const enabled = () => visible().filter(entry => !entry.item.disabled);
+
+  // 취소할 수 없는 화면 갱신이 뒤늦게 와도 다음 열기의 예약이나 상태를 건드리지 않는다.
+  function ringFrame(callback) {
+    const cycle = ringCycle;
+    const usesAnimationFrame = typeof window.requestAnimationFrame === "function";
+    let pending = true;
+    const id = nextFrame(() => {
+      if (!pending || cycle !== ringCycle || !open) return;
+      pending = false;
+      callback();
+    });
+    return () => {
+      pending = false;
+      if (usesAnimationFrame) window.cancelAnimationFrame?.(id);
+      else clearTimeout(id);
+    };
+  }
 
   function label() {
     toggle.setAttribute("aria-label", say("toggle"));
@@ -347,10 +365,26 @@
   }
   // 누름 받기(data-settled)를 끄고, 방울 이동이 끝나는 시간(settleMs) 뒤 다시 켠다. 동작 줄이기면 이동이 없으니 바로 켠다.
   function resettle() {
-    if (settleTimer !== null) { clearTimeout(settleTimer); settleTimer = null; }
+    cancelSettle();
     if (reduced()) { ring.setAttribute("data-settled", ""); return; }
     ring.removeAttribute("data-settled");
-    settleTimer = setTimeout(() => { settleTimer = null; if (open) ring.setAttribute("data-settled", ""); }, settleMs);
+    const cycle = ringCycle;
+    const id = setTimeout(() => {
+      if (cycle !== ringCycle || settleTimer !== id || !open) return;
+      settleTimer = null;
+      ring.setAttribute("data-settled", "");
+    }, settleMs);
+    settleTimer = id;
+  }
+  function cancelSettle() {
+    if (settleTimer === null) return;
+    clearTimeout(settleTimer);
+    settleTimer = null;
+  }
+  function cancelHide() {
+    if (hideTimer === null) return;
+    clearTimeout(hideTimer);
+    hideTimer = null;
   }
   function visibleArea() {
     const zoomed = window.visualViewport;
@@ -375,8 +409,9 @@
     if (!enabled().length && !visible().length) return;
     // 방울을 화면 안에, +를 덮지 않게 놓을 자리가 없으면(키보드가 화면을 거의 가린 경우) 열지 않는다.
     if (!place(true)) return;
+    ringCycle++;
     open = true;
-    if (hideTimer !== null) { clearTimeout(hideTimer); hideTimer = null; }
+    cancelHide();
     ring.hidden = false;
     openedAt = toggle.getBoundingClientRect();
     openedView = doc.body.getAttribute("data-view");
@@ -391,33 +426,38 @@
     // 그래야 +를 빠르게 두 번 눌러 닫을 때 두 번째 누름이 출발 중인 방울에 가지 않는다. 키보드 초점은 바로 받는다.
     if (reduced()) { ring.setAttribute("data-open", "true"); ring.setAttribute("data-settled", ""); return; }
     void ring.getBoundingClientRect?.();
-    nextFrame(() => {
-      if (!open) return;
+    cancelOpenFrame = ringFrame(() => {
+      cancelOpenFrame = null;
       ring.setAttribute("data-open", "true");
-      // 첫 그리기를 기다리는 사이 동작 줄이기를 켰으면 이미 누름을 받는 상태다. 다시 기다리게 하지 않는다.
-      if (reduced() || ring.getAttribute("data-settled") !== null) { ring.setAttribute("data-settled", ""); return; }
-      settleTimer = setTimeout(() => { settleTimer = null; if (open) ring.setAttribute("data-settled", ""); }, settleMs);
+      resettle();
     });
   }
   function closeRing(restore = false) {
     if (!open) return;
     open = false;
+    cancelOpenFrame?.();
+    cancelOpenFrame = null;
+    cancelContentFrame?.();
+    cancelContentFrame = null;
+    cancelSettle();
     ring.removeAttribute("data-open");
     ring.removeAttribute("data-settled");
-    if (settleTimer !== null) { clearTimeout(settleTimer); settleTimer = null; }
     toggle.setAttribute("aria-expanded", "false");
     show(null);
     if (restore) toggle.focus();
-    if (hideTimer !== null) clearTimeout(hideTimer);
     if (reduced()) { finishHide(); return; }
-    hideTimer = setTimeout(finishHide, closeMs);
+    const cycle = ringCycle;
+    const id = setTimeout(() => {
+      if (cycle !== ringCycle || hideTimer !== id || open) return;
+      hideTimer = null;
+      finishHide();
+    }, closeMs);
+    hideTimer = id;
   }
   // 링을 숨기는 길은 이 함수 하나다. 닫힘 전환이 끝났을 때, 동작 줄이기로 바로 숨길 때, 닫히는 도중 동작 줄이기를 켰을 때
   // 모두 여기를 거친다. 바깥의 초점을 받지 못하는 곳(빈 자리·글자)을 눌러 닫으면 초점이 숨는 방울에 남으므로,
   // 숨기기 전에 + 버튼으로 옮긴다.
   function finishHide() {
-    hideTimer = null;
-    if (open) return;
     if (ring.contains(doc.activeElement)) toggle.focus();
     ring.hidden = true;
   }
@@ -546,9 +586,11 @@
   // 동작 줄이기를 켜는 순간: 닫히던 링은 바로 숨기고, 펼쳐지던 링은 바로 펼친 상태로 두고 누름도 받게 한다.
   window.matchMedia?.("(prefers-reduced-motion: reduce)")?.addEventListener?.("change", event => {
     if (!event.matches) return;
-    if (!open && hideTimer !== null) { clearTimeout(hideTimer); finishHide(); }
+    if (!open && hideTimer !== null) { cancelHide(); finishHide(); }
     if (open) {
-      if (settleTimer !== null) { clearTimeout(settleTimer); settleTimer = null; }
+      cancelOpenFrame?.();
+      cancelOpenFrame = null;
+      cancelSettle();
       ring.setAttribute("data-open", "true");
       ring.setAttribute("data-settled", "");
     }
@@ -589,11 +631,12 @@
     // 굴림 없이도 본문이 바뀌어 누를 것이 방울 밑에 들어올 수 있다(이어 나오는 답에 인용 링크가 붙거나 패널이 열리는 등).
     // 열린 동안 본문에 요소가 붙거나 빠지거나 숨김이 바뀌면 다음 화면 갱신에서 한 번 다시 놓고, 자리가 없으면 닫는다.
     // 링 자체의 변화는 세지 않는다. 답이 이어 나오는 동안 신호가 잦아 화면 갱신마다 한 번으로 묶는다.
-    let contentFrame = false;
     const content = new MutationObserver(records => {
-      if (!open || contentFrame || !records?.length || records.every(record => ring.contains(record.target))) return;
-      contentFrame = true;
-      nextFrame(() => { contentFrame = false; if (open && moved() === false && !place()) closeRing(false); });
+      if (!open || cancelContentFrame || !records?.length || records.every(record => ring.contains(record.target))) return;
+      cancelContentFrame = ringFrame(() => {
+        cancelContentFrame = null;
+        if (moved() === false && !place()) closeRing(false);
+      });
     });
     content.observe(screen ?? doc.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["hidden"] });
   }
