@@ -4209,7 +4209,8 @@ function setupHandwriting() {
     if (message) {
       // 획은 그대로 둔다. 고쳐 쓰거나 바로 다시 넣을 수 있다.
       show(message, true); controls();
-      insert.focus();
+      const focused = document.activeElement;
+      if (focused === null || focused === document.body || pad.contains(focused)) insert.focus();
       return;
     }
     placeText(text);

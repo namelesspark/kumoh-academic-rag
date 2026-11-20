@@ -40,7 +40,7 @@ function fakeContext(log) {
   });
 }
 
-function loadPad({ language, pixelRatio = 2, blobSize = pngBytes.length, innerWidth = 1280, innerHeight = 800, deferBlob = false } = {}) {
+function loadPad({ language, pixelRatio = 2, blobSize = pngBytes.length, innerWidth = 1280, innerHeight = 800, deferBlob = false, scriptText = script } = {}) {
   const elements = new Map();
   const timers = [];
   const requests = [];
@@ -90,6 +90,13 @@ function loadPad({ language, pixelRatio = 2, blobSize = pngBytes.length, innerWi
       for (const child of this.children) if (child instanceof FakeElement) child.parent = null;
       this.children = [];
       this.append(...nodes);
+    }
+
+    contains(node) {
+      for (let current = node; current; current = current.parent) {
+        if (current === this) return true;
+      }
+      return false;
     }
 
     remove() {
@@ -188,6 +195,11 @@ function loadPad({ language, pixelRatio = 2, blobSize = pngBytes.length, innerWi
   const padRect = { left: 100, top: 322, right: 700, bottom: 642, width: 600, height: 320 };
   get("#handwriting-pad").getBoundingClientRect = () => ({ ...padRect });
   get("#handwriting-pad").hidden = true;
+  for (const part of ["canvas", "status", "undo", "clear", "cancel", "insert"]) {
+    get("#handwriting-pad").append(get(`#handwriting-${part}`));
+  }
+  const body = new FakeElement("body");
+  body.dataset = {};
   const input = get("#question");
   input.selectionStart = 0;
   input.selectionEnd = 0;
@@ -209,8 +221,9 @@ function loadPad({ language, pixelRatio = 2, blobSize = pngBytes.length, innerWi
   }
 
   const documentListeners = [];
-  runInNewContext(script, {
+  runInNewContext(scriptText, {
     document: {
+      body,
       addEventListener(type, listener) { documentListeners.push({ type, listener }); },
       querySelector(selector) {
         if (selector === "#ai-mode-button") return null;
@@ -254,7 +267,7 @@ function loadPad({ language, pixelRatio = 2, blobSize = pngBytes.length, innerWi
   }, { filename: "chat.js" });
 
   const page = {
-    state, requests, exports, routes, timers, input,
+    state, requests, exports, routes, timers, input, body,
     button: get("#handwriting-button"),
     pad: get("#handwriting-pad"),
     canvas: get("#handwriting-canvas"),
@@ -687,6 +700,110 @@ test("선택한 글자는 받은 글자로 바뀌고, 읽을 글씨가 없거나
   await settle();
   assert.equal(page.input.value, "가상 휴학 질문");
 });
+
+async function checkOutsideFocusAfterFailure({ timeout, scriptText }) {
+  const page = loadPad({ scriptText });
+  page.type("가상 XX 질문");
+  page.input.selectionStart = 3;
+  page.input.selectionEnd = 5;
+  page.button.click();
+  page.stroke([10, 10], [60, 60]);
+  const first = page.hold();
+  page.insert.click();
+  await settle();
+  assert.equal(page.state.focused, page.cancel);
+  assert.equal(page.status.textContent, messages.reading);
+  page.input.focus();
+  page.typeOver("새 가상 XX 질문", 2, "insertText", [0, 0]);
+  page.input.selectionStart = 0;
+  page.input.selectionEnd = 2;
+  const outside = timeout ? page.get("#pet") : page.input;
+  outside.focus();
+
+  if (timeout) {
+    const timer = page.timers.find(each => each.delay === 30_000 && !each.cleared);
+    assert.ok(timer);
+    timer.callback();
+    assert.equal(first.request.options.signal.aborted, true);
+  } else {
+    first.resolve(refused(422));
+  }
+  await settle();
+  assert.ok(page.state.focused === outside, "인식 실패 뒤 패드 밖 초점을 유지한다");
+  assert.equal(page.input.value, "새 가상 XX 질문");
+  assert.deepEqual([page.input.selectionStart, page.input.selectionEnd], [0, 2]);
+  assert.equal(page.status.textContent, timeout ? messages.timeout : messages.unreadable);
+  assert.equal(page.status.classList.contains("is-error"), true);
+  assert.equal(page.pad.hidden, false);
+  for (const button of [page.insert, page.undo, page.clear]) assert.equal(button.disabled, false);
+  assert.equal(page.state.submits, 0);
+  assert.deepEqual(page.requests.map(request => request.path), [handwritingPath]);
+
+  const retry = page.hold();
+  page.insert.click();
+  await settle();
+  assert.deepEqual(page.requests.map(request => request.path), [handwritingPath, handwritingPath]);
+  const [original, repeated] = page.exports;
+  assert.equal(page.exports.length, 2);
+  assert.equal(repeated.canvas.width, original.canvas.width);
+  assert.equal(repeated.canvas.height, original.canvas.height);
+  assert.deepEqual(repeated.canvas.log, original.canvas.log);
+  for (const attempt of [first, retry]) {
+    const image = attempt.request.options.body.get("image");
+    assert.equal(image.type, "image/png");
+    assert.deepEqual(new Uint8Array(await image.arrayBuffer()), pngBytes);
+  }
+  // 끝난 첫 요청에 늦은 응답을 보내도 재시도 결과만 들어간다.
+  first.resolve(ok("가상 이전 결과"));
+  await settle();
+  assert.equal(page.input.value, "새 가상 XX 질문");
+  assert.equal(page.status.textContent, messages.reading);
+  retry.resolve(ok("가상 인식"));
+  await settle();
+  assert.equal(page.input.value, "새 가상 가상 인식 질문");
+  assert.deepEqual([page.input.selectionStart, page.input.selectionEnd], [10, 10]);
+  assert.equal(page.pad.hidden, true);
+  assert.equal(page.state.focused, page.input);
+  assert.equal(page.state.submits, 0);
+  assert.deepEqual(page.requests.map(request => request.path), [handwritingPath, handwritingPath]);
+}
+
+for (const [failure, timeout] of [["지연 422", false], ["시간 초과", true]]) {
+  test(`${failure} 뒤 패드 밖 초점과 질문을 지키고 같은 획으로 다시 넣어도 보내지 않는다`, async () => {
+    await checkOutsideFocusAfterFailure({ timeout });
+  });
+}
+
+test("실패할 때마다 넣기에 초점을 주는 옛 코드로는 바깥 초점 검사를 통과하지 못한다", async () => {
+  const unconditionalFocus = script.replace(
+    /if \(focused === null[^\r\n]*\) insert\.focus\(\);/,
+    "insert.focus();",
+  );
+  assert.notEqual(unconditionalFocus, script);
+  for (const timeout of [false, true]) {
+    await assert.rejects(
+      checkOutsideFocusAfterFailure({ timeout, scriptText: unconditionalFocus }),
+      { code: "ERR_ASSERTION", message: "인식 실패 뒤 패드 밖 초점을 유지한다" },
+    );
+  }
+});
+
+for (const missingFocus of ["null", "body"]) {
+  test(`실패할 때 초점이 ${missingFocus}에 있으면 넣기로 옮긴다`, async () => {
+    const page = loadPad();
+    page.button.click();
+    page.stroke([10, 10], [60, 60]);
+    const held = page.hold();
+    page.insert.click();
+    await settle();
+    assert.equal(page.state.focused, page.cancel);
+    if (missingFocus === "body") page.body.focus();
+    else page.state.focused = null;
+    held.resolve(refused(422));
+    await settle();
+    assert.equal(page.state.focused, page.insert);
+  });
+}
 
 test("패드를 연 사이 질문 칸을 고치고 커서를 옮겨도 열기 전에 고른 범위에 넣는다", async () => {
   const page = loadPad();
