@@ -11,8 +11,9 @@
 - 코드 블록 밖 코드 조각은 한 줄 안의 백틱 한 개 짝으로만 쓰고, 코드 조각 밖에서는 `[`·`]`·`<`·`\\`를 쓰지 않는다.
   링크·HTML·이스케이프가 없으면 앞에서부터 둘씩 짝지은 백틱이 실제 코드 조각과 같다.
 이 규칙 아래에서 줄 맨 앞 `###` 줄이 제목이 아닌 곳은 맨 앞 코드 블록 안뿐이다. 그래서 시작 제목과 부모 제목은
-코드 블록 밖에서 문자열이 정확히 같은 줄 하나만 친다. 부모 제목과 시작 제목 사이에 다른 1·2단계 제목이 있을 수
-있는지는 넓게 본다(앞 공백·목록·인용 기호를 걷은 `#` 줄과 밑줄 제목을 모두 제목으로 본다).
+코드 블록 밖에서 문자열이 정확히 같은 줄 하나만 친다. 부모 제목과 시작 제목 사이에 다른 1·2단계 제목이 있는지는
+코드 블록 밖에서 넓게 본다(앞 공백·목록·인용 기호를 걷은 `#` 줄과 밑줄 제목을 모두 제목으로 본다).
+코드 블록 안 예시 제목은 세지 않는다.
 
 #170 절 본문 규칙(허용 목록)
 - 절은 시작 제목 다음 줄부터 줄 맨 앞 `#`·`##`·`###` 제목 앞까지다.
@@ -124,16 +125,22 @@ def code_blocks(lines):
 
 
 def boundaries(lines, fenced=frozenset()):
-    """제목이 될 수 있는 줄의 (줄 번호, 수준) 목록. 밑줄 제목은 위 문단 첫 줄을 쓴다(넓게 잡는다)."""
+    """코드 블록 밖에서 제목이 될 수 있는 줄의 (줄 번호, 수준) 목록. 밑줄 제목은 위 문단 첫 줄을 쓴다.
+
+    문서 전체 규칙이 코드 블록 범위를 정확히 정하므로 코드 블록 안 줄(울타리 포함)은 건너뛴다.
+    코드 블록 밖에서는 목록·인용 안 `#` 줄과 밑줄 제목까지 넓게 센다.
+    """
     found = []
     for index, line in enumerate(lines):
+        if index in fenced:
+            continue
         body = strip_container(line)
         heading = HEADING_LIKE.match(body)
         if heading:
             found.append((index, len(heading.group(1))))
             continue
         underline = UNDERLINE_LIKE.match(body)
-        if not (underline and index > 0 and not is_blank(lines[index - 1])):
+        if not (underline and index > 0 and (index - 1) not in fenced and not is_blank(lines[index - 1])):
             continue
         first = index - 1
         while first > 0:
@@ -355,6 +362,22 @@ class ChatHistoryLimitDocTest(unittest.TestCase):
         for case, snippet in snippets.items():
             with self.subTest(case=case):
                 self.assertEqual(history_doc_problems(self.elsewhere(snippet)), [])
+
+    def test_example_headings_in_code_blocks_between_parent_and_section_are_ignored(self):
+        # #140 장 안, #170 제목 바로 앞의 코드 블록 예시 제목은 부모 판정에 끼지 않는다(교차 검토 재현).
+        examples = {
+            "백틱 2단계": "```\n## 가상 제목\n```",
+            "물결 1단계": "~~~text\n# 가상 제목\n~~~",
+            "긴 울타리 안 밑줄 제목": "````\n가상 제목\n---\n```\n````",
+            "울타리 뒤 구분선": "```\n가상\n```\n---",
+        }
+        for case, example in examples.items():
+            with self.subTest(case=case):
+                modified = self.replace_heading(f"{example}\n\n{SECTION_HEADING}")
+                self.assertEqual(history_doc_problems(modified), [])
+        lines = ["## 부모", "```", "## 예시", "가상", "---", "```", "### 절"]
+        fenced = code_blocks(lines)[0]
+        self.assertEqual(boundaries(lines, fenced), [(0, 2), (6, 3)])
 
     def test_section_heading_not_on_its_own_line_does_not_start_the_section(self):
         for separator in (" ", " ", "\u0085", "\x0b", "\x0c"):
