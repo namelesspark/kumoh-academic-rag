@@ -8,7 +8,8 @@
 되돌리기 규칙 항목이 같은 목록에 이어진다. 이 절은 본문 전체를 실제 문서 줄과 글자 그대로 비교하고,
 패드 절의 제목 순서도 고정한다. 낱말로 충돌 문장을 거르거나, 검사하지 않는 절 안에 규칙 소절을 두면
 어미를 바꾼 문장이나 소절 바로 바깥에 끼운 문장, 통째로 옮긴 소절이 매번 빠져나갔기 때문이다.
-그리기 절을 고치거나 패드 절에 제목을 더하면 아래 기대 값도 함께 고친다(2026-11-20 문서 검사 기준).
+그 밖의 소절에 반대 규칙을 더하거나 기존 줄을 고쳐도 잡도록, 그리기 절 밖에서 「되돌」·「오류」·「실행 취소」가 든 줄을
+지금 문서 줄 그대로 고정한다. 그리기 절, 패드 절 제목, 이 낱말이 든 줄을 고치면 아래 기대 값도 함께 고친다(2026-11-20 문서 검사 기준).
 """
 
 import unittest
@@ -60,8 +61,32 @@ EXPECTED_PAD_HEADINGS = [
     "### 검사와 실기기 확인",
 ]
 
+# 그리기 절 밖의 패드 절에서 되돌리기·오류 문구·실행 취소를 말하는 줄. 지금 문서의 줄 그대로, 문서 순서대로다.
+# 이 낱말이 든 줄을 더하거나 고치면 실패한다. 바뀐 줄이 그리기 절의 되돌리기 규칙과 어긋나지 않는지 확인한 뒤 여기도 고친다.
+WATCH_WORDS = ("되돌", "오류", "실행 취소")
+EXPECTED_WATCHED_LINES = [
+    "│   읽는 중 / 오류 문구    │      │   읽는 중 / 오류 문구    │",
+    "│ 되돌리기 지우기 취소 넣기│      │ 되돌리기 지우기 취소 넣기│",
+    "- 초점 순서는 펜 버튼 → 캔버스 → 되돌리기 → 지우기 → 취소 → 넣기다. 열면 캔버스로 초점이 가고, Esc·취소는 패드를 닫아 펜 버튼으로 돌려준다.",
+    "- 상태 줄(`role=\"status\"`)은 늘 문서에 있고, 읽는 중이거나 오류일 때만 글이 들어간다. 숨겼다 보이면 읽기 도구가 놓치기 쉽다.",
+    "- 읽는 동안 「글씨를 읽는 중…」을 띄우고 넣기·되돌리기·지우기와 새 획을 막는다. 취소는 열어 둔다.",
+    "- 읽기를 시작한 뒤(「글씨를 읽는 중…」을 띄운 뒤) 실패하면 획을 그대로 두고 패드 상태 줄에 오류 문구를 띄운 뒤 버튼을 다시 연다.",
+    "- 패드 글자(`--ink`)·제목·상태 문구·오류(`--bad`)는 `--popup` 위 4.5:1, 버튼 경계(`--control-line`)·패드 선(`--line`)·캔버스 선은 3:1 이상이다.",
+    "- Tab은 가로채지 않는다. 펜 버튼을 누르면 초점이 캔버스로 옮겨 가 펜 버튼 → 캔버스 → 되돌리기 → 지우기 → 취소 → 넣기가 되고,",
+    "  실행 취소·다시 실행은 브라우저가 input 이벤트에 붙이는 입력 종류(`inputType`의 historyUndo·historyRedo)로만 알아보고,",
+    "  편집마다 직전 글과 범위를 모두 쌓아 두고, 실행 취소 신호가 오면 지금 글과 같은 가장 최근 기록의 범위로 되돌린다.",
+    "  브라우저가 실행 취소를 어떻게 묶는지(이어 친 삭제, 커서 이동, Delete·Backspace)는 추측하지 않는다. 묶는 규칙을 추측했더니 경우마다 어긋났다.",
+    "  브라우저가 몇 개를 한 번에 되돌려도 돌아간 글은 기록 가운데 하나다. 실행 취소·다시 실행이 오면 직전 범위를 반대쪽 목록에 먼저 쌓으므로,",
+    "  패드를 열기 전 글(기록에 없는 글)로 실행 취소했다가 다시 실행해도 열 때 고른 범위로 돌아온다. 상한은 1,000개이고, 넘치면 패드를 열 때의 첫 기록은 남기고 가장 오래된 중간 기록부터 버린다. 고른 글자를 지웠다 되살려도 범위가 산다.",
+    "  브라우저가 이어 친 삭제처럼 여러 편집을 한 번에 되돌리면, 지금 글과 같은 기록을 위에서부터 찾아 그 범위로 돌아간다.",
+    "  같은 글이 다시 나왔다는 것만으로는 되돌리지 않는다. 앞에 A를 붙이고 끝의 A를 지운 보통 편집을 실행 취소로 잘못 보기 때문이다.",
+    "- `handwriting_input.test.mjs`가 가짜 화면·가짜 캔버스·가짜 fetch로 펜 뒤 손가락 무시, 압력 굵기와 묶인 신호, 되돌리기, 잘라 낸 그림 크기와",
+    "  오류 안내, 폼 제출·채팅 요청 0건을 본다. 초점이 「취소」나 `null`이면 넣기 버튼으로 옮기는지도 본다(#179).",
+]
+
 DRAW_PROBLEM = f"{DRAW_HEADING!r} 절 본문이 기대 줄과 다르다."
 HEADINGS_PROBLEM = f"{PAD_HEADING!r} 절의 제목 순서가 기대와 다르다."
+WATCH_PROBLEM = f"그리기 절 밖에서 {'·'.join(WATCH_WORDS)}이(가) 든 줄이 기대와 다르다."
 
 
 def subsection(pad, heading):
@@ -73,6 +98,16 @@ def subsection(pad, heading):
     return "\n".join(pad[starts[0] + 1 : end]).strip()
 
 
+def watched_lines(pad):
+    """그리기 절(제목부터 다음 제목 앞까지)을 뺀 패드 절 줄 가운데 WATCH_WORDS가 든 줄."""
+    starts = [index for index, line in enumerate(pad) if line == DRAW_HEADING]
+    skip = range(0)
+    if len(starts) == 1:
+        end = next((i for i in range(starts[0] + 1, len(pad)) if BOUNDARY.match(pad[i])), len(pad))
+        skip = range(starts[0], end)
+    return [line for index, line in enumerate(pad) if index not in skip and any(word in line for word in WATCH_WORDS)]
+
+
 def undo_doc_problems(notes):
     found = sections(notes)
     if found is None:
@@ -81,6 +116,9 @@ def undo_doc_problems(notes):
     problems = []
     if [line for line in pad if BOUNDARY.match(line)] != EXPECTED_PAD_HEADINGS:
         problems.append(HEADINGS_PROBLEM)
+    # 그리기 절 밖(넣기·교차 검토 등)에 되돌리기와 반대되는 문장을 더하거나 기존 줄을 고쳐도 잡는다.
+    if watched_lines(pad) != EXPECTED_WATCHED_LINES:
+        problems.append(WATCH_PROBLEM)
     if subsection(pad, DRAW_HEADING) != EXPECTED_DRAW:
         problems.append(DRAW_PROBLEM)
     # 패드 절의 다른 절에 사본을 두어도 실패한다.
@@ -114,9 +152,7 @@ class HandwritingUndoDocTest(unittest.TestCase):
             cases[f"{before} → {after}"] = self.replaced(RULE, RULE.replace(before, after, 1))
         for case, modified in cases.items():
             with self.subTest(case=case):
-                self.assertEqual(undo_doc_problems(modified), [DRAW_PROBLEM] + ([] if RULE in flatten(modified) else [
-                    f"{PAD_HEADING!r} 절에 되돌리기 규칙 문장이 0번 있다. 정확히 한 번이어야 한다."
-                ]))
+                self.assertIn(DRAW_PROBLEM, undo_doc_problems(modified))
 
     def test_conflicting_text_fails(self):
         # 교차 검토 재현: 오류 문구 항목 앞(4·5차), 오류 문구 항목 끝 조건 줄(1차), 규칙 항목 뒤(그리기 절 끝, 「### 넣기」 바로 위)에
@@ -143,6 +179,20 @@ class HandwritingUndoDocTest(unittest.TestCase):
         for case, modified in cases.items():
             with self.subTest(case=case):
                 self.assertEqual(undo_doc_problems(modified), [DRAW_PROBLEM])
+
+    def test_conflicting_text_outside_draw_section_fails(self):
+        # 교차 검토 재현(6차): 그리기 절 밖, 교차 검토 절의 「200 응답」 항목 바로 위에 반대 규칙을 더한 경우.
+        # 넣기 절·검사 절에 더하거나 기존 줄에 이어 써도 같다. 그리기 절 밖의 고정 줄만 달라진다.
+        conflict = "- 다른 획을 긋는 중에도 되돌리기를 누르면 오류 문구를 즉시 지운다."
+        cases = {
+            "200 응답 항목 위": self.replaced("\n- 200 응답의 본문이", f"\n{conflict}\n- 200 응답의 본문이"),
+            "넣기 절 첫 항목 앞": self.replaced("\n### 넣기\n\n", f"\n### 넣기\n\n{conflict}\n"),
+            "검사 절 첫 항목 앞": self.replaced("\n### 검사와 실기기 확인\n\n", f"\n### 검사와 실기기 확인\n\n{conflict}\n"),
+            "200 응답 항목 문장 고침": self.replaced("「서버가 글씨를 처리하지 못했어요」를 띄운다.", "「서버가 글씨를 처리하지 못했어요」를 띄우고 되돌리기는 오류 문구를 즉시 지운다."),
+        }
+        for case, modified in cases.items():
+            with self.subTest(case=case):
+                self.assertEqual(undo_doc_problems(modified), [WATCH_PROBLEM])
 
     def test_rule_moved_or_copied_fails(self):
         block = f"- {RULE}\n{RULE_ITEM_LAST}\n"
