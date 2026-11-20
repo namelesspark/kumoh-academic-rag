@@ -25,7 +25,7 @@ function store() {
 function functions() {
   return runInNewContext(
     storageCode + safetyCode +
-      "\n({loadConversations, saveConversations, trimConversations, deleteConversation, clearConversations})",
+      "\n({loadConversations, saveConversations, trimConversations, deleteConversation, clearConversations, limitCommittedChatMessages})",
     {
       URL,
     },
@@ -84,6 +84,58 @@ test("최근 대화 20개와 말풍선 40개만 보관한다", () => {
   assert.equal(records[19].id, "5");
   assert.equal(records[0].messages.length, 40);
   assert.equal(records[0].messages[0].text, "가상 문장 4");
+});
+
+test("41개에서 작업한 문답을 남기고 다음으로 오래된 문답을 함께 덜어 낸다", () => {
+  const api = functions();
+  const storage = store();
+  const conversation = record("1", 41);
+  const [original, answer] = conversation.messages;
+  const revised = { ...original, text: "가상 수정 질문" };
+  const chosen = {
+    ...revised,
+    versions: [{ question: original, answer: null }, { question: revised, answer }],
+    selected: 1,
+  };
+  conversation.title = "가상 대화 제목";
+  conversation.messages[0] = chosen;
+  const committed = conversation.messages.slice();
+  const expected = [chosen, answer, ...committed.slice(4)];
+  api.limitCommittedChatMessages(conversation, committed, chosen);
+  assert.deepEqual(Array.from(conversation.messages), expected);
+  assert.deepEqual(Array.from(conversation.committedMessages), expected);
+
+  api.saveConversations(storage, "browse", [{ ...conversation, messages: conversation.committedMessages }]);
+  const [loaded] = api.loadConversations(storage, "browse");
+  assert.equal(loaded.title, conversation.title);
+  assert.equal(loaded.messages.length, 39);
+  assert.deepEqual(Array.from(loaded.messages, message => [message.role, message.text]),
+    expected.map(message => [message.role, message.text]));
+  assert.equal(loaded.messages[0].selected, 1);
+  assert.equal(loaded.messages[0].versions.length, 2);
+});
+
+test("오래된 문답을 자른 뒤 드러난 단독 답은 덜고 한도 안의 옛 기록은 읽는다", () => {
+  const api = functions();
+  const storage = store();
+  const key = "kumoh-chat-history:v1:browse";
+  const conversation = record("1", 42);
+  const legacy = [
+    { role: "answer", text: "가상 단독 답" },
+    { role: "question", text: "가상 답 없는 질문" },
+  ];
+  storage.setItem(key, JSON.stringify([{ ...conversation, messages: legacy }]));
+  const [old] = api.loadConversations(storage, "browse");
+  assert.deepEqual(Array.from(old.messages, message => message.text), legacy.map(message => message.text));
+
+  conversation.messages.splice(2, 0, legacy[0]);
+  conversation.messages.pop();
+  storage.setItem(key, JSON.stringify([conversation]));
+  const [loaded] = api.loadConversations(storage, "browse");
+  assert.equal(loaded.messages.length, 39);
+  assert.equal(loaded.messages[0].role, "question");
+  assert.equal(loaded.messages[0].text, "가상 문장 2");
+  assert.equal(loaded.messages.at(-1).role, "question");
 });
 
 test("깨진 값과 저장소 오류는 빈 기록으로 처리한다", () => {

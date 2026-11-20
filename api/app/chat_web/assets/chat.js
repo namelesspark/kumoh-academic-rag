@@ -581,6 +581,24 @@ function detectLang(storage, language) {
   return tag.startsWith("en") ? "en" : tag.startsWith("zh") ? "zh" : "ko";
 }
 
+function limitChatMessages(messages, protectedQuestion) {
+  if (messages.length <= 40) return messages;
+  const kept = messages.slice();
+  let index = 0;
+  while (kept.length > 40) {
+    const message = kept[index];
+    const size = message.role === "question" && kept[index + 1]?.role === "answer" ? 2 : 1;
+    if (message === protectedQuestion) index += size;
+    else kept.splice(index, size);
+  }
+  const firstQuestion = kept.findIndex(message => message.role === "question");
+  return firstQuestion < 0 ? [] : kept.slice(firstQuestion);
+}
+function limitCommittedChatMessages(record, committed, question) {
+  record.messages = limitChatMessages(record.messages, question);
+  const kept = new Set(record.messages);
+  record.committedMessages = committed.filter(message => kept.has(message));
+}
 // 저장 객체는 허용한 텍스트 필드만 복사한다. DOM과 서버 세션은 저장하지 않는다.
 function trimConversations(records) {
   if (!Array.isArray(records)) return [];
@@ -590,7 +608,7 @@ function trimConversations(records) {
       // 보관은 true일 때만 인정한다. 없거나 깨진 값은 보관하지 않은 대화로 본다. 20개 한도는 보관 여부와 무관하다.
       archived: record.archived === true,
       title: conversationTitle(record),
-      messages: trimMessages(record.messages).slice(-40),
+      messages: limitChatMessages(trimMessages(record.messages)),
     })).filter(record => record.messages.length).sort((a, b) => b.time - a.time).slice(0, 20);
 }
 function cleanChatMessage(message) {
@@ -3019,7 +3037,8 @@ function setupTurnActions(record, turn, question, answer) {
     });
     return control;
   }
-  const locked = () => busy || record.pending || !record.messages.includes(question);
+  const requestPending = () => busy || record.pending;
+  const locked = () => requestPending() || !record.messages.includes(question);
   const edit = button("turn-edit", "수정", () => {
     if (locked()) return;
     state = "";
@@ -3047,7 +3066,7 @@ function setupTurnActions(record, turn, question, answer) {
         if (!locked() && field.value.trim()) run(field.value.trim());
       });
       editor.addEventListener("keydown", event => {
-        if (event.key !== "Escape" || event.isComposing || locked()) return;
+        if (event.key !== "Escape" || event.isComposing || requestPending()) return;
         event.preventDefault();
         event.stopPropagation();
         closeEditor();
@@ -3058,12 +3077,12 @@ function setupTurnActions(record, turn, question, answer) {
     update();
   }
   function closeEditor() {
-    if (locked()) return;
+    if (requestPending()) return;
     draft = null;
     state = "";
     editor.remove();
     update();
-    edit.focus();
+    (locked() ? input : edit).focus();
   }
   function update() {
     for (const label of labels) label();
@@ -3078,7 +3097,8 @@ function setupTurnActions(record, turn, question, answer) {
     if (editor) {
       field.setAttribute("aria-label", t("질문 수정"));
       field.readOnly = locked();
-      cancel.disabled = save.disabled = locked();
+      cancel.disabled = requestPending();
+      save.disabled = locked();
       save.textContent = t(state === "failed" ? "다시 시도" : "저장하고 묻기");
     }
     if (state) turn.setAttribute("data-version-state", state);
@@ -3108,8 +3128,8 @@ function setupTurnActions(record, turn, question, answer) {
       if (position < 0) continue;
       const hasAnswer = answer && messages[position + 1] === answer;
       messages.splice(position, hasAnswer ? 2 : 1, chosen, ...(version.answer ? [version.answer] : []));
-      if (messages.length > 40) messages.splice(0, messages.length - 40);
     }
+    limitCommittedChatMessages(record, record.committedMessages || record.messages, chosen);
     question = chosen;
     answer = version.answer;
     redraw();
@@ -3307,10 +3327,10 @@ function commitChatTurn(record, reply, text, answer) {
   const next = position >= 0 && record.messages.slice(position + 1)
     .find(message => message.role === "question" && committed.includes(message));
   const replies = answer ? [answer] : [];
-  record.messages.splice(position < 0 ? record.messages.length : position + 1, 0, ...replies);
+  if (position < 0) record.messages.push(question, ...replies);
+  else record.messages.splice(position + 1, 0, ...replies);
   committed.splice(next ? committed.indexOf(next) : committed.length, 0, question, ...replies);
-  record.messages = record.messages.slice(-40);
-  record.committedMessages = committed.slice(-40);
+  limitCommittedChatMessages(record, committed, question);
   record.time = time;
   record.saved = true;
   if (turn && !record.photo) setupTurnActions(record, turn, question, answer);
@@ -3361,7 +3381,7 @@ composer.addEventListener("submit", event => {
   if (record.archived === true) { record.archived = false; persistConversations(); }
   const questionMessage = { role: "question", text: question, time: Date.now(), sources: [] };
   record.messages.push(questionMessage);
-  record.messages = record.messages.slice(-40);
+  record.messages = limitChatMessages(record.messages, questionMessage);
   if (!chatView || !requestedChatView) setChatView(true);
   const turn = element("div", "turn");
   const prompt = element("p", "question");
@@ -3373,7 +3393,6 @@ composer.addEventListener("submit", event => {
   if (!file) reply.chatTurn = { turn, question: questionMessage };
   turn.append(prompt, reply, element("small", "reply-author", t("아이오")));
   record.turns.push(turn);
-  if (record.turns.length > 20) record.turns.shift().remove();
   if (chatView && requestedChatView) {
     empty.remove();
     transcript.append(turn);
