@@ -40,7 +40,7 @@ function fakeContext(log) {
   });
 }
 
-function loadPad({ language, pixelRatio = 2, blobSize = pngBytes.length, innerWidth = 1280, innerHeight = 800 } = {}) {
+function loadPad({ language, pixelRatio = 2, blobSize = pngBytes.length, innerWidth = 1280, innerHeight = 800, deferBlob = false } = {}) {
   const elements = new Map();
   const timers = [];
   const requests = [];
@@ -160,9 +160,12 @@ function loadPad({ language, pixelRatio = 2, blobSize = pngBytes.length, innerWi
     hasPointerCapture(id) { return this.captured.has(id); }
     releasePointerCapture(id) { this.captured.delete(id); this.released.push(id); }
     toBlob(callback, type) {
-      exports.push({ canvas: this, type });
       const bytes = state.blobSize === pngBytes.length ? pngBytes : new Uint8Array(state.blobSize);
-      callback(new Blob([bytes], { type }));
+      const finish = () => callback(new Blob([bytes], { type }));
+      const exportAttempt = { canvas: this, type };
+      if (deferBlob) exportAttempt.finish = finish;
+      exports.push(exportAttempt);
+      if (!deferBlob) finish();
     }
   }
 
@@ -327,6 +330,92 @@ function loadPad({ language, pixelRatio = 2, blobSize = pngBytes.length, innerWi
 const ok = text => ({ ok: true, status: 200, text: async () => JSON.stringify({ text }), json: async () => ({ text }) });
 const refused = status => ({ ok: false, status, text: async () => JSON.stringify({ detail: "fictional error" }), json: async () => ({ detail: "fictional error" }) });
 const settle = async () => { for (let i = 0; i < 4; i++) await setImmediate(); };
+
+for (const lateCallbackTiming of ["재시도 중", "재시도 후"]) {
+  test(`PNG 변환 시간 초과 후 같은 획으로 다시 넣고 ${lateCallbackTiming} 이전 콜백을 무시한다`, async () => {
+    const page = loadPad({ deferBlob: true });
+    page.input.value = "ABCD";
+    page.input.selectionStart = 1;
+    page.input.selectionEnd = 3;
+    page.button.click();
+    page.stroke([10, 10], [60, 60]);
+    page.insert.click();
+    const [first] = page.exports;
+    assert.equal(page.status.textContent, messages.reading);
+    const timers = page.timers.filter(each => each.delay === 30_000 && !each.cleared);
+    assert.equal(timers.length, 1);
+    timers[0].callback();
+    await settle();
+    assert.equal(page.status.textContent, messages.timeout);
+    assert.equal(page.pad.hidden, false);
+    for (const button of [page.insert, page.undo, page.clear]) assert.equal(button.disabled, false);
+    assert.equal(page.state.focused, page.insert);
+    assert.equal(page.requests.length, 0);
+    assert.equal(page.state.submits, 0);
+
+    const snapshot = () => ({
+      requests: page.requests.length,
+      status: page.status.textContent,
+      focus: page.state.focused,
+      value: page.input.value,
+      submits: page.state.submits,
+    });
+    const finishLate = async () => {
+      const before = snapshot();
+      first.finish();
+      await settle();
+      assert.deepEqual(snapshot(), before);
+    };
+    page.respond(ok("가상"));
+    page.insert.click();
+    assert.equal(page.exports.length, 2);
+    const [, retry] = page.exports;
+    assert.equal(retry.canvas.width, first.canvas.width);
+    assert.equal(retry.canvas.height, first.canvas.height);
+    assert.deepEqual(retry.canvas.log, first.canvas.log);
+    if (lateCallbackTiming === "재시도 중") await finishLate();
+
+    retry.finish();
+    await settle();
+    assert.equal(page.requests.length, 1);
+    assert.equal(page.input.value, "A가상D");
+    assert.equal(page.input.selectionStart, 3);
+    assert.equal(page.input.selectionEnd, 3);
+    assert.equal(page.state.focused, page.input);
+    assert.equal(page.pad.hidden, true);
+    assert.equal(page.state.submits, 0);
+    if (lateCallbackTiming === "재시도 후") await finishLate();
+  });
+}
+
+test("PNG 변환 중 Esc로 닫으면 다시 연 뒤 도착한 콜백을 무시한다", async () => {
+  const page = loadPad({ deferBlob: true });
+  page.input.value = "가상 질문";
+  page.button.click();
+  page.stroke([10, 10], [60, 60]);
+  page.insert.click();
+  const [pending] = page.exports;
+  const timer = page.timers.find(each => each.delay === 30_000 && !each.cleared);
+  assert.ok(timer);
+  const escape = page.pad.fire("keydown", { key: "Escape" });
+  assert.equal(escape.prevented, true);
+  assert.equal(page.pad.hidden, true);
+  assert.equal(page.state.focused, page.button);
+  await settle();
+  assert.equal(timer.cleared, true);
+
+  page.button.click();
+  const focus = page.state.focused;
+  pending.finish();
+  await settle();
+  assert.equal(page.pad.hidden, false);
+  assert.equal(page.insert.disabled, true);
+  assert.equal(page.state.focused, focus);
+  assert.equal(page.status.textContent, "");
+  assert.equal(page.input.value, "가상 질문");
+  assert.equal(page.requests.length, 0);
+  assert.equal(page.state.submits, 0);
+});
 
 test("펜 버튼은 입력 줄의 사진 버튼 뒤에 있고, 패드는 질문 폼 밖의 이름 붙은 대화 상자다", () => {
   const composer = /<form id="composer"[\s\S]*?<\/form>/.exec(html)?.[0] ?? "";
