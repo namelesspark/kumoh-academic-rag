@@ -36,20 +36,29 @@ def visible_text(text):
     return re.sub(r"<!--.*?(?:-->|\Z)", "", text, flags=re.DOTALL)
 
 
-def insert_section(text):
-    """손글씨 패드 절 안의 `### 넣기` 머리부터 다음 제목(`#`~`###`) 앞(없으면 끝)까지를 돌려준다.
-
-    다른 절에도 `### 넣기`가 생길 수 있어 손글씨 패드 절 머리 뒤에서 찾는다.
-    """
-    pad = text.index(PAD_HEADING)
-    match = re.search(r"^" + re.escape(SECTION_HEADING) + r"[ \t]*$", text[pad:], re.MULTILINE)
-    if match is None:
-        raise ValueError(f"{SECTION_HEADING} 절이 없다")
-    start = pad + match.start()
-    body = start + len(match.group(0))
-    following = re.search(r"^#{1,3} ", text[body:], re.MULTILINE)
+def pad_section(text):
+    """손글씨 패드 절 머리부터 다음 `#`·`##` 머리 앞(없으면 끝)까지를 돌려준다."""
+    start = text.index(PAD_HEADING)
+    body = start + len(PAD_HEADING)
+    following = re.search(r"^#{1,2} ", text[body:], re.MULTILINE)
     end = len(text) if following is None else body + following.start()
     return text[start:end]
+
+
+def insert_section(text):
+    """손글씨 패드 절 안의 `### 넣기` 머리부터 다음 제목(`#`~`######`) 앞(없으면 패드 절 끝)까지를 돌려준다.
+
+    교차 검토 재현 두 가지를 막는다. 패드 절 뒤 다른 `##` 아래의 `### 넣기`는 찾지 않고,
+    `### 넣기` 바로 아래 `####` 절의 글은 넣기 절로 세지 않는다.
+    """
+    pad = pad_section(text)
+    match = re.search(r"^" + re.escape(SECTION_HEADING) + r"[ \t]*$", pad, re.MULTILINE)
+    if match is None:
+        raise ValueError(f"손글씨 패드 절 안에 {SECTION_HEADING} 절이 없다")
+    body = match.end()
+    following = re.search(r"^#{1,6} ", pad[body:], re.MULTILINE)
+    end = len(pad) if following is None else body + following.start()
+    return pad[match.start():end]
 
 
 class InsertSectionTest(unittest.TestCase):
@@ -66,6 +75,25 @@ class InsertSectionTest(unittest.TestCase):
         section = insert_section(doc)
         self.assertIn("- 패드", section)
         self.assertNotIn("다른 절", section)
+
+    def test_insert_heading_after_pad_section_is_not_found(self):
+        # 교차 검토 재현: 패드 절의 `### 넣기`를 지우고 뒤쪽 다른 `##` 아래에 두 문장을 옮긴 문서.
+        doc = (
+            f"{PAD_HEADING}\n\n### 그리기\n\n- 획\n\n"
+            f"## 다른 절\n\n{SECTION_HEADING}\n\n- {SCOPE_SENTENCE} {LATE_SENTENCE}\n"
+        )
+        with self.assertRaises(ValueError):
+            insert_section(doc)
+
+    def test_section_stops_at_deeper_heading(self):
+        # 교차 검토 재현: `### 넣기` 바로 아래 `#### 다음 절`에 두 문장을 둔 문서.
+        doc = (
+            f"{PAD_HEADING}\n\n{SECTION_HEADING}\n\n#### 다음 절\n\n"
+            f"- {SCOPE_SENTENCE} {LATE_SENTENCE}\n"
+        )
+        section = insert_section(doc)
+        self.assertNotIn(SCOPE_SENTENCE, section)
+        self.assertNotIn(LATE_SENTENCE, section)
 
     def test_comments_hide_sentences(self):
         self.assertNotIn(SCOPE_SENTENCE, visible_text(f"<!-- {SCOPE_SENTENCE} -->"))
