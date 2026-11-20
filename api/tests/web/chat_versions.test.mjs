@@ -512,6 +512,35 @@ for (const [name, work, workedQuestion] of [
   });
 }
 
+// 다른 차례의 수정창을 열어 둔 채 첫 질문의 답을 새로 받으면, 그 차례가 저장 한도에서 빠져도 수정창은 닫혀야 한다.
+for (const [name, close] of [
+  ["취소 버튼", form => form.querySelector(".turn-editor-cancel").click()],
+  ["Esc", form => form.querySelector("textarea").fire("keydown", { key: "Escape" })],
+]) {
+  test(`40개 기록에서 저장 한도로 빠진 차례의 수정창도 ${name}으로 닫고 원래 질문을 다시 보인다`, async () => {
+    const p = fullPage();
+    turn(p, 1).querySelector(".turn-edit").click();
+    const form = turn(p, 1).querySelector("form.turn-editor");
+    assert.ok(form, "둘째 차례의 수정창");
+    form.querySelector("textarea").value = "가상 닫을 초안";
+    assert.equal(turn(p, 1).querySelector(".question").hidden, true);
+    find(p, ".turn-regenerate").click();
+    await finish(p.requests[0], "가상 한도 새 답");
+    assert.equal(find(p, ".version-count").textContent, "2/2");
+    assertTurnAligned(savedMessages(p));
+    const requested = p.requests.length;
+
+    // 차례가 저장 기록에 남았든 빠졌든 수정창은 닫히고, 그린 질문 말풍선은 원래 글로 돌아온다.
+    close(form);
+    assert.equal(turn(p, 1).querySelector("form.turn-editor"), null, "수정창이 닫히지 않았다");
+    const shown = turn(p, 1).querySelector(".question");
+    assert.notEqual(shown.hidden, true, "원래 질문이 숨은 채 남았다");
+    assert.match(shown.textContent, /가상 한도 질문 1(?!\d)/);
+    assert.equal(p.requests.length, requested);
+    assert.equal(p.raw().includes("가상 닫을 초안"), false);
+  });
+}
+
 test("저장할 수 없는 여섯 번째 후보 때문에 기존 다섯 버전을 버리지 않는다", async () => {
   const p = page();
   for (let index = 1; index <= 4; index++) {
