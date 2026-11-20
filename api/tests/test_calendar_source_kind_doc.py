@@ -120,12 +120,17 @@ def subsection(text):
     return lines[start + 1 : end]
 
 
-# #143 장 어디에도 없어야 하는 반대 규칙. 달 이동·목록 전환은 받아 둔 응답으로만 다시 그린다.
-REFETCH = re.compile(r"(?:다시|새로)\s*요청한다")
+# #143 장에서 서버 요청을 말하는 줄은 「응답 한 번」 규칙 줄 하나뿐이어야 한다.
+# 「다시」「새로」 같은 꾸밈말로 거르면 「달마다 서버에 요청한다」처럼 꾸밈말 없는 반대 문장을 놓친다(교차 검토 재현).
+# 장에 요청 이야기를 더할 때는 규칙 줄과 이 검사를 함께 고친다.
+def request_lines(chapter):
+    return [line for line in chapter if "요청" in line]
 
 
 def refetch_lines(chapter):
-    return [line for line in chapter if REFETCH.search(line)]
+    """「요청」이 든 줄 가운데 「응답 한 번」 규칙 줄이 아닌 줄."""
+    allowed = next(line for line in rule_lines("") if line.startswith("- 응답 한 번:"))
+    return [line for line in request_lines(chapter) if line != allowed]
 
 
 def inline_problem(line):
@@ -203,6 +208,7 @@ class CalendarSourceKindDocTest(unittest.TestCase):
         chapter = calendar_chapter(self.notes)
         self.assertTrue(chapter)
         self.assertEqual(refetch_lines(chapter), [])
+        self.assertEqual(len(request_lines(chapter)), 1)
 
     def test_css_comments_follow_the_new_rule(self):
         self.assertIsNone(OLD_COMMENT_PATTERN.search(self.css))
@@ -284,8 +290,10 @@ class ReviewReproTest(unittest.TestCase):
 
     def test_refetch_rule_elsewhere_in_the_chapter_fails(self):
         # 교차 검토 재현: 같은 #143 장의 「### 움직임」 첫 목록 항목으로 반대 규칙을 넣는다.
-        added = self.changed("### 움직임\n\n", "### 움직임\n\n- 달을 이동할 때마다 서버에 일정을 다시 요청한다.\n")
-        self.assertEqual(len(refetch_lines(calendar_chapter(added))), 1)
+        for sentence in ("달을 이동할 때마다 서버에 일정을 다시 요청한다.", "달을 이동할 때마다 서버에 일정을 요청한다."):
+            with self.subTest(sentence=sentence):
+                added = self.changed("### 움직임\n\n", f"### 움직임\n\n- {sentence}\n")
+                self.assertEqual(refetch_lines(calendar_chapter(added)), [f"- {sentence}"])
 
     def test_spaced_enroll_example_is_required(self):
         changed = self.changed("「수강신청·시험」과 「수강 신청·시험」은 둘 다", "「수강신청·시험」은")
