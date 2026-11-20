@@ -4,11 +4,11 @@
 절 자르기와 공백 펴기는 `test_handwriting_pressure_doc`의 `sections`·`flatten`·`BOUNDARY`를 그대로 쓴다.
 테스트 클래스는 가져오지 않아 전체 탐색에서 같은 검사가 두 번 돌지 않는다.
 
-되돌리기 동작을 정하는 곳은 두 소절이다. 「### 그리기」(마지막 획 하나)와
-「#### 읽기 실패 뒤 오류 문구와 되돌리기 (#191)」(오류 문구 항목과 되돌리기 규칙 항목 두 개뿐)다.
-두 소절은 본문 전체를 실제 문서 줄과 글자 그대로 비교한다. 낱말로 충돌 문장을 거르거나 구간 시작 줄을 정해 비교하면
-어미를 바꾼 문장이나 구간 바로 바깥에 끼운 문장이 매번 빠져나갔기 때문이다. 소제목이 경계를 정하므로,
-이 소절 안에 무엇을 더하거나 바꿔도 실패한다. 두 소절을 고치면 아래 기대 줄도 함께 고친다(2026-11-20 문서 검사 기준).
+되돌리기 동작은 「### 그리기」 절 한 곳에 모아 둔다. 마지막 획 하나 항목, 읽기 실패 뒤 오류 문구 항목,
+되돌리기 규칙 항목이 같은 목록에 이어진다. 이 절은 본문 전체를 실제 문서 줄과 글자 그대로 비교하고,
+패드 절의 제목 순서도 고정한다. 낱말로 충돌 문장을 거르거나, 검사하지 않는 절 안에 규칙 소절을 두면
+어미를 바꾼 문장이나 소절 바로 바깥에 끼운 문장, 통째로 옮긴 소절이 매번 빠져나갔기 때문이다.
+그리기 절을 고치거나 패드 절에 제목을 더하면 아래 기대 값도 함께 고친다(2026-11-20 문서 검사 기준).
 """
 
 import unittest
@@ -24,16 +24,17 @@ RULE = (
     "되돌린 획의 포인터가 늦게 보낸 이동·떼기 신호는 무시한다."
 )
 
-UNDO_HEADING = "#### 읽기 실패 뒤 오류 문구와 되돌리기 (#191)"
-EXPECTED_UNDO = "\n".join((
-    "- 읽기 실패 뒤의 오류 문구는 새 획을 시작할 때가 아니라 펜을 뗀 뒤(모든 획이 끝났을 때) 지운다. 누르는 순간 지우면 상태 줄이 사라져 패드가 줄고",
-    "  캔버스가 움직이는데, 움직인 위치로 이미 누른 점을 재서 첫 점이 위로 밀려(20px 이동이면 y=5 → −15) 잘렸다. 이제 긋는 동안 캔버스는 움직이지 않는다.",
-    f"- {RULE}",
-    "  남은 포인터가 없으면 되돌리기가 오류 문구를 바로 지운다. 예전에는 다른 손가락이 긋는 중에도 되돌리기가 오류 문구를 지워 캔버스가 움직이고 남은 손가락의 다음 점이 밀렸다(#191).",
-))
-
 DRAW_HEADING = "### 그리기"
 DRAW_UNDO_ITEM = "- 되돌리기는 마지막 획 하나, 지우기는 모든 획을 지운다. 획이 없으면 되돌리기·지우기·넣기가 잠긴다."
+ERROR_ITEM_FIRST = (
+    "- 읽기 실패 뒤의 오류 문구는 새 획을 시작할 때가 아니라 펜을 뗀 뒤(모든 획이 끝났을 때) 지운다. "
+    "누르는 순간 지우면 상태 줄이 사라져 패드가 줄고"
+)
+RULE_ITEM_LAST = (
+    "  남은 포인터가 없으면 되돌리기가 오류 문구를 바로 지운다. "
+    "예전에는 다른 손가락이 긋는 중에도 되돌리기가 오류 문구를 지워 캔버스가 움직이고 남은 손가락의 다음 점이 밀렸다(#191)."
+)
+# 「### 그리기」 절 본문 전체(앞뒤 빈 줄 제외).
 EXPECTED_DRAW = "\n".join((
     "- `touch-action: none`은 캔버스에만 준다. 질문 칸(textarea)에는 덮개·포인터 처리기·touch-action을 두지 않는다.",
     "  iPad 기본 손글씨 입력(Scribble)은 진짜 텍스트 칸에서만 동작하므로, 패드를 쓰지 않는 사람은 질문 칸에 바로 Apple Pencil로 써도 된다.",
@@ -44,10 +45,23 @@ EXPECTED_DRAW = "\n".join((
     "  패드를 닫았다 다시 열면 처음부터 다시 판단한다. 이미 끝난 손가락 획은 남긴다.",
     "  읽는 동안에는 새 획을 받지 않지만 그 사이 닿은 펜도 기록하므로, 읽기가 실패한 뒤에도 손가락 입력은 계속 무시한다.",
     DRAW_UNDO_ITEM,
+    ERROR_ITEM_FIRST,
+    "  캔버스가 움직이는데, 움직인 위치로 이미 누른 점을 재서 첫 점이 위로 밀려(20px 이동이면 y=5 → −15) 잘렸다. 이제 긋는 동안 캔버스는 움직이지 않는다.",
+    f"- {RULE}",
+    RULE_ITEM_LAST,
 ))
+# 패드 절 안 줄 맨 앞 `##`·`###`·`####` 제목의 순서. 그리기 절을 다른 자리로 옮기거나 소제목을 끼우면 달라진다.
+EXPECTED_PAD_HEADINGS = [
+    "### 와이어프레임 결정",
+    DRAW_HEADING,
+    "### 넣기",
+    "### 대비",
+    "### 교차 검토로 고친 점",
+    "### 검사와 실기기 확인",
+]
 
-UNDO_PROBLEM = f"{UNDO_HEADING!r} 소절 본문이 기대 줄과 다르다."
-DRAW_PROBLEM = f"{DRAW_HEADING!r} 절 본문이 기대 줄과 다르다(되돌리기는 마지막 획 하나)."
+DRAW_PROBLEM = f"{DRAW_HEADING!r} 절 본문이 기대 줄과 다르다."
+HEADINGS_PROBLEM = f"{PAD_HEADING!r} 절의 제목 순서가 기대와 다르다."
 
 
 def subsection(pad, heading):
@@ -65,11 +79,11 @@ def undo_doc_problems(notes):
         return [f"{PAD_HEADING!r} 아래 「### 교차 검토로 고친 점」 제목이 한 번 있어야 한다."]
     pad, _ = found
     problems = []
-    if subsection(pad, UNDO_HEADING) != EXPECTED_UNDO:
-        problems.append(UNDO_PROBLEM)
+    if [line for line in pad if BOUNDARY.match(line)] != EXPECTED_PAD_HEADINGS:
+        problems.append(HEADINGS_PROBLEM)
     if subsection(pad, DRAW_HEADING) != EXPECTED_DRAW:
         problems.append(DRAW_PROBLEM)
-    # 패드 절의 다른 소절에 사본을 두어도 실패한다.
+    # 패드 절의 다른 절에 사본을 두어도 실패한다.
     copies = flatten("\n".join(pad)).count(RULE)
     if copies != 1:
         problems.append(f"{PAD_HEADING!r} 절에 되돌리기 규칙 문장이 {copies}번 있다. 정확히 한 번이어야 한다.")
@@ -92,7 +106,7 @@ class HandwritingUndoDocTest(unittest.TestCase):
         cases = {
             "규칙 삭제": self.replaced(f"- {RULE}\n", ""),
             "규칙을 두 줄로 나눔": self.replaced(f"- {RULE}\n", f"- {RULE.replace(' 읽기 실패 뒤', chr(10) + '  읽기 실패 뒤', 1)}\n"),
-            "이어진 줄의 들여쓰기를 지움": self.replaced("\n  남은 포인터가 없으면", "\n남은 포인터가 없으면"),
+            "이어진 줄의 들여쓰기를 지움": self.replaced(f"\n{RULE_ITEM_LAST}\n", f"\n{RULE_ITEM_LAST.lstrip()}\n"),
             "앞에 빈 줄을 넣어 따로 뗌": self.replaced(f"\n- {RULE}\n", f"\n\n- {RULE}\n"),
             "아래에 조건 줄": self.replaced(f"- {RULE}\n", f"- {RULE}\n  단, 펜일 때만 그렇다.\n"),
         }
@@ -100,33 +114,44 @@ class HandwritingUndoDocTest(unittest.TestCase):
             cases[f"{before} → {after}"] = self.replaced(RULE, RULE.replace(before, after, 1))
         for case, modified in cases.items():
             with self.subTest(case=case):
-                self.assertIn(UNDO_PROBLEM, undo_doc_problems(modified))
+                self.assertEqual(undo_doc_problems(modified), [DRAW_PROBLEM] + ([] if RULE in flatten(modified) else [
+                    f"{PAD_HEADING!r} 절에 되돌리기 규칙 문장이 0번 있다. 정확히 한 번이어야 한다."
+                ]))
 
-    def test_conflicting_text_in_undo_subsection_fails(self):
-        # 교차 검토 재현: 오류 문구 항목 앞(4차)·오류 문구 항목 끝 조건 줄(1차)·규칙 항목 뒤에 반대 규칙을 더한 경우.
-        error_first = EXPECTED_UNDO.splitlines()[0]
-        rule_last = EXPECTED_UNDO.splitlines()[3]
+    def test_conflicting_text_fails(self):
+        # 교차 검토 재현: 오류 문구 항목 앞(4·5차), 오류 문구 항목 끝 조건 줄(1차), 규칙 항목 뒤(그리기 절 끝, 「### 넣기」 바로 위)에
+        # 반대 규칙을 더한 경우와, 그리기 절의 되돌리기 항목 뒤에 충돌 항목(2·3차)이나 낱말 없이 쓴 문장·문단을 더한 경우.
+        conflict = "- 다른 획을 긋는 중에도 되돌리기를 누르면 오류 문구를 즉시 지운다."
         cases = {
-            "오류 문구 항목 앞": self.replaced(
-                f"\n{error_first}\n", f"\n- 다른 획을 긋는 중에도 되돌리기를 누르면 오류 문구를 즉시 지운다.\n{error_first}\n"
-            ),
+            "오류 문구 항목 앞": self.replaced(f"\n{ERROR_ITEM_FIRST}\n", f"\n{conflict}\n{ERROR_ITEM_FIRST}\n"),
             "오류 문구 항목 끝 조건 줄": self.replaced(
                 f"\n- {RULE}\n", f"\n  단, 되돌리기를 누르면 다른 획이 진행 중이어도 오류 문구를 즉시 지운다.\n- {RULE}\n"
             ),
-            "규칙 항목 뒤": self.replaced(f"\n{rule_last}\n", f"\n{rule_last}\n- 펜이면 오류 문구를 즉시 지운다.\n"),
+            "규칙 항목 뒤": self.replaced(f"\n{RULE_ITEM_LAST}\n", f"\n{RULE_ITEM_LAST}\n{conflict}\n"),
+            "기존 항목을 마지막 획 두 개로": self.replaced(
+                DRAW_UNDO_ITEM, DRAW_UNDO_ITEM.replace("마지막 획 하나", "마지막 획 두 개", 1)
+            ),
         }
+        for added in (
+            "- 펜으로 입력하면 되돌리기는 마지막 획 두 개를 지운다.",
+            "- 펜으로 입력하다 되돌리기를 누르면 마지막 획 두 개를 지운다.",
+            "- 펜으로 입력한 획은 마지막 두 개를 한꺼번에 되돌린다.",
+            "- 펜 획은 실행 취소 한 번에 두 개씩 사라진다.",
+            "펜 획은 두 개씩 지운다.",
+        ):
+            cases[added] = self.replaced(f"{DRAW_UNDO_ITEM}\n", f"{DRAW_UNDO_ITEM}\n{added}\n")
         for case, modified in cases.items():
             with self.subTest(case=case):
-                self.assertEqual(undo_doc_problems(modified), [UNDO_PROBLEM])
+                self.assertEqual(undo_doc_problems(modified), [DRAW_PROBLEM])
 
     def test_rule_moved_or_copied_fails(self):
-        block = "\n".join(EXPECTED_UNDO.splitlines()[2:4]) + "\n"
+        block = f"- {RULE}\n{RULE_ITEM_LAST}\n"
         removed = self.replaced(block, "")
-        for heading in ("### 그리기", "### 넣기", "### 교차 검토로 고친 점", "### 검사와 실기기 확인", "## 질문 수정·다시 답하기와 답변 버전 (#140)"):
+        for heading in ("### 넣기", "### 교차 검토로 고친 점", "### 검사와 실기기 확인", "## 질문 수정·다시 답하기와 답변 버전 (#140)"):
             with self.subTest(heading=heading, how="옮김"):
                 self.assertEqual(removed.count(f"\n{heading}\n"), 1)
                 moved = removed.replace(f"\n{heading}\n", f"\n{heading}\n\n{block}", 1)
-                self.assertIn(UNDO_PROBLEM, undo_doc_problems(moved))
+                self.assertIn(DRAW_PROBLEM, undo_doc_problems(moved))
             with self.subTest(heading=heading, how="사본"):
                 copied = self.notes.replace(f"\n{heading}\n", f"\n{heading}\n\n- {RULE}\n", 1)
                 self.assertNotEqual(copied, self.notes)
@@ -136,33 +161,29 @@ class HandwritingUndoDocTest(unittest.TestCase):
                 else:
                     self.assertTrue(undo_doc_problems(copied))
 
-    def test_heading_inserted_before_rule_fails(self):
-        for heading in ("## 다른 절", "### 다른 절", "#### 다른 절"):
-            with self.subTest(heading=heading):
-                self.assertIn(UNDO_PROBLEM, undo_doc_problems(self.replaced(f"\n- {RULE}\n", f"\n{heading}\n\n- {RULE}\n")))
+    def test_draw_section_moved_whole_fails(self):
+        # 교차 검토 재현(5차)과 같은 꼴: 규칙이 든 절을 제목째 「### 검사와 실기기 확인」 절 뒤로 옮긴 경우. 본문은 그대로다.
+        start = self.notes.index(f"\n{DRAW_HEADING}\n")
+        end = self.notes.index("\n### 넣기\n")
+        block = self.notes[start:end]
+        removed = self.notes[:start] + self.notes[end:]
+        next_feature = "\n## 질문 수정·다시 답하기와 답변 버전 (#140)\n"
+        self.assertEqual(removed.count(next_feature), 1)
+        moved = removed.replace(next_feature, f"{block}\n{next_feature}", 1)
+        self.assertEqual(undo_doc_problems(moved), [HEADINGS_PROBLEM])
 
-    def test_draw_section_changed_fails(self):
-        # 교차 검토 재현 세 건(「되돌리기는」·「되돌리기를」·「되돌린다」)과, 낱말 없이 쓴 충돌 문장·문단, 기존 항목 수정.
-        added_items = (
-            "- 펜으로 입력하면 되돌리기는 마지막 획 두 개를 지운다.",
-            "- 펜으로 입력하다 되돌리기를 누르면 마지막 획 두 개를 지운다.",
-            "- 펜으로 입력한 획은 마지막 두 개를 한꺼번에 되돌린다.",
-            "- 펜 획은 실행 취소 한 번에 두 개씩 사라진다.",
-            "펜 획은 두 개씩 지운다.",
-        )
-        cases = {added: self.replaced(f"{DRAW_UNDO_ITEM}\n", f"{DRAW_UNDO_ITEM}\n{added}\n") for added in added_items}
-        cases["기존 항목을 마지막 획 두 개로"] = self.replaced(
-            DRAW_UNDO_ITEM, DRAW_UNDO_ITEM.replace("마지막 획 하나", "마지막 획 두 개", 1)
-        )
-        for case, modified in cases.items():
-            with self.subTest(case=case):
-                self.assertEqual(undo_doc_problems(modified), [DRAW_PROBLEM])
+    def test_heading_inserted_fails(self):
+        for heading in ("## 다른 절", "### 다른 절", "#### 다른 절"):
+            with self.subTest(heading=heading, where="규칙 앞"):
+                self.assertTrue(undo_doc_problems(self.replaced(f"\n- {RULE}\n", f"\n{heading}\n\n- {RULE}\n")))
+            with self.subTest(heading=heading, where="교차 검토 절 안"):
+                modified = self.replaced("\n- 200 응답의 본문이", f"\n\n{heading}\n\n- 200 응답의 본문이")
+                self.assertIn(HEADINGS_PROBLEM, undo_doc_problems(modified))
 
     def test_missing_heading_fails(self):
         cases = {
             "패드 제목 삭제": self.replaced(f"{PAD_HEADING}\n", "## 다른 제목\n"),
             "교차 검토 제목 삭제": self.replaced("\n### 교차 검토로 고친 점\n", "\n### 다른 제목\n"),
-            "되돌리기 소제목 삭제": self.replaced(f"\n{UNDO_HEADING}\n", "\n#### 다른 제목\n"),
             "그리기 제목 삭제": self.replaced(f"\n{DRAW_HEADING}\n", "\n### 다른 제목\n"),
         }
         for case, modified in cases.items():
