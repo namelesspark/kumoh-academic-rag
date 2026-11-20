@@ -2495,9 +2495,11 @@ function timeoutDocProblems(scriptText, notesText) {
   if (end === -1) end = lines.length;
   const section = lines.slice(start + 1, end).join("\n");
 
-  const written = [...section.matchAll(/시간 제한 (\d+)초/g)].map(match => Number(match[1]));
-  if (!written.includes(seconds)) problems.push(`넣기 절에 "시간 제한 ${seconds}초"가 없음`);
-  for (const value of written) if (value !== seconds) problems.push(`넣기 절의 ${value}초가 상수 ${seconds}초와 다름`);
+  // 숫자로 바꾸지 않고 글자 그대로 비교한다. 「012초」처럼 앞에 0을 붙인 문구도 다른 문구로 본다.
+  const expected = String(seconds);
+  const written = [...section.matchAll(/시간 제한 (\d+)초/g)].map(match => match[1]);
+  if (!written.includes(expected)) problems.push(`넣기 절에 "시간 제한 ${expected}초"가 없음`);
+  for (const value of written) if (value !== expected) problems.push(`넣기 절의 "${value}초"가 상수 ${expected}초와 다름`);
   return problems;
 }
 
@@ -2524,6 +2526,8 @@ test("넣기 시간 제한 비교는 상수나 문서 초가 한쪽만 바뀌면
     "상수가 초 단위가 아님": [fakeScript.replace(constantLine, "const handwritingTimeoutMs = 12_500;"), fakeNotes],
     "상수 줄이 둘": [`${fakeScript}${constantLine}\n`, fakeNotes],
     "문서만 45초로 바꿈": [fakeScript, fakeNotes.replace(docPhrase, "시간 제한 45초")],
+    "문서 초 앞에 0을 붙임": [fakeScript, fakeNotes.replace(docPhrase, "시간 제한 012초")],
+    "필수 문구 옆에 0을 붙인 초를 더 적음": [fakeScript, fakeNotes.replace(docPhrase, `${docPhrase}. 시간 제한 012초`)],
     "넣기 절에 다른 초를 더 적음": [fakeScript, fakeNotes.replace(docPhrase, `${docPhrase}. 시간 제한 45초`)],
     "문서 문구를 지움": [fakeScript, fakeNotes.replace(docPhrase, "시간 제한")],
     "문구를 ### 대비 절로 옮김": [fakeScript, fakeNotes.replace(`  ${docPhrase}`, "  가상 문장").replace("- 가상 대비.", `- 가상 대비. ${docPhrase}`)],
