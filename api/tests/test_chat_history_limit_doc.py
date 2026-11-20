@@ -72,12 +72,13 @@ LIST_ITEM = re.compile(r"- (?=[^ \t])")
 BLOCK_STARTERS = frozenset(" \t>#-*+=_|~!:<")
 ORDERED_MARKER = re.compile(r"\d{1,9}[.)]")
 
-# 절에 꼭 남아야 하는 규칙 문구. 확정 기록 경계, 새 대화 예외, 실패 뒤 저장, 재시도 한 차례.
+# 절에 꼭 남아야 하는 규칙 문장. 적용 시점·조건까지 문장 그대로 본다. 뒷부분만 보면
+# 「다시 시도할 때만 확정 기록에도 같은 경계를 적용한다」처럼 조건이 바뀐 문장도 통과한다.
 REQUIRED = (
-    "확정 기록에도 같은 경계를 적용한다",
-    "확정 기록이 없는 새 대화는 예외",
-    "일반 실패 뒤에도 저장한다",
-    "한 차례만 더한다",
+    "새 질문을 보낼 때 확정 기록이 있으면 확정 기록에도 같은 경계를 적용한다.",
+    "확정 기록이 없는 새 대화는 예외로, 화면 기록만 자른다.",
+    "일반 실패 뒤에도 저장한다.",
+    "「다시 시도」가 성공하면 새 질문과 답을 한 차례만 더한다.",
     "committedMessages",
 )
 
@@ -309,6 +310,22 @@ class ChatHistoryLimitDocTest(unittest.TestCase):
         for phrase in REQUIRED:
             with self.subTest(phrase=phrase):
                 self.assertTrue(history_doc_problems(self.replace_body(self.section.replace(phrase, "□"))))
+
+    def test_changed_rule_conditions_fail(self):
+        # 실제 규칙 목록 문장의 조건만 바꾼 경우(교차 검토 재현과 같은 종류). 뒷부분이 같아도 실패해야 한다.
+        changes = {
+            "적용 시점": ("- 새 질문을 보낼 때 확정 기록이 있으면 확정 기록에도",
+                       "- 다시 시도할 때만 확정 기록에도"),
+            "예외 범위": ("- 확정 기록이 없는 새 대화는 예외로, 화면 기록만 자른다.",
+                       "- 확정 기록이 없는 새 대화는 예외로, 확정 기록만 자른다."),
+            "저장 조건": ("- 일반 실패 뒤에도 저장한다.", "- 일반 실패 뒤에는 저장하지 않는다. 정지 뒤에도 저장한다."),
+            "재시도 횟수": ("- 「다시 시도」가 성공하면 새 질문과 답을 한 차례만 더한다.",
+                        "- 「다시 시도」가 실패하면 새 질문과 답을 한 차례만 더한다."),
+        }
+        for case, (old, new) in changes.items():
+            with self.subTest(case=case):
+                self.assertIn(old, self.section)
+                self.assertTrue(history_doc_problems(self.replace_body(self.section.replace(old, new, 1))))
 
     def test_rules_only_in_another_section_fail(self):
         emptied = self.section
