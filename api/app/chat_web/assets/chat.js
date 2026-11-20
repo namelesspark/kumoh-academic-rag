@@ -3302,9 +3302,10 @@ async function ask(question, reply, record = activeConversation, revise = null) 
     reply.replaceChildren(error);
     if (record && (!requestedChatView || activeConversation !== record)) {
       record.unread = true;
-      persistConversations();
+      record.saved = true;
     }
     else showAssistant("error");
+    if (record) persistConversations();
   } finally {
     finishThinking();
     if (!valid()) thinking?.remove();
@@ -3381,7 +3382,9 @@ composer.addEventListener("submit", event => {
   if (record.archived === true) { record.archived = false; persistConversations(); }
   const questionMessage = { role: "question", text: question, time: Date.now(), sources: [] };
   record.messages.push(questionMessage);
-  record.messages = limitChatMessages(record.messages, questionMessage);
+  if (record.committedMessages) {
+    limitCommittedChatMessages(record, record.committedMessages, questionMessage);
+  } else record.messages = limitChatMessages(record.messages, questionMessage);
   if (!chatView || !requestedChatView) setChatView(true);
   const turn = element("div", "turn");
   const prompt = element("p", "question");

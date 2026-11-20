@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
+import { setImmediate } from "node:timers/promises";
 import { runInNewContext } from "node:vm";
 const script = readFileSync(
   new URL("../../app/chat_web/assets/chat.js", import.meta.url),
@@ -63,6 +64,113 @@ const record = (id, count = 2) => ({
     time: index,
     sources: [],
   })),
+});
+
+function submission(storage) {
+  const section = (from, to) => script.slice(script.indexOf(from), script.indexOf(to));
+  const idle = () => {};
+  const element = () => ({
+    children: [], listeners: {},
+    append(...children) { this.children.push(...children); },
+    replaceChildren(...children) { this.children = children; },
+    addEventListener(name, listener) { this.listeners[name] = listener; },
+  });
+  const composer = element();
+  const transcript = element();
+  const context = {
+    URL, window: { localStorage: storage },
+    composer, transcript, input: { focus: idle }, empty: { remove: idle },
+    photoFile: {}, photoNote: {},
+    document: { createTextNode: text => text },
+    busy: false, aiMode: "fast", chatRequestNumber: 0, conversationSequence: 0,
+    historyAccount: "browse", chatView: true, requestedChatView: true,
+    renderConversations: idle, renderActiveConversation: idle, scrollToLatest: idle,
+    showAssistant: idle, updateSend: idle, setupTurnActions: idle, celebrate: idle,
+    element,
+    setChatView(value) { context.chatView = context.requestedChatView = value; },
+    async requestChatAnswer() {
+      if (!context.answer) throw new Error("가상 전송 실패");
+      return { answered: true, answer: context.answer };
+    },
+  };
+  runInNewContext(storageCode + safetyCode +
+    section("function historyStorage()", "function switchHistoryAccount(") +
+    section("async function ask(", 'input.addEventListener("input"') +
+    section('composer.addEventListener("submit"', '// 클립 버튼') + `
+    conversations = loadConversations(historyStorage(), historyAccount)
+      .map(record => ({ ...record, saved: true, turns: [], committedMessages: record.messages.slice() }));
+    activeConversation = conversations[0] ?? null;
+  `, context);
+  return {
+    context,
+    submit(text) {
+      context.input.value = text;
+      composer.listeners.submit({ preventDefault: idle });
+    },
+    retry() {
+      const reply = transcript.children.at(-1).children[1];
+      reply.children[0].children[1].listeners.click();
+    },
+  };
+}
+
+test("가득 찬 채팅의 전송이 실패하면 화면과 저장 기록에서 같은 문답을 덜어 낸다", async () => {
+  const api = functions();
+  const storage = store();
+  const conversation = { ...record("1", 40), title: "가상 기록 제목", unread: false };
+  const [original, answer] = conversation.messages.slice(2, 4);
+  const revised = { ...original, text: "가상 수정 질문" };
+  conversation.messages[2] = {
+    ...revised,
+    versions: [{ question: original, answer: null }, { question: revised, answer }],
+    selected: 1,
+  };
+  api.saveConversations(storage, "browse", [conversation]);
+  const [before] = api.loadConversations(storage, "browse");
+  const expected = Array.from(before.messages.slice(2));
+  const page = submission(storage);
+  const pending = "가상 새 질문";
+
+  page.submit(pending);
+  await setImmediate();
+  const active = page.context.activeConversation;
+  assert.equal(active.messages.length, 39);
+  assert.equal(active.messages.at(-1).text, pending);
+  assert.equal(active.unread, false);
+  const normalize = value => JSON.parse(JSON.stringify(value));
+  assert.deepEqual(normalize(active.messages.slice(0, -1)), normalize(expected));
+  const [saved] = JSON.parse(storage.getItem("kumoh-chat-history:v1:browse"));
+  assert.equal(saved.messages.length, 38);
+  assert.deepEqual(saved.messages, normalize(expected));
+
+  const reopened = submission(storage).context.activeConversation;
+  assert.equal(reopened.title, conversation.title);
+  assert.equal(reopened.unread, false);
+  assert.deepEqual(normalize(reopened.messages), normalize(expected));
+
+  page.context.answer = "가상 재시도 답";
+  page.retry();
+  await setImmediate();
+  const [retried] = api.loadConversations(storage, "browse");
+  assert.equal(retried.messages.length, 40);
+  assert.deepEqual(normalize(retried.messages.slice(0, -2)), normalize(expected));
+  assert.deepEqual(Array.from(retried.messages.slice(-2), ({ role, text }) => [role, text]), [
+    ["question", pending], ["answer", page.context.answer],
+  ]);
+});
+
+test("새 채팅의 첫 질문이 화면을 떠난 뒤 실패하면 질문과 읽지 않음 표시를 저장한다", async () => {
+  const storage = store();
+  const page = submission(storage);
+  const pending = "가상 첫 질문";
+  page.submit(pending);
+  page.context.requestedChatView = false;
+  await setImmediate();
+
+  const [saved] = functions().loadConversations(storage, "browse");
+  assert.ok(saved);
+  assert.equal(saved.unread, true);
+  assert.deepEqual(Array.from(saved.messages, ({ role, text }) => [role, text]), [["question", pending]]);
 });
 
 test("최근 대화 20개와 말풍선 40개만 보관한다", () => {
