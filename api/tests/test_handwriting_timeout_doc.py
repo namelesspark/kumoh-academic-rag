@@ -78,19 +78,24 @@ def timeout_doc_problems(text):
 def focus_doc_problems(text):
     """「넣기」 절의 실패 뒤 초점 문구가 기준과 다르면 문제를 돌려준다.
 
-    두 문장은 들여쓰기를 뺀 한 줄 전체가 문장과 같아야 한다. 앞에 조건을 붙여 뜻이 바뀌면 실패한다.
-    옛 문장은 문서 어느 절에 남아도 실패한다.
+    두 문장은 각각 줄 맨 앞 `- `로 시작하는 목록 항목 하나 전체여야 한다. 들여 쓴 이어지는 줄이 붙으면
+    같은 항목에 조건이 덧붙은 것으로 보고 실패한다. 옛 문장은 줄바꿈과 들여쓰기를 공백 하나로 접어
+    문서 전체에서 찾는다.
     """
     section, problem = insert_section(text)
     if problem:
         return [f"{FOCUS_RULE}: {problem}"]
-    lines = [line.strip() for line in section.splitlines()]
-    problems = [
-        f"{FOCUS_RULE}: 「넣기」 절에 {sentence!r}만 적힌 줄이 한 번 있어야 한다."
-        for sentence in (FOCUS_INSIDE_SENTENCE, FOCUS_OUTSIDE_SENTENCE)
-        if lines.count(sentence) != 1 or section.count(sentence) != 1
-    ]
-    if OLD_FOCUS_PHRASE in text:
+    lines = section.splitlines()
+    problems = []
+    for sentence in (FOCUS_INSIDE_SENTENCE, FOCUS_OUTSIDE_SENTENCE):
+        items = [index for index, line in enumerate(lines) if line == f"- {sentence}"]
+        if len(items) != 1 or section.count(sentence) != 1:
+            problems.append(f"{FOCUS_RULE}: 「넣기」 절에 '- {sentence}' 한 줄 항목이 한 번 있어야 한다.")
+            continue
+        following = lines[items[0] + 1] if items[0] + 1 < len(lines) else ""
+        if following[:1] in (" ", "\t") and following.strip():
+            problems.append(f"{FOCUS_RULE}: {sentence!r} 항목에 이어지는 줄이 붙어 있다.")
+    if OLD_FOCUS_PHRASE in re.sub(r"\s+", " ", text):
         problems.append(f"{FOCUS_RULE}: 문서에 옛 문장 {OLD_FOCUS_PHRASE!r}이 남아 있다.")
     return problems
 
@@ -161,6 +166,27 @@ class HandwritingFailureFocusDocTest(unittest.TestCase):
             with self.subTest(sentence=sentence):
                 modified = self.doc.replace(sentence, f"이전 동작을 재현할 때만 {sentence}", 1)
                 self.assertTrue(focus_doc_problems(modified))
+
+    def test_rejects_condition_on_neighbor_line_of_same_item(self):
+        # 같은 목록 항목 안에서 조건을 앞줄이나 뒷줄에 나눠 적어도 실패한다.
+        for sentence in (FOCUS_INSIDE_SENTENCE, FOCUS_OUTSIDE_SENTENCE):
+            item = f"- {sentence}"
+            changes = {
+                "앞줄": f"- 이전 동작을 재현할 때만\n  {sentence}",
+                "뒷줄": f"{item}\n  단, 이전 동작을 재현할 때만 그렇다.",
+            }
+            for change, replacement in changes.items():
+                with self.subTest(sentence=sentence, change=change):
+                    modified = self.doc.replace(item, replacement, 1)
+                    self.assertNotEqual(modified, self.doc)
+                    self.assertTrue(focus_doc_problems(modified))
+
+    def test_rejects_old_sentence_split_across_lines(self):
+        split = OLD_FOCUS_SENTENCE.replace("뒤 넣기", "뒤\n  넣기")
+        modified = self.doc.replace("\n### 대비\n", f"\n### 대비\n\n- {split}\n", 1)
+        problems = focus_doc_problems(modified)
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("옛 문장", problems[0])
 
     def test_rejects_old_unconditional_sentence_anywhere(self):
         places = {
