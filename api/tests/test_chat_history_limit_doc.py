@@ -12,8 +12,9 @@
   링크·HTML·이스케이프가 없으면 앞에서부터 둘씩 짝지은 백틱이 실제 코드 조각과 같다.
 이 규칙 아래에서 줄 맨 앞 `###` 줄이 제목이 아닌 곳은 맨 앞 코드 블록 안뿐이다. 그래서 시작 제목과 부모 제목은
 코드 블록 밖에서 문자열이 정확히 같은 줄 하나만 친다. 부모 제목과 시작 제목 사이에 다른 1·2단계 제목이 있는지는
-코드 블록 밖에서 넓게 본다(앞 공백·목록·인용 기호를 걷은 `#` 줄과 밑줄 제목을 모두 제목으로 본다).
-코드 블록 안 예시 제목은 세지 않는다.
+문서 본문 수준 제목으로만 본다. 코드 블록 밖 줄 맨 앞 `#` 줄과, 실패 쪽으로 넓게 센 밑줄 제목이다.
+코드 블록·들여쓴 코드·인용·목록 안 `#` 줄은 그 블록 안의 글이라 세지 않는다.
+공백 1~3칸 뒤 `#` 줄은 본문 제목인지 목록 안 글인지 앞 줄에 따라 갈리므로 문서 전체 규칙에서 금지한다.
 
 #170 절 본문 규칙(허용 목록)
 - 절은 시작 제목 다음 줄부터 줄 맨 앞 `#`·`##`·`###` 제목 앞까지다.
@@ -71,6 +72,19 @@ def is_blank(line):
     return not line.strip(" \t")
 
 
+def indent_columns(line):
+    """줄 앞 공백의 칸 수. 탭은 다음 4의 배수 칸까지 넓힌다(CommonMark 탭 규칙)."""
+    columns = 0
+    for char in line:
+        if char == " ":
+            columns += 1
+        elif char == "\t":
+            columns += 4 - columns % 4
+        else:
+            break
+    return columns
+
+
 def strip_container(line):
     return line[CONTAINER.match(line).end() :]
 
@@ -116,6 +130,9 @@ def code_blocks(lines):
             fenced.add(index)
             fence = (found.group(1)[0], len(found.group(1)))
             continue
+        if 1 <= indent_columns(line) <= 3 and HEADING_LIKE.match(line.lstrip(" ")):
+            # 공백 1~3칸 뒤 `#` 줄은 본문 제목인지 목록 안 글인지 앞 줄에 따라 갈려, 아예 쓰지 않는다.
+            problems.append(f"{number}번째 줄: 제목은 줄 맨 앞에 쓴다.")
         reason = inline_problem(line)
         if reason:
             problems.append(f"{number}번째 줄: {reason}")
@@ -125,20 +142,22 @@ def code_blocks(lines):
 
 
 def boundaries(lines, fenced=frozenset()):
-    """코드 블록 밖에서 제목이 될 수 있는 줄의 (줄 번호, 수준) 목록. 밑줄 제목은 위 문단 첫 줄을 쓴다.
+    """문서 본문 수준 제목의 (줄 번호, 수준) 목록. 밑줄 제목은 위 문단 첫 줄을 쓴다.
 
-    문서 전체 규칙이 코드 블록 범위를 정확히 정하므로 코드 블록 안 줄(울타리 포함)은 건너뛴다.
-    코드 블록 밖에서는 목록·인용 안 `#` 줄과 밑줄 제목까지 넓게 센다.
+    - `#` 제목은 코드 블록 밖, 줄 맨 앞(공백 0칸)의 줄만 센다. 네 칸 이상 들여쓴 줄은 코드 예시이고,
+      인용·목록 안 `#` 줄은 그 블록 안의 제목이라 문서의 장·절을 나누지 않는다.
+      공백 1~3칸 뒤 `#` 줄은 문서 전체 규칙이 막는다.
+    - 밑줄 제목은 실패 쪽으로 넓게 센다(코드 블록 밖, 앞 기호를 걷은 밑줄 줄).
     """
     found = []
     for index, line in enumerate(lines):
         if index in fenced:
             continue
-        body = strip_container(line)
-        heading = HEADING_LIKE.match(body)
+        heading = HEADING_LIKE.match(line)
         if heading:
             found.append((index, len(heading.group(1))))
             continue
+        body = strip_container(line)
         underline = UNDERLINE_LIKE.match(body)
         if not (underline and index > 0 and (index - 1) not in fenced and not is_blank(lines[index - 1])):
             continue
@@ -396,12 +415,32 @@ class ChatHistoryLimitDocTest(unittest.TestCase):
             "코드 블록 안 부모": self.notes.replace(PARENT_HEADING, f"## 다른 장\n\n```\n{PARENT_HEADING}\n```", 1),
             "사이에 낀 2단계 제목": self.notes.replace(SECTION_HEADING, f"## 다른 장\n\n{SECTION_HEADING}", 1),
             "사이에 낀 밑줄 제목": self.notes.replace(SECTION_HEADING, f"다른 장\n---\n\n{SECTION_HEADING}", 1),
-            "사이에 낀 목록 안 제목": self.notes.replace(SECTION_HEADING, f"- ## 다른 장\n\n{SECTION_HEADING}", 1),
+            "사이에 낀 1단계 제목": self.notes.replace(SECTION_HEADING, f"# 다른 문서\n\n{SECTION_HEADING}", 1),
+            # 공백 1~3칸 뒤 제목은 판정이 갈려 문서 전체 규칙에서 실패한다.
+            "사이에 낀 앞 공백 세 칸 제목": self.notes.replace(SECTION_HEADING, f"   ## 다른 장\n\n{SECTION_HEADING}", 1),
+            "사이에 낀 앞 공백 한 칸 제목": self.notes.replace(SECTION_HEADING, f" ## 다른 장\n\n{SECTION_HEADING}", 1),
         }
         for case, modified in cases.items():
             with self.subTest(case=case):
                 self.assertNotEqual(modified, self.notes)
                 self.assertTrue(history_doc_problems(modified))
+
+    def test_block_level_examples_between_parent_and_section_are_ignored(self):
+        # 들여쓴 코드·인용·목록 안 `##` 줄은 문서의 장을 나누지 않는다(교차 검토 재현과 변형).
+        examples = {
+            "공백 네 칸 들여쓴 코드": "    ## 가상 제목",
+            "탭 들여쓴 코드": "\t## 가상 제목",
+            "인용 안 제목": "> ## 가상 제목",
+            "목록 안 제목": "- ## 가상 제목",
+            "번호 목록 안 제목": "1. ## 가상 제목",
+            "인용 안 1단계 제목": "> # 가상 제목",
+        }
+        for case, example in examples.items():
+            with self.subTest(case=case):
+                modified = self.replace_heading(f"{example}\n\n{SECTION_HEADING}")
+                self.assertEqual(history_doc_problems(modified), [])
+        lines = ["## 부모", "", "    ## 코드", "> ## 인용", "- ## 목록", "", "### 절"]
+        self.assertEqual(boundaries(lines), [(0, 2), (6, 3)])
 
     def test_heading_moved_or_duplicated_fails(self):
         cases = {
