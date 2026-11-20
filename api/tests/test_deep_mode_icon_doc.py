@@ -11,7 +11,8 @@
 HTML 주석 안 글은 화면에 보이지 않으므로 걷어 낸다. 비교는 화면에 보이는 글자로 한다. HTML 엔티티(`&#10022;` 등)는
 풀고, 폭 없는 문자는 지우고, 줄바꿈과 겹친 공백은 한 칸으로 줄인다.
 별·반짝이 기호는 ✦ 하나만이 아니라 유니코드 이름에 STAR·SPARKLE이 든 글자 전체를 막는다.
-복제 규칙은 이름만 찾으면 「복제하지 않는다」로 뒤집어도 통과하므로 문장 전체를 찾고 부정 표현을 막는다.
+규칙(선 속성, 복제, 금지, 표시와 빛줄기 조건)은 낱말만 찾으면 뜻을 뒤집어도 통과하므로 문장 전체를 찾는다.
+복제 규칙은 부정 표현도 따로 막는다.
 """
 
 import html
@@ -46,21 +47,19 @@ SETEXT_UNDERLINE = re.compile(r"[ \t]*(?:=+|-+)[ \t]*$")
 OLD_STAR_WORDING = re.compile(r"네\s*갈래\s*별")
 NEGATED_CLONE = re.compile(r"복제(?:하지|해 쓰지|하지는|해서는|해선)\s*(?:않|안 |말)|복제 안 |복제하면 안")
 
+# 규칙은 낱말이 아니라 문장 전체로 찾는다. 낱말만 찾으면 「주지 않고」「쓸 수 있다」처럼 뜻을 뒤집어도 통과한다.
+LINE_RULE = (
+    '`fill="none"`, `stroke="currentColor"`, `stroke-width`(1.8~2), `stroke-linecap="round"`, '
+    '`stroke-linejoin="round"`를 SVG에 주고 경로에는 채움을 주지 않는다.'
+)
 CLONE_RULE = "메뉴는 알약의 SVG를 `cloneNode(true)`로 복제해 쓰고 복사본의 `hidden`만 뗀다."
 SINGLE_SOURCE_RULE = "그래서 아이콘은 `index.html` 한 곳에만 두고, `chat.js`나 `chat.css`에 같은 그림을 따로 두지 않는다."
+BAN_RULE = "반짝임 별이나 반짝이 이모지 꼴 아이콘은 쓰지 않는다(2026-11-18 팀 피드백)."
+# chat.js render()는 모드 표시를 먼저 바꾸고, 새로 고를 때만 움직임이 허용되면 빛줄기를 붙인다.
+DISPLAY_RULE = "깊이 모드는 움직임과 상관없이 「깊이 생각」 이름과 이 선 아이콘으로 표시한다."
+FLOW_RULE = "빛줄기는 깊이 모드를 새로 고르고 움직임 줄이기가 꺼져 있을 때만 한 번 지나간다"
 
-# 선 속성 다섯 가지, 복제 규칙 두 문장, 금지 규칙과 그 근거.
-REQUIRED = (
-    'fill="none"',
-    'stroke="currentColor"',
-    "stroke-width",
-    'stroke-linecap="round"',
-    'stroke-linejoin="round"',
-    CLONE_RULE,
-    SINGLE_SOURCE_RULE,
-    "반짝임 별",
-    "2026-11-18",
-)
+REQUIRED = (LINE_RULE, CLONE_RULE, SINGLE_SOURCE_RULE, BAN_RULE, DISPLAY_RULE, FLOW_RULE)
 
 
 def visible_text(text):
@@ -196,6 +195,20 @@ class DeepModeIconDocTest(unittest.TestCase):
         appended = self.notes.replace(self.section, f"{self.section}- 메뉴는 알약 아이콘을 복제하지 않는다.\n", 1)
         for case, modified in {"문장 교체": rewritten, "뒤집는 문장 추가": appended}.items():
             with self.subTest(case=case):
+                self.assertTrue(icon_doc_problems(modified))
+
+    def test_reversed_rule_sentences_fail(self):
+        # 교차 검토 재현: 금지 문장과 선 속성 문장의 뜻을 뒤집은 경우. 빛줄기만으로 알린다는 옛 설명도 본다.
+        cases = {
+            "금지 뒤집기": ("꼴 아이콘은 쓰지 않는다", "꼴 아이콘도 쓸 수 있다"),
+            "선 속성 뒤집기": ("SVG에 주고 경로에는 채움을 주지 않는다", "SVG에 주지 않고 경로에는 채움을 준다"),
+            "표시 조건 지우기": ("움직임과 상관없이", "빛줄기로만"),
+            "빛줄기 조건 지우기": ("새로 고르고", "고를 때마다"),
+        }
+        for case, (before, after) in cases.items():
+            with self.subTest(case=case):
+                modified = self.notes.replace(before, after, 1)
+                self.assertNotEqual(modified, self.notes)
                 self.assertTrue(icon_doc_problems(modified))
 
     def test_indented_heading_splits_section(self):
