@@ -25,6 +25,8 @@ FOCUS_OUTSIDE_SENTENCE = (
     "실패했을 때 초점이 패드 밖에 있으면 그 초점을 옮기지 않고 질문 칸의 글과 선택 범위도 그대로 둔다."
 )
 OLD_FOCUS_SENTENCE = "실패하면 획을 그대로 두고 오류 문구를 띄운 뒤 넣기 버튼으로 초점을 옮긴다."
+# 옛 문장의 조건 없는 부분. 앞뒤를 조금 고쳐 다른 절에 다시 적어도 잡도록 문서 전체에서 찾는다.
+OLD_FOCUS_PHRASE = "오류 문구를 띄운 뒤 넣기 버튼으로 초점을 옮긴다"
 
 
 def insert_section(text):
@@ -74,10 +76,23 @@ def timeout_doc_problems(text):
 
 
 def focus_doc_problems(text):
-    """「넣기」 절의 실패 뒤 초점 문구가 기준과 다르면 문제를 돌려준다."""
-    return section_problems(
-        text, FOCUS_RULE, (FOCUS_INSIDE_SENTENCE, FOCUS_OUTSIDE_SENTENCE), OLD_FOCUS_SENTENCE
-    )
+    """「넣기」 절의 실패 뒤 초점 문구가 기준과 다르면 문제를 돌려준다.
+
+    두 문장은 들여쓰기를 뺀 한 줄 전체가 문장과 같아야 한다. 앞에 조건을 붙여 뜻이 바뀌면 실패한다.
+    옛 문장은 문서 어느 절에 남아도 실패한다.
+    """
+    section, problem = insert_section(text)
+    if problem:
+        return [f"{FOCUS_RULE}: {problem}"]
+    lines = [line.strip() for line in section.splitlines()]
+    problems = [
+        f"{FOCUS_RULE}: 「넣기」 절에 {sentence!r}만 적힌 줄이 한 번 있어야 한다."
+        for sentence in (FOCUS_INSIDE_SENTENCE, FOCUS_OUTSIDE_SENTENCE)
+        if lines.count(sentence) != 1 or section.count(sentence) != 1
+    ]
+    if OLD_FOCUS_PHRASE in text:
+        problems.append(f"{FOCUS_RULE}: 문서에 옛 문장 {OLD_FOCUS_PHRASE!r}이 남아 있다.")
+    return problems
 
 
 def sentence_changes(doc, sentence):
@@ -140,14 +155,26 @@ class HandwritingFailureFocusDocTest(unittest.TestCase):
                     self.assertTrue(problems)
                     self.assertTrue(all(p.startswith(f"{FOCUS_RULE}: ") for p in problems), problems)
 
-    def test_rejects_old_unconditional_sentence(self):
-        modified = self.doc.replace(
-            FOCUS_INSIDE_SENTENCE, f"{FOCUS_INSIDE_SENTENCE} {OLD_FOCUS_SENTENCE}", 1
-        )
-        problems = focus_doc_problems(modified)
-        self.assertEqual(len(problems), 1, problems)
-        self.assertIn("옛 문장", problems[0])
-        self.assertTrue(problems[0].startswith(f"{FOCUS_RULE}: "))
+    def test_rejects_condition_prefixed_to_focus_sentence(self):
+        # 앞에 조건을 붙이면 지금 동작에 적용할 규칙이 빠진다.
+        for sentence in (FOCUS_INSIDE_SENTENCE, FOCUS_OUTSIDE_SENTENCE):
+            with self.subTest(sentence=sentence):
+                modified = self.doc.replace(sentence, f"이전 동작을 재현할 때만 {sentence}", 1)
+                self.assertTrue(focus_doc_problems(modified))
+
+    def test_rejects_old_unconditional_sentence_anywhere(self):
+        places = {
+            "넣기 절": (FOCUS_OUTSIDE_SENTENCE, f"{FOCUS_OUTSIDE_SENTENCE}\n- {OLD_FOCUS_SENTENCE}"),
+            "대비 절": ("\n### 대비\n", f"\n### 대비\n\n- {OLD_FOCUS_SENTENCE}\n"),
+        }
+        for place, (anchor, replacement) in places.items():
+            with self.subTest(place=place):
+                modified = self.doc.replace(anchor, replacement, 1)
+                self.assertNotEqual(modified, self.doc)
+                problems = focus_doc_problems(modified)
+                self.assertEqual(len(problems), 1, problems)
+                self.assertIn("옛 문장", problems[0])
+                self.assertTrue(problems[0].startswith(f"{FOCUS_RULE}: "))
 
     def test_each_rule_reports_only_its_own_sentences(self):
         # 초점 문장을 지워도 30초 검사는 통과하고, 30초 문장을 지워도 초점 검사는 통과한다.
