@@ -68,6 +68,9 @@ FLOW_RULE = "빛줄기는 깊이 모드를 새로 고르고 움직임 줄이기�
 # 알약에서 두 모드가 어떤 아이콘을 쓰는지 소개하는 문장. index.html의 깊이 SVG는 선 그림이다.
 ICON_INTRO = "빠르게는 번개 아이콘과 「빠르게」, 깊이는 선으로 그린 아이콘과 「깊이 생각」을 보이고 끝에 꺾쇠를 둔다."
 
+# 규칙 문장을 인용해 놓고 부정하는 말. 실제 문서의 이 절에는 없다.
+CONTRADICTION = re.compile(r"틀렸다|틀린 설명|사실이 아니|사실과 다르|맞지 않|빠르게로 돌아간")
+
 REQUIRED = (
     ICON_INTRO, LINE_RULE, CLONE_RULE, SINGLE_SOURCE_RULE, BAN_RULE,
     DISPLAY_RULE, NARROW_RULE, RESTORE_RULE, FLOW_RULE,
@@ -163,8 +166,14 @@ def icon_doc_problems(notes):
         problems.append("절에 예전 별 표현 '네 갈래 별'이 남았다.")
     problems.extend(f"절에 별·반짝이 기호 {glyph!r}이(가) 보인다." for glyph in star_glyphs(flat))
     problems.extend(f"절에 복제 규칙을 뒤집는 {found!r}이(가) 있다." for found in NEGATED_CLONE.findall(flat))
-    problems.extend(f"절에 {phrase!r}이(가) 없다." for phrase in REQUIRED if phrase not in flat)
+    problems.extend(f"절에 규칙을 부정하는 {found!r}이(가) 있다." for found in CONTRADICTION.findall(flat))
+    problems.extend(f"절에 {phrase!r}이(가) 한 문장으로 없다." for phrase in REQUIRED if not standalone(phrase, flat))
     return problems
+
+
+def standalone(sentence, flat):
+    """목록 기호나 앞 문장 바로 뒤에서 시작하고 공백·끝에서 끝나는 독립 문장이면 참. 「…」 인용은 인정하지 않는다."""
+    return re.search(r"(?:^|(?<=- )|(?<=\. ))" + re.escape(sentence) + r"(?=\s|$)", flat) is not None
 
 
 class DeepModeIconDocTest(unittest.TestCase):
@@ -229,6 +238,23 @@ class DeepModeIconDocTest(unittest.TestCase):
                 modified = self.notes.replace(before, after, 1)
                 self.assertNotEqual(modified, self.notes)
                 self.assertTrue(icon_doc_problems(modified))
+
+    def test_quoted_and_denied_rule_fails(self):
+        # 교차 검토 재현: 복원 문장을 「」로 감싸 틀렸다고 하고 빠르게로 돌아간다고 적은 경우.
+        denied = self.notes.replace(
+            RESTORE_RULE,
+            f"「{RESTORE_RULE}」라는 설명은 틀렸다. 새로고침하면 빠르게로 돌아간다.",
+            1,
+        )
+        self.assertNotEqual(denied, self.notes)
+        self.assertTrue(icon_doc_problems(denied))
+        # 부정하는 말 없이 인용만 해도, 모든 규칙 문장에서 실패한다.
+        for phrase in REQUIRED:
+            with self.subTest(phrase=phrase):
+                pattern = r"\s+".join(re.escape(word) for word in phrase.split())
+                quoted, count = re.subn(pattern, lambda found: f"「{found.group(0)}」라는 설명", self.section, count=1)
+                self.assertEqual(count, 1)
+                self.assertTrue(icon_doc_problems(self.notes.replace(self.section, quoted, 1)))
 
     def test_indented_heading_splits_section(self):
         # 교차 검토 재현: 복제 규칙 바로 위에 들여쓴 제목을 넣어 규칙을 절 밖으로 밀어낸 경우.
