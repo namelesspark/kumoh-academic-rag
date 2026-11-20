@@ -1,8 +1,8 @@
 """답변 모드 선택기 절(#167)이 깊이 아이콘을 선 아이콘으로 설명하는지 본다.
 
 표준 라이브러리만 쓰고 `web/docs/UI_NOTES.md` 하나만 읽는다.
-절은 「### 답변 모드 선택기」 다음 줄부터 다음 마크다운 제목 앞까지다. 앞에 공백을 둔 제목과
-`####` 이하 제목도 경계로 본다. 규칙이 하위 제목 아래로 밀려나면 실패로 다루기 위해서다.
+절은 「### 답변 모드 선택기」 다음 줄부터 다음 제목 앞까지다. 앞에 공백을 둔 `#` 제목, `####` 이하 제목,
+`---`·`===` 밑줄형 제목, HTML `<h1>`~`<h6>` 제목도 경계로 본다. 규칙이 하위 제목 아래로 밀려나면 실패로 다루기 위해서다.
 HTML 주석 안 글은 화면에 보이지 않으므로 걷어 내고, 줄바꿈과 겹친 공백은 한 칸으로 줄여 읽는다.
 복제 규칙은 이름만 찾으면 「복제하지 않는다」로 뒤집어도 통과하므로 문장 전체를 찾고 부정 표현을 막는다.
 """
@@ -14,7 +14,9 @@ from pathlib import Path
 UI_NOTES = Path(__file__).resolve().parents[2] / "web" / "docs" / "UI_NOTES.md"
 
 SECTION_HEADING = "### 답변 모드 선택기"
-HEADING = re.compile(r"[ \t]*#{1,6}(?=[ \t]|$)")
+HEADING = re.compile(r"[ \t]*(?:#{1,6}(?=[ \t]|$)|<h[1-6](?=[\s>]))", re.IGNORECASE)
+# 글줄 바로 아래 `---`·`===`만 있는 줄이 오면 그 글줄이 제목이 된다(밑줄형 제목, setext).
+SETEXT_UNDERLINE = re.compile(r"[ \t]*(?:=+|-+)[ \t]*$")
 
 # 예전 반짝임 별 설명과 복제 규칙을 뒤집는 말. 절 안에 남으면 안 된다.
 FORBIDDEN = ("네 갈래 별", "✦")
@@ -50,10 +52,19 @@ def mode_section(text):
         return None
     start = starts[0]
     end = next(
-        (index for index in range(start + 1, len(lines)) if HEADING.match(lines[index])),
+        (index for index in range(start + 1, len(lines)) if is_heading(lines, index)),
         len(lines),
     )
     return "\n".join(lines[start + 1 : end])
+
+
+def is_heading(lines, index):
+    """`#` 제목, HTML 제목, 또는 다음 줄이 밑줄인 글줄이면 참. 규칙을 절 밖으로 밀어내는 길을 막는다."""
+    line = lines[index]
+    if HEADING.match(line):
+        return True
+    following = lines[index + 1] if index + 1 < len(lines) else None
+    return bool(line.strip()) and following is not None and bool(SETEXT_UNDERLINE.match(following))
 
 
 def icon_doc_problems(notes):
@@ -112,6 +123,23 @@ class DeepModeIconDocTest(unittest.TestCase):
         for heading in (" ### 다른 절", "   ## 다른 절", "  #### 다른 절", "\t### 다른 절"):
             with self.subTest(heading=heading):
                 modified = self.notes.replace(marker, f"{heading}\n\n{marker}", 1)
+                self.assertTrue(icon_doc_problems(modified))
+
+    def test_setext_and_html_heading_split_section(self):
+        # 교차 검토 재현: 복제 규칙 바로 앞에 밑줄형 제목을 빈 줄로 구분해 넣은 경우.
+        marker = "- 메뉴는 알약의 SVG를"
+        headings = (
+            "Other section\n-------------",
+            "Other section\n=============",
+            "다른 절\n   ---",
+            "다른 절\n\t==",
+            "<h3>다른 절</h3>",
+            '<H2 id="x">다른 절</H2>',
+        )
+        for heading in headings:
+            with self.subTest(heading=heading):
+                modified = self.notes.replace(marker, f"\n{heading}\n\n{marker}", 1)
+                self.assertNotEqual(modified, self.notes)
                 self.assertTrue(icon_doc_problems(modified))
 
     def test_indented_section_heading_is_found(self):
