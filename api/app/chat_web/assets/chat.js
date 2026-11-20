@@ -3733,7 +3733,8 @@ function handwritingBounds(strokes, area = null) {
 }
 // 흰 바탕에 검은 잉크로 다시 그려 PNG로 만든다. 화면 테마와 상관없이 같은 그림이 나간다.
 // 배율은 기기 화소 비율을 따르되 긴 변이 1024px를 넘지 않게 줄인다. 잉크는 보이는 필기 칸(area) 안만 그린다.
-function handwritingImage(strokes, pixelRatio = 1, area = null) {
+function handwritingImage(strokes, pixelRatio, area, signal) {
+  if (signal.aborted) return Promise.reject(signal.reason);
   const box = handwritingBounds(strokes, area);
   if (!box) return Promise.resolve(null);
   const scale = Math.min(pixelRatio, handwritingMaxSide / Math.max(box.width, box.height));
@@ -3753,7 +3754,23 @@ function handwritingImage(strokes, pixelRatio = 1, area = null) {
   context.fillStyle = "#000000"; context.strokeStyle = "#000000";
   context.lineCap = "round"; context.lineJoin = "round";
   for (const stroke of strokes) drawHandwritingStroke(context, stroke);
-  return new Promise(resolve => canvas.toBlob(resolve, "image/png"));
+  return new Promise((resolve, reject) => {
+    const cleanup = () => signal.removeEventListener("abort", abort);
+    const abort = () => {
+      cleanup();
+      reject(signal.reason);
+    };
+    signal.addEventListener("abort", abort, { once: true });
+    try {
+      canvas.toBlob(blob => {
+        cleanup();
+        resolve(blob);
+      }, "image/png");
+    } catch (error) {
+      cleanup();
+      reject(error);
+    }
+  });
 }
 function setupHandwriting() {
   const find = id => document.querySelector(`#handwriting-${id}`);
@@ -4136,7 +4153,7 @@ function setupHandwriting() {
     // 넣기 버튼이 잠기면 브라우저가 초점을 문서 밖으로 놓친다. 그 전에 취소로 옮겨 두어 Esc·취소가 계속 듣게 한다.
     cancel.focus();
     try {
-      const image = await handwritingImage(strokes, window.devicePixelRatio || 1, area);
+      const image = await handwritingImage(strokes, window.devicePixelRatio || 1, area, controller.signal);
       if (stale()) return;
       if (!image) message = handwritingMessages.failed;
       else if (image.size > handwritingMaxBytes) message = handwritingMessages.tooLarge;
