@@ -26,7 +26,9 @@ CHAT_CSS = ROOT / "api" / "app" / "chat_web" / "assets" / "chat.css"
 
 CALENDAR_HEADING = "## 학사일정 월 달력 보기 (#143)"
 SUBSECTION_HEADING = "### 분류 정하기 (#176)"
-OLD_COMMENT = "열쇠말이 없으면 중립"
+# 옛 주석 두 문장(「열쇠말이 없으면 중립」, 「열쇠말이 없으면 data-kind가 neutral」)에 함께 든 글자.
+# 새 주석은 「열쇠말이 없어도」·「없으면 공식 학사일정 출처」로 써서 이 글자를 품지 않는다.
+OLD_COMMENT = "열쇠말이 없으면"
 BACKSLASH = chr(92)
 # 코드 조각 밖에서 쓰지 않는 문자: 대괄호, 여닫는 꺾쇠, 백슬래시.
 INLINE_STARTERS = frozenset("[]<>" + BACKSLASH)
@@ -58,10 +60,15 @@ def rule_lines(url):
         "줄을 더하거나 고치면 검사의 줄 목록도 함께 고친다.",
     )
 
-# #143 장 도입부에 있어야 하는 요청 주소 문장. 학년도·학기가 빠진 옛 주소는 없어야 한다.
+# #143 장 도입부의 빈 줄이 아닌 줄 전체. 반대 문장을 덧붙여도 실패하도록 목록째 비교한다.
+# 학년도·학기가 빠진 옛 주소는 문서 어디에도 없어야 한다.
 INTRO_LINE = (
     "팀 피드백(2026-11-18) 6단계다. 학사일정 패널은 월 달력을 기본 보기로 두고, "
     "기존 `/api/v1/academic-calendar/{year}/{term}` 응답 한 번으로 달 이동과 목록 전환을 처리한다."
+)
+INTRO_LINES = (
+    INTRO_LINE,
+    "동작은 `chat.js`가, 모양은 `chat.css` 끝의 #143 절이 맡는다. 일정 이름은 아래 그림에서 모두 가상이다.",
 )
 OLD_REQUEST = "`/api/v1/academic-calendar` 응답"
 
@@ -156,7 +163,7 @@ class CalendarSourceKindDocTest(unittest.TestCase):
         self.assertEqual(filled_lines(self.lines), list(rule_lines(self.url)))
 
     def test_intro_names_the_year_and_term_path(self):
-        self.assertIn(INTRO_LINE, calendar_intro(self.notes))
+        self.assertEqual(filled_lines(calendar_intro(self.notes)), list(INTRO_LINES))
         self.assertNotIn(OLD_REQUEST, self.notes)
 
     def test_only_the_service_url_is_named(self):
@@ -219,6 +226,20 @@ class ReviewReproTest(unittest.TestCase):
         moved = self.changed("### 배치\n", f"### 배치\n\n{INTRO_LINE}\n", removed)
         self.assertIn(INTRO_LINE, moved)
         self.assertNotIn(INTRO_LINE, calendar_intro(moved))
+
+    def test_contradicting_intro_sentence_fails(self):
+        # 교차 검토 재현: 도입부 문장 바로 뒤에 반대 규칙을 덧붙인다.
+        added = self.changed(INTRO_LINE + "\n", f"{INTRO_LINE}\n달을 이동할 때마다 서버에 일정을 다시 요청한다.\n")
+        self.assertNotEqual(filled_lines(calendar_intro(added)), list(INTRO_LINES))
+
+    def test_leftover_old_css_sentence_fails(self):
+        # 교차 검토 재현: 새 분류 색 주석 바로 뒤에 두 번째 옛 문장을 남긴다.
+        start = self.css.index("/* 분류 색.")
+        end = self.css.index("*/", start) + 2
+        old = "/* 응답 글자에 열쇠말이 없으면 data-kind가 neutral이거나 비어 있어 중립색이다. */"
+        leftover = self.css[:end] + "\n" + old + self.css[end:]
+        self.assertEqual(css_comment(leftover, "/* 분류 색."), CSS_COMMENTS["/* 분류 색."])
+        self.assertIn(OLD_COMMENT, leftover)
 
     def test_spaced_enroll_example_is_required(self):
         changed = self.changed("「수강신청·시험」과 「수강 신청·시험」은 둘 다", "「수강신청·시험」은")
