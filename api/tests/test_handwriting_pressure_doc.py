@@ -3,7 +3,8 @@
 표준 라이브러리만 쓰고 `web/docs/UI_NOTES.md` 하나만 읽는다.
 절은 「## 손글씨 입력 필기 패드 (#134)」 아래의 「### 교차 검토로 고친 점」 다음 줄부터
 줄 맨 앞 `##`·`###`·`####` 제목 앞까지다. 마크다운 규칙은 흉내 내지 않는다(2026-11-20 문서 검사 기준).
-비교는 줄바꿈과 겹친 공백을 한 칸으로 줄인 글로 한다. 규칙 문장을 줄을 나눠 적어도 찾기 위해서다.
+규칙 문장은 그 절에서 앞뒤 공백을 뺀 줄 전체가 문장과 같은 줄 하나로만 인정한다.
+사본은 패드 절 전체를 줄바꿈·겹친 공백을 한 칸으로 편 글에서 센다.
 """
 
 import re
@@ -26,8 +27,8 @@ def flatten(text):
     return re.sub(r"\s+", " ", text).strip()
 
 
-def review_section(text):
-    """패드 절 안 「### 교차 검토로 고친 점」 본문을 한 줄로 편 글. 제목이 한 번씩 있지 않으면 None."""
+def sections(text):
+    """(패드 절 줄 목록, 그 안 「### 교차 검토로 고친 점」 줄 목록). 제목이 한 번씩 있지 않으면 None."""
     lines = text.splitlines()
     pads = [index for index, line in enumerate(lines) if line == PAD_HEADING]
     if len(pads) != 1:
@@ -37,17 +38,23 @@ def review_section(text):
     if len(starts) != 1:
         return None
     end = next((i for i in range(starts[0] + 1, len(lines)) if BOUNDARY.match(lines[i])), len(lines))
-    return flatten("\n".join(lines[starts[0] + 1 : end]))
+    return lines[pads[0] + 1 : pad_end], lines[starts[0] + 1 : end]
 
 
 def pressure_doc_problems(notes):
-    section = review_section(notes)
-    if section is None:
+    found = sections(notes)
+    if found is None:
         return [f"{PAD_HEADING!r} 아래 {REVIEW_HEADING!r} 제목이 한 번 있어야 한다."]
+    pad, review = found
     problems = []
-    count = section.count(RULE)
-    if count != 1:
-        problems.append(f"{REVIEW_HEADING!r} 절에 압력 규칙 문장이 {count}번 있다. 정확히 한 번이어야 한다.")
+    # 규칙은 앞뒤 공백을 뺀 줄 전체가 규칙 문장과 같을 때만 인정한다. 앞뒤에 조건(「30초 동안」 등)을 붙이면 다른 문장이다.
+    exact = sum(1 for line in review if line.strip() == RULE)
+    if exact != 1:
+        problems.append(f"{REVIEW_HEADING!r} 절에 규칙 문장만 적힌 줄이 {exact}개다. 정확히 한 개여야 한다.")
+    # 패드 절 전체에서도 한 번이어야 한다. 다른 하위 절에 사본을 두면 실패한다.
+    copies = flatten("\n".join(pad)).count(RULE)
+    if copies != 1:
+        problems.append(f"{PAD_HEADING!r} 절에 압력 규칙 문장이 {copies}번 있다. 정확히 한 번이어야 한다.")
     if OLD_FRAGMENT in flatten(notes):
         problems.append(f"문서에 옛 설명 {OLD_FRAGMENT!r}이(가) 남았다.")
     return problems
@@ -59,11 +66,25 @@ class HandwritingPressureDocTest(unittest.TestCase):
         cls.notes = UI_NOTES.read_text(encoding="utf-8")
 
     def rule_span(self):
-        """문서에 적힌 규칙 문장 그대로(줄바꿈 포함). 바꿔 보는 검사가 실제 글을 건드리게 한다."""
-        pattern = r"\s+".join(re.escape(word) for word in RULE.split())
-        found = re.search(pattern, self.notes)
-        self.assertIsNotNone(found)
-        return found.group(0)
+        """문서에 적힌 규칙 문장. 한 줄에 적혀 있어야 하므로 문장 그대로다."""
+        self.assertEqual(self.notes.count(RULE), 1)
+        return RULE
+
+    def test_rule_copied_to_other_pad_subsection_fails(self):
+        # 교차 검토 재현: 원문을 둔 채 「### 검사와 실기기 확인」 아래에 사본을 넣은 경우.
+        for heading in ("### 검사와 실기기 확인", "### 넣기"):
+            with self.subTest(heading=heading):
+                copied = self.notes.replace(f"\n{heading}\n", f"\n{heading}\n\n- {RULE}\n", 1)
+                self.assertNotEqual(copied, self.notes)
+                self.assertTrue(pressure_doc_problems(copied))
+
+    def test_condition_added_around_rule_fails(self):
+        # 교차 검토 재현: 규칙 앞에 「30초 동안 」을 붙여 적용 조건을 바꾼 경우. 뒤에 조건을 붙여도 같다.
+        for modified_rule in (f"30초 동안 {RULE}", f"{RULE[:-1]} 단, 칸을 넓히기 전에만 그렇다."):
+            with self.subTest(rule=modified_rule):
+                modified = self.notes.replace(RULE, modified_rule, 1)
+                self.assertNotEqual(modified, self.notes)
+                self.assertTrue(pressure_doc_problems(modified))
 
     def test_rule_written_once_in_review_section(self):
         self.assertEqual(pressure_doc_problems(self.notes), [])
