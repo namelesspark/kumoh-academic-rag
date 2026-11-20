@@ -514,20 +514,27 @@ for (const [name, work, workedQuestion] of [
   });
 }
 
-// #173: 문답 20쌍(말풍선 40개)을 채운 가상 기록이다. 두 번째 질문은 버전 두 개 가운데 첫 버전(1/2)을 고른 상태다.
+// #173: #170의 fullHistory를 그대로 쓰되, 답 없는 첫 질문에 답을 붙이고 답 없는 마지막 질문을 빼 문답 20쌍(말풍선 40개)으로 만든다.
+// 두 번째 질문(fullHistory의 「가상 한도 질문 1」)은 버전 두 개 가운데 첫 버전(1/2)을 고른 상태다.
 const pairTitle = "가상 한도 대화 제목";
+const pairFirstAnswer = message("answer", "가상 한도 첫 답");
 const pairVersions = [
-  { question: message("question", "가상 기록 질문 2"), answer: message("answer", "가상 기록 답 2") },
-  { question: message("question", "가상 기록 고친 질문 2"), answer: message("answer", "가상 기록 고친 답 2") },
+  { question: fullHistory[1], answer: fullHistory[2] },
+  { question: message("question", "가상 한도 고친 질문 1"), answer: message("answer", "가상 한도 고친 답 1") },
 ];
-const pairHistory = Array.from({ length: 20 }, (_, index) => index === 1
-  ? [{ ...pairVersions[0].question, versions: pairVersions, selected: 0 }, pairVersions[0].answer]
-  : [message("question", `가상 기록 질문 ${index + 1}`), message("answer", `가상 기록 답 ${index + 1}`)]).flat();
+const pairHistory = [
+  fullHistory[0], pairFirstAnswer,
+  { ...fullHistory[1], versions: pairVersions, selected: 0 }, fullHistory[2],
+  ...fullHistory.slice(3, -1),
+];
 const pairPage = (values = new Map([[historyKey, JSON.stringify([
   { id: "fictional-pair-chat", time: 1, title: pairTitle, messages: pairHistory },
 ])]])) => page(values);
 
 test("40개 기록에서 새 질문 전송이 실패해도 저장 기록을 화면과 같은 차례에서 자르고 다시 시도는 한 차례만 더한다", async () => {
+  assert.equal(pairHistory.length, 40);
+  assert.equal(pairHistory[0], fullHistory[0]);
+  assert.equal(pairHistory.at(-1), fullHistory.at(-2));
   const p = pairPage();
   assert.equal(savedMessages(p).length, 40);
   const newQuestion = "가상 한도 새 질문";
@@ -556,11 +563,12 @@ test("40개 기록에서 새 질문 전송이 실패해도 저장 기록을 화�
   // 저장소 복사본으로 연 새 화면은 남은 19쌍만 그리고 고른 첫 버전을 보여 준다.
   const reopened = pairPage(new Map(p.values));
   assert.equal(reopened.transcript.querySelectorAll(".turn").length, 19);
-  assert.doesNotMatch(reopened.transcript.textContent, /가상 기록 답 1(?!\d)/);
+  assert.equal(reopened.transcript.textContent.includes(fullFirst), false);
+  assert.equal(reopened.transcript.textContent.includes(pairFirstAnswer.text), false);
   assert.equal(reopened.transcript.textContent.includes(newQuestion), false);
   assert.equal(find(reopened, ".version-count").textContent, "1/2");
-  assert.match(find(reopened, ".question").textContent, /가상 기록 질문 2(?!\d)/);
-  assert.equal(replyText(reopened), "가상 기록 답 2");
+  assert.match(find(reopened, ".question").textContent, /가상 한도 질문 1(?!\d)/);
+  assert.equal(replyText(reopened), "가상 한도 답 1");
   assert.deepEqual(savedMessages(reopened).map(entry => entry.text), expected);
   assert.equal(reopened.requests.length, 0);
 

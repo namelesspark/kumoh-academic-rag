@@ -15,8 +15,10 @@ UI_NOTES = ROOT / "web" / "docs" / "UI_NOTES.md"
 
 PARENT_HEADING = "## 질문 수정·다시 답하기와 답변 버전 (#140)"
 SECTION_HEADING = "### 기록 40개 한도와 차례 단위 자르기 (#170)"
-HEADING = re.compile(r"(#{1,6})(?=[ \t]|$)")
-FENCE = re.compile(r"(```|~~~)")
+RULES_HEADING = "#### 전송 실패와 다시 시도 (#173)"
+# 마크다운 제목과 코드 울타리는 앞 공백 세 칸까지 허용한다. 네 칸부터는 들여쓴 코드다.
+HEADING = re.compile(r" {0,3}(#{1,6})(?=[ \t]|$)")
+FENCE = re.compile(r" {0,3}(```|~~~)")
 
 # 절에 꼭 남아야 하는 규칙 문구. 확정 기록 경계, 새 대화 예외, 실패 뒤 저장, 재시도 한 차례.
 REQUIRED = (
@@ -37,7 +39,7 @@ def headings(lines):
     """코드 블록 밖 제목 줄의 (줄 번호, 수준) 목록."""
     found, fenced = [], False
     for index, line in enumerate(lines):
-        if FENCE.match(line.lstrip()):
+        if FENCE.match(line):
             fenced = not fenced
             continue
         match = None if fenced else HEADING.match(line)
@@ -97,10 +99,17 @@ class ChatHistoryLimitDocTest(unittest.TestCase):
             "다른 장": self.notes.replace(self.section, emptied, 1).replace("## 화면 구성", f"## 화면 구성\n\n{rules}", 1),
             "주석": self.notes.replace(self.section, f"<!--{self.section}-->", 1),
             "코드 블록 제목": self.notes.replace(self.section, f"\n```\n### 가짜\n```\n{self.section}", 1),
+            # 앞 공백 세 칸까지는 마크다운 제목이다. 규칙 앞에 끼우면 규칙이 그 절로 넘어간다.
+            "들여쓴 제목": self.notes.replace(RULES_HEADING, f"   ### 다른 절\n\n{RULES_HEADING}", 1),
+            # 네 칸부터는 들여쓴 코드라 절을 끊지 않는다.
+            "들여쓴 코드": self.notes.replace(RULES_HEADING, f"    ### 들여쓴 코드\n\n{RULES_HEADING}", 1),
+            "들여쓴 울타리 제목": self.notes.replace(RULES_HEADING, f"   ```\n### 가짜\n   ```\n\n{RULES_HEADING}", 1),
         }
+        passing = {"코드 블록 제목", "들여쓴 코드", "들여쓴 울타리 제목"}
         for case, modified in cases.items():
             with self.subTest(case=case):
-                expected_fail = case != "코드 블록 제목"
+                self.assertNotEqual(modified, self.notes)
+                expected_fail = case not in passing
                 self.assertEqual(bool(history_doc_problems(modified)), expected_fail)
 
     def test_heading_moved_or_duplicated_fails(self):
