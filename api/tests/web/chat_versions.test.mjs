@@ -420,6 +420,98 @@ test("숫자가 포함된 버전만 기록에서 빼고 남은 버전으로 선�
   assert.equal(savedMessages(p).at(-1).text, "가상 다음 답");
 });
 
+// #170: 답 없는 첫 질문, 문답 19쌍, 답 없는 마지막 질문으로 말풍선 40개를 채운 가상 기록이다.
+const fullFirst = "가상 한도 첫 질문";
+const fullLast = "가상 한도 마지막 질문";
+const fullHistory = [
+  message("question", fullFirst),
+  ...Array.from({ length: 19 }, (_, index) => [
+    message("question", `가상 한도 질문 ${index + 1}`),
+    message("answer", `가상 한도 답 ${index + 1}`),
+  ]).flat(),
+  message("question", fullLast),
+];
+const fullPage = (values = new Map([[historyKey, JSON.stringify([{ id: "fictional-full-chat", time: 1, messages: fullHistory }])]])) =>
+  page(values);
+const replyText = (p, index = 0) => turn(p, index).querySelector(".reply")?.textContent ?? null;
+
+// 저장 기록을 문답 차례로 읽어, 맨 앞이 질문이고 답마다 바로 앞에 질문이 있는지 본다.
+function assertTurnAligned(messages) {
+  assert.ok(messages.length <= 40, `저장한 말풍선 ${messages.length}개`);
+  assert.equal(messages[0]?.role, "question", "맨 앞에 질문 없는 답이 남았다");
+  for (const [index, entry] of messages.entries()) {
+    if (entry.role === "answer") assert.equal(messages[index - 1]?.role, "question", `${index}번째 답 앞에 질문이 없다`);
+  }
+}
+
+// 작업한 차례를 뺀 나머지는 원래 기록의 문답 경계에서 시작하는 뒷부분이어야 한다.
+function assertOldestTurnsDropped(rest) {
+  const tail = fullHistory.slice(1).map(entry => entry.text);
+  const kept = rest.map(entry => entry.text);
+  assert.deepEqual(kept, tail.slice(tail.length - kept.length));
+  assert.equal(kept.at(-1), fullLast);
+}
+
+for (const [name, work, workedQuestion] of [
+  ["수정", p => edit(p, "가상 한도 고친 질문"), "가상 한도 고친 질문"],
+  ["다시 답하기", p => find(p, ".turn-regenerate").click(), fullFirst],
+]) {
+  test(`40개 기록에서 첫 질문을 ${name}해도 그 차례를 보존하고 새로고침 뒤 고른 버전을 오간다`, async () => {
+    const p = fullPage();
+    assert.equal(savedMessages(p).length, 40);
+    const newAnswer = `가상 한도 ${name} 답`;
+    work(p);
+    assert.equal(p.requests.length, 1);
+    assert.equal(sentQuestion(p.requests[0]), workedQuestion);
+    await finish(p.requests[0], newAnswer);
+    assert.equal(find(p, ".version-count").textContent, "2/2");
+
+    const saved = savedMessages(p);
+    assertTurnAligned(saved);
+    const worked = saved.find(entry => Array.isArray(entry.versions));
+    assert.ok(worked, "작업한 질문의 버전 기록이 잘렸다");
+    assert.equal(worked.text, workedQuestion);
+    assert.equal(worked.versions.length, 2);
+    assert.equal(worked.selected, 1);
+    const position = saved.indexOf(worked);
+    assert.equal(saved[position + 1]?.text, newAnswer);
+    assertOldestTurnsDropped(saved.slice(position + 2));
+    // 이번 화면에서 이미 그린 말풍선은 그대로 둔다.
+    assert.match(turn(p, 1).querySelector(".question").textContent, /가상 한도 질문 1(?!\d)/);
+    const requested = p.requests.length;
+
+    const reopened = fullPage(p.values);
+    assert.equal(find(reopened, ".version-count").textContent, "2/2");
+    assert.match(find(reopened, ".question").textContent, new RegExp(workedQuestion));
+    assert.equal(replyText(reopened), newAnswer);
+    assert.equal(find(reopened, ".version-next").disabled, true);
+    find(reopened, ".version-prev").click();
+    assert.equal(find(reopened, ".version-count").textContent, "1/2");
+    assertTurnAligned(savedMessages(reopened));
+
+    const older = fullPage(reopened.values);
+    assert.equal(find(older, ".version-count").textContent, "1/2");
+    assert.equal(find(older, ".version-prev").disabled, true);
+    assert.match(find(older, ".question").textContent, new RegExp(fullFirst));
+    assert.equal(replyText(older), null);
+    assert.equal(savedMessages(older).find(entry => Array.isArray(entry.versions))?.selected, 0);
+    find(older, ".version-next").click();
+    assert.equal(find(older, ".version-count").textContent, "2/2");
+    assert.match(find(older, ".question").textContent, new RegExp(workedQuestion));
+    assert.equal(replyText(older), newAnswer);
+    const back = savedMessages(older);
+    assertTurnAligned(back);
+    const restored = back.find(entry => Array.isArray(entry.versions));
+    assert.equal(restored.selected, 1);
+    assert.equal(back[back.indexOf(restored) + 1]?.text, newAnswer);
+
+    const latest = fullPage(older.values);
+    assert.equal(find(latest, ".version-count").textContent, "2/2");
+    assert.equal(replyText(latest), newAnswer);
+    for (const view of [p, reopened, older, latest]) assert.equal(view.requests.length, view === p ? requested : 0);
+  });
+}
+
 test("저장할 수 없는 여섯 번째 후보 때문에 기존 다섯 버전을 버리지 않는다", async () => {
   const p = page();
   for (let index = 1; index <= 4; index++) {
