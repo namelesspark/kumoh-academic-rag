@@ -72,15 +72,22 @@ LIST_ITEM = re.compile(r"- (?=[^ \t])")
 BLOCK_STARTERS = frozenset(" \t>#-*+=_|~!:<")
 ORDERED_MARKER = re.compile(r"\d{1,9}[.)]")
 
-# 절에 꼭 남아야 하는 규칙 문장. 적용 시점·조건까지 문장 그대로 본다. 뒷부분만 보면
-# 「다시 시도할 때만 확정 기록에도 같은 경계를 적용한다」처럼 조건이 바뀐 문장도 통과한다.
-REQUIRED = (
-    "새 질문을 보낼 때 확정 기록이 있으면 확정 기록에도 같은 경계를 적용한다.",
-    "확정 기록이 없는 새 대화는 예외로, 화면 기록만 자른다.",
-    "일반 실패 뒤에도 저장한다.",
-    "「다시 시도」가 성공하면 새 질문과 답을 한 차례만 더한다.",
-    "committedMessages",
+# #170 절 목록에 그대로 있어야 하는 규칙 줄 네 개. 줄 전체를 비교한다. 문장 일부만 찾으면
+# 조건을 바꾸거나 「단, …」 같은 단서를 덧붙여도 통과한다. 규칙을 고칠 때는 이 줄도 함께 고친다.
+RULE_LINES = (
+    "- 새 질문을 보낼 때 확정 기록이 있으면 확정 기록에도 같은 경계를 적용한다. "
+    "화면에서 덜어 낸 차례는 확정 기록에서도 빠진다.",
+    "- 확정 기록이 없는 새 대화는 예외로, 화면 기록만 자른다. "
+    "확정 기록을 빈 배열로 두면 백그라운드에서 실패한 첫 질문과 읽지 않음 표시가 저장에서 사라진다.",
+    "- 일반 실패 뒤에도 저장한다. 확정 기록이 있는 대화에서는 실패한 질문이 확정 기록에 없으므로 저장되지 않는다. "
+    "확정 기록이 없는 새 대화는 화면 기록을 저장하므로 실패한 첫 질문이 남고, "
+    "백그라운드에서 실패했다면 읽지 않음 표시도 함께 남는다. 읽지 않음 표시는 지금처럼 백그라운드 대화에만 붙인다.",
+    "- 「다시 시도」가 성공하면 새 질문과 답을 한 차례만 더한다. "
+    "문답 20쌍에서 실패하면 저장은 38개, 다시 시도가 성공하면 40개다.",
 )
+# 줄 단위가 아니라 절 글 안에서 찾는 이름.
+REQUIRED_TEXT = ("committedMessages",)
+REQUIRED = RULE_LINES + REQUIRED_TEXT
 
 
 def split_lines(text):
@@ -252,7 +259,8 @@ def history_doc_problems(notes):
     if problems:
         return problems
     section = "\n".join(body)
-    return [f"절에 {phrase!r}이(가) 없다." for phrase in REQUIRED if phrase not in section]
+    problems = [f"절 목록에 규칙 줄 {line!r}이(가) 그대로 없다." for line in RULE_LINES if line not in body]
+    return problems + [f"절에 {text!r}이(가) 없다." for text in REQUIRED_TEXT if text not in section]
 
 
 class ChatHistoryLimitDocTest(unittest.TestCase):
@@ -321,6 +329,11 @@ class ChatHistoryLimitDocTest(unittest.TestCase):
             "저장 조건": ("- 일반 실패 뒤에도 저장한다.", "- 일반 실패 뒤에는 저장하지 않는다. 정지 뒤에도 저장한다."),
             "재시도 횟수": ("- 「다시 시도」가 성공하면 새 질문과 답을 한 차례만 더한다.",
                         "- 「다시 시도」가 실패하면 새 질문과 답을 한 차례만 더한다."),
+            # 교차 검토 재현: 첫 문장 뒤에 저장 조건을 뒤집는 단서를 덧붙인다.
+            "저장 단서 추가": ("- 일반 실패 뒤에도 저장한다.",
+                         "- 일반 실패 뒤에도 저장한다. 단, 현재 대화에서 실패하면 저장하지 않는다."),
+            "새 대화 조건 삭제": ("확정 기록이 있는 대화에서는 실패한 질문이", "실패한 질문은"),
+            "규칙 줄을 둘로 쪼갬": ("- 일반 실패 뒤에도 저장한다. 확정 기록이", "- 일반 실패 뒤에도 저장한다.\n- 확정 기록이"),
         }
         for case, (old, new) in changes.items():
             with self.subTest(case=case):
