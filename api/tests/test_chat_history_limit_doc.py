@@ -10,13 +10,15 @@
 2. 코드 블록 울타리(백틱·`~` 세 개 이상)는 들여쓰기·목록·인용 없이 줄 맨 앞에 두고 짝을 맞춘다.
    백틱 울타리의 설명 글에는 백틱이 없고, 닫는 울타리도 줄 맨 앞에 둔다.
 3. 코드 블록 밖에서 코드 조각은 한 줄 안의 백틱 한 개 짝으로만 쓴다. 줄마다 백틱 수가 짝수이고,
-   백틱이 두 개 이상 이어지지 않으며, 여는 백틱 바로 앞에 백슬래시가 없다.
-   그러면 줄을 넘는 코드 조각과 이스케이프한 백틱이 없어, 앞에서부터 둘씩 짝지은 것이 실제 코드 조각과 같다.
-4. 코드 블록과 코드 조각 밖에서는 HTML을 시작할 수 있는 `<`+글자·`!`·`?`·`/`를 쓰지 않는다.
-5. 링크 참조 정의 줄(`[이름]: 주소`)은 화면에 보이지 않으므로 쓰지 않는다.
+   백틱이 두 개 이상 이어지지 않는다.
+4. 코드 블록 밖, 코드 조각 밖에서는 `[`·`]`·`<`·`\\`를 쓰지 않는다. 이 네 문자가 링크·이미지·링크 정의,
+   HTML·자동 링크, 이스케이프를 시작하는 유일한 문자다. 줄의 첫 백틱 앞에 이것들이 없으면 그 백틱을
+   먹는 다른 문법이 없어 CommonMark도 그 백틱에서 코드 조각을 열고, 같은 줄 다음 백틱에서 닫는다.
+   이를 줄 끝까지 되풀이하면, 앞에서부터 둘씩 짝지은 백틱이 실제 코드 조각과 같다.
 
 그 위에서 시작 제목과 부모 제목은 코드 블록 밖에서 문자열이 정확히 같은 줄 하나만 친다.
-절 끝은 제목이 될 수 있는 줄을 모두 경계로 넓게 잡는다(앞 공백·목록·인용 기호를 걷은 `#` 줄, 글 아래 밑줄 줄).
+절 끝은 제목이 될 수 있는 줄을 모두 경계로 넓게 잡는다. 앞 공백·목록·인용 기호를 걷은 `#` 줄과,
+글 아래 밑줄 줄이 만드는 밑줄 제목이다. 밑줄 제목은 위 문단 전체가 제목이므로 문단 첫 줄이 경계다.
 규칙 문구는 절 안 코드 블록 밖의 글에서 찾는다.
 """
 
@@ -36,8 +38,9 @@ CONTAINER = re.compile(r"(?:[ \t]+|(?:[-*+]|\d{1,9}[.)])(?=[ \t])|>)*")
 FENCE = re.compile(r"(`{3,}|~{3,})(.*)$")
 HEADING_LIKE = re.compile(r"(#{1,6})(?=[ \t]|$)")
 UNDERLINE_LIKE = re.compile(r"(=+|-+)[ \t]*$")
-HTML_LIKE = re.compile(r"<[A-Za-z!?/]")
-REFERENCE = re.compile(r" {0,3}\[[^\]]*\]:")
+# 코드 조각 밖에서 금지하는 문자. 링크·이미지·링크 정의(`[`·`]`), HTML·자동 링크(`<`), 이스케이프(`\`)를
+# 시작할 수 있어, 이것들이 없으면 앞에서부터 둘씩 짝지은 백틱이 CommonMark의 코드 조각과 같다.
+INLINE_STARTERS = frozenset("[]<\\")
 
 # 절에 꼭 남아야 하는 규칙 문구. 확정 기록 경계, 새 대화 예외, 실패 뒤 저장, 재시도 한 차례.
 REQUIRED = (
@@ -59,9 +62,7 @@ def strip_container(line):
 
 
 def inline_problem(line):
-    """코드 블록 밖 한 줄이 3·4·5번 규칙을 어기면 이유를, 지키면 None을 돌려준다."""
-    if REFERENCE.match(line):
-        return "링크 참조 정의 줄은 쓰지 않는다."
+    """코드 블록 밖 한 줄이 3·4번 규칙을 어기면 이유를, 지키면 None을 돌려준다."""
     if "``" in line:
         return "코드 블록 밖에서는 백틱을 두 개 이상 잇지 않는다."
     ticks = [index for index, char in enumerate(line) if char == "`"]
@@ -69,13 +70,12 @@ def inline_problem(line):
         return "코드 조각은 한 줄 안에서 백틱 짝을 맞춘다."
     outside, position = [], 0
     for opening, closing in zip(ticks[::2], ticks[1::2]):
-        if opening and line[opening - 1] == "\\":
-            return "여는 백틱 앞에 백슬래시를 두지 않는다."
         outside.append(line[position:opening])
         position = closing + 1
     outside.append(line[position:])
-    if any(HTML_LIKE.search(part) for part in outside):
-        return "코드 조각 밖에서 HTML을 쓰지 않는다."
+    used = sorted({char for part in outside for char in part if char in INLINE_STARTERS})
+    if used:
+        return f"코드 조각 밖에서 {' '.join(used)}를 쓰지 않는다."
     return None
 
 
@@ -110,8 +110,12 @@ def code_blocks(lines):
     return fenced, problems
 
 
-def boundaries(lines):
-    """제목이 될 수 있는 줄의 (줄 번호, 수준) 목록. 밑줄 제목은 밑줄 위 글 줄 번호를 쓴다."""
+def boundaries(lines, fenced=frozenset()):
+    """제목이 될 수 있는 줄의 (줄 번호, 수준) 목록.
+
+    밑줄 제목은 밑줄 위 문단 전체가 제목이므로, 빈 줄·제목 같은 줄·코드 블록에 닿기 전까지 거슬러 올라간
+    문단 첫 줄을 경계로 쓴다.
+    """
     found = []
     for index, line in enumerate(lines):
         body = strip_container(line)
@@ -120,8 +124,15 @@ def boundaries(lines):
             found.append((index, len(heading.group(1))))
             continue
         underline = UNDERLINE_LIKE.match(body)
-        if underline and index > 0 and lines[index - 1].strip():
-            found.append((index - 1, 1 if underline.group(1)[0] == "=" else 2))
+        if not (underline and index > 0 and lines[index - 1].strip()):
+            continue
+        first = index - 1
+        while first > 0:
+            above = lines[first - 1]
+            if not above.strip() or (first - 1) in fenced or HEADING_LIKE.match(strip_container(above)):
+                break
+            first -= 1
+        found.append((first, 1 if underline.group(1)[0] == "=" else 2))
     return sorted(set(found))
 
 
@@ -131,7 +142,7 @@ def history_section(text):
     fenced, problems = code_blocks(lines)
     if problems:
         return None
-    marks = boundaries(lines)
+    marks = boundaries(lines, fenced)
     starts = [index for index, line in enumerate(lines) if line == SECTION_HEADING and index not in fenced]
     if len(starts) != 1:
         return None
@@ -218,6 +229,12 @@ class ChatHistoryLimitDocTest(unittest.TestCase):
             "줄을 넘는 코드 조각": "가상 `글\n<h3>Other section</h3>\n코드` 끝",
             "두 개 이은 백틱": "가상 `` <h3> `` 글",
             "링크 참조 정의": "[가상]: /가상 '숨은 글'",
+            # 링크 주소 안 백틱은 코드 조각을 만들지 않으므로 그 사이 HTML이 살아 있다.
+            "링크 주소 안 백틱": "[a](/a`) <h3>Other section</h3> [b](/b`)",
+            "이스케이프한 대괄호가 든 링크 정의": "[example\\]label]: /example '숨은 글'",
+            "이미지": "![가상](/가상.png)",
+            "자동 링크": "<https://example.invalid>",
+            "이스케이프한 글자": "가상 \\* 글",
         }
         for case, snippet in snippets.items():
             with self.subTest(case=case):
@@ -227,6 +244,7 @@ class ChatHistoryLimitDocTest(unittest.TestCase):
         snippets = {
             "코드 조각": "가상 `<h3>`와 `<!--` 표기",
             "코드 조각 안 백슬래시": "가상 `a\\|b` 표기",
+            "코드 조각 안 대괄호": "가상 `[data-x]`와 `a < b` 표기",
             "코드 블록": "```html\n<h3>가상</h3>\n<!-- 가상 -->\n```",
         }
         for case, snippet in snippets.items():
@@ -252,6 +270,25 @@ class ChatHistoryLimitDocTest(unittest.TestCase):
         for case, snippet in snippets.items():
             with self.subTest(case=case):
                 self.assertTrue(history_doc_problems(self.before_rules(snippet)))
+
+    def test_whole_section_replaced_by_hidden_text_fails(self):
+        joined = " ".join(REQUIRED)
+        cases = {
+            # 두 줄 문단 아래 밑줄은 두 줄 모두를 2단계 제목으로 만든다.
+            "여러 줄 밑줄 제목": f"\n{joined}\nOther section\n---\n",
+            "여러 줄 밑줄 1단계 제목": f"\n{joined}\n가상 글\nOther section\n===\n",
+            # 이스케이프한 닫는 대괄호가 든 링크 정의는 화면에 보이지 않는다.
+            "링크 정의 제목 글": f"\n[example\\]label]: /example '{joined}'\n",
+        }
+        for case, body in cases.items():
+            with self.subTest(case=case):
+                modified = self.notes.replace(self.section, body, 1)
+                self.assertNotEqual(modified, self.notes)
+                self.assertTrue(history_doc_problems(modified))
+
+    def test_underline_heading_starts_at_paragraph_first_line(self):
+        lines = ["### 가상", "첫 줄", "둘째 줄", "---", "", "셋째", "==="]
+        self.assertEqual(boundaries(lines), [(0, 3), (1, 2), (5, 1)])
 
     def test_lines_that_cannot_be_headings_keep_the_section(self):
         snippets = {
