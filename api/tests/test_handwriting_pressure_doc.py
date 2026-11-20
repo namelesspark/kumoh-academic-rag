@@ -4,7 +4,8 @@
 절은 「## 손글씨 입력 필기 패드 (#134)」 아래의 「### 교차 검토로 고친 점」 다음 줄부터
 줄 맨 앞 `##`·`###`·`####` 제목 앞까지다. 마크다운 규칙은 흉내 내지 않는다(2026-11-20 문서 검사 기준).
 규칙 문장은 그 절에서 규칙을 담은 목록 항목 전체가 기대 글(EXPECTED_ITEM)과 같을 때만 인정한다.
-앞뒤 줄에 조건을 이어 써도 같은 항목이 바뀌므로 잡힌다.
+`- `가 항목을 열고 빈 줄이나 공백·탭으로 시작하지 않는 줄이 항목을 닫는다.
+항목 밖의 줄은 버리고, 열린 항목에 들여쓴 줄만 이어 붙인다.
 사본은 패드 절 전체를 줄바꿈·겹친 공백을 한 칸으로 편 글에서 센다.
 """
 
@@ -57,14 +58,19 @@ def sections(text):
 
 
 def list_items(lines):
-    """`- `로 여는 목록 항목을 한 줄로 편 글 목록. 빈 줄이 아닌 다음 줄은 앞 항목에 붙인다."""
+    """`- `로 연 항목을 한 줄씩으로 편다. 빈 줄이나 들여쓰지 않은 줄에서 닫는다.
+
+    항목이 열려 있을 때만 공백이나 탭으로 시작하는 줄을 붙인다.
+    """
     items = []
+    item_open = False
     for line in lines:
-        if not line.strip():
-            continue
-        if line.startswith("- ") or not items:
+        if line.startswith("- "):
             items.append(line)
-        else:
+            item_open = True
+        elif not line.strip() or not line.startswith((" ", "\t")):
+            item_open = False
+        elif item_open:
             items[-1] += "\n" + line
     return [flatten(item) for item in items]
 
@@ -127,6 +133,24 @@ class HandwritingPressureDocTest(unittest.TestCase):
 
     def test_rule_written_once_in_review_section(self):
         self.assertEqual(pressure_doc_problems(self.notes), [])
+
+    def test_rule_split_by_blank_lines_fails(self):
+        modified = self.notes.replace(f"\n  {RULE}\n", f"\n\n  {RULE}\n\n", 1)
+        self.assertNotEqual(modified, self.notes)
+        self.assertEqual(modified.count(RULE), 1)
+        self.assertEqual(
+            pressure_doc_problems(modified),
+            [f"{REVIEW_HEADING!r} 절에 규칙을 담은 항목이 기대 글과 다르다: []"],
+        )
+
+    def test_rule_line_unindented_fails(self):
+        modified = self.notes.replace(f"\n  {RULE}\n", f"\n{RULE}\n", 1)
+        self.assertNotEqual(modified, self.notes)
+        self.assertEqual(modified.count(RULE), 1)
+        self.assertEqual(
+            pressure_doc_problems(modified),
+            [f"{REVIEW_HEADING!r} 절에 규칙을 담은 항목이 기대 글과 다르다: []"],
+        )
 
     def test_rule_has_no_timeout_wording(self):
         # 「### 넣기」 절의 시간 제한 검사와 섞이지 않게 한다.
