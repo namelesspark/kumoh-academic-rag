@@ -1618,7 +1618,8 @@ node --test api/tests/web/campus_backdrop.test.mjs api/tests/web/chat_layout.tes
 
 목록 보기
 [‹]            2028년 4월            [›] [목록 보기 ■]  ← aria-pressed="true"
-  지금의 section.evidence 줄 그대로
+  2028년 4월에 하루라도 걸치는 일정의 section.evidence 줄, 시작일순
+  일정이 없으면: 2028년 4월에는 일정이 없어요
 ```
 
 - 주말 열(일·토)은 옅은 틴트, 이웃 달 날짜는 흐린 숫자만 있고 누를 수 없다.
@@ -1643,9 +1644,9 @@ node --test api/tests/web/campus_backdrop.test.mjs api/tests/web/chat_layout.tes
 | 이름 | 쓰임 |
 | --- | --- |
 | `.acal[data-view="month\|list"]` | 루트. `[data-panel-content]` 안에 둔다. 불투명 `--surface` 면이고 컨테이너 쿼리 이름은 `acal`이다 |
-| `[data-acal-nav="prev\|next"]`, `.acal-title` | 이전·다음 달 버튼과 제목(`aria-live="polite"`). 세 요소와 보기 전환 버튼은 `.acal`의 첫 자식 줄 하나에 둔다 |
+| `[data-acal-nav="prev\|next"]`, `.acal-title` | 이전·다음 달 버튼과 제목(`aria-live="polite"`). 세 요소와 보기 전환 버튼은 `.acal`의 첫 자식 줄 하나에 두고, 월 보기와 목록 보기가 함께 쓴다 |
 | `[data-acal-view-toggle]` | 목록 보기 전환(`aria-pressed`) |
-| `.acal-body` | 본문 상자. 월 보기에서는 요일 머리와 격자만 품고 가로 스크롤 상자가 된다. 목록 보기에서는 목록 줄을 품고 스크롤하지 않는다(`chat.js`) |
+| `.acal-body` | 본문 상자. 월 보기에서는 요일 머리와 격자만 품고 가로 스크롤 상자가 된다. 목록 보기에서는 표시 월에 걸치는 일정의 목록 줄(없으면 빈 달 안내)을 품고 스크롤하지 않는다(`chat.js`) |
 | `.acal-weekdays` | 요일 머리 7칸, 일요일부터. 격자 밖, `.acal-body`의 직속 자식이다. 격자와 같은 열 정의를 쓴다 |
 | `.acal-grid[role=grid]` > `.acal-week[role=row]` | 격자와 주 한 줄. 주 줄은 7열 4행 격자다 |
 | `.acal-cell[role=gridcell]` | 날짜 칸. `data-col`(1–7), `aria-selected`. 이웃 달 칸은 `data-outside`를 달고 버튼 없이 숫자 글자만 둔다 |
@@ -1653,7 +1654,7 @@ node --test api/tests/web/campus_backdrop.test.mjs api/tests/web/chat_layout.tes
 | `.acal-bar` | 기간 막대. `.acal-week`의 직속 자식(날짜 칸 뒤), `aria-hidden="true"`, `data-col`·`data-span`(1–7)·`data-lane`(0–1)·`data-kind` |
 | `.acal-dot` | 점. 날짜 버튼 안 마지막 자식인 점 묶음에 들어 있다. 칸마다 3개까지, `data-kind` |
 | `.acal-day-list` | 고른 날 목록. 일정 이름·기간·출처 링크 |
-| `section.evidence` | 목록 보기 줄과 고른 날 목록 안 일정 줄 둘 다 쓴다. 달 보기에서는 `.acal`이나 `.acal-body` 직속인 목록 보기 줄만 접고, `.acal-day-list` 안의 일정은 그대로 보인다 |
+| `section.evidence` | 목록 보기 줄(표시 월에 걸치는 일정, 시작일순)과 고른 날 목록 안 일정 줄 둘 다 쓴다. 달 보기에서는 `.acal`이나 `.acal-body` 직속인 목록 보기 줄만 접고, `.acal-day-list` 안의 일정은 그대로 보인다 |
 | `data-kind` | `enroll`(수강신청 파랑), `exam`(시험 코랄), `holiday`(휴일 빨강), `register`(등록 노랑), `neutral` |
 
 ### 분류 정하기 (#176)
@@ -1668,6 +1669,17 @@ node --test api/tests/web/campus_backdrop.test.mjs api/tests/web/chat_layout.tes
 - 막대와 점: 막대(`.acal-bar`)와 점(`.acal-dot`)은 같은 분류 결과(`data-kind`)를 쓴다. 분류 한 곳만 고치면 두 표시가 함께 바뀐다.
 - 응답 한 번: 달력 패널을 열 때 `/api/v1/academic-calendar/{year}/{term}`을 한 번 요청한다. 이전·다음 달 이동과 목록 보기 전환은 받아 둔 응답으로 다시 그리고, 다시 요청하지 않는다.
 - 검사: 서버 응답과 API 계약은 바꾸지 않았다. `api/tests/test_calendar_source_kind_doc.py`가 #143 장의 줄 전체를 검사 안의 사본과, 공식 주소를 `academic_calendar.py`의 출처 `url`과, `chat.css`의 두 분류 주석을 글자 그대로 비교한다. #143 장을 고치면 검사의 사본도 함께 고친다.
+
+### 목록 보기 (#182)
+
+- 머리 줄: 월 제목(`.acal-title`, `aria-live="polite"`)과 `‹`·`›` 버튼, 보기 전환 버튼은 두 보기가 함께 쓴다. 목록 보기에서도 숨기지 않고, 두 보기는 같은 표시 월을 가리킨다.
+- 목록 범위: 표시 월에 하루라도 걸치는 일정을 시작일순으로 모두 보여 준다(`event.start < 다음 달 1일 && event.end >= 이번 달 1일`, 세계 표준시(UTC) 날짜 값으로 비교). 같은 달의 지난 일정도 넣어 월 격자와 같은 일정을 보여 준다.
+- 월 경계 일정: 두 달에 걸친 일정은 두 달 목록에 한 번씩 나오고, 두 달 모두 원래 기간과 출처를 보여 준다. 가상 일정 2028-12-31~2029-01-02는 12월과 1월 목록에 한 번씩 있다.
+- 빈 달: 일정이 없는 달에는 「{월}에는 일정이 없어요」 꼴의 안내를 ko·en·zh로 보여 준다. 이전·다음 달 버튼은 그대로 쓸 수 있다.
+- 같은 달과 초점: 월 보기↔목록 보기 전환과 언어 변경 뒤에도 표시 월은 그대로다. 머리 줄 버튼을 Enter·Space로 누르면 초점은 누른 버튼에 남는다. 월 보기로 돌아오면 날짜 격자의 탭 정지점은 하나이고 화살표·Home/End·PageUp/PageDown 이동도 그대로다.
+- 남은 일정 기준: 테크모 상태(`found`/`hold`)와 첫 표시 월은 지금처럼 오늘 이후에 끝나는 일정(`remaining`)으로 정한다. 패널이 돌려주는 남은 일정 수도 바꾸지 않는다. 표시 월 기준으로 바뀌는 것은 목록 범위뿐이다.
+- 요청 1건: 패널을 한 번 연 뒤 월 이동·보기 전환·언어 변경을 이어 해도 일정 요청은 1건이다. 위 「응답 한 번」 규칙이 목록 보기에도 그대로 걸린다.
+- 날짜 계산 라이브러리는 쓰지 않는다. 비교식 하나면 되고, 외부 스크립트를 쓰지 않는다는 규칙에도 맞는다.
 
 ### 배치
 
