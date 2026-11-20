@@ -137,7 +137,7 @@
   --current-mark: #005B96;
   --unread-ring: #0A2540;
   /* 학사일정 달력(#143). 주말 열 틴트, 오늘 원 채움, 분류 칩(옅은 채움 -bg, 진한 글자 -ink)과 좁은 패널 점(-dot).
-     수강신청 파랑, 시험 코랄, 휴일 빨강, 등록 노랑, 열쇠말이 없으면 중립이다. 글자는 채움과 4.5:1, 점은 둘레 면과 3:1을 넘는다. */
+     수강신청 파랑, 시험 코랄, 휴일 빨강, 등록 노랑이다. 열쇠말이 없어도 공식 학사일정 출처가 있으면 수강신청 파랑, 둘 다 없을 때만 중립이다. 글자는 채움과 4.5:1, 점은 둘레 면과 3:1을 넘는다. */
   --acal-weekend: #F3F5F8; --acal-today-fill: #DBE8F0;
   --acal-enroll-bg: #E3EEFB; --acal-enroll-ink: #0B4A8C; --acal-enroll-dot: #0B4A8C;
   --acal-exam-bg: #FDE8E1; --acal-exam-ink: #9A3412; --acal-exam-dot: #9A3412;
@@ -2096,7 +2096,8 @@ form.turn-editor textarea {
 .acal-bar[data-span="7"] { grid-column-end: span 7; }
 .acal-bar[data-lane="0"] { grid-row: 2; }
 .acal-bar[data-lane="1"] { grid-row: 3; }
-/* 분류 색. 옅은 채움(-bg)에 진한 글자(-ink)다. 응답 글자에 열쇠말이 없으면 data-kind가 neutral이거나 비어 있어 중립색이다.
+/* 분류 색. 옅은 채움(-bg)에 진한 글자(-ink)다. 대상 글자의 열쇠말을 먼저 보고, 없으면 공식 학사일정 출처가 있을 때 enroll이다.
+   둘 다 아니면 data-kind가 neutral이거나 비어 있어 중립색이다.
    배경은 맨 위 색 블록의 이름표로만 쓴다(다크 밝은 면 검사가 배경 변수를 그 블록에서 푼다). */
 .acal-bar[data-kind="enroll"] { background: var(--acal-enroll-bg); color: var(--acal-enroll-ink); }
 .acal-bar[data-kind="exam"] { background: var(--acal-exam-bg); color: var(--acal-exam-ink); }
