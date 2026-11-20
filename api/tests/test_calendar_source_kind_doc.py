@@ -45,8 +45,10 @@ def rule_lines(url):
         "끝에 `/`나 조회 문자열이 붙거나 호스트가 다른 주소만 있으면 `neutral`이다.",
         "- 단어 우선 이유: 이 주소는 수강신청만 담은 페이지가 아니라 학교 학사일정 전체 페이지다. "
         "출처를 먼저 보면 같은 페이지에서 옮긴 시험 일정까지 파랑이 되므로, "
-        "대상 문구에 「수강신청」 없이 「시험」이 있으면 공식 출처가 있어도 `exam`이다.",
-        "- 단어가 여럿일 때: 위 순서에서 앞선 단어가 이긴다. 가상 대상 문구 「수강신청·시험」은 `enroll`이다.",
+        "대상 문구에 수강신청 낱말 없이 「시험」이 있으면 공식 출처가 있어도 `exam`이다.",
+        "- 수강신청 낱말: 「수강신청」과 「수강 신청」처럼 수강과 신청 사이 공백이 있든 없든 같은 낱말로 본다.",
+        "- 단어가 여럿일 때: 위 순서에서 앞선 단어가 이긴다. "
+        "가상 대상 문구 「수강신청·시험」과 「수강 신청·시험」은 둘 다 `enroll`이다.",
         "- 막대와 점: 막대(`.acal-bar`)와 점(`.acal-dot`)은 같은 분류 결과(`data-kind`)를 쓴다. "
         "분류 한 곳만 고치면 두 표시가 함께 바뀐다.",
         "- 응답 한 번: 달력 패널을 열 때 `/api/v1/academic-calendar/{year}/{term}`을 한 번 요청한다. "
@@ -106,6 +108,16 @@ def inline_problem(line):
     return f"코드 조각 밖에서 {' '.join(used)}를 쓰지 않는다." if used else None
 
 
+def calendar_intro(text):
+    """#143 장 제목 다음 줄부터 첫 `#` 제목 앞까지(도입부). 장 제목이 하나가 아니면 빈 목록."""
+    lines = text.replace("\r\n", "\n").split("\n")
+    if lines.count(CALENDAR_HEADING) != 1:
+        return []
+    start = lines.index(CALENDAR_HEADING) + 1
+    end = next((i for i in range(start, len(lines)) if lines[i].startswith("#")), len(lines))
+    return lines[start:end]
+
+
 def filled_lines(lines):
     return [line for line in lines if line.strip()]
 
@@ -144,7 +156,7 @@ class CalendarSourceKindDocTest(unittest.TestCase):
         self.assertEqual(filled_lines(self.lines), list(rule_lines(self.url)))
 
     def test_intro_names_the_year_and_term_path(self):
-        self.assertIn(INTRO_LINE, self.notes.splitlines())
+        self.assertIn(INTRO_LINE, calendar_intro(self.notes))
         self.assertNotIn(OLD_REQUEST, self.notes)
 
     def test_only_the_service_url_is_named(self):
@@ -191,7 +203,7 @@ class ReviewReproTest(unittest.TestCase):
             "중립 조건 넓힘": ("분류 단어도, 공식 주소와 정확히 같은 출처도 없을 때만", "출처가 비었으면"),
             "요청 주소에서 학기 빠짐": ("열 때 `/api/v1/academic-calendar/{year}/{term}`을", "열 때 `/api/v1/academic-calendar`을"),
             "반대 규칙 줄 추가": ("다시 요청하지 않는다.\n", "다시 요청하지 않는다.\n- 달을 이동할 때마다 다시 요청한다.\n"),
-            "섞인 단어 예시 뒤집기": ("「수강신청·시험」은 `enroll`이다.", "「수강신청·시험」은 `exam`이다."),
+            "섞인 단어 예시 뒤집기": ("둘 다 `enroll`이다.", "둘 다 `exam`이다."),
         }
         for case, (old, new) in cases.items():
             with self.subTest(case=case):
@@ -199,7 +211,18 @@ class ReviewReproTest(unittest.TestCase):
 
     def test_old_intro_path_fails(self):
         old_intro = self.changed("기존 `/api/v1/academic-calendar/{year}/{term}` 응답", OLD_REQUEST)
-        self.assertNotIn(INTRO_LINE, old_intro.splitlines())
+        self.assertNotIn(INTRO_LINE, calendar_intro(old_intro))
+
+    def test_intro_moved_to_another_section_fails(self):
+        # 교차 검토 재현: 도입부 문장을 「### 배치」 절로 옮긴다.
+        removed = self.changed(INTRO_LINE + "\n", "")
+        moved = self.changed("### 배치\n", f"### 배치\n\n{INTRO_LINE}\n", removed)
+        self.assertIn(INTRO_LINE, moved)
+        self.assertNotIn(INTRO_LINE, calendar_intro(moved))
+
+    def test_spaced_enroll_example_is_required(self):
+        changed = self.changed("「수강신청·시험」과 「수강 신청·시험」은 둘 다", "「수강신청·시험」은")
+        self.assertFalse(self.rules_hold(changed))
 
     def test_other_service_url_fails(self):
         self.assertNotIn(self.url.replace("https://", "http://"), "\n".join(rule_lines(self.url)))
