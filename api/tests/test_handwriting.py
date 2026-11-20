@@ -166,10 +166,20 @@ class HandwritingTests(unittest.TestCase):
                 self.assertEqual(image_url, "data:image/png;base64," + base64.b64encode(self.image).decode("ascii"))
                 instructions = " ".join([system] + [part["text"] for part in user if part["type"] == "text"])
                 self.assertRegex(instructions, rf"\b{lang}\b")
+                self.assertIn("[[EMPTY]]", system)
 
     def test_trimming_and_empty_result(self):
-        for content, expected in (("  " + TEXT * 100 + "\n", (TEXT * 100)[:500]), (" \n\t ", None)):
-            with self.subTest(has_text=expected is not None):
+        cases = (
+            ("long text", "  " + TEXT * 100 + "\n", (TEXT * 100)[:500]),
+            ("whitespace", " \n\t ", None),
+            ("marker", "[[EMPTY]]", None),
+            ("padded marker", " \n[[EMPTY]]\t ", None),
+            ("mixed text", " [[EMPTY]]" + TEXT + "[[EMPTY]] ", TEXT),
+            ("marker at limit", "x" * 496 + "[[EMPTY]]abcde", "x" * 496 + "abcd"),
+            ("marker variants", "[[empty]] [[ EMPTY ]] [[ empty ]]", "[[empty]] [[ EMPTY ]] [[ empty ]]"),
+        )
+        for name, content, expected in cases:
+            with self.subTest(case=name), self.assertNoLogs(level="INFO"):
                 self.transport.body = json.dumps({"choices": [{"message": {"content": content}}]}).encode("utf-8")
                 response = self.post()
                 if expected is None:
