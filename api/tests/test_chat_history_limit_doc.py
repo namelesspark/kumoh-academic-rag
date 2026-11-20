@@ -4,7 +4,8 @@
 절은 `## 질문 수정·다시 답하기와 답변 버전 (#140)` 아래의 `### 기록 40개 한도와 차례 단위 자르기 (#170)`이다.
 절 범위는 그 제목 다음 줄부터 같은 수준 이상(`#`~`###`)의 다음 제목 앞까지이고, 안쪽 `####` 제목은 절에 포함한다.
 밑줄 제목(`===`는 1단계, `---`는 2단계)도 제목으로 센다. 코드 블록은 여는 울타리와 같은 문자, 같거나 긴 길이로만
-닫히고 그 안의 `#` 줄은 제목으로 보지 않는다. HTML 주석 안 글은 화면에 보이지 않으므로 걷어 내고 읽는다.
+닫히고 그 안의 `#` 줄은 제목으로 보지 않는다. `***`·`---` 같은 구분선은 글 줄로 치지 않는다.
+코드 블록 밖 HTML 주석 안 글은 화면에 보이지 않으므로 걷어 내고 읽고, 코드 블록 안 `<!--`는 글자 그대로 둔다.
 """
 
 import re
@@ -23,6 +24,8 @@ HEADING = re.compile(r" {0,3}(#{1,6})(?=[ \t]|$)")
 FENCE_OPEN = re.compile(r" {0,3}(`{3,}(?=[^`]*$)|~{3,})")
 # 밑줄 제목(setext): 글 줄 바로 아래의 `=` 줄은 1단계, `-` 줄은 2단계 제목이다.
 SETEXT = re.compile(r" {0,3}(=+|-+)[ \t]*$")
+# 구분선: 같은 기호(`*`·`-`·`_`) 세 개 이상과 공백만 있는 줄이다.
+THEMATIC = re.compile(r" {0,3}(?:(?:\*[ \t]*){3,}|(?:-[ \t]*){3,}|(?:_[ \t]*){3,})$")
 # 목록·인용 줄 아래 밑줄은 제목이 아니다(`-`는 구분선, `=`는 이어 쓴 글).
 NOT_PARAGRAPH = re.compile(r" {0,3}([-*+][ \t]|\d{1,9}[.)][ \t]|>)")
 
@@ -43,19 +46,39 @@ REQUIRED = (
 )
 
 
-def visible_text(text):
-    """HTML 주석을 걷어 낸 글. 닫히지 않은 주석은 문서 끝까지 숨은 것으로 본다."""
-    return re.sub(r"<!--.*?(?:-->|\Z)", "", text, flags=re.DOTALL)
+def strip_comment(line, comment):
+    """코드 블록 밖 한 줄에서 HTML 주석 부분을 뺀 글과, 줄 끝에서 주석이 아직 열려 있는지."""
+    kept, rest = "", line
+    while rest:
+        if comment:
+            end = rest.find("-->")
+            if end < 0:
+                break
+            comment, rest = False, rest[end + 3 :]
+        else:
+            start = rest.find("<!--")
+            if start < 0:
+                kept += rest
+                break
+            kept, rest, comment = kept + rest[:start], rest[start + 4 :], True
+    return kept, comment
 
 
-def headings(lines):
-    """코드 블록 밖 제목의 (제목 글 줄 번호, 수준) 목록. 밑줄 제목은 밑줄 위 글 줄 번호를 쓴다."""
-    found, opener, paragraph = [], None, False
-    for index, line in enumerate(lines):
+def scan(text):
+    """화면에 보이는 줄 목록과 제목의 (제목 글 줄 번호, 수준) 목록을 한 번에 만든다.
+
+    코드 블록 안의 `<!--`·`#`은 글자 그대로 두고, 코드 블록 밖 주석 안의 울타리·제목은 숨긴다.
+    닫히지 않은 주석은 문서 끝까지 숨은 것으로 본다. 밑줄 제목은 밑줄 위 글 줄 번호를 쓴다.
+    """
+    visible, found, opener, paragraph, comment = [], [], None, False, False
+    for index, raw in enumerate(text.splitlines()):
         if opener:
-            if closes_fence(line, opener):
+            visible.append(raw)
+            if closes_fence(raw, opener):
                 opener = None
             continue
+        line, comment = strip_comment(raw, comment)
+        visible.append(line)
         fence = FENCE_OPEN.match(line)
         if fence:
             opener, paragraph = (fence.group(1)[0], len(fence.group(1))), False
@@ -70,16 +93,19 @@ def headings(lines):
             found.append((index - 1, 1 if underline.group(1)[0] == "=" else 2))
             paragraph = False
             continue
+        # `***`·`---`·`___` 같은 구분선은 글 줄이 아니다. 그래야 그 아래 `---`를 밑줄 제목으로 오인하지 않는다.
+        if THEMATIC.match(line):
+            paragraph = False
+            continue
         # 빈 줄 다음의 네 칸 들여쓰기는 들여쓴 코드라 글 줄이 아니다.
         indented_code = line.startswith("    ") and not paragraph
         paragraph = bool(line.strip()) and not indented_code and not NOT_PARAGRAPH.match(line)
-    return found
+    return visible, found
 
 
 def history_section(text):
-    """#140 절 아래 #170 절 본문. 제목이 한 번이 아니거나 #140 절 밖에 있으면 None."""
-    lines = text.splitlines()
-    marks = headings(lines)
+    """#140 절 아래 #170 절의 보이는 본문. 제목이 한 번이 아니거나 #140 절 밖에 있으면 None."""
+    lines, marks = scan(text)
     starts = [index for index, _ in marks if lines[index] == SECTION_HEADING]
     if len(starts) != 1:
         return None
@@ -92,7 +118,7 @@ def history_section(text):
 
 
 def history_doc_problems(notes):
-    section = history_section(visible_text(notes))
+    section = history_section(notes)
     if section is None:
         return [f"{PARENT_HEADING!r} 아래에 {SECTION_HEADING!r} 제목이 한 번 있어야 한다."]
     return [f"절에 {phrase!r}이(가) 없다." for phrase in REQUIRED if phrase not in section]
@@ -141,8 +167,20 @@ class ChatHistoryLimitDocTest(unittest.TestCase):
             # 빈 줄이나 목록 아래의 `---`는 구분선이라 절을 끊지 않는다.
             "구분선": self.notes.replace(RULES_HEADING, f"---\n\n{RULES_HEADING}", 1),
             "목록 아래 구분선": self.notes.replace(RULES_HEADING, f"- 가상 목록\n---\n\n{RULES_HEADING}", 1),
+            # 구분선 아래 `---`도 구분선이다. 앞 구분선을 글 줄로 보면 밑줄 제목으로 오인한다.
+            "연이은 구분선": self.notes.replace(RULES_HEADING, f"***\n---\n\n{RULES_HEADING}", 1),
+            # 코드 블록 안 `<!--`·`-->`는 글자일 뿐이라, 두 블록 사이의 제목이 절을 끊는다.
+            "코드 블록 안 주석 기호": self.notes.replace(
+                RULES_HEADING, f"~~~text\n<!--\n~~~\n\n### 다른 절\n\n~~~text\n-->\n~~~\n\n{RULES_HEADING}", 1),
+            # 주석 안 울타리는 코드 블록을 열지 못하므로 그 뒤 제목이 절을 끊는다.
+            "주석 안 울타리": self.notes.replace(RULES_HEADING, f"<!--\n```\n-->\n\n### 다른 절\n\n{RULES_HEADING}", 1),
+            # 주석 안 제목은 보이지 않으므로 절을 끊지 않는다.
+            "주석 안 제목": self.notes.replace(RULES_HEADING, f"<!--\n### 숨은 제목\n-->\n\n{RULES_HEADING}", 1),
         }
-        passing = {"코드 블록 제목", "들여쓴 코드", "들여쓴 울타리 제목", "긴 울타리", "구분선", "목록 아래 구분선"}
+        passing = {
+            "코드 블록 제목", "들여쓴 코드", "들여쓴 울타리 제목", "긴 울타리",
+            "구분선", "목록 아래 구분선", "연이은 구분선", "주석 안 제목",
+        }
         for case, modified in cases.items():
             with self.subTest(case=case):
                 self.assertNotEqual(modified, self.notes)
