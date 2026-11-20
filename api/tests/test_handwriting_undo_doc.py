@@ -26,8 +26,15 @@ EXPECTED_ITEM = " ".join((
     "남은 포인터가 없으면 되돌리기가 오류 문구를 바로 지운다.",
     "예전에는 다른 손가락이 긋는 중에도 되돌리기가 오류 문구를 지워 캔버스가 움직이고 남은 손가락의 다음 점이 밀렸다(#191).",
 ))
-# 같은 목록에서 바로 앞에 와야 하는 항목의 첫머리.
+# 같은 목록에서 바로 앞에 와야 하는 항목의 첫머리와 전체 글(줄바꿈을 공백 하나로 바꾼 글).
+# 전체를 비교해야 앞 항목에 규칙과 충돌하는 조건 줄을 이어 붙였을 때 실패한다.
 ERROR_ITEM_START = "- 읽기 실패 뒤의 오류 문구는 새 획을 시작할 때가 아니라 펜을 뗀 뒤(모든 획이 끝났을 때) 지운다."
+EXPECTED_ERROR_ITEM = " ".join((
+    ERROR_ITEM_START,
+    "누르는 순간 지우면 상태 줄이 사라져 패드가 줄고 캔버스가 움직이는데,",
+    "움직인 위치로 이미 누른 점을 재서 첫 점이 위로 밀려(20px 이동이면 y=5 → −15) 잘렸다.",
+    "이제 긋는 동안 캔버스는 움직이지 않는다.",
+))
 # 「### 그리기」 절의 되돌리기 설명. 규칙과 어긋나지 않도록 이 항목이 그대로 있어야 한다.
 DRAW_HEADING = "### 그리기"
 DRAW_UNDO_ITEM = "- 되돌리기는 마지막 획 하나, 지우기는 모든 획을 지운다. 획이 없으면 되돌리기·지우기·넣기가 잠긴다."
@@ -64,11 +71,15 @@ def undo_doc_problems(notes):
             above -= 1
         if above < 0 or not review[above].startswith(ERROR_ITEM_START):
             problems.append("규칙 항목이 「읽기 실패 뒤의 오류 문구」 항목에 바로 이어지지 않는다.")
+        elif flatten("\n".join(review[above : rule_lines[0]])) != EXPECTED_ERROR_ITEM:
+            problems.append("「읽기 실패 뒤의 오류 문구」 항목이 기대 글과 다르다.")
     copies = flatten("\n".join(pad)).count(RULE)
     if copies != 1:
         problems.append(f"{PAD_HEADING!r} 절에 되돌리기 규칙 문장이 {copies}번 있다. 정확히 한 번이어야 한다.")
     draw = subsection(pad, DRAW_HEADING)
-    if draw is None or DRAW_UNDO_ITEM not in list_items(draw):
+    # 그리기 절에서 되돌리기가 무엇을 지우는지 말하는 항목(「되돌리기는」)은 기존 항목 하나뿐이어야 한다.
+    # 「되돌리기·크기 변화 때 다시 그린다」처럼 지나가며 언급한 항목은 세지 않는다.
+    if draw is None or [item for item in list_items(draw) if "되돌리기는" in item] != [DRAW_UNDO_ITEM]:
         problems.append(f"{DRAW_HEADING!r} 절에 되돌리기 항목 {DRAW_UNDO_ITEM!r}이(가) 그대로 있어야 한다.")
     return problems
 
@@ -151,6 +162,20 @@ class HandwritingUndoDocTest(unittest.TestCase):
         changed = self.replaced(DRAW_UNDO_ITEM, DRAW_UNDO_ITEM.replace("마지막 획 하나", "마지막 획 두 개", 1))
         self.assertEqual(
             undo_doc_problems(changed),
+            [f"{DRAW_HEADING!r} 절에 되돌리기 항목 {DRAW_UNDO_ITEM!r}이(가) 그대로 있어야 한다."],
+        )
+
+    def test_conflicting_line_added_to_error_item_fails(self):
+        # 교차 검토 재현: 앞 오류 문구 항목 끝에 들여쓴 줄로 규칙과 충돌하는 조건을 붙인 경우.
+        conflict = "  단, 되돌리기를 누르면 다른 획이 진행 중이어도 오류 문구를 즉시 지운다."
+        modified = self.replaced(f"\n- {RULE}\n", f"\n{conflict}\n- {RULE}\n")
+        self.assertEqual(undo_doc_problems(modified), ["「읽기 실패 뒤의 오류 문구」 항목이 기대 글과 다르다."])
+
+    def test_conflicting_undo_item_added_to_draw_section_fails(self):
+        # 교차 검토 재현: 그리기 절의 되돌리기 항목 바로 뒤에 마지막 획 두 개를 지운다는 항목을 더한 경우.
+        modified = self.replaced(f"{DRAW_UNDO_ITEM}\n", f"{DRAW_UNDO_ITEM}\n- 펜으로 입력하면 되돌리기는 마지막 획 두 개를 지운다.\n")
+        self.assertEqual(
+            undo_doc_problems(modified),
             [f"{DRAW_HEADING!r} 절에 되돌리기 항목 {DRAW_UNDO_ITEM!r}이(가) 그대로 있어야 한다."],
         )
 
