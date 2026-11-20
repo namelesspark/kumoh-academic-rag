@@ -90,6 +90,13 @@ async function openCalendar(events, today = "2028-02-27") {
   };
   return {
     root, day, tabStop, requests,
+    tabHeader() {
+      const controls = byClass(root, "acal-header")[0].children.filter(node =>
+        node.tag === "button" && !node.hidden && node.tabIndex !== -1);
+      const next = controls[controls.indexOf(activeElement) + 1];
+      next?.focus();
+      return next;
+    },
     active: () => activeElement,
     title: () => byClass(root, "acal-title")[0].textContent,
     list: () => byClass(root, "acal-day-list")[0],
@@ -260,6 +267,11 @@ test("고른 날 목록은 요일과 날짜가 가로로 밀리는 상자 밖에
 
 test("키로 날짜를 넘기고 윤년 말일을 맞추며 Enter와 Space로 고른다", async () => {
   const page = await openCalendar([event("가상 일정", "2028-03-31")]);
+  page.toggle.press("Enter");
+  assert.equal(page.root.dataset.view, "list");
+  page.toggle.press(" ");
+  assert.equal(page.root.dataset.view, "month");
+  assert.equal(page.tabStop(), page.day(31));
   assert.equal(page.title(), "2028년 3월");
   const key = (name, target) => {
     assert.equal(page.tabStop().press(name), true);
@@ -301,16 +313,90 @@ test("연도를 넘겨도 목록과 언어 전환은 달, 선택과 초점을 �
   page.toggle.focus();
   page.toggle.click();
   assert.equal(page.root.dataset.view, "list");
+  assert.equal(page.title(), "January 2029");
   assert.equal(attr(page.toggle, "aria-pressed"), "true");
   page.language("zh");
   assert.equal(page.active(), page.toggle);
   assert.equal(page.toggle.textContent, "月历视图");
+  assert.equal(page.title(), "2029年1月");
+  page.language("ko");
+  assert.equal(page.title(), "2029년 1월");
+  assert.equal(page.toggle.textContent, "월 보기");
+  page.language("zh");
   page.toggle.click();
   assert.equal(page.root.dataset.view, "month");
+  assert.equal(attr(page.toggle, "aria-pressed"), "false");
+  assert.equal(page.toggle.textContent, "列表视图");
   assert.equal(page.title(), "2029年1月");
   assert.match(visibleText(page.list()), /1月1日的日程/);
   assert.equal(page.tabStop(), page.day(1));
   assert.equal(page.requests.length, 1);
+});
+
+test("목록에서 연말 일정의 원래 기간과 출처를 두 달에 한 번씩 표시하고 빈 달을 탐색한다", async () => {
+  const source = { title: "가상 일정 출처", url: "https://example.invalid/year-end", checked_on: "2028-12-01" };
+  const page = await openCalendar([
+    event("가상 1월 일정", "2029-01-03"),
+    event("가상 연말 일정", "2028-12-31", "2029-01-02", [source]),
+    event("가상 지난 12월 일정", "2028-12-01"),
+    event("가상 11월 일정", "2028-11-30"),
+  ], "2028-12-31");
+  const title = byClass(page.root, "acal-title")[0];
+  const body = byClass(page.root, "acal-body")[0];
+  const rows = () => byClass(body, "evidence");
+  const headings = () => rows().map(row => row.children[0].textContent);
+  const assertBoundaryRow = index => {
+    const row = rows()[index];
+    assert.equal(row.tag, "section");
+    assert.deepEqual(all(row.children[1], node => node.tag === "time").map(node => node.dateTime),
+      ["2028-12-31", "2029-01-02"]);
+    assert.deepEqual(all(row, node => node.tag === "a").map(link => [link.textContent, attr(link, "href")]),
+      [[source.title, source.url]]);
+  };
+  const previous = page.nav("prev");
+  const next = page.nav("next");
+  const activate = (button, key) => {
+    button.press(key);
+    assert.equal(page.active(), button);
+  };
+
+  assert.equal(page.toggle.textContent, "목록 보기");
+  assert.equal(page.tabHeader(), previous);
+  assert.equal(page.tabHeader(), next);
+  assert.equal(page.tabHeader(), page.toggle);
+  activate(page.toggle, "Enter");
+  assert.equal(page.title(), "2028년 12월");
+  assert.equal(attr(title, "aria-live"), "polite");
+  assert.ok(!title.hidden);
+  assert.ok(!previous.hidden);
+  assert.ok(!next.hidden);
+  assert.deepEqual(headings(), ["가상 지난 12월 일정", "가상 연말 일정"]);
+  assertBoundaryRow(1);
+
+  previous.focus();
+  assert.equal(page.tabHeader(), next);
+  activate(next, " ");
+  assert.equal(page.title(), "2029년 1월");
+  assert.deepEqual(headings(), ["가상 연말 일정", "가상 1월 일정"]);
+  assertBoundaryRow(0);
+  activate(next, "Enter");
+  assert.deepEqual(rows(), []);
+
+  for (const [language, expectedTitle, expectedHint] of [
+    ["ko", "2029년 2월", "2029년 2월에는 일정이 없어요."],
+    ["en", "February 2029", "No events in February 2029."],
+    ["zh", "2029年2月", "2029年2月没有日程。"],
+  ]) {
+    page.language(language);
+    assert.equal(page.title(), expectedTitle);
+    assert.deepEqual(byClass(body, "hint").map(hint => hint.textContent), [expectedHint]);
+    assert.equal(page.active(), next);
+  }
+  previous.focus();
+  activate(previous, "Enter");
+  assert.equal(page.title(), "2029年1月");
+  assertBoundaryRow(0);
+  assert.deepEqual(page.requests, ["/api/v1/academic-calendar/2027/1"]);
 });
 
 test("첫 달은 오늘과 겹치는 달, 첫 남은 일정, 마지막 종료일, 빈 응답 순으로 정한다", async () => {

@@ -100,7 +100,7 @@ const uiText = {
     "규정 질문": "Regulation questions",
     "학사 일정": "Academic calendar",
     "{year}학년도 {semester}학기": "Academic year {year}, semester {semester}",
-    "{scope}에 남은 일정이 없어요.": "No upcoming events for {scope}.",
+    "{month}에는 일정이 없어요.": "No events in {month}.",
     "이전 달": "Previous month",
     "다음 달": "Next month",
     "목록 보기": "List view",
@@ -342,7 +342,7 @@ const uiText = {
     "규정 질문": "规定咨询",
     "학사 일정": "学年日程",
     "{year}학년도 {semester}학기": "{year}学年 第{semester}学期",
-    "{scope}에 남은 일정이 없어요.": "{scope}没有剩余日程。",
+    "{month}에는 일정이 없어요.": "{month}没有日程。",
     "이전 달": "上个月",
     "다음 달": "下个月",
     "목록 보기": "列表视图",
@@ -5067,26 +5067,26 @@ function renderCalendar(content, result, current) {
   }
 
   function draw() {
-    const scope = t("{year}학년도 {semester}학기", calendarScope);
-    scopeTitle.textContent = scope;
+    const first = new Date(focused);
+    first.setUTCDate(1);
+    const nextMonthStart = +shiftCalendarMonth(first, 1);
+    const monthLabel = calendarDateLabel(first, "{year}년 {month}");
+    if (title.textContent !== monthLabel) title.textContent = monthLabel;
+    scopeTitle.textContent = t("{year}학년도 {semester}학기", calendarScope);
     root.dataset.view = listView ? "list" : "month";
     dayList.hidden = listView;
-    previous.hidden = next.hidden = title.hidden = listView;
     previous.setAttribute("aria-label", t("이전 달"));
     next.setAttribute("aria-label", t("다음 달"));
     toggle.textContent = t(listView ? "월 보기" : "목록 보기");
     toggle.setAttribute("aria-pressed", String(listView));
     if (listView) {
+      const matches = events.filter(event => event.start < nextMonthStart && event.end >= first);
       dayList.replaceChildren();
-      body.replaceChildren(...(remaining.length ? remaining.map(calendarEventRow) :
-        [element("p", "hint", t("{scope}에 남은 일정이 없어요.", { scope }))]));
+      body.replaceChildren(...(matches.length ? matches.map(calendarEventRow) :
+        [element("p", "hint", t("{month}에는 일정이 없어요.", { month: monthLabel }))]));
       return;
     }
-    const first = new Date(focused);
-    first.setUTCDate(1);
-    const last = +shiftCalendarMonth(first, 1) - calendarDayMs;
-    const monthLabel = calendarDateLabel(first, "{year}년 {month}");
-    if (title.textContent !== monthLabel) title.textContent = monthLabel;
+    const last = nextMonthStart - calendarDayMs;
 
     const weekdays = element("div", "acal-weekdays");
     weekdays.setAttribute("aria-hidden", "true");

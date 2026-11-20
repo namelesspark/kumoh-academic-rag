@@ -502,7 +502,7 @@ function calendarList(page) {
   return root;
 }
 
-test("학사 일정은 열 때 한 번 조회하고 지난 일정을 빼 시작일순으로 날짜만 표시한다", async () => {
+test("학사 일정은 열 때 한 번 조회하고 표시 월에 걸치는 일정을 시작일순으로 표시한다", async () => {
   const page = loadPage();
   page.cards[4].click();
   page.cards[4].click();
@@ -512,21 +512,22 @@ test("학사 일정은 열 때 한 번 조회하고 지난 일정을 빼 시작�
   page.finish({ events: [
     calendarEvent("가상 내일", "2027-02-11"), calendarEvent("가상 어제", "2027-02-09"),
     calendarEvent("가상 오늘", "2027-02-10"), calendarEvent("가상 진행 중", "2027-02-08", "2027-02-12"),
+    calendarEvent("가상 다른 달", "2027-03-01"),
   ] });
   await setImmediate();
   const content = calendarList(page);
   assert.equal(content.children[0].tagName, "H5");
   assert.match(content.children[0].textContent, /2027학년도 1학기/);
   const rows = descendants(content).filter(node => node.className === "evidence");
-  assert.equal(rows.length, 3);
   for (const row of rows) {
     assert.equal(row.tagName, "SECTION");
     assert.equal(row.className, "evidence");
   }
   const shown = text(content);
-  assert.doesNotMatch(shown, /가상 어제/);
-  assert.ok(shown.indexOf("가상 진행 중") < shown.indexOf("가상 오늘"));
-  assert.ok(shown.indexOf("가상 오늘") < shown.indexOf("가상 내일"));
+  assert.deepEqual(
+    rows.map(row => text(row).match(/가상 (진행 중|어제|오늘|내일|다른 달)/)?.[0]),
+    ["가상 진행 중", "가상 어제", "가상 오늘", "가상 내일"],
+  );
   assert.match(shown, /2027년/);
   assert.doesNotMatch(shown, /\d{1,2}:\d{2}|남은 시간|마감 시각/);
   assert.equal(page.requests.length, 1);
@@ -535,18 +536,17 @@ test("학사 일정은 열 때 한 번 조회하고 지난 일정을 빼 시작�
   assert.equal(petState(page), "answer");
 });
 
-test("한국 표준시 자정 경계로 오늘 종료 일정의 포함 여부를 바꾼다", async () => {
-  for (const [now, included] of [["2027-02-10T14:59:59Z", true], ["2027-02-10T15:00:00Z", false]]) {
+test("한국 표준시 자정에 종료 일정의 테크모 상태를 바꾼다", async () => {
+  for (const [now, state] of [["2027-02-10T14:59:59Z", "found"], ["2027-02-10T15:00:00Z", "hold"]]) {
     const page = loadPage({ now });
     page.cards[4].click();
     page.finish({ events: [calendarEvent("가상 경계 일정", "2027-02-10")] });
     await setImmediate();
-    assert.equal(text(calendarList(page)).includes("가상 경계 일정"), included);
-    assert.equal(petState(page), included ? "found" : "hold");
+    assert.equal(petState(page), state);
   }
 });
 
-test("빈 일정은 범위와 남은 일정이 없음을 알리고 답변을 보류한다", async () => {
+test("빈 일정은 표시 월에 일정이 없음을 알리고 답변을 보류한다", async () => {
   const page = loadPage();
   page.cards[4].click();
   page.finish({ events: [] });
