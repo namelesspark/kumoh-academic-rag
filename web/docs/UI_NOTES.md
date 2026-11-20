@@ -1658,7 +1658,7 @@ node --test api/tests/web/campus_backdrop.test.mjs api/tests/web/chat_layout.tes
 - 단어가 여럿일 때: 위 순서에서 앞선 단어가 이긴다. 가상 대상 문구 「수강신청·시험」과 「수강 신청·시험」은 둘 다 `enroll`이다.
 - 막대와 점: 막대(`.acal-bar`)와 점(`.acal-dot`)은 같은 분류 결과(`data-kind`)를 쓴다. 분류 한 곳만 고치면 두 표시가 함께 바뀐다.
 - 응답 한 번: 달력 패널을 열 때 `/api/v1/academic-calendar/{year}/{term}`을 한 번 요청한다. 이전·다음 달 이동과 목록 보기 전환은 받아 둔 응답으로 다시 그리고, 다시 요청하지 않는다.
-- 검사: 서버 응답과 API 계약은 바꾸지 않았다. `api/tests/test_calendar_source_kind_doc.py`가 이 소절의 줄 전체와 `academic_calendar.py`의 출처 `url`, `chat.css`의 두 분류 주석을 글자 그대로 비교한다. 줄을 더하거나 고치면 검사의 줄 목록도 함께 고친다.
+- 검사: 서버 응답과 API 계약은 바꾸지 않았다. `api/tests/test_calendar_source_kind_doc.py`가 #143 장의 줄 전체를 검사 안의 사본과, 공식 주소를 `academic_calendar.py`의 출처 `url`과, `chat.css`의 두 분류 주석을 글자 그대로 비교한다. #143 장을 고치면 검사의 사본도 함께 고친다.
 
 ### 배치
 
