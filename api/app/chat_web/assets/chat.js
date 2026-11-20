@@ -4294,14 +4294,16 @@ function setupHandwriting() {
       if (still) {
         // 압력만 바뀐 신호는 선분 처리(자르기·칸 비교)를 타지 않는다. 새 위치를 만들지 않고, 이미 기록한 마지막 잉크의 굵기만 갱신한다.
         // 선분 처리를 타면 칸 밖이던 옛 포인터 자리(600 칸의 x=700)를 넓힌 칸 기준으로 다시 해석해, 압력 변화만으로 새 점이 생겼다.
-        // 마지막 포인터 자리가 칸 밖이라 그 자리에 잉크가 없으면(broken이거나 끝 점이 경계에서 잘린 자리) 갱신할 것도 없다.
-        // 갱신한 점은 마지막 잉크를 기록할 때의 칸으로 자른다.
+        // 마지막 잉크의 중심이 그릴 때의 칸 안에 있을 때만 굵기를 갱신하고, 새 점도 같은 칸으로 자른다.
+        // 칸 밖에서는 압력만 기억해 다음 이동에 쓴다.
         const p = typeof each.pressure === "number" && each.pressure > 0 ? Math.min(1, each.pressure) : stroke.last.p;
         stroke.last = { ...stroke.last, p };
         const tail = stroke.points[stroke.points.length - 1];
         if (!stroke.broken && tail && tail.x === stroke.last.x && tail.y === stroke.last.y) {
+          const clip = handwritingClipOf(stroke, tail);
+          if (!handwritingInside(tail, clip)) continue;
           const w = Math.max(handwritingDrawnWidth(stroke, tail), handwritingWidth(stroke, stroke.last));
-          stroke.points.push({ x: tail.x, y: tail.y, p, w, clip: handwritingClipOf(stroke, tail) });
+          stroke.points.push({ x: tail.x, y: tail.y, p, w, clip });
         }
         continue;
       }
