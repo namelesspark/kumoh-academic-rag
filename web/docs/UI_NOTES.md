@@ -982,9 +982,16 @@ node --test api/tests/web/campus_backdrop.test.mjs api/tests/web/citation_link.t
 ### 답변 모드 선택기
 
 - 입력 상자 밖의 `fieldset#ai-mode` 라디오를 없앴다. `.composer-row` 안의 `#question`과 `#send` 사이에
-  알약 버튼 `#ai-mode-button.mode-pill`을 둔다. 빠르게는 번개 아이콘과 「빠르게」, 깊이는 네 갈래 별(✦)과
+  알약 버튼 `#ai-mode-button.mode-pill`을 둔다. 빠르게는 번개 아이콘과 「빠르게」, 깊이는 선으로 그린 아이콘과
   「깊이 생각」을 보이고 끝에 꺾쇠를 둔다. 아이콘 SVG는 `index.html`에 직접 둔다. 보안 정책
   `default-src 'self'`가 CSS 안의 `data:` 그림을 막기 때문이다.
+- 깊이 아이콘(#167)은 다른 선 아이콘과 같은 규칙으로 그린다. `fill="none"`, `stroke="currentColor"`,
+  `stroke-width`(1.8~2), `stroke-linecap="round"`, `stroke-linejoin="round"`를 SVG에 주고 경로에는 채움을 주지 않는다.
+  24×24 좌표계, 18px 표시, `aria-hidden="true"`, `focusable="false"`, 처음 상태의 `hidden`은 그대로다.
+  경로는 1~3개로 줄여 18px에서 선이 뭉치지 않게 한다.
+- 메뉴는 알약의 SVG를 `cloneNode(true)`로 복제해 쓰고 복사본의 `hidden`만 뗀다. 그래서 아이콘은 `index.html`
+  한 곳에만 두고, `chat.js`나 `chat.css`에 같은 그림을 따로 두지 않는다.
+- 반짝임 별이나 ✨ 꼴 아이콘은 쓰지 않는다(2026-11-18 팀 피드백). 깊이 모드는 240ms 하늘색 빛줄기 한 번으로만 알린다.
 - 누르면 버튼 위쪽에 「답변 모드」 메뉴가 뜬다. 항목은 아이콘·이름·한 줄 설명·체크 표시다.
   - 빠르게 — 바로 답해요 · 보통 1~3초
   - 깊이 생각하기 — 생각 과정을 보여 주며 꼼꼼히 답해요 · 10~30초
