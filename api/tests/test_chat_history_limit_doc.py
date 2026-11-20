@@ -80,8 +80,8 @@ RULE_LINES = (
     "- 확정 기록이 없는 새 대화는 예외로, 화면 기록만 자른다. "
     "확정 기록을 빈 배열로 두면 백그라운드에서 실패한 첫 질문과 읽지 않음 표시가 저장에서 사라진다.",
     "- 일반 실패 뒤에도 저장한다. 확정 기록이 있는 대화에서는 실패한 질문이 확정 기록에 없으므로 저장되지 않는다. "
-    "확정 기록이 없는 새 대화는 화면 기록을 저장하므로 실패한 첫 질문이 남고, "
-    "백그라운드에서 실패했다면 읽지 않음 표시도 함께 남는다. 읽지 않음 표시는 지금처럼 백그라운드 대화에만 붙인다.",
+    "확정 기록이 없는 새 대화는 다른 화면에서 실패했을 때만 저장 대상이 되어 실패한 첫 질문과 읽지 않음 표시가 남고, "
+    "보고 있던 화면에서 실패하면 저장되지 않는다. 읽지 않음 표시는 지금처럼 백그라운드 대화에만 붙인다.",
     "- 「다시 시도」가 성공하면 새 질문과 답을 한 차례만 더한다. "
     "문답 20쌍에서 실패하면 저장은 38개, 다시 시도가 성공하면 40개다.",
 )
@@ -258,9 +258,15 @@ def history_doc_problems(notes):
     body, problems = find_section(notes)
     if problems:
         return problems
-    section = "\n".join(body)
-    problems = [f"절 목록에 규칙 줄 {line!r}이(가) 그대로 없다." for line in RULE_LINES if line not in body]
-    return problems + [f"절에 {text!r}이(가) 없다." for text in REQUIRED_TEXT if text not in section]
+    # 규칙은 #170 본문 안 「#### 전송 실패와 다시 시도 (#173)」 소절에 있어야 한다. 소절은 그 제목 다음 줄부터
+    # 다음 `#` 줄 앞까지다(본문 허용 목록이 소제목으로 `#### `만 허락한다).
+    if RULES_HEADING not in body:
+        return [f"#170 절 본문에 {RULES_HEADING!r} 소제목이 없다."]
+    after = body[body.index(RULES_HEADING) + 1 :]
+    subsection = after[: next((i for i, line in enumerate(after) if line.startswith("#")), len(after))]
+    text = "\n".join(subsection)
+    problems = [f"#173 소절 목록에 규칙 줄 {line!r}이(가) 그대로 없다." for line in RULE_LINES if line not in subsection]
+    return problems + [f"#173 소절에 {name!r}이(가) 없다." for name in REQUIRED_TEXT if name not in text]
 
 
 class ChatHistoryLimitDocTest(unittest.TestCase):
@@ -334,6 +340,10 @@ class ChatHistoryLimitDocTest(unittest.TestCase):
                          "- 일반 실패 뒤에도 저장한다. 단, 현재 대화에서 실패하면 저장하지 않는다."),
             "새 대화 조건 삭제": ("확정 기록이 있는 대화에서는 실패한 질문이", "실패한 질문은"),
             "규칙 줄을 둘로 쪼갬": ("- 일반 실패 뒤에도 저장한다. 확정 기록이", "- 일반 실패 뒤에도 저장한다.\n- 확정 기록이"),
+            # 교차 검토 재현: 규칙 목록 바로 앞에 다른 소제목을 넣어 네 규칙을 #173 소절 밖으로 옮긴다.
+            "다른 소절로 옮김": ("- 새 질문을 보낼 때", "#### 다른 절\n\n- 새 질문을 보낼 때"),
+            "#173 소제목 삭제": (RULES_HEADING, "#### 다른 제목"),
+            "새 대화 저장 조건": ("다른 화면에서 실패했을 때만 저장 대상이 되어", "언제나 저장 대상이 되어"),
         }
         for case, (old, new) in changes.items():
             with self.subTest(case=case):
