@@ -3037,7 +3037,8 @@ function setupTurnActions(record, turn, question, answer) {
     });
     return control;
   }
-  const locked = () => busy || record.pending || !record.messages.includes(question);
+  const requestPending = () => busy || record.pending;
+  const locked = () => requestPending() || !record.messages.includes(question);
   const edit = button("turn-edit", "수정", () => {
     if (locked()) return;
     state = "";
@@ -3065,7 +3066,7 @@ function setupTurnActions(record, turn, question, answer) {
         if (!locked() && field.value.trim()) run(field.value.trim());
       });
       editor.addEventListener("keydown", event => {
-        if (event.key !== "Escape" || event.isComposing || locked()) return;
+        if (event.key !== "Escape" || event.isComposing || requestPending()) return;
         event.preventDefault();
         event.stopPropagation();
         closeEditor();
@@ -3076,12 +3077,12 @@ function setupTurnActions(record, turn, question, answer) {
     update();
   }
   function closeEditor() {
-    if (locked()) return;
+    if (requestPending()) return;
     draft = null;
     state = "";
     editor.remove();
     update();
-    edit.focus();
+    (locked() ? input : edit).focus();
   }
   function update() {
     for (const label of labels) label();
@@ -3096,7 +3097,8 @@ function setupTurnActions(record, turn, question, answer) {
     if (editor) {
       field.setAttribute("aria-label", t("질문 수정"));
       field.readOnly = locked();
-      cancel.disabled = save.disabled = locked();
+      cancel.disabled = requestPending();
+      save.disabled = locked();
       save.textContent = t(state === "failed" ? "다시 시도" : "저장하고 묻기");
     }
     if (state) turn.setAttribute("data-version-state", state);
