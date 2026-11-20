@@ -1649,16 +1649,14 @@ node --test api/tests/web/campus_backdrop.test.mjs api/tests/web/chat_layout.tes
 
 ### 분류 정하기 (#176)
 
-- 분류 순서: 대상 문구의 단어로 먼저 고르고(`enroll` → `exam` → `holiday` → `register`), 맞는 단어가 없을 때만 출처를 보고, 둘 다 아니면 `neutral`이다.
-- 출처 규칙: 대상 문구에 분류 단어가 없어도 `sources` 배열에 `url`이 공식 주소 `https://www.kumoh.ac.kr/ko/schedule_reg.do`와 글자 하나까지 같은 항목이 있으면 `enroll`이다.
-  배열 몇 번째에 있는지는 따지지 않는다. `sources`가 빈 배열이거나 없으면 오류 없이 `neutral`이다.
-- 주소는 정확히 같을 때만 맞는다. `http://`로 시작하거나 끝에 `/`나 조회 문자열이 붙거나 호스트가 다르면 `neutral`이다. 비슷한 주소를 받아 주면 학교 밖 페이지도 파랑이 된다.
-- 단어를 먼저 보는 이유: 이 주소는 수강신청만 담은 페이지가 아니라 학교 학사일정 전체 페이지다(출처 제목도 「학사일정」).
-  같은 페이지에서 시험 일정을 옮겨 오면 출처를 먼저 보는 방식은 시험까지 파랑으로 칠한다. 그래서 대상 문구에 「시험」이 있으면 공식 출처가 있어도 `exam`이다.
-- 막대(`.acal-bar`)와 점(`.acal-dot`)은 같은 분류 결과(`data-kind`)를 쓴다. 분류 한 곳만 고치면 두 표시가 함께 바뀐다.
-- 응답 한 번: 달력은 `/api/v1/academic-calendar` 응답을 한 번 받아 두고, 이전·다음 달 이동과 목록 보기 전환은 그 응답으로 다시 그린다. 달을 옮기거나 보기를 바꿔도 다시 요청하지 않는다.
-- 서버 응답과 API 계약은 바꾸지 않았다. 공식 주소는 `api/app/services/academic_calendar.py`의 출처 `url`과 같아야 하고,
-  `api/tests/test_calendar_source_kind_doc.py`가 이 소절의 주소와 그 파일의 주소, 분류 순서, `chat.css`의 두 분류 주석을 글자로 비교한다.
+- 분류 순서: 대상 문구의 단어로 먼저 고르고(`enroll` → `exam` → `holiday` → `register`), 맞는 단어가 없을 때만 출처를 본다. 분류 단어도, 공식 주소와 정확히 같은 출처도 없을 때만 `neutral`이다.
+- 출처 규칙: 대상 문구에 분류 단어가 없고 `sources` 배열에 `url`이 공식 주소 `https://www.kumoh.ac.kr/ko/schedule_reg.do`와 글자 하나까지 같은 항목이 있으면 `enroll`이다. 배열 몇 번째에 있는지는 따지지 않는다.
+- 출처가 없을 때: 분류 단어가 있으면 `sources`가 빈 배열이거나 없어도 그 단어의 분류다. 분류 단어도 없으면 오류 없이 `neutral`이다.
+- 주소 비교: 주소는 정확히 같을 때만 맞는다. 분류 단어가 없는 일정에 `http://`로 시작하거나 끝에 `/`나 조회 문자열이 붙거나 호스트가 다른 주소만 있으면 `neutral`이다.
+- 단어 우선 이유: 이 주소는 수강신청만 담은 페이지가 아니라 학교 학사일정 전체 페이지다. 출처를 먼저 보면 같은 페이지에서 옮긴 시험 일정까지 파랑이 되므로, 대상 문구에 「시험」이 있으면 공식 출처가 있어도 `exam`이다.
+- 막대와 점: 막대(`.acal-bar`)와 점(`.acal-dot`)은 같은 분류 결과(`data-kind`)를 쓴다. 분류 한 곳만 고치면 두 표시가 함께 바뀐다.
+- 응답 한 번: 달력 패널을 열 때 `/api/v1/academic-calendar/{year}/{term}`을 한 번 요청한다. 이전·다음 달 이동과 목록 보기 전환은 받아 둔 응답으로 다시 그리고, 다시 요청하지 않는다.
+- 검사: 서버 응답과 API 계약은 바꾸지 않았다. `api/tests/test_calendar_source_kind_doc.py`가 이 소절의 규칙 줄과 `academic_calendar.py`의 출처 `url`, `chat.css`의 두 분류 주석을 글자 그대로 비교한다.
 
 ### 배치
 

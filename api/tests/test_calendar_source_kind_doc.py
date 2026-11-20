@@ -3,6 +3,9 @@
 화면(`chat.js`)은 대상 문구 단어를 먼저 보고, 단어가 없을 때만 공식 학사일정 출처로 `enroll`을 고른다.
 문서가 출처를 먼저 본다고 적거나 주소가 서버 출처와 어긋나면, 고치는 사람이 시험 일정까지 파랑으로 칠할 수 있다.
 
+규칙은 낱말이 아니라 줄 전체로 비교한다. 낱말만 찾으면 결과를 `enroll`에서 `neutral`로 바꾸거나 설명 절반을
+지워도 통과한다(교차 검토 재현). 규칙을 고칠 때는 아래 줄도 함께 고친다.
+
 app을 가져오지 않고 `web/docs/UI_NOTES.md`, `api/app/services/academic_calendar.py`, `chat.css`를 글자로만 읽는다.
 학교 원문이나 학생 데이터는 쓰지 않는다.
 
@@ -21,49 +24,59 @@ CHAT_CSS = ROOT / "api" / "app" / "chat_web" / "assets" / "chat.css"
 
 CALENDAR_HEADING = "## 학사일정 월 달력 보기 (#143)"
 SUBSECTION_HEADING = "### 분류 정하기 (#176)"
-ORDER = "`enroll` → `exam` → `holiday` → `register`"
 OLD_COMMENT = "열쇠말이 없으면 중립"
-NEW_COMMENT = "공식 학사일정 출처"
-CSS_COMMENT_STARTS = ("/* 학사일정 달력(#143).", "/* 분류 색.")
 BACKSLASH = chr(92)
-INLINE_STARTERS = frozenset("[]<" + BACKSLASH)
+# 코드 조각 밖에서 쓰지 않는 문자: 대괄호, 여닫는 꺾쇠, 백슬래시.
+INLINE_STARTERS = frozenset("[]<>" + BACKSLASH)
 
 
-def visible_text(text):
-    """HTML 주석을 걷어 낸 글. 닫히지 않은 주석은 끝까지 숨은 것으로 본다."""
-    return re.sub(r"<!--.*?(?:-->|\Z)", "", text, flags=re.DOTALL)
+def rule_lines(url):
+    """소절 목록에 그대로 있어야 하는 줄. 공식 주소는 서버 코드에서 읽은 값을 끼운다."""
+    return (
+        "- 분류 순서: 대상 문구의 단어로 먼저 고르고(`enroll` → `exam` → `holiday` → `register`), "
+        "맞는 단어가 없을 때만 출처를 본다. 분류 단어도, 공식 주소와 정확히 같은 출처도 없을 때만 `neutral`이다.",
+        f"- 출처 규칙: 대상 문구에 분류 단어가 없고 `sources` 배열에 `url`이 공식 주소 `{url}`와 "
+        "글자 하나까지 같은 항목이 있으면 `enroll`이다. 배열 몇 번째에 있는지는 따지지 않는다.",
+        "- 출처가 없을 때: 분류 단어가 있으면 `sources`가 빈 배열이거나 없어도 그 단어의 분류다. "
+        "분류 단어도 없으면 오류 없이 `neutral`이다.",
+        "- 주소 비교: 주소는 정확히 같을 때만 맞는다. 분류 단어가 없는 일정에 `http://`로 시작하거나 "
+        "끝에 `/`나 조회 문자열이 붙거나 호스트가 다른 주소만 있으면 `neutral`이다.",
+        "- 단어 우선 이유: 이 주소는 수강신청만 담은 페이지가 아니라 학교 학사일정 전체 페이지다. "
+        "출처를 먼저 보면 같은 페이지에서 옮긴 시험 일정까지 파랑이 되므로, "
+        "대상 문구에 「시험」이 있으면 공식 출처가 있어도 `exam`이다.",
+        "- 응답 한 번: 달력 패널을 열 때 `/api/v1/academic-calendar/{year}/{term}`을 한 번 요청한다. "
+        "이전·다음 달 이동과 목록 보기 전환은 받아 둔 응답으로 다시 그리고, 다시 요청하지 않는다.",
+    )
 
 
-def fenced_line_numbers(lines):
-    """울타리 코드 블록 안 줄 번호(여는 줄·닫는 줄 포함)."""
-    hidden, fence = set(), None
-    for index, line in enumerate(lines):
-        body = line.lstrip(" ")
-        if fence:
-            hidden.add(index)
-            if re.fullmatch(rf"{re.escape(fence[0])}{{{fence[1]},}}[ \t]*", body):
-                fence = None
-            continue
-        found = re.match(r"(`{3,}|~{3,})", body)
-        if found and len(line) - len(body) <= 3:
-            hidden.add(index)
-            fence = (found.group(1)[0], len(found.group(1)))
-    return hidden
+# chat.css 분류 주석 두 곳. 여는 글자로 찾고, 공백을 하나로 줄여 주석 전체를 비교한다.
+CSS_COMMENTS = {
+    "/* 학사일정 달력(#143).": (
+        "/* 학사일정 달력(#143). 주말 열 틴트, 오늘 원 채움, 분류 칩(옅은 채움 -bg, 진한 글자 -ink)과 좁은 패널 점(-dot). "
+        "수강신청 파랑, 시험 코랄, 휴일 빨강, 등록 노랑이다. "
+        "열쇠말이 없어도 공식 학사일정 출처가 있으면 수강신청 파랑, 둘 다 없을 때만 중립이다. "
+        "글자는 채움과 4.5:1, 점은 둘레 면과 3:1을 넘는다. */"
+    ),
+    "/* 분류 색.": (
+        "/* 분류 색. 옅은 채움(-bg)에 진한 글자(-ink)다. "
+        "대상 글자의 열쇠말을 먼저 보고, 없으면 공식 학사일정 출처가 있을 때 enroll이다. "
+        "둘 다 아니면 data-kind가 neutral이거나 비어 있어 중립색이다. "
+        "배경은 맨 위 색 블록의 이름표로만 쓴다(다크 밝은 면 검사가 배경 변수를 그 블록에서 푼다). */"
+    ),
+}
 
 
 def subsection(text):
-    """#143 장 안의 「분류 정하기」 소절 본문 줄. 코드 블록 안 제목은 세지 않는다. 없거나 둘이면 None."""
-    lines = visible_text(text).replace("\r\n", "\n").split("\n")
-    hidden = fenced_line_numbers(lines)
-    visible = [(i, line) for i, line in enumerate(lines) if i not in hidden]
-    starts = [i for i, line in visible if line == SUBSECTION_HEADING]
+    """#143 장 안 「분류 정하기」 소절 본문 줄. 다음 `#` 제목(수준 무관) 앞에서 끝난다. 없거나 둘이면 None."""
+    lines = text.replace("\r\n", "\n").split("\n")
+    starts = [i for i, line in enumerate(lines) if line == SUBSECTION_HEADING]
     if len(starts) != 1:
         return None
     start = starts[0]
-    parent = next((line for i, line in reversed(visible) if i < start and re.match(r"#{1,2} ", line)), None)
+    parent = next((line for line in reversed(lines[:start]) if re.match(r"#{1,2} ", line)), None)
     if parent != CALENDAR_HEADING:
         return None
-    end = next((i for i, line in visible if i > start and re.match(r"#{1,3} ", line)), len(lines))
+    end = next((i for i in range(start + 1, len(lines)) if lines[i].startswith("#")), len(lines))
     return lines[start + 1 : end]
 
 
@@ -84,90 +97,94 @@ def service_url(source):
 
 
 def css_comment(css, start):
-    """`start`로 여는 주석 하나의 글. 없거나 둘이면 None."""
+    """`start`로 여는 주석 하나의 글(공백을 하나로 줄임). 없거나 둘이면 None."""
     if css.count(start) != 1:
         return None
     begin = css.index(start)
     end = css.find("*/", begin)
-    return None if end < 0 else css[begin : end + 2]
-
-
-class HelperTest(unittest.TestCase):
-    """판정 함수를 가상 문서로 확인한다."""
-
-    def doc(self, body):
-        return f"{CALENDAR_HEADING}\n\n{SUBSECTION_HEADING}\n\n{body}\n\n### 배치\n"
-
-    def test_subsection_is_found_only_under_the_calendar(self):
-        self.assertEqual(subsection(self.doc("- 가상 글")), ["", "- 가상 글", ""])
-        self.assertIsNone(subsection(f"## 다른 장\n\n{SUBSECTION_HEADING}\n"))
-        self.assertIsNone(subsection(self.doc("가상") + f"\n{SUBSECTION_HEADING}\n"))
-
-    def test_hidden_subsection_does_not_count(self):
-        self.assertIsNone(subsection(f"{CALENDAR_HEADING}\n\n```text\n{SUBSECTION_HEADING}\n```\n"))
-        self.assertIsNone(subsection(f"{CALENDAR_HEADING}\n\n<!--\n{SUBSECTION_HEADING}\n-->\n"))
-
-    def test_inline_rule(self):
-        self.assertIsNone(inline_problem("가상 `[data-kind]`와 `<b>` 표기"))
-        for line in ("[가상](https://example.invalid)", "<b>가상</b>", "가상 " + BACKSLASH + "* 글", "`홀수", "`` a ``"):
-            with self.subTest(line=line):
-                self.assertIsNotNone(inline_problem(line))
-
-    def test_css_comment_is_read_to_its_end(self):
-        css = "a{}\n/* 분류 색. 가상\n   둘째 줄 */\nb{}"
-        self.assertEqual(css_comment(css, "/* 분류 색."), "/* 분류 색. 가상\n   둘째 줄 */")
-        self.assertIsNone(css_comment(css + css, "/* 분류 색."))
+    return None if end < 0 else " ".join(css[begin : end + 2].split())
 
 
 class CalendarSourceKindDocTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.notes = UI_NOTES.read_text(encoding="utf-8")
-        cls.lines = subsection(cls.notes)
-        cls.text = "" if cls.lines is None else "\n".join(cls.lines)
+        cls.lines = subsection(cls.notes) or []
         cls.url = service_url(SERVICE.read_text(encoding="utf-8"))
         cls.css = CHAT_CSS.read_text(encoding="utf-8")
 
     def test_subsection_exists_once_in_the_calendar_section(self):
-        self.assertIsNotNone(self.lines)
-        self.assertTrue(self.text.strip())
+        self.assertIsNotNone(subsection(self.notes))
+        self.assertTrue(self.lines)
 
-    def test_official_url_matches_the_service_source(self):
+    def test_rule_lines_are_written_as_is(self):
         self.assertIsNotNone(self.url)
-        self.assertIn(f"`{self.url}`", self.text)
-        # 소절에 적은 https 주소는 모두 서버 출처와 같아야 한다.
-        self.assertEqual(set(re.findall(r"https://[^\s`]+", self.text)), {self.url})
+        for line in rule_lines(self.url):
+            with self.subTest(line=line[:20]):
+                self.assertIn(line, self.lines)
 
-    def test_words_come_before_the_source(self):
-        order_line = next((line for line in self.lines or () if line.startswith("- 분류 순서:")), "")
-        self.assertIn(ORDER, order_line)
-        word, source, neutral = (order_line.find(x) for x in (ORDER, "출처", "`neutral`"))
-        self.assertTrue(0 <= word < source < neutral, order_line)
-        self.assertIn("맞는 단어가 없을 때만", order_line)
-
-    def test_exact_match_and_exam_priority_are_stated(self):
-        for phrase in ("글자 하나까지 같은", "정확히 같을 때만", "학사일정 전체 페이지", "공식 출처가 있어도 `exam`이다"):
-            with self.subTest(phrase=phrase):
-                self.assertIn(phrase, self.text)
-
-    def test_one_response_serves_month_moves_and_list_view(self):
-        line = next((line for line in self.lines or () if line.startswith("- 응답 한 번:")), "")
-        self.assertIn("`/api/v1/academic-calendar`", line)
-        self.assertIn("다시 요청하지 않는다", line)
+    def test_only_the_service_url_is_named(self):
+        urls = set(re.findall(r"https://[^\s`]+", "\n".join(self.lines)))
+        self.assertEqual(urls, {self.url})
 
     def test_subsection_keeps_the_inline_rule(self):
-        for number, line in enumerate(self.lines or (), 1):
+        for number, line in enumerate(self.lines, 1):
             with self.subTest(line=number):
                 self.assertIsNone(inline_problem(line), line)
 
     def test_css_comments_follow_the_new_rule(self):
         self.assertNotIn(OLD_COMMENT, self.css)
-        for start in CSS_COMMENT_STARTS:
+        for start, expected in CSS_COMMENTS.items():
             with self.subTest(start=start):
-                comment = css_comment(self.css, start)
-                self.assertIsNotNone(comment)
-                self.assertIn(NEW_COMMENT, comment)
-                self.assertNotIn(OLD_COMMENT, comment)
+                self.assertEqual(css_comment(self.css, start), expected)
+
+
+class ReviewReproTest(unittest.TestCase):
+    """교차 검토 재현: 실제 문서·주석을 메모리에서 바꾸면 검사가 실패해야 한다."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.notes = UI_NOTES.read_text(encoding="utf-8")
+        cls.url = service_url(SERVICE.read_text(encoding="utf-8"))
+        cls.css = CHAT_CSS.read_text(encoding="utf-8")
+
+    def rules_hold(self, notes):
+        lines = subsection(notes) or []
+        return all(line in lines for line in rule_lines(self.url))
+
+    def changed(self, old, new, text=None):
+        text = self.notes if text is None else text
+        self.assertIn(old, text)
+        return text.replace(old, new, 1)
+
+    def test_real_document_passes(self):
+        self.assertTrue(self.rules_hold(self.notes))
+
+    def test_changed_or_moved_rules_fail(self):
+        cases = {
+            "공식 출처 결과 뒤집기": ("같은 항목이 있으면 `enroll`이다.", "같은 항목이 있으면 `neutral`이다."),
+            "달 이동 설명 삭제": ("이전·다음 달 이동과 목록 보기 전환은 받아 둔 응답으로 다시 그리고, ", ""),
+            "별도 소절로 옮김": ("- 출처 규칙:", "#### 가상 별도 절\n\n- 출처 규칙:"),
+            "중립 조건 넓힘": ("분류 단어도, 공식 주소와 정확히 같은 출처도 없을 때만", "출처가 비었으면"),
+            "요청 주소에서 학기 빠짐": ("`/api/v1/academic-calendar/{year}/{term}`", "`/api/v1/academic-calendar`"),
+        }
+        for case, (old, new) in cases.items():
+            with self.subTest(case=case):
+                self.assertFalse(self.rules_hold(self.changed(old, new)))
+
+    def test_other_service_url_fails(self):
+        self.assertNotIn(self.url.replace("https://", "http://"), "\n".join(rule_lines(self.url)))
+        moved = self.changed(f"`{self.url}`", "`https://example.invalid/ko/schedule_reg.do`")
+        self.assertFalse(self.rules_hold(moved))
+
+    def test_bare_angle_bracket_fails(self):
+        self.assertIsNotNone(inline_problem("- 가상 > 인용 표시"))
+        self.assertIsNotNone(inline_problem("- 가상 <b>글</b>"))
+        self.assertIsNone(inline_problem("- 가상 `a > b`와 `[data-kind]` 표기"))
+
+    def test_changed_css_comment_fails(self):
+        changed = self.changed("출처가 있을 때 enroll이다.", "출처가 있을 때 neutral이다.", self.css)
+        self.assertNotEqual(css_comment(changed, "/* 분류 색."), CSS_COMMENTS["/* 분류 색."])
 
 
 if __name__ == "__main__":
