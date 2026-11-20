@@ -2464,3 +2464,64 @@ test("영어·중국어 사전에 패드 문구가 모두 있다", () => {
   const dictionary = script.slice(0, script.indexOf("let uiLang"));
   for (const key of keys) assert.equal(dictionary.split(`"${key}":`).length - 1, 2, key);
 });
+
+// --- 넣기 시간 제한: chat.js 상수와 설계 문서의 초가 같은지 ------------------------------------
+// 절 경계는 줄 맨 앞 ##·###·#### 제목만 본다(#161 결정). 코드 울타리·인용·HTML 같은 마크다운 규칙은 흉내 내지 않는다.
+const notes = readFileSync(new URL("../../../web/docs/UI_NOTES.md", import.meta.url), "utf8");
+const PAD_HEADING = "## 손글씨 입력 필기 패드 (#134)";
+const INSERT_HEADING = "### 넣기";
+const boundary = /^#{2,4}(?:[ \t]|$)/;
+
+function timeoutDocProblems(scriptText, notesText) {
+  const problems = [];
+  const constants = [...scriptText.matchAll(/^const handwritingTimeoutMs = (\d+(?:_\d+)*);$/gm)];
+  if (constants.length !== 1) return [`handwritingTimeoutMs 상수 줄이 ${constants.length}개`];
+  const ms = Number(constants[0][1].replaceAll("_", ""));
+  if (ms % 1000 !== 0) return [`handwritingTimeoutMs ${ms}ms가 초 단위가 아님`];
+  const seconds = ms / 1000;
+
+  const lines = notesText.split(/\r?\n/);
+  const starts = lines.flatMap((line, index) => (line === INSERT_HEADING ? [index] : []));
+  if (starts.length !== 1) return [`${INSERT_HEADING} 줄이 ${starts.length}개`];
+  const start = starts[0];
+  const parent = lines.slice(0, start).reverse().find(line => /^##(?:[ \t]|$)/.test(line));
+  if (parent !== PAD_HEADING) problems.push(`${INSERT_HEADING} 위 ## 제목이 ${JSON.stringify(parent)}`);
+  let end = lines.findIndex((line, index) => index > start && boundary.test(line));
+  if (end === -1) end = lines.length;
+  const section = lines.slice(start + 1, end).join("\n");
+
+  const written = [...section.matchAll(/시간 제한 (\d+)초/g)].map(match => Number(match[1]));
+  if (!written.includes(seconds)) problems.push(`넣기 절에 "시간 제한 ${seconds}초"가 없음`);
+  for (const value of written) if (value !== seconds) problems.push(`넣기 절의 ${value}초가 상수 ${seconds}초와 다름`);
+  return problems;
+}
+
+test("넣기 시간 제한 상수와 설계 문서 「### 넣기」 절의 초가 같다", () => {
+  assert.deepEqual(timeoutDocProblems(script, notes), []);
+});
+
+test("넣기 시간 제한 상수나 문서 초가 한쪽만 바뀌면 검사가 잡는다(메모리 사본)", () => {
+  const constantLine = "const handwritingTimeoutMs = 30_000;";
+  const docPhrase = "시간 제한 30초";
+  assert.ok(script.includes(constantLine) && notes.includes(docPhrase), "변이 기준 문구가 그대로다");
+  const failing = {
+    "상수만 45초로 바꿈": [script.replace(constantLine, "const handwritingTimeoutMs = 45_000;"), notes],
+    "상수를 밑줄 없이 45초로 바꿈": [script.replace(constantLine, "const handwritingTimeoutMs = 45000;"), notes],
+    "문서만 45초로 바꿈": [script, notes.replace(docPhrase, "시간 제한 45초")],
+    "넣기 절에 다른 초를 더 적음": [script, notes.replace(docPhrase, `${docPhrase}. 시간 제한 45초`)],
+    "문서 문구를 지움": [script, notes.replace(docPhrase, "시간 제한")],
+    "문구 앞에 ### 제목을 끼움": [script, notes.replace(`  ${docPhrase}`, `### 가상 제목\n  ${docPhrase}`)],
+    "문구 앞에 ##\\t 제목을 끼움": [script, notes.replace(`  ${docPhrase}`, `##\t가상 제목\n  ${docPhrase}`)],
+    "문구 앞에 #### 제목을 끼움": [script, notes.replace(`  ${docPhrase}`, `####\n  ${docPhrase}`)],
+    "넣기 제목을 바꿈": [script, notes.replace(/^### 넣기$/m, "### 넣기 (가상)")],
+    "상수 줄이 둘": [`${script}\n${constantLine}`, notes],
+  };
+  for (const [name, [scriptText, notesText]] of Object.entries(failing)) {
+    assert.notEqual(scriptText + notesText, script + notes, `${name}: 사본이 실제로 바뀌었다`);
+    assert.notDeepEqual(timeoutDocProblems(scriptText, notesText), [], name);
+  }
+  // 상수와 문서를 함께 바꾸면 통과한다.
+  assert.deepEqual(timeoutDocProblems(
+    script.replace(constantLine, "const handwritingTimeoutMs = 45_000;"),
+    notes.replace(docPhrase, "시간 제한 45초")), []);
+});
