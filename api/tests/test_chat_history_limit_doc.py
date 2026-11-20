@@ -3,7 +3,8 @@
 표준 라이브러리만 쓰고 `web/docs/UI_NOTES.md` 한 파일만 읽는다.
 절은 `## 질문 수정·다시 답하기와 답변 버전 (#140)` 아래의 `### 기록 40개 한도와 차례 단위 자르기 (#170)`이다.
 절 범위는 그 제목 다음 줄부터 같은 수준 이상(`#`~`###`)의 다음 제목 앞까지이고, 안쪽 `####` 제목은 절에 포함한다.
-코드 블록 안 `#` 줄은 제목으로 보지 않고, HTML 주석 안 글은 화면에 보이지 않으므로 걷어 내고 읽는다.
+밑줄 제목(`===`는 1단계, `---`는 2단계)도 제목으로 센다. 코드 블록은 여는 울타리와 같은 문자, 같거나 긴 길이로만
+닫히고 그 안의 `#` 줄은 제목으로 보지 않는다. HTML 주석 안 글은 화면에 보이지 않으므로 걷어 내고 읽는다.
 """
 
 import re
@@ -16,9 +17,21 @@ UI_NOTES = ROOT / "web" / "docs" / "UI_NOTES.md"
 PARENT_HEADING = "## 질문 수정·다시 답하기와 답변 버전 (#140)"
 SECTION_HEADING = "### 기록 40개 한도와 차례 단위 자르기 (#170)"
 RULES_HEADING = "#### 전송 실패와 다시 시도 (#173)"
-# 마크다운 제목과 코드 울타리는 앞 공백 세 칸까지 허용한다. 네 칸부터는 들여쓴 코드다.
+# 마크다운 제목과 코드 울타리는 앞 공백 세 칸까지 허용한다. 네 칸부터는 들여쓴 코드다(CommonMark 기준).
 HEADING = re.compile(r" {0,3}(#{1,6})(?=[ \t]|$)")
-FENCE = re.compile(r" {0,3}(```|~~~)")
+# 여는 울타리는 같은 문자 세 개 이상이다. 백틱 울타리 뒤 설명 글에는 백틱이 올 수 없다.
+FENCE_OPEN = re.compile(r" {0,3}(`{3,}(?=[^`]*$)|~{3,})")
+# 밑줄 제목(setext): 글 줄 바로 아래의 `=` 줄은 1단계, `-` 줄은 2단계 제목이다.
+SETEXT = re.compile(r" {0,3}(=+|-+)[ \t]*$")
+# 목록·인용 줄 아래 밑줄은 제목이 아니다(`-`는 구분선, `=`는 이어 쓴 글).
+NOT_PARAGRAPH = re.compile(r" {0,3}([-*+][ \t]|\d{1,9}[.)][ \t]|>)")
+
+
+def closes_fence(line, opener):
+    """여는 울타리와 같은 문자로, 길이가 같거나 길고, 뒤에 공백만 있으면 닫는 울타리다."""
+    char, size = opener
+    match = re.fullmatch(rf" {{0,3}}({re.escape(char)}{{{size},}})[ \t]*", line)
+    return match is not None
 
 # 절에 꼭 남아야 하는 규칙 문구. 확정 기록 경계, 새 대화 예외, 실패 뒤 저장, 재시도 한 차례.
 REQUIRED = (
@@ -36,15 +49,30 @@ def visible_text(text):
 
 
 def headings(lines):
-    """코드 블록 밖 제목 줄의 (줄 번호, 수준) 목록."""
-    found, fenced = [], False
+    """코드 블록 밖 제목의 (제목 글 줄 번호, 수준) 목록. 밑줄 제목은 밑줄 위 글 줄 번호를 쓴다."""
+    found, opener, paragraph = [], None, False
     for index, line in enumerate(lines):
-        if FENCE.match(line):
-            fenced = not fenced
+        if opener:
+            if closes_fence(line, opener):
+                opener = None
             continue
-        match = None if fenced else HEADING.match(line)
-        if match:
-            found.append((index, len(match.group(1))))
+        fence = FENCE_OPEN.match(line)
+        if fence:
+            opener, paragraph = (fence.group(1)[0], len(fence.group(1))), False
+            continue
+        heading = HEADING.match(line)
+        if heading:
+            found.append((index, len(heading.group(1))))
+            paragraph = False
+            continue
+        underline = SETEXT.match(line)
+        if underline and paragraph:
+            found.append((index - 1, 1 if underline.group(1)[0] == "=" else 2))
+            paragraph = False
+            continue
+        # 빈 줄 다음의 네 칸 들여쓰기는 들여쓴 코드라 글 줄이 아니다.
+        indented_code = line.startswith("    ") and not paragraph
+        paragraph = bool(line.strip()) and not indented_code and not NOT_PARAGRAPH.match(line)
     return found
 
 
@@ -104,8 +132,17 @@ class ChatHistoryLimitDocTest(unittest.TestCase):
             # 네 칸부터는 들여쓴 코드라 절을 끊지 않는다.
             "들여쓴 코드": self.notes.replace(RULES_HEADING, f"    ### 들여쓴 코드\n\n{RULES_HEADING}", 1),
             "들여쓴 울타리 제목": self.notes.replace(RULES_HEADING, f"   ```\n### 가짜\n   ```\n\n{RULES_HEADING}", 1),
+            # `~~~`는 백틱 울타리를 닫지 못한다. 세 번째 줄이 울타리를 닫고 그 뒤 제목이 절을 끊는다.
+            "섞인 울타리": self.notes.replace(RULES_HEADING, f"```\n~~~\n```\n\n### 다른 절\n\n{RULES_HEADING}", 1),
+            # 짧은 울타리는 긴 울타리를 닫지 못하므로 그 안의 제목은 글이다.
+            "긴 울타리": self.notes.replace(RULES_HEADING, f"````\n```\n### 가짜\n````\n\n{RULES_HEADING}", 1),
+            "밑줄 2단계 제목": self.notes.replace(RULES_HEADING, f"다른 절\n-----------------\n\n{RULES_HEADING}", 1),
+            "밑줄 1단계 제목": self.notes.replace(RULES_HEADING, f"다른 장\n=======\n\n{RULES_HEADING}", 1),
+            # 빈 줄이나 목록 아래의 `---`는 구분선이라 절을 끊지 않는다.
+            "구분선": self.notes.replace(RULES_HEADING, f"---\n\n{RULES_HEADING}", 1),
+            "목록 아래 구분선": self.notes.replace(RULES_HEADING, f"- 가상 목록\n---\n\n{RULES_HEADING}", 1),
         }
-        passing = {"코드 블록 제목", "들여쓴 코드", "들여쓴 울타리 제목"}
+        passing = {"코드 블록 제목", "들여쓴 코드", "들여쓴 울타리 제목", "긴 울타리", "구분선", "목록 아래 구분선"}
         for case, modified in cases.items():
             with self.subTest(case=case):
                 self.assertNotEqual(modified, self.notes)
