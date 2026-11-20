@@ -86,7 +86,14 @@ test("응답 본문이나 글자 해독기가 없으면 실패한다", async () 
 function modePage(storage, reduced = false) {
   let focus = null;
   const timers = new Map(), events = new Map(), nodes = new Map();
-  let nextTimer = 0;
+  let nextTimer = 0, now = 0;
+  const motionListeners = new Set();
+  const motion = {
+    matches: reduced,
+    addEventListener(name, callback) {
+      if (name === "change") motionListeners.add(callback);
+    },
+  };
   class Node {
     children = []; attributes = new Map(); listeners = new Map(); dataset = {}; className = ""; hidden = false;
     style = { setProperty: (key, value) => this.attributes.set(key, value) };
@@ -108,7 +115,6 @@ function modePage(storage, reduced = false) {
     fire(name, values = {}) { const event = { target: this, preventDefault() {}, stopPropagation() {}, stopImmediatePropagation() {}, ...values }; this.listeners.get(name)?.(event); return event; }
     click() { this.fire("click"); }
     querySelector(selector) { return this.children.find(node => node.dataset.icon && selector.includes(node.dataset.icon)) || this.children.find(node => node.className.split(" ").includes(selector.slice(1))) || null; }
-    querySelectorAll(selector) { return this.children.filter(node => node.classList.contains(selector.slice(1))); }
     cloneNode() { const node = new Node(); node.className = this.className; node.dataset = { ...this.dataset }; return node; }
     getBoundingClientRect() { return { left: 280, right: 400, top: 500, bottom: 540, width: 120, height: 180 }; }
   }
@@ -121,9 +127,11 @@ function modePage(storage, reduced = false) {
   const document = { body, querySelector: get, get activeElement() { return focus; }, addEventListener: (name, callback) => events.set(name, callback) };
   const context = {
     document, window: { innerWidth: 800, innerHeight: 700, addEventListener() {} }, composer: get("#composer"),
-    historyStorage: () => storage, reducedMotion: () => reduced, within: (node, target) => node.contains(target),
+    historyStorage: () => storage, motionPreference: () => motion, reducedMotion: () => motion.matches,
+    within: (node, target) => node.contains(target),
     element(tag, className, text) { const node = new Node(); node.tag = tag; node.className = className || ""; node.textContent = text || ""; return node; },
-    setTimeout(callback, delay) { timers.set(++nextTimer, { callback, delay }); return nextTimer; }, clearTimeout: key => timers.delete(key),
+    setTimeout(callback, delay) { timers.set(++nextTimer, { callback, deadline: now + delay }); return nextTimer; },
+    clearTimeout: key => timers.delete(key),
   };
   const start = script.indexOf('const aiModeKey =');
   const end = script.indexOf('async function readChatStream(', start);
@@ -134,7 +142,25 @@ function modePage(storage, reduced = false) {
     mode: () => runInNewContext('aiMode', context), focus: () => focus,
     menu: () => body.children.find(node => node.classList.contains("choice-menu")),
     select(value) { button.click(); this.menu().children.find(node => node.dataset.choiceValue === value).click(); },
-    tick(ms) { for (const [key, timer] of timers) if (timer.delay <= ms) { timers.delete(key); timer.callback(); } },
+    tick(ms) {
+      const end = now + ms;
+      while (timers.size) {
+        const [key, timer] = [...timers].sort(([, a], [, b]) => a.deadline - b.deadline)[0];
+        if (timer.deadline > end) break;
+        now = timer.deadline;
+        timers.delete(key);
+        timer.callback();
+      }
+      now = end;
+    },
+    setReducedMotion(matches) {
+      motion.matches = matches;
+      for (const listener of motionListeners) listener({ matches });
+    },
+    setLanguage(lang) {
+      context.nextLanguage = lang;
+      runInNewContext("uiLang = nextLanguage; for (const listener of langListeners) listener();", context);
+    },
   };
 }
 
@@ -164,10 +190,8 @@ test("저장한 깊이 모드를 복원하고 빠르게 선택을 같은 키에 
   assert.equal(p.mode(), "deep");
   assert.equal(p.button.attributes.get("aria-label"), "답변 모드: 깊이 생각");
   assert.equal(p.row.classList.contains("is-deep"), true);
-  assert.equal(p.button.classList.contains("is-bursting"), false);
-  assert.equal(p.row.classList.contains("is-deep-enter"), false);
-  // 저장한 깊이 모드로 다시 열면 고정 테두리만 보이고 흐르는 테두리·빛줄기는 돌지 않는다(#137).
   assert.equal(p.button.classList.contains("is-flowing"), false);
+  assert.equal(p.timers.size, 0);
   p.select("fast");
   assert.equal(p.mode(), "fast");
   assert.deepEqual(writes, [["kumoh-chat-ai-mode:v1", "fast"]]);
@@ -239,26 +263,66 @@ test("잘못된 저장값·읽기 실패·쓰기 실패는 모든 표시를 빠�
   assert.deepEqual(choiceItems(p).map(node => node.attributes.get("aria-checked")), ["true", "false"]);
 });
 
-test("깊이 선택 효과는 정해진 시간 뒤 끝나고 움직임 줄이기는 고정 표시만 남긴다", () => {
-  const storage = { getItem: () => null, setItem() {} };
-  const p = modePage(storage);
+test("깊이 생각 진입 효과는 정리 타이머 하나로 280ms에 끝난다", () => {
+  const p = modePage({ getItem: () => null, setItem() {} });
   p.select("deep");
-  assert.equal(p.button.classList.contains("is-bursting"), true);
   assert.equal(p.button.classList.contains("is-flowing"), true);
-  assert.equal(p.row.classList.contains("is-deep-enter"), true);
-  assert.ok(p.button.children.filter(node => node.classList.contains("mode-spark")).length >= 6);
-  p.tick(700);
-  assert.equal(p.button.classList.contains("is-bursting"), false);
-  // 흐르는 테두리도 효과 시간이 끝나면 뗀다. 깊이 모드를 오래 두어도 테두리가 계속 움직이지 않는다.
+  assert.equal(p.timers.size, 1);
+  p.tick(279);
+  assert.equal(p.button.classList.contains("is-flowing"), true);
+  assert.equal(p.timers.size, 1);
+  p.tick(1);
   assert.equal(p.button.classList.contains("is-flowing"), false);
-  p.tick(900);
-  assert.equal(p.row.classList.contains("is-deep-enter"), false);
-  const still = modePage(storage, true);
-  still.select("deep");
-  assert.equal(still.row.classList.contains("is-deep"), true);
-  for (const name of ["is-bursting", "is-flowing"]) assert.equal(still.button.classList.contains(name), false);
-  assert.equal(still.row.classList.contains("is-deep-enter"), false);
-  assert.equal(still.button.children.filter(node => node.classList.contains("mode-spark")).length, 0);
+  assert.equal(p.timers.size, 0);
+  assert.equal(p.row.classList.contains("is-deep"), true);
+});
+
+test("빠르게 전환하면 즉시 정리하고 첫 마감 시각은 두 번째 효과에 영향을 주지 않는다", () => {
+  const p = modePage({ getItem: () => null, setItem() {} });
+  p.select("deep");
+  p.tick(100);
+  p.select("fast");
+  assert.equal(p.button.classList.contains("is-flowing"), false);
+  assert.equal(p.timers.size, 0);
+  p.select("deep");
+  assert.equal(p.timers.size, 1);
+  p.tick(180);
+  assert.equal(p.button.classList.contains("is-flowing"), true);
+  assert.equal(p.timers.size, 1);
+  p.tick(100);
+  assert.equal(p.button.classList.contains("is-flowing"), false);
+  assert.equal(p.timers.size, 0);
+});
+
+test("동작 줄이기를 켜면 즉시 정리하고 다시 꺼도 효과를 재생하지 않는다", () => {
+  const p = modePage({ getItem: () => null, setItem() {} });
+  p.select("deep");
+  assert.equal(p.button.classList.contains("is-flowing"), true);
+  p.setReducedMotion(true);
+  assert.equal(p.button.classList.contains("is-flowing"), false);
+  assert.equal(p.timers.size, 0);
+  p.select("fast");
+  p.select("deep");
+  assert.equal(p.button.classList.contains("is-flowing"), false);
+  assert.equal(p.timers.size, 0);
+  p.setReducedMotion(false);
+  assert.equal(p.button.classList.contains("is-flowing"), false);
+  assert.equal(p.timers.size, 0);
+  assert.equal(p.row.classList.contains("is-deep"), true);
+});
+
+test("깊이 생각을 다시 선택하거나 언어를 바꿀 때 효과를 재생하지 않는다", () => {
+  const p = modePage({ getItem: () => "deep", setItem() {} });
+  p.select("deep");
+  assert.equal(p.button.classList.contains("is-flowing"), false);
+  assert.equal(p.timers.size, 0);
+  p.select("fast");
+  p.select("deep");
+  assert.equal(p.button.classList.contains("is-flowing"), true);
+  p.setLanguage("en");
+  assert.equal(p.label.textContent, "Deep");
+  assert.equal(p.button.classList.contains("is-flowing"), false);
+  assert.equal(p.timers.size, 0);
 });
 
 test("메뉴 좌표는 버튼 위와 화면 가장자리 16px 안으로 보정한다", () => {

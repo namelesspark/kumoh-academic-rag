@@ -2649,9 +2649,15 @@ function setupAiMode() {
   const row = document.querySelector(".composer-row"), label = button.querySelector(".mode-pill-label");
   const icons = ["fast", "deep"].map(value => button.querySelector(`.mode-icon[data-icon=${value}]`));
   if (!row || !label || icons.some(icon => !icon)) return;
-  let effectVersion = 0;
+  let effectTimer;
+  function stopEffect() {
+    clearTimeout(effectTimer);
+    effectTimer = undefined;
+    button.classList.remove("is-flowing");
+  }
   function render(animate = false) {
-    const version = ++effectVersion, deep = aiMode === "deep";
+    stopEffect();
+    const deep = aiMode === "deep";
     button.dataset.mode = aiMode;
     button.setAttribute("aria-label", t("답변 모드: {name}", { name: t(deep ? "깊이 생각" : "빠르게") }));
     if (label) label.textContent = t(deep ? "깊이 생각" : "빠르게");
@@ -2661,19 +2667,16 @@ function setupAiMode() {
       else icon.removeAttribute("hidden");
     });
     row?.classList.toggle("is-deep", deep);
-    button.classList.remove("is-bursting", "is-flowing"); row?.classList.remove("is-deep-enter");
-    button.querySelectorAll(".mode-spark").forEach(spark => spark.remove());
-    // 효과는 학생이 깊이 모드를 새로 고른 때 한 번만 돈다(#137). 저장해 둔 깊이 모드로 다시 열거나 언어를 바꿔 다시 그릴 때는
-    // 고정 테두리만 보이고, 흐르는 테두리·빛줄기도 효과 시간이 끝나면 떼어 계속 움직이지 않는다.
     if (!deep || reducedMotion() || !animate) return;
-    button.classList.add("is-flowing", "is-bursting"); row?.classList.add("is-deep-enter");
-    // 조각 모양은 chat.css의 clip-path가 그린다. 글자 기호를 넣지 않아 글꼴마다 다른 별 그림이 섞이지 않는다.
-    const sparks = Array.from({ length: 7 }, () => element("span", "mode-spark"));
-    sparks.forEach(spark => { spark.setAttribute("aria-hidden", "true"); button.append(spark); });
-    setTimeout(() => { sparks.forEach(spark => spark.remove()); if (version === effectVersion) button.classList.remove("is-bursting", "is-flowing"); }, 700);
-    setTimeout(() => { if (version === effectVersion) row?.classList.remove("is-deep-enter"); }, 450);
+    button.classList.add("is-flowing");
+    effectTimer = setTimeout(stopEffect, 280);
   }
   render();
+  if (typeof motionPreference === "function") {
+    motionPreference()?.addEventListener?.("change", event => {
+      if (event.matches) stopEffect();
+    });
+  }
   // 언어를 바꾸면 효과 없이 이름만 다시 그린다.
   onLangChange(() => render());
   function open() {
