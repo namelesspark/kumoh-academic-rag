@@ -6,12 +6,14 @@
 문장이 손글씨 패드 절의 「### 넣기」 절에 글자 그대로 한 번씩 있고, 옛 문장이 없고, 「30초」가 이 절에
 한 번만 나오는지 본다.
 
-절의 경계는 렌더링하면 제목으로 보일 수 있는 줄이다. 규칙은 CommonMark 0.31.2를 따른다: `#` 제목(앞
-공백 0~3칸, `#` 1~6개, 그 뒤 공백·탭·줄 끝), 밑줄형 제목(글 줄 아래 `===`·`---`), 인용·목록 안의
-제목, `<h1>`~`<h6>` HTML 제목. 교차 검토에서 제목 모양을 하나씩 놓쳐(탭 뒤 `##`, 들여쓴 `####`,
-밑줄형 제목) 판정을 `headings` 하나로 모으고, 애매한 줄은 경계로 보는 엄격한 쪽을 골랐다.
-코드 울타리(```·~~~) 안의 줄은 제목이 아니다. 저장소와 표준 라이브러리에 마크다운 파서가 없어,
-필요한 규칙만 옮겼다.
+절을 자르는 규칙은 두 가지다. 마크다운 렌더링과 어긋나면 검사가 틀린 쪽으로 통과하지 않고 실패하게 한다.
+1. 경계는 넓게 잡는다. 렌더링에서 제목으로 보일 수 있는 줄은 모두 절 경계다(CommonMark 0.31.2의
+   `#` 제목, 밑줄형 제목, 인용·목록 안 제목, `<h1>`~`<h6>`). 코드 울타리 안의 줄도 경계로 본다.
+2. 제목을 가리는 구조는 해석하지 않는다. 넣기 절 끝까지 HTML 주석이나 HTML 블록이 있거나, 들여쓰거나
+   인용·목록 안에 둔 코드 울타리가 있으면 판정하지 않고 실패한다. 패드 절과 넣기 절의 머리는 첫 칸에서
+   시작하는 `#` 제목이어야 하고, 열린 코드 울타리 안에 있으면 안 된다.
+교차 검토에서 제목을 가리는 구조(인용 안 울타리)를 흉내 내다 구멍이 났다. 그래서 이 구조는 흉내 내지 않고
+거부한다. 저장소와 표준 라이브러리에 마크다운 파서가 없고, `UI_NOTES.md`에는 2번에 걸리는 줄이 없다.
 
 표준 라이브러리만 쓰고 `web/docs/UI_NOTES.md` 하나만 읽는다.
 
@@ -41,22 +43,16 @@ OLD_SENTENCE = "시간 제한은 30초다."
 ATX_HEADING = re.compile(r" {0,3}(#{1,6})(?:[ \t]+(.*))?[ \t]*\Z")
 # 닫는 `#` 줄: 앞에 공백·탭이 있거나 내용 전체가 `#`일 때만 떼어 낸다(`foo#`은 그대로 둔다).
 CLOSING_SEQUENCE = re.compile(r"(?:\A|[ \t]+)#+[ \t]*\Z")
-# CommonMark 0.31.2 §4.5 코드 울타리. 백틱 울타리의 정보 문자열에는 백틱이 올 수 없다.
-FENCE_OPEN = re.compile(r" {0,3}(`{3,}(?=[^`]*\Z)|~{3,})")
 # §4.3 밑줄형(setext) 제목의 밑줄. `=`는 1단계, `-`는 2단계다.
 SETEXT_UNDERLINE = re.compile(r" {0,3}(?:=+|-+)[ \t]*")
 # §5.1·§5.2 인용(`>`)과 목록(`-`·`+`·`*`·`1.`·`1)`) 표시. 그 뒤 글은 같은 규칙으로 제목이 될 수 있다.
 CONTAINER = re.compile(r"(?: {0,3}(?:>[ \t]?|(?:[-+*]|[0-9]{1,9}[.)])(?:[ \t]+|\Z)))*")
 # §4.6 HTML 블록 중 제목 태그.
 HTML_HEADING = re.compile(r" {0,3}<h([1-6])(?=[\s/>]|\Z)", re.IGNORECASE)
-
-
-def visible_text(text):
-    """HTML 주석(`<!-- … -->`)을 걷어 낸 글. 닫히지 않은 주석은 문서 끝까지 숨은 것으로 본다.
-
-    주석 안 글은 렌더링한 문서에 보이지 않는다. 그 안에 문장을 숨기고 검사를 통과하면 안 된다.
-    """
-    return re.sub(r"<!--.*?(?:-->|\Z)", "", text, flags=re.DOTALL)
+# §4.5 코드 울타리. 첫 칸~셋째 칸에서 시작하고 인용·목록 표시가 없는 것만 해석한다.
+PLAIN_FENCE = re.compile(r" {0,3}(`{3,}|~{3,})")
+# 위치와 상관없이 울타리처럼 보이는 줄. PLAIN_FENCE가 아니면 판정하지 않는다.
+FENCE_LIKE = re.compile(r"[ \t]*(?:`{3,}|~{3,})")
 
 
 def atx_heading(line):
@@ -74,36 +70,26 @@ def html_heading(line):
     return None if match is None else (int(match.group(1)), "")
 
 
-def headings(text):
-    """코드 울타리 밖에서 제목으로 보일 수 있는 줄을 (시작 위치, 단계, 제목 글)로 차례대로 돌려준다.
-
-    교차 검토에서 제목 모양을 하나씩 놓쳤다(탭 뒤 `##`, 들여쓴 `####`, 밑줄형 제목). 그래서 모양을
-    좁게 고르지 않고, 렌더링에서 제목이 될 수 있는 줄을 모두 경계로 본다.
-    - ATX 제목(`## 글`)과 HTML 제목(`<h2>`). 인용(`>`)·목록(`-`·`1.`) 표시 뒤에 와도 제목이다.
-    - 밑줄형 제목: 빈 줄이 아닌 글 줄 바로 아래의 `===`·`---` 줄. 시작 위치는 밑줄 위 글 줄의 첫 줄이다.
-      목록 바로 아래 `---`처럼 실제로는 가로줄인 경우도 경계로 본다. 넓게 잡으면 검사가 엄격해질
-      뿐이고, `UI_NOTES.md`에는 이런 줄이 없다.
-    빈 줄·제목·울타리 바로 뒤의 `---`는 가로줄(thematic break)이라 경계가 아니다.
-    """
-    found = []
-    fence = None  # 열린 울타리의 (글자, 길이)
-    paragraph = None  # 열린 글 덩어리의 (시작 위치, [줄])
+def lines_with_offsets(text):
+    """(시작 위치, 개행을 뗀 줄)을 차례대로 돌려준다."""
     offset = 0
     for raw in text.splitlines(keepends=True):
-        line = raw.rstrip("\r\n")
+        yield offset, raw.rstrip("\r\n")
+        offset += len(raw)
+
+
+def headings(text):
+    """제목으로 보일 수 있는 줄을 (시작 위치, 단계, 제목 글)로 차례대로 돌려준다.
+
+    - `#` 제목과 `<h1>`~`<h6>`. 인용(`>`)·목록(`-`·`1.`) 표시 뒤에 와도 제목이다.
+    - 밑줄형 제목: 빈 줄이 아닌 글 줄 바로 아래의 `===`·`---` 줄. 시작 위치는 밑줄 위 글 덩어리의 첫 줄이다.
+    - 코드 울타리 안도 가리지 않는다. 경계를 넓게 잡으면 검사가 엄격해질 뿐이다.
+    빈 줄·제목 바로 뒤의 `---`는 가로줄(thematic break)이라 경계가 아니다.
+    """
+    found = []
+    paragraph = None  # 열린 글 덩어리의 (시작 위치, [줄])
+    for start, line in lines_with_offsets(text):
         inner = line[CONTAINER.match(line).end():]
-        start, offset = offset, offset + len(raw)
-        if fence is not None:
-            char, size = fence
-            closing = re.compile(r" {0,3}" + re.escape(char) + "{" + str(size) + r",}[ \t]*")
-            if closing.fullmatch(line) or closing.fullmatch(inner):
-                fence = None
-            continue
-        opened = FENCE_OPEN.match(inner)
-        if opened is not None:
-            marks = opened.group(1)
-            fence, paragraph = (marks[0], len(marks)), None
-            continue
         # 밑줄을 빈 줄보다 먼저 본다. `-` 한 글자 줄은 목록 표시로 걷히면 빈 줄이 된다.
         underline = SETEXT_UNDERLINE.fullmatch(line) or SETEXT_UNDERLINE.fullmatch(inner)
         if underline is not None and paragraph is not None:
@@ -127,18 +113,51 @@ def headings(text):
     return found
 
 
+def check_unhidden(text, end, anchors):
+    """`text[:end]`에 제목을 가릴 수 있는 구조가 없고, `anchors` 위치가 코드 울타리 밖인지 본다.
+
+    가릴 수 있는 구조는 해석하지 않고 `ValueError`로 거부한다. HTML 주석·HTML 블록, 들여쓰거나
+    인용·목록 안에 둔 코드 울타리가 그렇다. 첫 칸 쪽 울타리는 여닫는 글자와 길이를 맞춰 따라간다.
+    """
+    fence = None  # 열린 울타리의 (글자, 길이)
+    for start, line in lines_with_offsets(text[:end]):
+        if start in anchors and fence is not None:
+            raise ValueError("절 머리가 코드 울타리 안에 있다")
+        if "<!--" in line or "-->" in line:
+            raise ValueError("HTML 주석은 판정하지 않는다")
+        inner = line[CONTAINER.match(line).end():]
+        if fence is None and inner.lstrip(" \t").startswith("<"):
+            raise ValueError("HTML 블록은 판정하지 않는다")
+        if FENCE_LIKE.match(inner) is None:
+            continue
+        plain = PLAIN_FENCE.match(line)
+        if plain is None:
+            raise ValueError("들여쓰거나 인용·목록 안에 둔 코드 울타리는 판정하지 않는다")
+        marks, rest = plain.group(1), line[plain.end():]
+        if fence is None:
+            if marks[0] == "`" and "`" in rest:
+                raise ValueError("백틱이 든 울타리 정보 문자열은 판정하지 않는다")
+            fence = (marks[0], len(marks))
+        elif marks[0] == fence[0] and len(marks) >= fence[1] and not rest.strip(" \t"):
+            fence = None
+
+
 def section(text, title, within=(0, None)):
     """`title`(단계, 글) 제목부터 같거나 높은 단계의 다음 제목 앞까지를 (시작, 끝)으로 돌려준다.
 
-    `within` 범위 안의 제목만 본다. 범위 끝을 넘지 않는다.
+    `within` 범위 안의 제목만 본다. 범위 끝을 넘지 않는다. 머리는 첫 칸에서 시작하는 `#` 제목이어야 한다.
     """
     lo, hi = within
     hi = len(text) if hi is None else hi
     marks = [h for h in headings(text) if lo <= h[0] < hi]
     for index, (start, level, content) in enumerate(marks):
-        if (level, content) == title:
-            end = next((s for s, lv, _ in marks[index + 1:] if lv <= level), hi)
-            return start, end
+        if (level, content) != title:
+            continue
+        line = text[start:].split("\n", 1)[0].rstrip("\r")
+        if not line.startswith("#") or atx_heading(line) != title:
+            raise ValueError(f"{'#' * title[0]} {title[1]} 머리가 첫 칸의 # 제목이 아니다")
+        end = next((s for s, lv, _ in marks[index + 1:] if lv <= level), hi)
+        return start, end
     raise ValueError(f"{'#' * title[0]} {title[1]} 절이 없다")
 
 
@@ -146,18 +165,19 @@ def insert_section(text):
     """손글씨 패드 절 안의 `### 넣기` 머리부터 다음 제목(단계 무관) 앞까지를 돌려준다.
 
     패드 절은 다음 `#`·`##` 제목에서 끝난다. 넣기 절은 그 안에서만 찾고, 바로 아래 `####` 같은
-    더 낮은 제목에서도 끝낸다. 하위 절의 글을 넣기 절 글로 세면 안 된다.
+    더 낮은 제목에서도 끝낸다. 문서 처음부터 넣기 절 끝까지 `check_unhidden`을 통과해야 한다.
     """
     pad = section(text, PAD_TITLE)
     start, _ = section(text, SECTION_TITLE, within=pad)
     following = next((s for s, _, _ in headings(text) if start < s < pad[1]), pad[1])
+    check_unhidden(text, following, {pad[0], start})
     return text[start:following]
 
 
-class AtxHeadingTest(unittest.TestCase):
+class HeadingRuleTest(unittest.TestCase):
     """제목 판정 규칙을 CommonMark 0.31.2 예시와 같은 모양의 가상 줄로 확인한다."""
 
-    def test_headings(self):
+    def test_atx_headings(self):
         self.assertEqual(atx_heading("## 다른 절"), (2, "다른 절"))
         self.assertEqual(atx_heading("##\t다른 절"), (2, "다른 절"))
         self.assertEqual(atx_heading("  #### 다음 절"), (4, "다음 절"))
@@ -166,7 +186,7 @@ class AtxHeadingTest(unittest.TestCase):
         self.assertEqual(atx_heading("##"), (2, ""))
         self.assertEqual(atx_heading("### ###"), (3, ""))
 
-    def test_not_headings(self):
+    def test_not_atx_headings(self):
         self.assertIsNone(atx_heading("#5 bolt"))
         self.assertIsNone(atx_heading("####### 일곱"))
         self.assertIsNone(atx_heading("    ## 코드 들여쓰기"))
@@ -174,10 +194,6 @@ class AtxHeadingTest(unittest.TestCase):
     def test_closing_sequence_needs_space_before_it(self):
         self.assertEqual(atx_heading("## 제목#"), (2, "제목#"))
         self.assertEqual(atx_heading("## 제목 \\#"), (2, "제목 \\#"))
-
-    def test_fenced_lines_are_not_headings(self):
-        doc = "## 가\n```text\n## 울타리 안\n````\n## 나\n~~~~\n# 안\n~~~\n# 안2\n~~~~\n### 다\n"
-        self.assertEqual([(lv, t) for _, lv, t in headings(doc)], [(2, "가"), (2, "나"), (3, "다")])
 
     def test_setext_quoted_listed_and_html_headings(self):
         doc = (
@@ -197,9 +213,14 @@ class AtxHeadingTest(unittest.TestCase):
         # 빈 줄·제목 바로 뒤의 `---`와 `- - -`는 가로줄이다.
         self.assertEqual([(lv, t) for _, lv, t in headings("### 위\n---\n\n---\n- - -\n***\n")], [(3, "위")])
 
+    def test_fenced_heading_like_lines_still_count(self):
+        # 울타리 안 줄도 경계로 본다(엄격한 쪽).
+        doc = "## 가\n```text\n## 울타리 안\n```\n"
+        self.assertEqual([(lv, t) for _, lv, t in headings(doc)], [(2, "가"), (2, "울타리 안")])
+
 
 class InsertSectionTest(unittest.TestCase):
-    """절 자르기와 주석 걷기를 가상 문서로 확인한다. 교차 검토 재현 다섯 가지를 함께 둔다."""
+    """절 자르기를 가상 문서로 확인한다. 교차 검토 재현 여섯 가지를 함께 둔다."""
 
     def test_section_stops_at_next_heading(self):
         doc = f"{PAD_HEADING}\n\n{SECTION_HEADING}\n\n- 가\n\n### 대비\n\n- 30초\n"
@@ -258,6 +279,18 @@ class InsertSectionTest(unittest.TestCase):
             [(2, PAD_TITLE[1]), (3, "넣기"), (2, "다른 절")],
         )
 
+    def test_quoted_fence_reproduction_from_review(self):
+        # 교차 검토 재현 6: 넣기 아래 인용 안 울타리(`> ~~~`)를 닫지 않고, 빈 줄 뒤 `####` 절로 두 문장을 옮긴 문서.
+        doc = (
+            f"{PAD_HEADING}\n\n{SECTION_HEADING}\n> ~~~\n> 예시\n\n#### 다른 절\n\n"
+            f"- {SCOPE_SENTENCE} {LATE_SENTENCE}\n"
+        )
+        self.assert_sentences_not_in_insert_section(doc)
+
+    def test_fenced_heading_like_line_ends_section(self):
+        doc = f"{PAD_HEADING}\n\n{SECTION_HEADING}\n\n```text\n#### 코드\n```\n\n- {SCOPE_SENTENCE}\n"
+        self.assertNotIn(SCOPE_SENTENCE, insert_section(doc))
+
     def test_thematic_break_does_not_end_section(self):
         for doc in (
             f"{PAD_HEADING}\n\n{SECTION_HEADING}\n\n---\n\n- 끝 문장\n",
@@ -266,21 +299,53 @@ class InsertSectionTest(unittest.TestCase):
             with self.subTest(doc=doc):
                 self.assertIn("- 끝 문장", insert_section(doc))
 
-    def test_fenced_heading_does_not_end_section(self):
-        doc = f"{PAD_HEADING}\n\n{SECTION_HEADING}\n\n```text\n## 코드\n```\n\n- 끝 문장\n\n### 대비\n"
-        part = insert_section(doc)
-        self.assertIn("- 끝 문장", part)
-        self.assertNotIn("대비", part)
+    def test_plain_fences_before_the_section_are_followed(self):
+        doc = f"```text\n## 코드\n````\n~~~\n```\n~~~~\n\n{PAD_HEADING}\n\n{SECTION_HEADING}\n\n- 끝 문장\n"
+        self.assertIn("- 끝 문장", insert_section(doc))
 
-    def test_comments_hide_sentences(self):
-        self.assertNotIn(SCOPE_SENTENCE, visible_text(f"<!-- {SCOPE_SENTENCE} -->"))
-        self.assertNotIn(LATE_SENTENCE, visible_text(f"<!-- 닫지 않은 주석\n{LATE_SENTENCE}"))
+
+class HiddenStructureTest(unittest.TestCase):
+    """제목을 가릴 수 있는 구조는 해석하지 않고 거부하는지 가상 문서로 확인한다."""
+
+    def assert_rejected(self, before="", inside=""):
+        doc = f"{before}{PAD_HEADING}\n\n{SECTION_HEADING}\n\n{inside}- {SCOPE_SENTENCE} {LATE_SENTENCE}\n"
+        with self.assertRaises(ValueError):
+            insert_section(doc)
+
+    def test_unclosed_fence_hides_the_anchor(self):
+        self.assert_rejected(before="```text\n")
+        self.assert_rejected(before="~~~~\n~~~\n")
+        self.assert_rejected(before="````\n```\n")  # 더 긴 울타리 안의 짧은 줄은 닫지 않는다.
+        self.assert_rejected(before="~~~\n```\n")  # 다른 글자 줄도 닫지 않는다.
+
+    def test_indented_quoted_or_listed_fences(self):
+        for fence in ("> ~~~\n> 예시\n\n", "- ```\n  예시\n\n", "    ```\n", "  ```\n  ```\n  > ```\n"):
+            with self.subTest(fence=fence):
+                self.assert_rejected(inside=fence)
+                self.assert_rejected(before=fence)
+
+    def test_html_comments_and_blocks(self):
+        for html in ("<!--\n", "<!-- 숨김 -->\n", "-->\n", "<div>\n", "> <details>\n"):
+            with self.subTest(html=html):
+                self.assert_rejected(before=html)
+                self.assert_rejected(inside=html)
+
+    def test_anchor_must_be_a_first_column_atx_heading(self):
+        for pad in ("> " + PAD_HEADING, "- " + PAD_HEADING, " " + PAD_HEADING, PAD_TITLE[1] + "\n---"):
+            with self.subTest(pad=pad):
+                doc = f"{pad}\n\n{SECTION_HEADING}\n\n- 끝 문장\n"
+                with self.assertRaises(ValueError):
+                    insert_section(doc)
+
+    def test_structures_after_the_section_are_not_checked(self):
+        doc = f"{PAD_HEADING}\n\n{SECTION_HEADING}\n\n- 끝 문장\n\n### 대비\n\n<!-- 뒤 -->\n> ```\n"
+        self.assertIn("- 끝 문장", insert_section(doc))
 
 
 class HandwritingTimeoutDocTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.section = insert_section(visible_text(UI_NOTES.read_text(encoding="utf-8")))
+        cls.section = insert_section(UI_NOTES.read_text(encoding="utf-8"))
 
     def test_section_is_the_pad_insert_section(self):
         self.assertTrue(self.section.startswith(SECTION_HEADING))
