@@ -1449,6 +1449,35 @@ test("칸 밖까지 그은 뒤 칸을 넓히고 같은 화면 자리에서 압�
   assert.deepEqual([page.exports[0].canvas.width, page.exports[0].canvas.height], [87, 70]);
 });
 
+test("칸을 넓힌 뒤 옛 경계 밖에서 압력만 올려도 화면과 인식용 그림의 기존 잉크 굵기는 유지된다", async () => {
+  async function draw(raisePressure) {
+    const page = loadPad();
+    page.button.click();
+    const pen = { id: 27, kind: "pen", y: 30 };
+    page.pointer("pointerdown", { ...pen, x: 590, pressure: 0.1 });
+    page.pointer("pointermove", { ...pen, x: 600.5, pressure: 0.1 });
+    Object.assign(page.canvasRect, { width: 750, right: 850 });
+    page.resize();
+    if (raisePressure) page.pointer("pointermove", { ...pen, x: 600.5, pressure: 1 });
+    page.pointer("pointerup", { ...pen, x: 600.5, pressure: 0 });
+
+    const beforeRedraw = page.canvas.log.length;
+    Object.assign(page.canvasRect, { width: 751, right: 851 });
+    page.resize();
+    const screen = page.canvas.log.slice(beforeRedraw)
+      .filter(([command, property]) => command === "arc" || command === "lineTo" || (command === "set" && property === "lineWidth"));
+    page.respond(ok("가상"));
+    page.insert.click();
+    await settle();
+    const { log, width, height } = page.exports[0].canvas;
+    return { screen, image: { log, width, height } };
+  }
+
+  const control = await draw(false);
+  assert.ok(control.screen.some(([command, x]) => command === "lineTo" && x === 600.5));
+  assert.deepEqual(await draw(true), control);
+});
+
 test("칸 안 마지막 잉크에서 압력만 바꾸면 그 잉크를 기록할 때의 칸으로 굵기만 갱신한다", () => {
   const page = loadPad();
   page.button.click();
