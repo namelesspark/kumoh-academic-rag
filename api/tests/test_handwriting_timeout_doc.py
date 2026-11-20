@@ -86,10 +86,12 @@ def focus_doc_problems(text):
     if problem:
         return [f"{FOCUS_RULE}: {problem}"]
     lines = section.splitlines()
+    # 줄바꿈과 들여쓰기로 나눠 적은 복제본도 같은 문장으로 센다.
+    flat = re.sub(r"\s+", " ", section)
     problems = []
     for sentence in (FOCUS_INSIDE_SENTENCE, FOCUS_OUTSIDE_SENTENCE):
         items = [index for index, line in enumerate(lines) if line == f"- {sentence}"]
-        if len(items) != 1 or section.count(sentence) != 1:
+        if len(items) != 1 or flat.count(sentence) != 1:
             problems.append(f"{FOCUS_RULE}: 「넣기」 절에 '- {sentence}' 한 줄 항목이 한 번 있어야 한다.")
             continue
         following = lines[items[0] + 1] if items[0] + 1 < len(lines) else ""
@@ -180,6 +182,18 @@ class HandwritingFailureFocusDocTest(unittest.TestCase):
                     modified = self.doc.replace(item, replacement, 1)
                     self.assertNotEqual(modified, self.doc)
                     self.assertTrue(focus_doc_problems(modified))
+
+    def test_rejects_duplicate_split_across_lines(self):
+        # 항목을 바로 위에 복제하고 복제본의 「패드 」를 줄바꿈과 두 칸 들여쓰기로 나눠도 실패한다.
+        for sentence in (FOCUS_INSIDE_SENTENCE, FOCUS_OUTSIDE_SENTENCE):
+            with self.subTest(sentence=sentence):
+                item = f"- {sentence}"
+                copy = item.replace("패드 ", "패드\n  ", 1)
+                self.assertNotEqual(copy, item)
+                modified = self.doc.replace(item, f"{copy}\n{item}", 1)
+                problems = focus_doc_problems(modified)
+                self.assertTrue(problems)
+                self.assertTrue(all(p.startswith(f"{FOCUS_RULE}: ") for p in problems), problems)
 
     def test_rejects_old_sentence_split_across_lines(self):
         split = OLD_FOCUS_SENTENCE.replace("뒤 넣기", "뒤\n  넣기")
