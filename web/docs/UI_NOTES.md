@@ -1679,3 +1679,37 @@ node --test api/tests/web/campus_backdrop.test.mjs api/tests/web/chat_layout.tes
   앞선 재현 사례도 `test_earlier_cross_review_repros_stay_fixed`에 함께 둔다.
 - `test_chat_versions_style.py`의 #140 절 범위는 #143 머리 주석에서 끝나게 고쳤다. 전에는 파일 끝까지라 뒤에 붙인 절이 #140 규칙으로 검사됐다.
 - 배치와 대비는 선언과 색 계산으로만 확인했고, 브라우저에서 직접 재지는 않았다.
+
+## 빠른 실행 링 예약 규칙 (#137)
+
++ 버튼을 빠르게 열고 닫으면 이전 열기가 남긴 화면 갱신 콜백과 타이머가 새 펼침에 늦게 도착할 수 있다(#164).
+예약 번호를 한 칸에만 두면 두 번째 예약이 첫 번호를 덮어써 첫 예약을 지울 길이 없으므로, 번호 대신 회차로 막는다.
+
+### 회차
+
+- 링을 열 때마다 회차 번호를 하나 올린다. 열기 콜백, 본문이 바뀔 때 거는 재배치 콜백, 누름 허용 타이머, 숨김 타이머는 건 때의 회차를 기억한다.
+- 도착했을 때 회차가 지금과 다르면 아무 상태도 바꾸지 않는다. 지난 회차의 콜백이 `data-open`·`data-settled`·`hidden`을 건드리지 못한다.
+- 닫을 때는 걸어 둔 열기 콜백·재배치 콜백·누름 허용 타이머를 지운다. `cancelAnimationFrame`은 있을 때만 부른다.
+- 채팅 화면에서 홈 전환을 기다리는 실행의 `waiting` 번호 규칙은 따로 두며 이 회차와 섞지 않는다.
+
+### 시간
+
+- 누름 허용 290ms: 방울이 + 가운데에서 출발해 다 펼쳐질 때까지 `data-settled`를 붙이지 않는다. 값은 `settleMs`다.
+- 누름 허용 타이머는 함수 하나에서만 건다. 열기 콜백과 `resettle()`이 같은 함수를 쓰고, 새로 걸기 전에 앞 타이머를 지운다.
+- 숨김 300ms: 닫힘 전환이 끝난 뒤 `hidden`을 붙인다. 값은 `closeMs`다.
+- `requestAnimationFrame`이 없는 브라우저에서는 16ms 대체 타이머로 열기 콜백을 부른다. 이 타이머도 회차를 확인하고, 닫을 때 지운다.
+
+### 동작 줄이기
+
+- 열기 콜백을 기다리는 중이나 펼침 중에 `prefers-reduced-motion`을 켜면 곧바로 `data-open`과 `data-settled`가 붙는다.
+- 닫히는 중에 켜면 숨김 타이머를 기다리지 않고 곧바로 `hidden`이 된다.
+- 설정을 다시 꺼도 이미 끝난 전환은 다시 돌지 않는다.
+
+### 초점
+
+- Esc로 닫으면 초점이 + 버튼으로 돌아오고 `aria-expanded`는 `false`가 된다.
+
+### 검사
+
+- `api/tests/test_quick_ring_doc.py`가 이 절이 한 번 있는지, 절 안의 누름 허용·숨김 ms 숫자가 `quick-actions.js`의 `settleMs`·`closeMs`와 같은지 본다. 숫자 하나만 바꿔도 실패한다.
+- 예약 순서 자체는 `api/tests/web/quick_actions.test.mjs`가 콜백과 타이머를 하나씩 실행하며 확인한다.
