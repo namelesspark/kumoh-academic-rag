@@ -5,24 +5,28 @@
 
 마크다운의 뜻을 해석하지 않는다. 쓸 수 있는 문법을 좁혀, 좁힌 문법 안에서는 판정이 CommonMark와 같게 한다.
 
-문서 전체 규칙(시작 제목과 부모 제목이 진짜 제목인지 가리기 위해)
-- 줄은 `\\n`으로만 나눈다(CommonMark 줄 끝). U+2028 같은 문자는 줄을 나누지 않는다.
-- 코드 블록 울타리(백틱·`~` 세 개 이상)는 들여쓰기·목록·인용 없이 줄 맨 앞에 두고 짝을 맞춘다.
-- 코드 블록 밖 코드 조각은 한 줄 안의 백틱 한 개 짝으로만 쓰고, 코드 조각 밖에서는 `[`·`]`·`<`·`\\`를 쓰지 않는다.
+문서 전체 규칙(본문 수준 제목을 한 기준으로 정확히 세기 위해)
+- 줄은 LF·CRLF·CR로만 나눈다(CommonMark 줄 끝). U+2028 같은 문자는 줄을 나누지 않는다.
+- 코드 블록 울타리(백틱·물결 세 개 이상)는 들여쓰기·목록·인용 없이 줄 맨 앞에 두고 짝을 맞춘다.
+- 코드 블록 밖 코드 조각은 한 줄 안의 백틱 한 개 짝으로만 쓰고, 코드 조각 밖에서는 대괄호·꺾쇠·백슬래시를 쓰지 않는다.
   링크·HTML·이스케이프가 없으면 앞에서부터 둘씩 짝지은 백틱이 실제 코드 조각과 같다.
-이 규칙 아래에서 줄 맨 앞 `###` 줄이 제목이 아닌 곳은 맨 앞 코드 블록 안뿐이다. 그래서 시작 제목과 부모 제목은
-코드 블록 밖에서 문자열이 정확히 같은 줄 하나만 친다. 부모 제목과 시작 제목 사이에 다른 1·2단계 제목이 있는지는
-문서 본문 수준 제목으로만 본다. 코드 블록 밖 줄 맨 앞 `#` 줄과, 실패 쪽으로 넓게 센 밑줄 제목이다.
-코드 블록·들여쓴 코드·인용·목록 안 `#` 줄은 그 블록 안의 글이라 세지 않는다.
-공백 1~3칸 뒤 `#` 줄은 본문 제목인지 목록 안 글인지 앞 줄에 따라 갈리므로 문서 전체 규칙에서 금지한다.
+- 공백 1~3칸 뒤 `#` 줄과 밑줄 제목(글 줄 바로 아래, 공백 3칸 이하의 `=`·`-`만 있는 줄)은 쓰지 않는다.
+  둘 다 본문 제목인지 목록·인용 안 글인지가 앞 줄들에 따라 갈린다. 구분선 앞에는 빈 줄을 둔다.
+
+이 규칙 아래에서 문서 본문 수준 제목은 코드 블록 밖, 줄 맨 앞(공백 0칸)의 `#` 줄뿐이다.
+네 칸 이상 들여쓴 줄과 인용·목록 안 줄은 그 블록 안의 글이라 장·절을 나누지 않는다.
+예전에는 `#` 제목과 밑줄 제목을 서로 다른 기준으로 세어 판정이 어긋났다. 이제 제목은 `boundaries` 한 기준으로만 센다.
+시작 제목과 부모 제목도 그 목록에서 문자열이 정확히 같은 줄로 찾는다.
 
 #170 절 본문 규칙(허용 목록)
 - 절은 시작 제목 다음 줄부터 줄 맨 앞 `#`·`##`·`###` 제목 앞까지다.
 - 그 사이 줄은 넷 중 하나여야 한다: 빈 줄(공백·탭만), 줄 맨 앞 `#### ` 소제목, 줄 맨 앞 `- ` 목록 항목,
-  문단 줄. 문단 줄과 목록 항목의 글은 공백·탭이나 블록 표시 기호(`>`·`#`·`-`·`*`·`+`·`=`·`_`·`|`·`~`·`!`·`:`)로
-  시작하지 않고, `1.`·`1)` 같은 번호 목록 표시로도 시작하지 않는다. 코드 블록 안 줄도 둘 수 없다.
+  문단 줄. 문단 줄과 목록 항목의 글은 공백·탭이나 블록 표시 기호로 시작하지 않고,
+  `1.`·`1)` 같은 번호 목록 표시로도 시작하지 않는다. 코드 블록 안 줄도 둘 수 없다.
 - 그러면 본문에는 들여쓴 코드, 인용, 밑줄 제목, 구분선, 표, 코드 블록이 생길 수 없어, 모든 줄이 화면에 보이는 글이다.
 규칙 문구는 이 본문에서 찾는다.
+
+검사 문자열에 쓰는 보이지 않는 문자는 소스에 그대로 두지 않고 chr()로 만든다.
 """
 
 import re
@@ -36,13 +40,24 @@ PARENT_HEADING = "## 질문 수정·다시 답하기와 답변 버전 (#140)"
 SECTION_HEADING = "### 기록 40개 한도와 차례 단위 자르기 (#170)"
 RULES_HEADING = "#### 전송 실패와 다시 시도 (#173)"
 
-# 줄 앞의 공백, 목록 기호(`-`·`*`·`+`·`1.`·`1)`), 인용 기호(`>`)를 몇 겹이든 걷어 낸다.
+# 보이지 않는 문자. 소스에 그대로 두면 편집 도구가 줄을 나누거나 바꿀 수 있어 코드 값으로 만든다.
+LINE_SEPARATOR = chr(0x2028)
+PARAGRAPH_SEPARATOR = chr(0x2029)
+NEXT_LINE = chr(0x85)
+NO_BREAK_SPACE = chr(0xA0)
+IDEOGRAPHIC_SPACE = chr(0x3000)
+EM_SPACE = chr(0x2003)
+ZERO_WIDTH_SPACE = chr(0x200B)
+TAB = chr(9)
+BACKSLASH = chr(92)
+
+# 줄 앞의 공백, 목록 기호(`-`·`*`·`+`·`1.`·`1)`), 인용 기호(`>`)를 몇 겹이든 걷어 낸다. 울타리 위치 검사에 쓴다.
 CONTAINER = re.compile(r"(?:[ \t]+|(?:[-*+]|\d{1,9}[.)])(?=[ \t])|>)*")
 FENCE = re.compile(r"(`{3,}|~{3,})(.*)$")
 HEADING_LIKE = re.compile(r"(#{1,6})(?=[ \t]|$)")
 UNDERLINE_LIKE = re.compile(r"(=+|-+)[ \t]*$")
 # 코드 조각 밖에서 금지하는 문자. 링크·이미지·링크 정의, HTML·자동 링크, 이스케이프를 시작할 수 있다.
-INLINE_STARTERS = frozenset("[]<\\")
+INLINE_STARTERS = frozenset("[]<" + BACKSLASH)
 
 # #170 절 본문 허용 목록.
 SECTION_END = re.compile(r"#{1,3}(?=[ \t]|$)")
@@ -63,7 +78,7 @@ REQUIRED = (
 
 
 def split_lines(text):
-    """CommonMark 줄 끝(`\\n`, `\\r\\n`, `\\r`)으로만 나눈다. str.splitlines는 U+2028 등에서도 나눠 쓰지 않는다."""
+    """CommonMark 줄 끝(LF, CRLF, CR)으로만 나눈다. str.splitlines는 U+2028 등에서도 나눠 쓰지 않는다."""
     return text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
 
 
@@ -130,9 +145,12 @@ def code_blocks(lines):
             fenced.add(index)
             fence = (found.group(1)[0], len(found.group(1)))
             continue
-        if 1 <= indent_columns(line) <= 3 and HEADING_LIKE.match(line.lstrip(" ")):
-            # 공백 1~3칸 뒤 `#` 줄은 본문 제목인지 목록 안 글인지 앞 줄에 따라 갈려, 아예 쓰지 않는다.
+        shallow = indent_columns(line) <= 3
+        if shallow and indent_columns(line) and HEADING_LIKE.match(line.lstrip(" ")):
             problems.append(f"{number}번째 줄: 제목은 줄 맨 앞에 쓴다.")
+        if (shallow and UNDERLINE_LIKE.match(line.lstrip(" ")) and index > 0
+                and (index - 1) not in fenced and not is_blank(lines[index - 1])):
+            problems.append(f"{number}번째 줄: 밑줄 제목은 쓰지 않고, 구분선 앞에는 빈 줄을 둔다.")
         reason = inline_problem(line)
         if reason:
             problems.append(f"{number}번째 줄: {reason}")
@@ -142,33 +160,13 @@ def code_blocks(lines):
 
 
 def boundaries(lines, fenced=frozenset()):
-    """문서 본문 수준 제목의 (줄 번호, 수준) 목록. 밑줄 제목은 위 문단 첫 줄을 쓴다.
-
-    - `#` 제목은 코드 블록 밖, 줄 맨 앞(공백 0칸)의 줄만 센다. 네 칸 이상 들여쓴 줄은 코드 예시이고,
-      인용·목록 안 `#` 줄은 그 블록 안의 제목이라 문서의 장·절을 나누지 않는다.
-      공백 1~3칸 뒤 `#` 줄은 문서 전체 규칙이 막는다.
-    - 밑줄 제목은 실패 쪽으로 넓게 센다(코드 블록 밖, 앞 기호를 걷은 밑줄 줄).
-    """
+    """문서 본문 수준 제목의 (줄 번호, 수준) 목록: 코드 블록 밖, 줄 맨 앞(공백 0칸)의 `#` 줄."""
     found = []
     for index, line in enumerate(lines):
-        if index in fenced:
-            continue
-        heading = HEADING_LIKE.match(line)
+        heading = None if index in fenced else HEADING_LIKE.match(line)
         if heading:
             found.append((index, len(heading.group(1))))
-            continue
-        body = strip_container(line)
-        underline = UNDERLINE_LIKE.match(body)
-        if not (underline and index > 0 and (index - 1) not in fenced and not is_blank(lines[index - 1])):
-            continue
-        first = index - 1
-        while first > 0:
-            above = lines[first - 1]
-            if is_blank(above) or (first - 1) in fenced or HEADING_LIKE.match(strip_container(above)):
-                break
-            first -= 1
-        found.append((first, 1 if underline.group(1)[0] == "=" else 2))
-    return sorted(set(found))
+    return found
 
 
 def plain_text_start(text):
@@ -177,9 +175,7 @@ def plain_text_start(text):
 
 def section_line_problem(line):
     """#170 본문 한 줄이 허용 목록에 없으면 이유를, 있으면 None을 돌려준다."""
-    if is_blank(line):
-        return None
-    if SUBHEADING.match(line):
+    if is_blank(line) or SUBHEADING.match(line):
         return None
     if LIST_ITEM.match(line):
         return None if plain_text_start(line[2:]) else "목록 항목 글은 블록 표시 기호로 시작하지 않는다."
@@ -194,12 +190,12 @@ def find_section(text):
     fenced, problems = code_blocks(lines)
     if problems:
         return None, problems
-    starts = [index for index, line in enumerate(lines) if line == SECTION_HEADING and index not in fenced]
     marks = boundaries(lines, fenced)
+    starts = [index for index, _ in marks if lines[index] == SECTION_HEADING]
     parent = None
     if len(starts) == 1:
         parent = next((index for index, level in reversed(marks) if index < starts[0] and level <= 2), None)
-    if parent is None or parent in fenced or lines[parent] != PARENT_HEADING:
+    if parent is None or lines[parent] != PARENT_HEADING:
         return None, [f"{PARENT_HEADING!r} 아래 코드 블록 밖에 {SECTION_HEADING!r} 제목이 한 번 있어야 한다."]
     body, index = [], starts[0] + 1
     while index < len(lines) and not SECTION_END.match(lines[index]):
@@ -237,18 +233,19 @@ class ChatHistoryLimitDocTest(unittest.TestCase):
         return modified
 
     def elsewhere(self, snippet):
-        """#170 절 밖, 문서 앞쪽 「## 화면 구성」 바로 앞에 끼운다."""
-        modified = self.notes.replace("## 화면 구성", f"{snippet}\n\n## 화면 구성", 1)
+        """#170 절 밖, 문서 앞쪽 「## 화면 구성」 바로 앞에 빈 줄을 두고 끼운다."""
+        modified = self.notes.replace("## 화면 구성", f"\n{snippet}\n\n## 화면 구성", 1)
+        self.assertNotEqual(modified, self.notes)
+        return modified
+
+    def between_parent_and_section(self, snippet):
+        """#140 장 안, #170 제목 바로 앞에 끼운다. 그 앞 줄은 빈 줄이다."""
+        modified = self.notes.replace(SECTION_HEADING, f"{snippet}\n\n{SECTION_HEADING}", 1)
         self.assertNotEqual(modified, self.notes)
         return modified
 
     def replace_body(self, body):
         modified = self.notes.replace(self.section, body, 1)
-        self.assertNotEqual(modified, self.notes)
-        return modified
-
-    def replace_heading(self, replacement):
-        modified = self.notes.replace(SECTION_HEADING, replacement, 1)
         self.assertNotEqual(modified, self.notes)
         return modified
 
@@ -284,11 +281,10 @@ class ChatHistoryLimitDocTest(unittest.TestCase):
                 self.assertTrue(history_doc_problems(modified))
 
     def test_section_body_allows_only_plain_lines(self):
-        # 지난 교차 검토의 재현과 그 변형. #170 본문에 넣기만 해도 실패한다.
         snippets = {
             "앞 공백 세 칸 제목": "   ### 다른 절",
             "앞 공백 네 칸 줄": "    ### Literal",
-            "탭 들여쓰기": "\t가상 글",
+            "탭 들여쓰기": TAB + "가상 글",
             "인용": "> 가상 글",
             "인용 안 들여쓴 코드": ">     가상 글",
             "목록 안 들여쓴 코드": "-     가상 글",
@@ -320,10 +316,10 @@ class ChatHistoryLimitDocTest(unittest.TestCase):
             "문단": "가상 글",
             "목록": "- 가상 목록",
             "소제목": "#### 가상 하위 제목",
-            "코드 조각": "가상 `<h3>`와 `[data-x]`, `a\\|b` 표기",
+            "코드 조각": "가상 `<h3>`와 `[data-x]`, `a" + BACKSLASH + "|b` 표기",
             "코드 조각으로 시작": "`가상` 글",
-            "U+2028 뒤 글자": "가상 글 ### 가짜",
-            "U+00A0로 시작": " 가상 글",
+            "U+2028 뒤 글자": "가상 글" + LINE_SEPARATOR + "### 가짜",
+            "U+00A0로 시작": NO_BREAK_SPACE + "가상 글",
             "숫자로 시작": "40개 한도",
         }
         for case, snippet in snippets.items():
@@ -335,13 +331,12 @@ class ChatHistoryLimitDocTest(unittest.TestCase):
         cases = {
             "여러 줄 밑줄 제목": f"\n{joined}\nOther section\n---\n",
             "여러 줄 밑줄 1단계 제목": f"\n{joined}\n가상 글\nOther section\n===\n",
-            "링크 정의 제목 글": f"\n[example\\]label]: /example '{joined}'\n",
-            "U+00A0 줄 뒤 밑줄 제목": f"\n{joined}\n \nOther section\n---\n",
-            "U+3000 줄 뒤 밑줄 제목": f"\n{joined}\n　\nOther section\n---\n",
+            "링크 정의 제목 글": f"\n[example{BACKSLASH}]label]: /example '{joined}'\n",
+            "U+00A0 줄 뒤 밑줄 제목": f"\n{joined}\n{NO_BREAK_SPACE}\nOther section\n---\n",
+            "U+3000 줄 뒤 밑줄 제목": f"\n{joined}\n{IDEOGRAPHIC_SPACE}\nOther section\n---\n",
             "공백 네 칸 들여쓴 코드": f"\n\n    {joined}\n",
-            "탭 들여쓴 코드": f"\n\n\t{joined}\n",
-            "공백 두 칸과 탭": f"\n\n  \t{joined}\n",
-            # 이번 교차 검토 재현.
+            "탭 들여쓴 코드": f"\n\n{TAB}{joined}\n",
+            "공백 두 칸과 탭": f"\n\n  {TAB}{joined}\n",
             "들여쓴 제목 같은 줄과 밑줄 제목": f"\n{joined}\n    ### Literal\nOther section\n---\n",
             "인용 안 들여쓴 코드": f"\n\n>     {joined}\n",
         }
@@ -350,7 +345,7 @@ class ChatHistoryLimitDocTest(unittest.TestCase):
                 self.assertTrue(history_doc_problems(self.replace_body(body)))
 
     def test_syntax_outside_the_narrow_rules_fails(self):
-        # 문서 어디에 두든 실패하는 문법. 시작 제목과 부모 제목을 숨길 수 있기 때문이다.
+        # 문서 어디에 두든 실패하는 문법. 본문 수준 제목 판정을 흔들 수 있기 때문이다.
         snippets = {
             "인용 안 울타리": "> ~~~\n\n~~~\n\n가상 글\n\n> ~~~\n~~~",
             "목록 안 울타리": "- ~~~text\n  example\n  ~~~",
@@ -361,86 +356,85 @@ class ChatHistoryLimitDocTest(unittest.TestCase):
             "HTML 제목": "<h3>Other section</h3>",
             "HTML 주석": "<!--\n### 숨은 제목\n-->",
             "pre 블록": "<pre>\n\n### 가짜\n\n</pre>",
-            "이스케이프한 백틱 사이 HTML": "\\`<h3>Other section</h3>\\`",
+            "이스케이프한 백틱 사이 HTML": f"{BACKSLASH}`<h3>Other section</h3>{BACKSLASH}`",
             "줄을 넘는 코드 조각": "가상 `글\n<h3>Other section</h3>\n코드` 끝",
             "두 개 이은 백틱": "가상 `` <h3> `` 글",
             "링크 주소 안 백틱": "[a](/a`) <h3>Other section</h3> [b](/b`)",
-            "링크 정의": "[example\\]label]: /example '숨은 글'",
+            "링크 정의": f"[example{BACKSLASH}]label]: /example '숨은 글'",
             "자동 링크": "<https://example.invalid>",
+            "앞 공백 한 칸 제목": " ## 가상 장",
+            "앞 공백 세 칸 제목": "   ## 가상 장",
+            "밑줄 1단계 제목": "가상 장\n===",
+            "밑줄 2단계 제목": "가상 장\n---",
+            "공백 세 칸 밑줄": "가상 장\n   ---",
+            "목록 바로 아래 구분선": "- 가상 목록\n---",
+            "구분선 바로 아래 구분선": "***\n---",
         }
         for case, snippet in snippets.items():
             with self.subTest(case=case):
                 self.assertTrue(history_doc_problems(self.elsewhere(snippet)))
 
-    def test_code_outside_the_section_is_allowed(self):
+    def test_allowed_syntax_outside_the_section(self):
         snippets = {
             "코드 블록 안 HTML": "```html\n<h3>가상</h3>\n<!-- 가상 -->\n```",
             "코드 블록 안 시작 제목 사본": f"```text\n{SECTION_HEADING}\n```",
-            "밑줄 제목": "가상 장\n===",
+            "빈 줄 뒤 구분선": "가상 글\n\n---",
+            "울타리 뒤 구분선": "```\n가상\n```\n---",
+            "들여쓴 코드 안 밑줄": "    가상 장\n    ---",
+            "인용 안 밑줄": "> 가상 장\n> ---",
+            "탭 들여쓴 밑줄": "가상 글\n" + TAB + "---",
         }
         for case, snippet in snippets.items():
             with self.subTest(case=case):
                 self.assertEqual(history_doc_problems(self.elsewhere(snippet)), [])
 
-    def test_example_headings_in_code_blocks_between_parent_and_section_are_ignored(self):
-        # #140 장 안, #170 제목 바로 앞의 코드 블록 예시 제목은 부모 판정에 끼지 않는다(교차 검토 재현).
+    def test_block_level_examples_between_parent_and_section_are_ignored(self):
+        # 코드 블록·들여쓴 코드·인용·목록 안의 제목 같은 줄은 #140 장을 나누지 않는다(교차 검토 재현과 변형).
         examples = {
-            "백틱 2단계": "```\n## 가상 제목\n```",
-            "물결 1단계": "~~~text\n# 가상 제목\n~~~",
+            "백틱 코드 블록 안 2단계": "```\n## 가상 제목\n```",
+            "물결 코드 블록 안 1단계": "~~~text\n# 가상 제목\n~~~",
             "긴 울타리 안 밑줄 제목": "````\n가상 제목\n---\n```\n````",
-            "울타리 뒤 구분선": "```\n가상\n```\n---",
+            "공백 네 칸 들여쓴 코드": "    ## 가상 제목",
+            "탭 들여쓴 코드": TAB + "## 가상 제목",
+            "인용 안 제목": "> ## 가상 제목",
+            "목록 안 제목": "- ## 가상 제목",
+            "번호 목록 안 제목": "1. ## 가상 제목",
+            "인용 안 1단계 제목": "> # 가상 제목",
+            # 이번 교차 검토 재현: 들여쓴 코드·인용 안의 밑줄 제목.
+            "들여쓴 코드 안 밑줄 제목": "    Example title\n    ---",
+            "인용 안 밑줄 제목": "> Example title\n> ---",
+            "인용 안 밑줄 1단계 제목": "> Example title\n> ===",
         }
         for case, example in examples.items():
             with self.subTest(case=case):
-                modified = self.replace_heading(f"{example}\n\n{SECTION_HEADING}")
-                self.assertEqual(history_doc_problems(modified), [])
-        lines = ["## 부모", "```", "## 예시", "가상", "---", "```", "### 절"]
-        fenced = code_blocks(lines)[0]
-        self.assertEqual(boundaries(lines, fenced), [(0, 2), (6, 3)])
+                self.assertEqual(history_doc_problems(self.between_parent_and_section(example)), [])
 
     def test_section_heading_not_on_its_own_line_does_not_start_the_section(self):
-        for separator in (" ", " ", "\u0085", "\x0b", "\x0c"):
-            with self.subTest(separator=repr(separator)):
-                modified = self.replace_heading(f"### Other section\n\nExample text{separator}{SECTION_HEADING}")
+        for separator in (LINE_SEPARATOR, PARAGRAPH_SEPARATOR, NEXT_LINE, chr(0x0B), chr(0x0C)):
+            with self.subTest(separator=hex(ord(separator))):
+                modified = self.notes.replace(SECTION_HEADING, f"### Other section\n\nExample text{separator}{SECTION_HEADING}", 1)
                 self.assertTrue(history_doc_problems(modified))
 
     def test_section_heading_in_code_block_does_not_start_the_section(self):
         for fence, closer in (("~~~", "~~~"), ("```text", "```"), ("````", "````")):
             with self.subTest(fence=fence):
-                modified = self.replace_heading(f"### Other section\n\n{fence}\n{SECTION_HEADING}\n{closer}")
+                modified = self.notes.replace(
+                    SECTION_HEADING, f"### Other section\n\n{fence}\n{SECTION_HEADING}\n{closer}", 1)
                 self.assertTrue(history_doc_problems(modified))
 
     def test_parent_heading_hidden_or_shadowed_fails(self):
         cases = {
             "코드 블록 안 부모": self.notes.replace(PARENT_HEADING, f"## 다른 장\n\n```\n{PARENT_HEADING}\n```", 1),
-            "사이에 낀 2단계 제목": self.notes.replace(SECTION_HEADING, f"## 다른 장\n\n{SECTION_HEADING}", 1),
-            "사이에 낀 밑줄 제목": self.notes.replace(SECTION_HEADING, f"다른 장\n---\n\n{SECTION_HEADING}", 1),
-            "사이에 낀 1단계 제목": self.notes.replace(SECTION_HEADING, f"# 다른 문서\n\n{SECTION_HEADING}", 1),
-            # 공백 1~3칸 뒤 제목은 판정이 갈려 문서 전체 규칙에서 실패한다.
-            "사이에 낀 앞 공백 세 칸 제목": self.notes.replace(SECTION_HEADING, f"   ## 다른 장\n\n{SECTION_HEADING}", 1),
-            "사이에 낀 앞 공백 한 칸 제목": self.notes.replace(SECTION_HEADING, f" ## 다른 장\n\n{SECTION_HEADING}", 1),
+            "사이에 낀 2단계 제목": self.between_parent_and_section("## 다른 장"),
+            "사이에 낀 1단계 제목": self.between_parent_and_section("# 다른 문서"),
+            "사이에 낀 밑줄 제목": self.between_parent_and_section("다른 장\n---"),
+            "사이에 낀 앞 공백 세 칸 제목": self.between_parent_and_section("   ## 다른 장"),
+            "사이에 낀 앞 공백 한 칸 제목": self.between_parent_and_section(" ## 다른 장"),
         }
         for case, modified in cases.items():
             with self.subTest(case=case):
                 self.assertNotEqual(modified, self.notes)
                 self.assertTrue(history_doc_problems(modified))
-
-    def test_block_level_examples_between_parent_and_section_are_ignored(self):
-        # 들여쓴 코드·인용·목록 안 `##` 줄은 문서의 장을 나누지 않는다(교차 검토 재현과 변형).
-        examples = {
-            "공백 네 칸 들여쓴 코드": "    ## 가상 제목",
-            "탭 들여쓴 코드": "\t## 가상 제목",
-            "인용 안 제목": "> ## 가상 제목",
-            "목록 안 제목": "- ## 가상 제목",
-            "번호 목록 안 제목": "1. ## 가상 제목",
-            "인용 안 1단계 제목": "> # 가상 제목",
-        }
-        for case, example in examples.items():
-            with self.subTest(case=case):
-                modified = self.replace_heading(f"{example}\n\n{SECTION_HEADING}")
-                self.assertEqual(history_doc_problems(modified), [])
-        lines = ["## 부모", "", "    ## 코드", "> ## 인용", "- ## 목록", "", "### 절"]
-        self.assertEqual(boundaries(lines), [(0, 2), (6, 3)])
 
     def test_heading_moved_or_duplicated_fails(self):
         cases = {
@@ -453,14 +447,14 @@ class ChatHistoryLimitDocTest(unittest.TestCase):
                 self.assertTrue(history_doc_problems(modified))
 
     def test_line_helpers_follow_commonmark(self):
-        self.assertEqual(split_lines("가 나\r\n다\r라"), ["가 나", "다", "라"])
-        self.assertTrue(is_blank(" \t "))
-        for line in (" ", "　", " ", "​"):
-            with self.subTest(line=repr(line)):
-                self.assertFalse(is_blank(line))
-        self.assertEqual(boundaries(["### 가상", "첫 줄", "둘째 줄", "---", "", "셋째", "==="]),
-                         [(0, 3), (1, 2), (5, 1)])
-        self.assertEqual(boundaries(["앞 글", " ", "뒤 글", "---"]), [(0, 2)])
+        self.assertEqual(split_lines("가" + LINE_SEPARATOR + "나\r\n다\r라"), ["가" + LINE_SEPARATOR + "나", "다", "라"])
+        self.assertTrue(is_blank(" " + TAB + " "))
+        for char in (NO_BREAK_SPACE, IDEOGRAPHIC_SPACE, EM_SPACE, ZERO_WIDTH_SPACE):
+            with self.subTest(char=hex(ord(char))):
+                self.assertFalse(is_blank(char))
+        self.assertEqual(indent_columns("  " + TAB + "가"), 4)
+        lines = ["## 부모", "", "    ## 코드", "> ## 인용", "- ## 목록", "```", "## 예시", "```", "### 절"]
+        self.assertEqual(boundaries(lines, code_blocks(lines)[0]), [(0, 2), (8, 3)])
 
 
 if __name__ == "__main__":
