@@ -3,7 +3,8 @@
 표준 라이브러리만 쓰고 `web/docs/UI_NOTES.md` 하나만 읽는다.
 절은 「## 손글씨 입력 필기 패드 (#134)」 아래의 「### 교차 검토로 고친 점」 다음 줄부터
 줄 맨 앞 `##`·`###`·`####` 제목 앞까지다. 마크다운 규칙은 흉내 내지 않는다(2026-11-20 문서 검사 기준).
-규칙 문장은 그 절에서 앞뒤 공백을 뺀 줄 전체가 문장과 같은 줄 하나로만 인정한다.
+규칙 문장은 그 절에서 규칙을 담은 목록 항목 전체가 기대 글(EXPECTED_ITEM)과 같을 때만 인정한다.
+앞뒤 줄에 조건을 이어 써도 같은 항목이 바뀌므로 잡힌다.
 사본은 패드 절 전체를 줄바꿈·겹친 공백을 한 칸으로 편 글에서 센다.
 """
 
@@ -18,6 +19,20 @@ REVIEW_HEADING = "### 교차 검토로 고친 점"
 RULE = "압력만 바뀐 신호는 마지막 잉크의 중심이 그 잉크를 기록할 때의 칸 안에 있을 때만 굵기를 갱신하고, 칸 밖이면 압력 값만 기억한다."
 # 고치기 전 후속 과제로 남긴 설명. 확정 동작으로 바꿨으므로 문서 어디에도 남으면 안 된다.
 OLD_FRAGMENT = "옛 경계 안쪽 픽셀이 조금 늘어난다"
+# 규칙을 담은 목록 항목 전체. 문서의 줄바꿈을 공백 하나로 바꾼 글이다. 이 항목을 고치면 여기도 함께 고친다.
+EXPECTED_ITEM = " ".join((
+    "- 펜을 떼는 신호(`pointerup`)의 좌표도 획에 잇는다.",
+    "마지막 이동 신호와 떼는 자리가 다르면(브라우저가 이동을 묶어 보내거나 빠르게 뗄 때) 그 선분이 빠졌다.",
+    "펜이 움직였는지는 이동·떼기 모두 화면 좌표로 가린다.",
+    "화면 좌표가 마지막 신호와 같으면(압력만 바뀐 신호) 선분 처리(자르기·칸 비교)를 아예 타지 않는다.",
+    "새 위치를 만들지 않고, 이미 기록한 마지막 잉크가 마지막 포인터 자리에 있을 때만 그 잉크를 기록할 때의 칸으로 굵기를 다시 본다.",
+    RULE,
+    "기억한 압력은 다음 실제 이동에 쓴다. 떼기라면 아무것도 더하지 않는다.",
+    "예전에는 압력만 바뀐 신호도 선분 처리를 타서, 스크롤 뒤에는 가짜 선이, 칸을 넓힌 뒤에는 옛 칸 밖 자리(600 칸의 x=700)에 새 점이 생겼다.",
+    "펜이 화면에서 실제로 움직인 신호는 지금 캔버스 위치로 잰다.",
+    "펜은 뗄 때 압력을 0으로 보내므로 이 마지막 선분은 앞 신호의 압력으로 그려 끝이 가늘어지지 않게 한다.",
+    "포인터 잡기를 잃은 신호(`lostpointercapture`)는 좌표를 더하지 않는다.",
+))
 
 BOUNDARY = re.compile(r"#{2,4}(?:[ \t]|$)")
 LEVEL_TWO = re.compile(r"##(?:[ \t]|$)")
@@ -41,16 +56,29 @@ def sections(text):
     return lines[pads[0] + 1 : pad_end], lines[starts[0] + 1 : end]
 
 
+def list_items(lines):
+    """`- `로 여는 목록 항목을 한 줄로 편 글 목록. 빈 줄이 아닌 다음 줄은 앞 항목에 붙인다."""
+    items = []
+    for line in lines:
+        if not line.strip():
+            continue
+        if line.startswith("- ") or not items:
+            items.append(line)
+        else:
+            items[-1] += "\n" + line
+    return [flatten(item) for item in items]
+
+
 def pressure_doc_problems(notes):
     found = sections(notes)
     if found is None:
         return [f"{PAD_HEADING!r} 아래 {REVIEW_HEADING!r} 제목이 한 번 있어야 한다."]
     pad, review = found
     problems = []
-    # 규칙은 앞뒤 공백을 뺀 줄 전체가 규칙 문장과 같을 때만 인정한다. 앞뒤에 조건(「30초 동안」 등)을 붙이면 다른 문장이다.
-    exact = sum(1 for line in review if line.strip() == RULE)
-    if exact != 1:
-        problems.append(f"{REVIEW_HEADING!r} 절에 규칙 문장만 적힌 줄이 {exact}개다. 정확히 한 개여야 한다.")
+    # 규칙이 든 목록 항목을 통째로 기대 글과 맞춘다. 앞뒤 줄에 조건(「30초 동안」 등)을 이어 써도 다른 항목이 된다.
+    items = [item for item in list_items(review) if RULE in item]
+    if items != [EXPECTED_ITEM]:
+        problems.append(f"{REVIEW_HEADING!r} 절에 규칙을 담은 항목이 기대 글과 다르다: {items!r}")
     # 패드 절 전체에서도 한 번이어야 한다. 다른 하위 절에 사본을 두면 실패한다.
     copies = flatten("\n".join(pad)).count(RULE)
     if copies != 1:
@@ -83,6 +111,17 @@ class HandwritingPressureDocTest(unittest.TestCase):
         for modified_rule in (f"30초 동안 {RULE}", f"{RULE[:-1]} 단, 칸을 넓히기 전에만 그렇다."):
             with self.subTest(rule=modified_rule):
                 modified = self.notes.replace(RULE, modified_rule, 1)
+                self.assertNotEqual(modified, self.notes)
+                self.assertTrue(pressure_doc_problems(modified))
+
+    def test_condition_on_adjacent_line_fails(self):
+        # 교차 검토 재현: 규칙 바로 위(또는 아래)에 두 칸 들여쓴 조건 줄을 빈 줄 없이 이어 쓴 경우.
+        cases = {
+            "위 줄": self.notes.replace(f"\n  {RULE}\n", f"\n  30초 동안\n  {RULE}\n", 1),
+            "아래 줄": self.notes.replace(f"\n  {RULE}\n", f"\n  {RULE}\n  단, 칸을 넓히기 전에만 그렇다.\n", 1),
+        }
+        for case, modified in cases.items():
+            with self.subTest(case=case):
                 self.assertNotEqual(modified, self.notes)
                 self.assertTrue(pressure_doc_problems(modified))
 
