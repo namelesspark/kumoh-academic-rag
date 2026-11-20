@@ -9,7 +9,8 @@
 패드 절의 제목 순서도 고정한다. 낱말로 충돌 문장을 거르거나, 검사하지 않는 절 안에 규칙 소절을 두면
 어미를 바꾼 문장이나 소절 바로 바깥에 끼운 문장, 통째로 옮긴 소절이 매번 빠져나갔기 때문이다.
 그 밖의 소절에 반대 규칙을 더하거나 기존 줄을 고쳐도 잡도록, 그리기 절 밖에서 「되돌」·「오류」·「실행 취소」가 든 줄을
-지금 문서 줄 그대로 고정한다. 그리기 절, 패드 절 제목, 이 낱말이 든 줄을 고치면 아래 기대 값도 함께 고친다(2026-11-20 문서 검사 기준).
+지금 문서 줄 그대로 고정한다. 낱말을 피해 쓴 줄을 더해도 잡도록 패드 절 줄 수(`PAD_LINE_COUNT`)도 고정한다.
+그리기 절, 패드 절 제목·줄 수, 이 낱말이 든 줄을 고치면 아래 기대 값도 함께 고친다(2026-11-20 문서 검사 기준).
 """
 
 import unittest
@@ -84,7 +85,15 @@ EXPECTED_WATCHED_LINES = [
     "  오류 안내, 폼 제출·채팅 요청 0건을 본다. 초점이 「취소」나 `null`이면 넣기 버튼으로 옮기는지도 본다(#179).",
 ]
 
+# 패드 절 본문 줄 수(제목 줄 다음부터 다음 `## ` 제목 앞까지, 빈 줄 포함).
+# 어떤 낱말로 쓰든 패드 절 어디에 줄을 더하거나 빼면 실패한다. 패드 절을 고쳤다면 바뀐 줄이
+# 그리기 절의 되돌리기 규칙과 어긋나지 않는지 확인한 뒤 이 값을 새 줄 수로 고친다.
+PAD_LINE_COUNT = 216
+
 DRAW_PROBLEM = f"{DRAW_HEADING!r} 절 본문이 기대 줄과 다르다."
+LINE_COUNT_PROBLEM = (
+    f"{PAD_HEADING!r} 절 줄 수가 {PAD_LINE_COUNT}줄이 아니다. 더한 줄이 되돌리기 규칙과 어긋나지 않는지 확인한 뒤 PAD_LINE_COUNT를 고친다."
+)
 HEADINGS_PROBLEM = f"{PAD_HEADING!r} 절의 제목 순서가 기대와 다르다."
 WATCH_PROBLEM = f"그리기 절 밖에서 {'·'.join(WATCH_WORDS)}이(가) 든 줄이 기대와 다르다."
 
@@ -116,6 +125,9 @@ def undo_doc_problems(notes):
     problems = []
     if [line for line in pad if BOUNDARY.match(line)] != EXPECTED_PAD_HEADINGS:
         problems.append(HEADINGS_PROBLEM)
+    # 낱말과 상관없이, 패드 절 어디에 줄을 더해도(반대 규칙 항목 등) 잡는다.
+    if len(pad) != PAD_LINE_COUNT:
+        problems.append(LINE_COUNT_PROBLEM)
     # 그리기 절 밖(넣기·교차 검토 등)에 되돌리기와 반대되는 문장을 더하거나 기존 줄을 고쳐도 잡는다.
     if watched_lines(pad) != EXPECTED_WATCHED_LINES:
         problems.append(WATCH_PROBLEM)
@@ -178,7 +190,7 @@ class HandwritingUndoDocTest(unittest.TestCase):
             cases[added] = self.replaced(f"{DRAW_UNDO_ITEM}\n", f"{DRAW_UNDO_ITEM}\n{added}\n")
         for case, modified in cases.items():
             with self.subTest(case=case):
-                self.assertEqual(undo_doc_problems(modified), [DRAW_PROBLEM])
+                self.assertIn(DRAW_PROBLEM, undo_doc_problems(modified))
 
     def test_conflicting_text_outside_draw_section_fails(self):
         # 교차 검토 재현(6차): 그리기 절 밖, 교차 검토 절의 「200 응답」 항목 바로 위에 반대 규칙을 더한 경우.
@@ -192,7 +204,22 @@ class HandwritingUndoDocTest(unittest.TestCase):
         }
         for case, modified in cases.items():
             with self.subTest(case=case):
-                self.assertEqual(undo_doc_problems(modified), [WATCH_PROBLEM])
+                self.assertIn(WATCH_PROBLEM, undo_doc_problems(modified))
+
+    def test_line_added_without_watch_words_fails(self):
+        # 교차 검토 재현(7차): 세 낱말을 피해 「실패 안내」로 쓴 반대 규칙을 「200 응답」 항목 위에 더한 경우.
+        # 넣기 절·검사 절·와이어프레임 절에 더해도, 빈 줄 하나만 더해도 패드 절 줄 수가 달라진다.
+        conflict = "- 다른 손가락으로 긋는 중에 마지막 획 하나를 지워도 실패 안내는 즉시 사라진다."
+        cases = {
+            "200 응답 항목 위": self.replaced("\n- 200 응답의 본문이", f"\n{conflict}\n- 200 응답의 본문이"),
+            "넣기 절 첫 항목 앞": self.replaced("\n### 넣기\n\n", f"\n### 넣기\n\n{conflict}\n"),
+            "검사 절 첫 항목 앞": self.replaced("\n### 검사와 실기기 확인\n\n", f"\n### 검사와 실기기 확인\n\n{conflict}\n"),
+            "와이어프레임 절 첫 항목 앞": self.replaced("\n### 와이어프레임 결정\n\n", f"\n### 와이어프레임 결정\n\n{conflict}\n\n"),
+            "빈 줄 하나": self.replaced("\n### 대비\n", "\n### 대비\n\n"),
+        }
+        for case, modified in cases.items():
+            with self.subTest(case=case):
+                self.assertEqual(undo_doc_problems(modified), [LINE_COUNT_PROBLEM])
 
     def test_rule_moved_or_copied_fails(self):
         block = f"- {RULE}\n{RULE_ITEM_LAST}\n"
@@ -220,7 +247,7 @@ class HandwritingUndoDocTest(unittest.TestCase):
         next_feature = "\n## 질문 수정·다시 답하기와 답변 버전 (#140)\n"
         self.assertEqual(removed.count(next_feature), 1)
         moved = removed.replace(next_feature, f"{block}\n{next_feature}", 1)
-        self.assertEqual(undo_doc_problems(moved), [HEADINGS_PROBLEM])
+        self.assertIn(HEADINGS_PROBLEM, undo_doc_problems(moved))
 
     def test_heading_inserted_fails(self):
         for heading in ("## 다른 절", "### 다른 절", "#### 다른 절"):
