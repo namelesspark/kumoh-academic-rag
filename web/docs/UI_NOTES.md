@@ -196,7 +196,8 @@
 - **버튼 경계** — 로그인·홈 바닥의 바로가기 카드와 채팅 머리글의 홈·대화 목록 버튼, 대화 목록 안 버튼은 내용 구분선이 아니라
   컨트롤 경계(`--control-line`, 라이트 `#6E8098`)를 쓴다. 예전 구분선은 흰 면과 약 1.4:1이었다.
   대화 목록 아래 학교 링크(`.campus-site-link`)는 한 줄 글자여도 높이 44px다.
-- **깊이 생각** — 반짝임과 고정 테두리는 학교 파랑 → 밝은 하늘 `#38BDF8`(`--deep-sky`) → 노랑이다. 예전 보라 `#6A4BD8`은 없앴다.
+- **깊이 생각** — 고정 테두리는 학교 파랑 → 밝은 하늘 `#38BDF8`(`--deep-sky`) → 노랑이다. 예전 보라 `#6A4BD8`은 없앴다.
+  고를 때 한 번 지나가는 빛줄기는 하늘색 `--deep-shine`(`rgba(0,163,217,.22)`) 하나만 쓰고 노랑을 섞지 않는다(#152).
 
 계산으로 확인한 대비. 어두운 사진 #041426과 흰 사진 양쪽에 합성한 최소값을 손으로 계산했다.
 `landing_design.test.mjs`는 같은 조합을 네 테마 상태(시스템 라이트, 직접 고른 라이트, 직접 고른 다크, 시스템 다크)와 흐림 미지원까지 다시 계산한다.
@@ -1004,18 +1005,21 @@ node --test api/tests/web/campus_backdrop.test.mjs api/tests/web/citation_link.t
 | `body > .choice-menu` | chat.js | 메뉴. 안쪽은 `.choice-menu-title`, `.choice-menu-item[data-choice-value]`, `.choice-menu-icon`·`.choice-menu-name`·`.choice-menu-desc`·`.choice-menu-check` |
 | `--choice-menu-x`, `--choice-menu-y` | chat.js(`style.setProperty`) | 메뉴 좌표. 화면 안쪽 보정과 초점은 JS, 너비·최대 높이·겹침 순서는 CSS |
 | `.composer-row.is-deep`, `.mode-pill[data-mode=deep]` | chat.js | 고정 표시. 움직임 설정과 상관없이 1px 그라데이션 테두리를 그린다 |
-| `.mode-pill.is-bursting`, `.mode-spark`, `.composer-row.is-deep-enter` | chat.js | 고르는 순간의 효과. 0.7초·0.9초 뒤 뗀다 |
-| `.mode-pill.is-flowing` | chat.js | 깊이 모드인 동안 테두리가 흐르고 3초마다 빛줄기가 지난다 |
+| `.mode-pill.is-flowing` | chat.js | 깊이 모드를 새로 고르는 순간의 유일한 효과. `::before` 빛줄기(`mode-sweep`)가 240ms `ease-out`으로 한 번 지나가고, 300ms가 되기 전에 클래스를 뗀다 |
 | `.thinking.is-waiting` | chat.js | 첫 생각 조각 전부터 「생각하는 중」 글자 위로 빛이 흐른다 |
 
-- 효과 클래스는 움직임이 허용될 때만 붙는다. CSS도 `prefers-reduced-motion: reduce`에서 효과의 `animation`을 끄고
-  별·빛줄기·감싸는 빛을 그리지 않는다. 고정 그라데이션 테두리만 남는다.
+- 예전 별 조각(`.mode-spark`), 아이콘 회전(`.is-bursting`), 입력 줄을 감싸는 빛(`.is-deep-enter`), 흐르는 테두리
+  (`.is-flowing::after`)는 한꺼번에 겹쳐 정신없다는 피드백(2026-11-18)으로 지웠다(#152).
+- 빛줄기는 깊이 모드를 새로 고를 때만 재생한다. 저장한 깊이 모드 복원, 같은 모드 다시 고르기, 언어 변경,
+  움직임 줄이기 해제에서는 재생하지 않는다. 빠르게로 바꾸거나 움직임 줄이기를 켜면 클래스와 정리 타이머를 바로 지운다.
+- 효과 클래스는 움직임이 허용될 때만 붙는다. CSS도 `prefers-reduced-motion: reduce`에서 빛줄기의 `animation`을 끄고
+  층을 그리지 않는다(`display: none`). 고정 그라데이션 테두리만 남는다.
 - 메뉴는 서랍(z-index 11)과 테크모(20) 위, 삭제 확인 창(40) 아래인 30에 뜬다. 너비는 `min(320px, calc(100vw - 32px))`다.
 - 480px 이하에서는 버튼 글자(`.mode-pill-label`)를 숨기고 아이콘과 꺾쇠만 남긴다. 현재 값은 `aria-label`이 읽는다.
-- 깊이 색은 학교 파랑 `#00A3D9`(`--sky`) → 보라 `#6A4BD8`(`--deep-violet`) → 노랑 `#F7C500`(`--deep-gold`)다.
+- 깊이 색은 학교 파랑 `#00A3D9`(`--sky`) → 밝은 하늘 `#38BDF8`(`--deep-sky`) → 노랑 `#F7C500`(`--deep-gold`)다.
   고정 표시는 버튼 자신의 배경에 100% 크기로 깔아 세 색을 모두 보인다. 효과 클래스는 버튼 배경을 바꾸지 않는다.
-  흐르는 고리는 버튼 위에 겹친 별도 층(`.mode-pill.is-flowing::after`)에서만 3배로 늘려 옮긴다.
-  `.is-flowing`이 붙은 채 움직임 줄이기를 켜도 이 층만 사라지고 고정 테두리가 남는다.
+  빛줄기는 버튼 뒤 별도 층(`.mode-pill.is-flowing::before`, `z-index: -1`, `pointer-events: none`)이라
+  `.is-flowing`이 붙은 채 움직임 줄이기를 켜도 이 층만 사라지고 고정 테두리와 안쪽 1px 경계선(`--edge-strong`)이 남는다.
 
 ### 반투명 기준
 
@@ -1058,7 +1062,7 @@ node --test api/tests/web/campus_backdrop.test.mjs api/tests/web/citation_link.t
   - `.layout::before` 흐림이 판 뒤 사진을 실제로 흐리게 하는지(Chrome·Safari). `view-transition-name`이 붙은 판의
     화면 전환 중에는 흐림이 잠깐 사라질 수 있다.
   - 메뉴가 화면 가장자리에서 잘리지 않는지, 360·390·480px에서 버튼이 아이콘과 꺾쇠만 보이는지
-  - 깊이 모드의 별 퍼짐(0.7초), 상자를 감싸는 빛(0.9초), 3초 빛줄기, 「생각하는 중」 글자 빛과 움직임 줄이기 설정
+  - 깊이 모드의 240ms 빛줄기 한 번(#152), 「생각하는 중」 글자 빛과 움직임 줄이기 설정
 
 ## 화면 언어 설정 — 한국어 · English · 中文 (#116)
 

@@ -802,38 +802,29 @@ test("깊이 모드: 고정 테두리는 상태만으로 그리고, 효과는 �
     .filter(rule => rule.declarations.some(([name, value]) => name === "animation" && value !== "none"))
     .flatMap(rule => rule.selectors)
     .filter(selector => /mode-|composer-row|thinking|choice-menu/.test(selector));
-  assert.deepEqual(effects, [
-    ".composer-row.is-deep-enter::after", '.mode-pill.is-bursting .mode-icon[data-icon="deep"]', ".mode-spark",
-    ".mode-pill.is-flowing::after", ".mode-pill.is-flowing::before", ".thinking.is-waiting > summary",
-  ]);
-  const seconds = selector => Number.parseFloat(/(\d*\.?\d+)s/.exec(declared(selector, ["animation"]))[1]);
-  // 입력 줄을 감싸는 빛도 하늘색 계열로 0.45초 한 번만 지나간다(#137). 노랑은 고정 테두리 고리에만 남는다.
-  assert.equal(seconds(".composer-row.is-deep-enter::after"), .45);
-  assert.doesNotMatch(declared(".composer-row.is-deep-enter::after", ["background"]), /deep-gold/);
-  assert.equal(seconds('.mode-pill.is-bursting .mode-icon[data-icon="deep"]'), .7);
-  assert.ok(seconds(".mode-spark") <= .7);
-  // 하늘색 빛줄기는 깊이 모드가 켜질 때 한 번만 지나간다(#137). 되풀이하지 않고 0.5초 안에 끝난다.
-  assert.equal(seconds(".mode-pill.is-flowing::before"), .45);
-  assert.doesNotMatch(declared(".mode-pill.is-flowing::before", ["animation"]), /infinite/);
-  // 흐르는 테두리도 한 번만 0.45초 흐른다. 되풀이(infinite)하면 깊이 모드를 둔 동안 노랑 섞인 테두리가 계속 움직인다.
-  assert.equal(seconds(".mode-pill.is-flowing::after"), .45);
-  assert.doesNotMatch(declared(".mode-pill.is-flowing::after", ["animation"]), /infinite/);
-  // 움직이는 효과에는 하늘색 계열만 쓴다. 노랑(--deep-gold)은 움직이지 않는 고정 테두리 고리에만 남는다.
-  for (const selector of [".mode-pill.is-flowing::after", ".mode-pill.is-flowing::before", ".composer-row.is-deep-enter::after"]) {
-    assert.doesNotMatch(declared(selector, ["background"]), /deep-gold/, selector);
+  // 깊이 생각 진입 효과는 빛줄기 하나뿐이다(#152). 나머지 하나는 응답 중 「생각하는 중」 글자 빛이다.
+  assert.deepEqual(effects, [".mode-pill.is-flowing::before", ".thinking.is-waiting > summary"]);
+  // 빛줄기는 240ms ease-out으로 한 번만 지나간다. 300ms를 넘기지 않고 되풀이하지 않는다.
+  const sweep = declared(".mode-pill.is-flowing::before", ["animation"]);
+  assert.equal(sweep, "mode-sweep .24s ease-out 1 both");
+  const [, amount, unit] = /^mode-sweep (\d*\.?\d+)(ms|s) /.exec(sweep);
+  assert.ok(Number(amount) * (unit === "s" ? 1000 : 1) < 300, sweep);
+  assert.doesNotMatch(sweep, /infinite|alternate/);
+  // 빛줄기 색은 하늘색(--deep-shine)이다. 노랑(--deep-gold)은 움직이지 않는 고정 테두리 고리에만 남는다.
+  const shine = declared(".mode-pill.is-flowing::before", ["background"]);
+  assert.match(shine, /var\(--deep-shine\)/);
+  assert.doesNotMatch(shine, /deep-gold|F7C500/i);
+  // 지운 효과의 선택자와 키프레임은 남기지 않는다(주석은 셈하지 않는다).
+  const code = styles.replace(/\/\*[\s\S]*?\*\//g, "");
+  for (const gone of [/\.mode-spark/, /\.is-bursting/, /\.is-deep-enter/, /\.is-flowing::after/, /mode-star-spin/, /composer-deep-enter/, /mode-border-flow/, /@keyframes mode-spark\b/]) {
+    assert.doesNotMatch(code, gone, String(gone));
   }
-  // 반짝임 조각은 하늘색 계열이다. 노랑은 고정 테두리 고리에만 남는다.
-  for (const selector of [".mode-spark", ".mode-spark:nth-child(3n + 2 of .mode-spark)", ".mode-spark:nth-child(3n of .mode-spark)"]) {
-    assert.match(declared(selector, ["background"]), /^var\(--(?:sky|deep-sky)\)$/, selector);
-  }
-  // 별 조각은 8방향으로 퍼진다.
-  assert.equal(rules.filter(rule => rule.selectors.some(selector => /^\.mode-spark:nth-child\(\d of \.mode-spark\)$/.test(selector))).length, 7);
-  // 움직임 줄이기 설정에서는 효과의 움직임을 끄고 별·빛줄기·감싸는 빛은 그리지 않는다.
+  assert.deepEqual(rules.flatMap(rule => rule.context).filter(header => /^@keyframes (?:mode-|composer-)/.test(header))
+    .filter((header, index, all) => all.indexOf(header) === index), ["@keyframes mode-sweep"]);
+  // 움직임 줄이기 설정에서는 효과의 움직임을 끄고 빛줄기는 그리지 않는다.
   const calm = { motion: true };
   for (const selector of effects) assert.equal(declared(selector, ["animation"], undefined, calm), "none !important", selector);
-  for (const selector of [".mode-spark", ".mode-pill.is-flowing::after", ".mode-pill.is-flowing::before", ".composer-row.is-deep-enter::after"]) {
-    assert.equal(declared(selector, ["display"], undefined, calm), "none", selector);
-  }
+  assert.equal(declared(".mode-pill.is-flowing::before", ["display"], undefined, calm), "none");
   assert.match(declared(".composer-row.is-deep::before", ["background"], undefined, calm), gradient);
   // 버튼 자신의 배경은 효과 클래스와 움직임 설정에 상관없이 고정 표시 하나로 정해진다.
   // 실제 버튼처럼 상태 클래스를 조합해 그 요소에 걸리는 규칙을 모두 모아 계산한다. 예전 결함 두 가지를 함께 본다.
@@ -853,7 +844,7 @@ test("깊이 모드: 고정 테두리는 상태만으로 그리고, 효과는 �
     return result;
   };
   const fixedRing = /linear-gradient\(90deg, var\(--sky\), var\(--deep-sky\), var\(--deep-gold\)\) 0 0 \/ 100% 100% border-box$/;
-  for (const state of [['[data-mode="deep"]'], ['[data-mode="deep"]', ".is-flowing"], ['[data-mode="deep"]', ".is-flowing", ".is-bursting"]]) {
+  for (const state of [['[data-mode="deep"]'], ['[data-mode="deep"]', ".is-flowing"]]) {
     for (const env of [{ motion: false }, { motion: true }]) {
       const paint = pillBackground(state, env);
       assert.deepEqual(Object.keys(paint), ["background"], `${state.join("")} ${env.motion}`);
@@ -861,10 +852,10 @@ test("깊이 모드: 고정 테두리는 상태만으로 그리고, 효과는 �
       assert.doesNotMatch(paint.background, /300%/);
     }
   }
-  // 흐르는 고리는 별도 층에서만 3배로 늘려 옮기고, 테두리 자리만 칠한다.
-  assert.match(declared(".mode-pill.is-flowing::after", ["background"]), /\/ 300% 100%$/);
-  assert.equal(declared(".mode-pill.is-flowing::after", ["mask-composite"]), "exclude");
-  assert.equal(declared(".mode-pill.is-flowing::after", ["pointer-events"]), "none");
+  // 빛줄기는 버튼 뒤 별도 층이고 포인터 입력을 받지 않는다. 3:1 경계선(--edge-strong 안쪽 1px)은 그대로다.
+  assert.equal(declared(".mode-pill.is-flowing::before", ["pointer-events"]), "none");
+  assert.equal(declared(".mode-pill.is-flowing::before", ["z-index"]), "-1");
+  assert.match(declared('.mode-pill[data-mode="deep"]', ["box-shadow"]), /^inset 0 0 0 1px var\(--edge-strong\)/);
   // 생각 중 글자 빛은 글자를 배경으로 칠할 수 있는 브라우저에서만 켠다.
   assert.equal(declared(".thinking.is-waiting > summary", ["background-clip"]), "text");
   assert.equal(declared(".thinking.is-waiting > summary", ["-webkit-background-clip"]), "text");
@@ -896,13 +887,11 @@ test("다크 테마에서 남은 밝은 바탕은 말풍선·노랑 표시·깊�
     [".composer textarea::placeholder", ".composer textarea"], [".attach-button", ".attach-button:hover"],
     [".login-safety::before", ".login-safety::before"], [".mode-pill", ".mode-pill:hover"],
   ]);
-  // 테두리 고리·감싸는 빛·별 조각은 글자가 없는 장식이고 안쪽을 가린 채 테두리만 칠한다.
-  for (const selector of [".composer-row.is-deep::before", ".composer-row.is-deep-enter::after"]) {
-    assert.equal(declared(selector, ["pointer-events"]), "none");
-    assert.equal(declared(selector, ["mask-composite"]), "exclude");
-    assert.equal(declared(selector, ["-webkit-mask-composite"]), "xor");
-  }
-  assert.equal(declared(".mode-spark", ["pointer-events"]), "none");
+  // 입력 줄 고정 고리와 빛줄기는 글자가 없는 장식이다. 고리는 안쪽을 가린 채 테두리만 칠한다.
+  assert.equal(declared(".composer-row.is-deep::before", ["pointer-events"]), "none");
+  assert.equal(declared(".composer-row.is-deep::before", ["mask-composite"]), "exclude");
+  assert.equal(declared(".composer-row.is-deep::before", ["-webkit-mask-composite"]), "xor");
+  assert.equal(declared(".mode-pill.is-flowing::before", ["pointer-events"]), "none");
 });
 
 test("로그인과 보내기 gradient 양 끝은 흰 글자 대비 4.5 이상이다", () => {
