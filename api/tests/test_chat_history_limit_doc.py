@@ -1,17 +1,23 @@
 """채팅 기록 40개 한도 절(#170)에 전송 실패 규칙(#173) 네 가지가 적혀 있는지 본다.
 
-표준 라이브러리만 쓰고 `web/docs/UI_NOTES.md` 한 파일만 읽는다.
+표준 라이브러리만 쓰고 `web/docs/UI_NOTES.md` 한 파일만 읽는다. 프로젝트에는 마크다운 해석기가 없다.
 절은 `## 질문 수정·다시 답하기와 답변 버전 (#140)` 아래의 `### 기록 40개 한도와 차례 단위 자르기 (#170)`이다.
 
-마크다운 문법을 다 해석하지 않는다. 대신 문서가 쓰는 문법을 좁혀, 좁힌 범위 안에서는 판정이 정확하게 한다.
-1. 문서 규칙: 코드 블록 울타리(백틱·`~` 세 개 이상)는 들여쓰기·목록·인용 없이 줄 맨 앞에만 두고 짝을 맞춘다.
-   코드 블록 밖에서는 백틱 코드 조각 안이 아니면 HTML(`<글자`, `<!`, `<?`, `</`)을 쓰지 않는다.
-   이 규칙을 어기면 검사가 실패한다. 그러면 줄 맨 앞 `###` 줄이 숨는 곳은 맨 앞 코드 블록 안뿐이다.
-2. 시작 제목과 부모 제목: 코드 블록 밖에 있는, 문자열이 정확히 같은 줄 하나만 제목으로 친다.
-3. 절 끝: 제목이 될 수 있는 줄은 코드 블록·목록·인용 안이어도 모두 경계로 본다(넓게 잡아 실패 쪽으로 기운다).
-   - 앞 공백·목록 기호·인용 기호를 걷어 낸 뒤 `#`~`######`와 공백으로 시작하는 줄
-   - 글 줄 바로 아래 `=`나 `-`만 있는 줄(밑줄 제목). 경계는 밑줄 위 글 줄이다.
-4. 규칙 문구는 절 안 코드 블록 밖의 글에서 찾는다.
+마크다운의 뜻을 추측하지 않는다. 먼저 문서가 아래의 좁은 문법만 쓰는지 확인하고, 하나라도 벗어나면 실패한다.
+좁은 문법 안에서는 줄 맨 앞 `###` 줄이 제목이 아닌 경우가 맨 앞 코드 블록 안뿐이라, 판정이 CommonMark와 같다.
+
+1. 줄은 `\\n`으로만 나눈다(CommonMark 줄 끝 정의). U+2028 같은 문자는 줄을 나누지 않는다.
+2. 코드 블록 울타리(백틱·`~` 세 개 이상)는 들여쓰기·목록·인용 없이 줄 맨 앞에 두고 짝을 맞춘다.
+   백틱 울타리의 설명 글에는 백틱이 없고, 닫는 울타리도 줄 맨 앞에 둔다.
+3. 코드 블록 밖에서 코드 조각은 한 줄 안의 백틱 한 개 짝으로만 쓴다. 줄마다 백틱 수가 짝수이고,
+   백틱이 두 개 이상 이어지지 않으며, 여는 백틱 바로 앞에 백슬래시가 없다.
+   그러면 줄을 넘는 코드 조각과 이스케이프한 백틱이 없어, 앞에서부터 둘씩 짝지은 것이 실제 코드 조각과 같다.
+4. 코드 블록과 코드 조각 밖에서는 HTML을 시작할 수 있는 `<`+글자·`!`·`?`·`/`를 쓰지 않는다.
+5. 링크 참조 정의 줄(`[이름]: 주소`)은 화면에 보이지 않으므로 쓰지 않는다.
+
+그 위에서 시작 제목과 부모 제목은 코드 블록 밖에서 문자열이 정확히 같은 줄 하나만 친다.
+절 끝은 제목이 될 수 있는 줄을 모두 경계로 넓게 잡는다(앞 공백·목록·인용 기호를 걷은 `#` 줄, 글 아래 밑줄 줄).
+규칙 문구는 절 안 코드 블록 밖의 글에서 찾는다.
 """
 
 import re
@@ -30,8 +36,8 @@ CONTAINER = re.compile(r"(?:[ \t]+|(?:[-*+]|\d{1,9}[.)])(?=[ \t])|>)*")
 FENCE = re.compile(r"(`{3,}|~{3,})(.*)$")
 HEADING_LIKE = re.compile(r"(#{1,6})(?=[ \t]|$)")
 UNDERLINE_LIKE = re.compile(r"(=+|-+)[ \t]*$")
-CODE_SPAN = re.compile(r"(`+)(?!`).*?(?<!`)\1(?!`)")
 HTML_LIKE = re.compile(r"<[A-Za-z!?/]")
+REFERENCE = re.compile(r" {0,3}\[[^\]]*\]:")
 
 # 절에 꼭 남아야 하는 규칙 문구. 확정 기록 경계, 새 대화 예외, 실패 뒤 저장, 재시도 한 차례.
 REQUIRED = (
@@ -43,12 +49,38 @@ REQUIRED = (
 )
 
 
+def split_lines(text):
+    """CommonMark 줄 끝(`\\n`, `\\r\\n`, `\\r`)으로만 나눈다. str.splitlines는 U+2028 등에서도 나눠 쓰지 않는다."""
+    return text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+
+
 def strip_container(line):
     return line[CONTAINER.match(line).end() :]
 
 
+def inline_problem(line):
+    """코드 블록 밖 한 줄이 3·4·5번 규칙을 어기면 이유를, 지키면 None을 돌려준다."""
+    if REFERENCE.match(line):
+        return "링크 참조 정의 줄은 쓰지 않는다."
+    if "``" in line:
+        return "코드 블록 밖에서는 백틱을 두 개 이상 잇지 않는다."
+    ticks = [index for index, char in enumerate(line) if char == "`"]
+    if len(ticks) % 2:
+        return "코드 조각은 한 줄 안에서 백틱 짝을 맞춘다."
+    outside, position = [], 0
+    for opening, closing in zip(ticks[::2], ticks[1::2]):
+        if opening and line[opening - 1] == "\\":
+            return "여는 백틱 앞에 백슬래시를 두지 않는다."
+        outside.append(line[position:opening])
+        position = closing + 1
+    outside.append(line[position:])
+    if any(HTML_LIKE.search(part) for part in outside):
+        return "코드 조각 밖에서 HTML을 쓰지 않는다."
+    return None
+
+
 def code_blocks(lines):
-    """(코드 블록 안 줄 번호 집합, 문서 규칙 위반 목록). 울타리 줄도 코드 블록에 넣는다."""
+    """(코드 블록 안 줄 번호 집합, 좁은 문법 위반 목록). 울타리 줄도 코드 블록에 넣는다."""
     fenced, problems, fence = set(), [], None
     for index, line in enumerate(lines):
         number = index + 1
@@ -60,7 +92,6 @@ def code_blocks(lines):
             if re.fullmatch(rf"{re.escape(char)}{{{size},}}[ \t]*", line):
                 fence = None
             elif found and found.group(1)[0] == char and len(found.group(1)) >= size and not found.group(2).strip():
-                # 들여쓴 닫는 울타리는 마크다운에 따라 닫힐 수도 있어 판정이 갈린다.
                 problems.append(f"{number}번째 줄: 닫는 울타리는 줄 맨 앞에 둔다.")
             continue
         if found:
@@ -71,8 +102,9 @@ def code_blocks(lines):
             fenced.add(index)
             fence = (found.group(1)[0], len(found.group(1)))
             continue
-        if HTML_LIKE.search(CODE_SPAN.sub("", line)):
-            problems.append(f"{number}번째 줄: 코드 조각 밖에서 HTML을 쓰지 않는다.")
+        reason = inline_problem(line)
+        if reason:
+            problems.append(f"{number}번째 줄: {reason}")
     if fence:
         problems.append("닫히지 않은 코드 블록이 있다.")
     return fenced, problems
@@ -94,8 +126,8 @@ def boundaries(lines):
 
 
 def history_section(text):
-    """#140 절 아래 #170 절에서 코드 블록 밖 글. 문서 규칙을 어기거나 제목을 찾지 못하면 None."""
-    lines = text.splitlines()
+    """#140 절 아래 #170 절에서 코드 블록 밖 글. 좁은 문법을 벗어나거나 제목을 찾지 못하면 None."""
+    lines = split_lines(text)
     fenced, problems = code_blocks(lines)
     if problems:
         return None
@@ -112,8 +144,7 @@ def history_section(text):
 
 
 def history_doc_problems(notes):
-    lines = notes.splitlines()
-    problems = code_blocks(lines)[1]
+    problems = code_blocks(split_lines(notes))[1]
     if problems:
         return problems
     section = history_section(notes)
@@ -139,7 +170,7 @@ class ChatHistoryLimitDocTest(unittest.TestCase):
         return modified
 
     def test_document_follows_the_narrow_syntax(self):
-        self.assertEqual(code_blocks(self.notes.splitlines())[1], [])
+        self.assertEqual(code_blocks(split_lines(self.notes))[1], [])
 
     def test_section_has_failure_rules(self):
         self.assertIsNotNone(self.section)
@@ -168,7 +199,7 @@ class ChatHistoryLimitDocTest(unittest.TestCase):
                 self.assertTrue(history_doc_problems(modified))
 
     def test_syntax_outside_the_narrow_rules_fails(self):
-        # 해석이 갈릴 수 있는 문법은 넣기만 해도 실패한다.
+        # 해석이 갈릴 수 있는 문법은 넣기만 해도 실패한다. 지난 교차 검토의 재현을 모두 담는다.
         snippets = {
             "인용 안 울타리": "> ~~~\n\n~~~\n\n가상 글\n\n> ~~~\n~~~",
             "목록 안 울타리": "- ~~~text\n  example\n  ~~~",
@@ -182,6 +213,11 @@ class ChatHistoryLimitDocTest(unittest.TestCase):
             "pre 블록": "<pre>\n\n### 가짜\n\n</pre>",
             "닫는 태그": "</div>",
             "처리 명령": "<?가상?>",
+            "이스케이프한 백틱 사이 HTML": "\\`<h3>Other section</h3>\\`",
+            "이스케이프한 백틱 하나": "가상 \\` 글 `코드`",
+            "줄을 넘는 코드 조각": "가상 `글\n<h3>Other section</h3>\n코드` 끝",
+            "두 개 이은 백틱": "가상 `` <h3> `` 글",
+            "링크 참조 정의": "[가상]: /가상 '숨은 글'",
         }
         for case, snippet in snippets.items():
             with self.subTest(case=case):
@@ -189,7 +225,8 @@ class ChatHistoryLimitDocTest(unittest.TestCase):
 
     def test_html_inside_code_is_allowed(self):
         snippets = {
-            "코드 조각": "가상 `<h3>`와 `` <!-- `` 표기",
+            "코드 조각": "가상 `<h3>`와 `<!--` 표기",
+            "코드 조각 안 백슬래시": "가상 `a\\|b` 표기",
             "코드 블록": "```html\n<h3>가상</h3>\n<!-- 가상 -->\n```",
         }
         for case, snippet in snippets.items():
@@ -221,15 +258,22 @@ class ChatHistoryLimitDocTest(unittest.TestCase):
             "빈 줄 아래 구분선": "---",
             "공백 없는 해시": "#가상해시",
             "4단계 제목": "#### 가상 하위 제목",
+            "줄 구분이 아닌 U+2028 뒤 제목 글자": "가상 글 ### 가짜",
         }
         for case, snippet in snippets.items():
             with self.subTest(case=case):
                 self.assertEqual(history_doc_problems(self.before_rules(snippet)), [])
 
+    def test_section_heading_not_on_its_own_line_does_not_start_the_section(self):
+        # U+2028·U+2029·U+0085 같은 문자는 CommonMark 줄 끝이 아니라, 그 뒤 글은 같은 줄의 문단 글이다.
+        for separator in (" ", " ", "\u0085", "\x0b", "\x0c"):
+            with self.subTest(separator=repr(separator)):
+                modified = self.replace_heading(f"### Other section\n\nExample text{separator}{SECTION_HEADING}")
+                self.assertTrue(history_doc_problems(modified))
+
     def test_section_heading_in_code_block_does_not_start_the_section(self):
-        for fence in ("~~~", "```text", "````"):
+        for fence, closer in (("~~~", "~~~"), ("```text", "```"), ("````", "````")):
             with self.subTest(fence=fence):
-                closer = fence.rstrip("text")
                 modified = self.replace_heading(f"### Other section\n\n{fence}\n{SECTION_HEADING}\n{closer}")
                 self.assertTrue(history_doc_problems(modified))
 
