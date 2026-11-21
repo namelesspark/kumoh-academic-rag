@@ -4366,7 +4366,8 @@ function setupHandwriting() {
     if (reading || !strokes.length) return;
     const last = strokes.pop();
     for (const [id, stroke] of active) if (stroke === last) active.delete(id);
-    show(""); redraw(); controls();
+    if (!active.size) show("");
+    redraw(); controls();
     if (!strokes.length) canvas.focus();
   });
   clear.addEventListener("click", () => {

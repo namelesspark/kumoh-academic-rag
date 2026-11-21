@@ -1530,6 +1530,77 @@ test("오류 문구가 보이는 채 캔버스 위쪽을 찍어도 첫 점은 �
   assert.ok(dotAt(page.exports.at(-1).canvas.log, 5), "the first point is in the image");
 });
 
+test("422 뒤 되돌려도 남은 손가락을 뗄 때까지 오류 줄과 캔버스 위치를 유지한다", async () => {
+  const page = loadPad();
+  page.button.click();
+  page.stroke([100, 100], [160, 100]);
+  page.respond(refused(422));
+  page.insert.click();
+  await settle();
+  assert.equal(page.status.textContent, messages.unreadable);
+
+  const { top, bottom } = page.canvasRect;
+  let statusText = page.status.textContent;
+  Object.defineProperty(page.status, "textContent", {
+    get: () => statusText,
+    set: value => {
+      if (statusText && !value) Object.assign(page.canvasRect, { top: top + 20, bottom: bottom + 20 });
+      statusText = value;
+    },
+  });
+  const lineEnds = log => log.filter(call => call[0] === "lineTo").map(call => call.slice(1));
+  page.pointer("pointerdown", { id: 21, kind: "touch", x: 220, y: 10 });
+  page.pointer("pointerdown", { id: 22, kind: "touch", x: 400, y: 150 });
+  page.pointer("pointermove", { id: 22, kind: "touch", x: 460, y: 150 });
+  assert.deepEqual(lineEnds(page.canvas.log).at(-1), [460, 150]);
+
+  const beforeUndo = page.canvas.log.length;
+  page.undo.click();
+  assert.equal(page.status.textContent, messages.unreadable, "undo keeps the error while another finger is drawing");
+  assert.deepEqual([page.canvasRect.top, page.canvasRect.bottom], [top, bottom]);
+  assert.deepEqual(lineEnds(page.canvas.log.slice(beforeUndo)), [[160, 100]]);
+  const afterUndo = page.canvas.log.length;
+  page.pointer("pointermove", { id: 22, kind: "touch", x: 480, y: 160 });
+  page.pointer("pointerup", { id: 22, kind: "touch", x: 500, y: 170 });
+  page.pointer("lostpointercapture", { id: 22, kind: "touch" });
+  assert.equal(page.canvas.log.length, afterUndo);
+  assert.equal(page.status.textContent, messages.unreadable);
+
+  // 손가락은 오류 줄이 보일 때의 화면 좌표에서 이어 긋는다.
+  page.canvas.fire("pointermove", {
+    pointerId: 21, pointerType: "touch", clientX: page.canvasRect.left + 280, clientY: top + 10,
+  });
+  assert.deepEqual(lineEnds(page.canvas.log.slice(afterUndo)), [[280, 10]]);
+  assert.equal(page.status.textContent, messages.unreadable);
+  assert.deepEqual([page.canvasRect.top, page.canvasRect.bottom], [top, bottom]);
+  page.pointer("pointerup", { id: 21, kind: "touch", x: 300, y: 10 });
+  assert.equal(page.status.textContent, "");
+  assert.equal(page.canvasRect.top, top + 20);
+
+  page.respond(ok("가상"));
+  page.insert.click();
+  await settle();
+  assert.equal(page.exports.length, 2);
+  assert.deepEqual(lineEnds(page.exports[1].canvas.log), [[160, 100], [280, 10], [300, 10]]);
+  assert.equal(page.requests.length, 2);
+  const { options } = page.requests[1];
+  assert.ok(options.body instanceof FormData);
+  assert.equal(options.body.get("image").type, "image/png");
+});
+
+test("422 뒤 긋는 손가락이 없으면 되돌리기가 오류 줄을 바로 지운다", async () => {
+  const page = loadPad();
+  page.button.click();
+  page.stroke([100, 100], [160, 100]);
+  page.respond(refused(422));
+  page.insert.click();
+  await settle();
+  assert.equal(page.status.textContent, messages.unreadable);
+  page.undo.click();
+  assert.equal(page.status.textContent, "");
+  assert.equal(page.insert.disabled, true);
+});
+
 // 새 칸의 첫 점이 지금 칸으로 clip()한 채 제 굵기로 찍혔는지 본다. 좌표는 부동소수점 오차를 허용한다.
 function newAreaTip(log, x, y, radius, rect) {
   const near = (a, b) => Math.abs(a - b) < 1e-6;
