@@ -13,7 +13,8 @@
 - 「사이드바 초점」 줄은 #212 보관함 조건까지 본다.
   「보관함이 펼쳐져 있으면 보관함 안 대화 열기 버튼도 같은 규칙을 따르고, 접힌 보관함은 버튼이 숨어 있어 대상이 아니다.」
 - 질문 수정도 사이드바 규칙의 대상이다(#215). #203 절은 「사이드바 초점」 줄과 검사 문단의 다시 답하기·질문 수정 사이드바 경로 줄을, #200 절은
-  수정 버튼 복원과 사이드바 초점 유지의 적용 시점 줄과 대화 열기 버튼이 새 버튼으로 바뀐다는 줄을 숨지 않은 줄과 문자열 전체로 본다.
+  편집 폼 밖 초점을 수정 버튼으로 옮기지 않는다는 줄, 수정 버튼 복원과 사이드바 초점 유지의 적용 시점 줄,
+  대화 열기 버튼이 새 버튼으로 바뀐다는 줄을 숨지 않은 줄과 문자열 전체로 본다.
   #200 절의 끝은 다음 제목(#203 절 제목)이다. 질문 수정을 사이드바 규칙에서 빼던 옛 문장(OLD_EDIT_EXCLUSIONS)은
   옛 사이드바 문장과 같이 공백을 줄여 문서 전체(코드 블록·주석 포함)에서 찾는다.
 규칙을 고칠 때는 아래 줄도 함께 고친다.
@@ -69,13 +70,16 @@ RULE_LINES = {
     "검사 문단": "질문 수정도 스트림 성공·JSON 대체 성공·최종 실패 뒤 일반 목록과 펼친 보관함의 같은 대화 ID 새 버튼에 초점이 남는지 본다.",
 }
 
-# #200 절에 있어야 하는 사이드바 줄. 수정 버튼 복원과 사이드바 초점 유지가 각각 언제 쓰이는지 적는다.
+# #200 절에 있어야 하는 줄. 수정 버튼 복원과 사이드바 초점 유지가 각각 언제 쓰이는지 적는다.
+# 「편집 폼 밖 초점」 줄은 폼 안 초점만 기록하는 chat.js의 수정 버튼 복원 조건과 맞아야 한다.
 PREVIOUS_SIDEBAR_LINES = {
-    "적용 시점": "- 사이드바 초점: 「수정」 버튼 복원은 성공 직전 편집 폼이 초점을 품고 있을 때만 쓴다. "
+    "편집 폼 밖 초점": "- 이 규칙은 성공 직전까지 편집 폼 밖에 있는 초점을 수정 버튼으로 옮기지 않는다. "
+                 "질문 입력창처럼 응답 뒤에도 남아 있고 켜져 있는 요소에 있으면 그 자리에 머문다.",
+    "사이드바 적용 시점": "- 사이드바 초점: 「수정」 버튼 복원은 성공 직전 편집 폼이 초점을 품고 있을 때만 쓴다. "
              "사이드바 대화 열기 버튼 초점 유지는 질문 수정이 성공하거나(스트림, JSON 대체 응답) 최종 실패해 "
              "대화 목록을 다시 그릴 때 초점이 대화 열기 버튼에 있으면 쓰고, "
              "조건과 예외는 아래 #203 절의 「사이드바 초점」·「사이드바 예외」 줄과 같다.",
-    "새 버튼": "  사이드바 대화 열기 버튼은 목록을 다시 그릴 때 새 버튼으로 바뀌고, "
+    "사이드바 새 버튼": "  사이드바 대화 열기 버튼은 목록을 다시 그릴 때 새 버튼으로 바뀌고, "
             "초점은 아래 「사이드바 초점」 줄에 따라 같은 대화의 새 버튼으로 옮긴다.",
 }
 
@@ -150,7 +154,7 @@ def regenerate_doc_problems(notes):
     previous = visible_body(lines, hidden, section_bounds(lines, marks, PREVIOUS_HEADING))
     if PREVIOUS_RULE not in previous:
         problems.append("#200 절의 제외 줄이 수정 버튼 규칙에만 해당한다는 문장이 아니다.")
-    problems += [f"#200 절에 사이드바 {case} 줄이 그대로 없다."
+    problems += [f"#200 절에 {case} 줄이 그대로 없다."
                  for case, line in PREVIOUS_SIDEBAR_LINES.items() if line not in previous]
     # 문단 안 줄바꿈은 화면에서 공백 하나로 보이므로, 공백과 줄바꿈을 한 칸으로 줄인 뒤 옛 문장을 찾는다.
     flat = squeeze(notes)
@@ -196,11 +200,15 @@ class RegenerateFocusDocTest(unittest.TestCase):
     def test_previous_sidebar_lines_are_checked(self):
         for case, line in PREVIOUS_SIDEBAR_LINES.items():
             with self.subTest(case=case):
-                self.assertIn(f"#200 절에 사이드바 {case} 줄이 그대로 없다.",
+                self.assertIn(f"#200 절에 {case} 줄이 그대로 없다.",
                               regenerate_doc_problems(self.in_previous(line, "- 가상 글")))
 
     def test_previous_sidebar_conditions_changed_fail(self):
         changes = {
+            # 교차 검토 재현: 폼 밖 초점도 수정 버튼으로 옮긴다고 뒤집으면 chat.js의 기록 조건과 어긋난다.
+            "폼 밖 초점 이동으로 뒤집음": ("편집 폼 밖에 있는 초점을 수정 버튼으로 옮기지 않는다.",
+                                 "편집 폼 밖에 있는 초점을 수정 버튼으로 옮긴다."),
+            "입력창 초점 유지 삭제": (" 질문 입력창처럼 응답 뒤에도 남아 있고 켜져 있는 요소에 있으면 그 자리에 머문다.", ""),
             "수정 버튼 조건 삭제": ("「수정」 버튼 복원은 성공 직전 편집 폼이 초점을 품고 있을 때만 쓴다. ", ""),
             "실패 조건 삭제": ("성공하거나(스트림, JSON 대체 응답) 최종 실패해 대화 목록", "성공해 대화 목록"),
             "예외 연결 삭제": ("·「사이드바 예외」 줄과", " 줄과"),
@@ -223,7 +231,7 @@ class RegenerateFocusDocTest(unittest.TestCase):
             }
             for place, modified in places.items():
                 with self.subTest(case=case, place=place):
-                    self.assertIn(f"#200 절에 사이드바 {case} 줄이 그대로 없다.", regenerate_doc_problems(modified))
+                    self.assertIn(f"#200 절에 {case} 줄이 그대로 없다.", regenerate_doc_problems(modified))
 
     def test_old_edit_exclusion_anywhere_fails(self):
         # 새 규칙 줄은 모두 두고, 질문 수정을 빼던 옛 문장을 여러 자리에 남긴다.
