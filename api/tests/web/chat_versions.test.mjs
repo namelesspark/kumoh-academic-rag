@@ -534,6 +534,57 @@ test("다시 답하기를 기다리며 질문 입력창으로 옮긴 초점을 �
   assert.equal(p.focus(), p.input);
 });
 
+// #200·#203: 질문 수정 뒤 초점 복원과 다시 답하기 뒤 초점 복원을 같은 대화에서 이어 써도 서로 섞이지 않아야 한다.
+test("두 번째 질문 수정 뒤 첫 번째 문답을 다시 답하면 각자의 버튼으로 한 번씩만 초점이 간다", async () => {
+  const p = page();
+  const countFocus = button => {
+    const focusButton = button.focus.bind(button);
+    const calls = { count: 0 };
+    button.focus = () => {
+      calls.count++;
+      assert.equal(button.disabled, false);
+      focusButton();
+    };
+    return calls;
+  };
+  const editButton = find(p, ".turn-edit", 1);
+  const editCalls = countFocus(editButton);
+  edit(p, "가상 이어서 고친 질문", 1);
+  await finish(p.requests[0], "가상 이어서 고친 답");
+  assert.equal(p.focus(), editButton);
+  assert.equal(editCalls.count, 1);
+
+  const regenerateButton = find(p, ".turn-regenerate");
+  regenerateButton.focus();
+  assert.equal(p.focus(), regenerateButton);
+  const regenerateCalls = countFocus(regenerateButton);
+  regenerateButton.click();
+  assert.equal(p.focus(), p.body);
+  assert.equal(p.requests.length, 2);
+  assert.equal(sentQuestion(p.requests[1]), question);
+  await finish(p.requests[1], "가상 첫 문답 새 답");
+  assert.equal(p.focus(), regenerateButton);
+  assert.equal(regenerateCalls.count, 1);
+  assert.equal(editCalls.count, 1);
+  assert.equal(find(p, ".version-count").textContent, "2/2");
+  assert.equal(find(p, ".reply").textContent, "가상 첫 문답 새 답");
+  assert.equal(find(p, ".version-count", 1).textContent, "2/2");
+  assert.equal(find(p, ".question", 1).textContent, "가상 이어서 고친 질문");
+  const messages = savedMessages(p);
+  assert.deepEqual(messages[0].versions.map(version => [version.question.text, version.answer.text]),
+    [[question, answer], [question, "가상 첫 문답 새 답"]]);
+  assert.deepEqual(messages[2].versions.map(version => [version.question.text, version.answer.text]),
+    [[legacy[2].text, legacy[3].text], ["가상 이어서 고친 질문", "가상 이어서 고친 답"]]);
+
+  p.body.focus();
+  p.run("updateSend()");
+  p.run('applyLang("en")');
+  assert.equal(regenerateButton.textContent, "Answer again");
+  assert.equal(p.focus(), p.body);
+  assert.equal(regenerateCalls.count, 1);
+  assert.equal(editCalls.count, 1);
+});
+
 for (const [label, getTarget] of [
   ["대화 목록 버튼", p => p.conversationList.querySelector(".conversation-open")],
   ["이전 답의 출처 링크", p => find(p, ".test-source", 1)],
