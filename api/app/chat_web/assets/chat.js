@@ -4346,22 +4346,24 @@ function setupHandwriting() {
     }
     if (context && stroke.points.length > from) { paint(); drawHandwritingStroke(context, stroke, from); }
   }
-  // 펜을 뗀 뒤에야 이전 오류 문구를 지운다(pointerdown 참고). 모든 획이 끝났을 때만 지워, 다른 손가락이 긋는 중에 캔버스가 움직이지 않는다.
-  // 떼기(pointerup)에도 좌표가 있다. 마지막 이동 신호 뒤 떼는 자리까지 움직였으면 그 선분을 더해 획 끝이 잘리지 않게 한다.
-  // 포인터 잡기를 잃은 신호(lostpointercapture)는 떼기 뒤에도 오므로 좌표를 더하지 않는다.
-  for (const name of ["pointerup", "lostpointercapture"]) canvas.addEventListener(name, event => {
+  function finishPointer(event) {
     const stroke = active.get(event.pointerId);
-    if (stroke && name === "pointerup" && Number.isFinite(event.clientX) && Number.isFinite(event.clientY)) extend(stroke, [event], true);
-    const ended = active.delete(event.pointerId);
-    if (ended && !active.size && !reading && status.classList?.contains("is-error")) show("");
-  });
-  // 브라우저가 포인터를 취소하면(손바닥·스크롤 몸짓으로 판정한 경우 등) 그 획은 쓰다 만 것이라 버린다.
-  canvas.addEventListener("pointercancel", event => {
-    const stroke = active.get(event.pointerId);
-    active.delete(event.pointerId);
     if (!stroke) return;
-    dropStroke(stroke); redraw(); controls();
-  });
+    // 떼기(pointerup) 좌표까지 선을 잇는다. 포인터 잡기 해제는 떼기 뒤에도 오므로 좌표를 더하지 않는다.
+    if (event.type === "pointerup" && Number.isFinite(event.clientX) && Number.isFinite(event.clientY)) {
+      extend(stroke, [event], true);
+    }
+    if (!active.delete(event.pointerId)) return;
+    // 브라우저가 입력을 취소하면 쓰다 만 획을 버리고 다시 그린다.
+    if (event.type === "pointercancel") {
+      dropStroke(stroke);
+      redraw();
+      controls();
+    }
+    // 마지막 획이 끝나면 오류를 지운다. 다른 손가락이 긋는 동안에는 캔버스 위치를 유지한다.
+    if (!active.size && !reading && status.classList?.contains("is-error")) show("");
+  }
+  for (const name of ["pointerup", "lostpointercapture", "pointercancel"]) canvas.addEventListener(name, finishPointer);
   undo.addEventListener("click", () => {
     if (reading || !strokes.length) return;
     const last = strokes.pop();
