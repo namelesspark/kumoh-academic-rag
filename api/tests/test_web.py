@@ -1108,3 +1108,18 @@ class TestChatWeb(unittest.TestCase):
                     missing = call_app(app, "GET", address, allow_wait=True)
                 self.assertEqual(missing.status, 404)
                 self.assertEqual(missing.headers["cache-control"], "no-cache")
+
+    def test_handwriting_canvas_listens_to_every_stroke_ending_signal(self):
+        # 이슈 #194: 필기 캔버스는 획을 끝내는 신호 세 가지(떼기·잡기 해제·취소)를 모두 들어야 한다.
+        # 취소(pointercancel)를 빠뜨리면 읽기 실패 안내가 획이 모두 끝난 뒤에도 남았다.
+        # canvas.addEventListener가 든 줄에서 첫 인수 문자열과, 같은 줄의 for (const 이름 of [...]) 목록 이름을 모은다.
+        script = (CHAT_WEB_DIR / "assets" / "chat.js").read_text(encoding="utf-8")
+        listened = set()
+        for line in script.splitlines():
+            if not re.search(r"\bcanvas\.addEventListener\(", line):
+                continue
+            listened.update(re.findall(r"""\bcanvas\.addEventListener\(\s*["'](\w+)["']""", line))
+            for names in re.findall(r"for\s*\(\s*const\s+\w+\s+of\s+\[([^\]]*)\]\s*\)", line):
+                listened.update(re.findall(r"""["'](\w+)["']""", names))
+        missing = [name for name in ("pointerup", "lostpointercapture", "pointercancel") if name not in listened]
+        self.assertEqual(missing, [], f"필기 캔버스가 듣지 않는 획 끝내기 신호: {', '.join(missing)}")
