@@ -3027,6 +3027,7 @@ function setupTurnActions(record, turn, question, answer) {
   const labels = [];
   let prompt = turn.children[0], editor = null, draft = null, save, field, cancel, state = "", error = "";
   let restoreEditFocus = false;
+  let restoreRegenerateFocus = false;
   let versions = question.versions || [{ question, answer }], selected = question.selected ?? 0;
   function button(className, label, run, glyph) {
     const control = element("button", className, glyph);
@@ -3048,7 +3049,7 @@ function setupTurnActions(record, turn, question, answer) {
     field.focus();
   });
   const regenerate = button("turn-regenerate", null, () => {
-    if (!locked() && draft === null) run(question.text);
+    if (!locked() && draft === null) run(question.text, document.activeElement === regenerate);
   });
   const previous = button("version-prev", "이전 버전", () => select(selected - 1, previous), "‹");
   const next = button("version-next", "다음 버전", () => select(selected + 1, next), "›");
@@ -3115,6 +3116,10 @@ function setupTurnActions(record, turn, question, answer) {
       restoreEditFocus = false;
       if (turn.isConnected && activeConversation === record && document.activeElement === document.body) edit.focus();
     }
+    if (restoreRegenerateFocus && !regenerate.disabled) {
+      restoreRegenerateFocus = false;
+      regenerate.focus();
+    }
   }
   function redraw() {
     for (const child of [...turn.children]) {
@@ -3149,13 +3154,18 @@ function setupTurnActions(record, turn, question, answer) {
     choose(index);
     (origin.disabled ? (origin === previous ? next : previous) : origin).focus();
   }
-  function run(text) {
+  function run(text, regenerateHadFocus = false) {
     restoreEditFocus = false;
     if (!conversations.includes(record) || !record.messages.includes(question)) return;
+    const requestScreen = screenSequence;
     if (draft !== null) draft = text;
     state = "pending";
     void ask(text, null, record, (outcome, reply) => {
       restoreEditFocus = false;
+      // 답이나 대화 목록을 다시 그리기 전에 초점이 본문에 있는지 확인한다.
+      restoreRegenerateFocus = regenerateHadFocus && (Boolean(reply) || outcome === "failed") &&
+        screenSequence === requestScreen && activeConversation === record && turn.isConnected &&
+        document.activeElement === document.body;
       state = outcome;
       error = "서버 응답을 받지 못했어요.";
       if (reply) {
