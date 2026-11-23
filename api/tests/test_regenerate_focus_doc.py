@@ -12,6 +12,10 @@
   옛 문장은 공백과 줄바꿈을 한 칸으로 줄여 찾으므로 문단 안에서 줄을 나눠도 잡는다.
 - 「사이드바 초점」 줄은 #212 보관함 조건까지 본다.
   「보관함이 펼쳐져 있으면 보관함 안 대화 열기 버튼도 같은 규칙을 따르고, 접힌 보관함은 버튼이 숨어 있어 대상이 아니다.」
+- 질문 수정도 사이드바 규칙의 대상이다(#215). #203 절은 「사이드바 초점」 줄과 검사 문단 줄을, #200 절은
+  수정 버튼 복원과 사이드바 초점 유지의 적용 시점 줄과 대화 열기 버튼이 새 버튼으로 바뀐다는 줄을 숨지 않은 줄과 문자열 전체로 본다.
+  #200 절의 끝은 다음 제목(#203 절 제목)이다. 질문 수정을 사이드바 규칙에서 빼던 옛 문장(OLD_EDIT_EXCLUSIONS)은
+  옛 사이드바 문장과 같이 공백을 줄여 문서 전체(코드 블록·주석 포함)에서 찾는다.
 규칙을 고칠 때는 아래 줄도 함께 고친다.
 """
 
@@ -43,22 +47,41 @@ RULE_LINES = {
     "바깥 초점": "- 바깥 초점: 대기 중에 질문 입력창처럼 응답 뒤에도 켜져 있는 요소로 옮긴 초점은 그 자리에 둔다. "
              "이전 답의 출처 링크에 있던 초점은 판정 때 본문에 있지 않아 기록이 남지 않으므로, "
              "답을 바꿔 그리며 링크가 사라져 본문으로 떨어져도 다시 답하기 버튼으로 가져오지 않는다.",
-    "사이드바 초점": "- 사이드바 초점: 다시 답하기가 성공하거나(스트림, JSON 대체 응답) 최종 실패해 대화 목록을 다시 그릴 때, "
+    "사이드바 초점": "- 사이드바 초점: 다시 답하기나 질문 수정이 성공하거나(스트림, JSON 대체 응답) 최종 실패해 대화 목록을 다시 그릴 때, "
                "초점이 대화 열기 버튼(`.conversation-open`)에 있으면 그 대화 ID를 기억했다가 "
                "사이드바가 보이고 같은 ID의 새 버튼이 있을 때 `preventScroll`로 초점을 준다. "
                "목록 순서가 바뀌어도 ID로 찾고, 버튼을 못 찾으면 입력창이나 새 대화 버튼으로 대신 옮기지 않는다. "
                "보관함이 펼쳐져 있으면 보관함 안 대화 열기 버튼도 같은 규칙을 따르고, "
                "접힌 보관함은 버튼이 숨어 있어 대상이 아니다.",
-    "사이드바 예외": "- 사이드바 예외: 정지, 늦게 도착해 버리는 응답, 대기 중에 대화를 직접 다시 여는 경우, "
-               "질문 수정(#200) 흐름에서는 대화 열기 버튼의 초점을 지키지 않는다.",
+    "사이드바 예외": "- 사이드바 예외: 정지, 늦게 도착해 버리는 응답, 대기 중에 다른 대화로 옮기거나 대화를 직접 다시 여는 경우, "
+               "사이드바가 숨은 경우에는 대화 열기 버튼의 초점을 지키지 않는다. 새 질문 전송과 첫 답의 다시 시도도 대상이 아니다.",
     "제외": "- 제외: 정지, 다른 대화로 옮기기, 늦게 도착해 버리는 응답에서는 초점을 돌려주지 않는다. "
           "나중에 그 대화로 돌아와도 마찬가지다.",
     "저장 규칙": "- 저장: 성공하면 질문과 답 버전 한 쌍을 더한다. 실패하거나 정지하면 질문, 답, 선택 번호, 저장 기록을 그대로 둔다.",
     "전역 감시 없음": "- 전역 초점 감시나 타이머는 두지 않는다. 서버 API, 기록 저장 형식, 스타일은 바꾸지 않는다.",
     "남는 한계": "- 남는 한계: 대기 중에 다른 이유로 문서 본문까지 떨어진 초점은 콜백 시점에 따로 구분하지 않는다. "
              "그런 초점도 판정 때 본문에 있으면 버튼으로 돌아온다. 반대로 대기 중에 사이드바에서 지금 대화를 다시 열면, "
-             "목록을 다시 그리며 초점이 본문으로 떨어져도 화면 전환으로 보고 버튼으로 돌려주지 않는다. "
-             "질문 수정 중 대화 열기 버튼에 둔 초점도 목록을 다시 그릴 때 본문으로 떨어진다.",
+             "목록을 다시 그리며 초점이 본문으로 떨어져도 화면 전환으로 보고 버튼으로 돌려주지 않는다.",
+    "검사 문단": "질문 수정도 같은 세 경로에서 일반 목록과 펼친 보관함의 같은 대화 ID 새 버튼에 초점이 남는지 본다.",
+}
+
+# #200 절에 있어야 하는 사이드바 줄. 수정 버튼 복원과 사이드바 초점 유지가 각각 언제 쓰이는지 적는다.
+PREVIOUS_SIDEBAR_LINES = {
+    "적용 시점": "- 사이드바 초점: 「수정」 버튼 복원은 성공 직전 편집 폼이 초점을 품고 있을 때만 쓴다. "
+             "사이드바 대화 열기 버튼 초점 유지는 질문 수정이 성공하거나(스트림, JSON 대체 응답) 최종 실패해 "
+             "대화 목록을 다시 그릴 때 초점이 대화 열기 버튼에 있으면 쓰고, "
+             "조건과 예외는 아래 #203 절의 「사이드바 초점」·「사이드바 예외」 줄과 같다.",
+    "새 버튼": "  사이드바 대화 열기 버튼은 목록을 다시 그릴 때 새 버튼으로 바뀌고, "
+            "초점은 아래 「사이드바 초점」 줄에 따라 같은 대화의 새 버튼으로 옮긴다.",
+}
+
+# #215 전에 질문 수정을 사이드바 규칙에서 빼던 문장들. 문서 어디에 남아도 실패한다.
+OLD_EDIT_EXCLUSIONS = {
+    "#200 사라짐": "사이드바 대화 목록의 대화 열기 버튼은 목록을 다시 그릴 때, "
+                "같은 문답의 이전 답 안 출처 링크는 답을 바꿔 그릴 때 사라진다.",
+    "#203 예외": "질문 수정(#200) 흐름에서는 대화 열기 버튼의 초점을 지키지 않는다.",
+    "#203 한계": "질문 수정 중 대화 열기 버튼에 둔 초점도 목록을 다시 그릴 때 본문으로 떨어진다.",
+    "#203 검사": "질문 수정 중 대화 열기 버튼의 초점은 #200 규칙 그대로인지도 본다.",
 }
 
 # #209 전 「바깥 초점」 줄의 사이드바 문장. 다시 답하기 뒤 사이드바 초점을 지키는 새 규칙과 어긋나므로
@@ -119,15 +142,20 @@ def regenerate_doc_problems(notes):
     problems = []
     body = visible_body(lines, hidden, bounds)
     problems += [f"#203 절에 {case} 규칙 줄이 그대로 없다." for case, line in RULE_LINES.items() if line not in body]
+    # #200 제목은 위에서 바로 앞 3단계 절로 확인했으므로 한 번만 있다. 끝은 다음 제목, 곧 #203 제목이다.
     previous = visible_body(lines, hidden, section_bounds(lines, marks, PREVIOUS_HEADING))
     if PREVIOUS_RULE not in previous:
         problems.append("#200 절의 제외 줄이 수정 버튼 규칙에만 해당한다는 문장이 아니다.")
+    problems += [f"#200 절에 사이드바 {case} 줄이 그대로 없다."
+                 for case, line in PREVIOUS_SIDEBAR_LINES.items() if line not in previous]
     # 문단 안 줄바꿈은 화면에서 공백 하나로 보이므로, 공백과 줄바꿈을 한 칸으로 줄인 뒤 옛 문장을 찾는다.
     flat = squeeze(notes)
     if squeeze(OLD_PREVIOUS_RULE) in flat:
         problems.append("문서에 다시 답하기 전체를 제외하는 #200 예전 문장이 남아 있다.")
     if squeeze(OLD_SIDEBAR_RULE) in flat:
         problems.append("문서에 사이드바 초점을 가져오지 않는다는 #203 예전 문장이 남아 있다.")
+    problems += [f"문서에 질문 수정을 사이드바 규칙에서 빼던 {case} 옛 문장이 남아 있다."
+                 for case, line in OLD_EDIT_EXCLUSIONS.items() if squeeze(line) in flat]
     return problems
 
 
@@ -142,6 +170,8 @@ class RegenerateFocusDocTest(unittest.TestCase):
         for line in rules:
             cls.emptied = cls.emptied.replace(line, "- 가상 글")
         cls.rules_text = "\n".join(rules)
+        previous_start = cls.notes.index(PREVIOUS_HEADING + "\n")
+        cls.previous_section = cls.notes[previous_start : cls.notes.index(SECTION_HEADING + "\n", previous_start)]
 
     def replace(self, old, new, text=None):
         source = self.notes if text is None else text
@@ -153,6 +183,71 @@ class RegenerateFocusDocTest(unittest.TestCase):
         """#203 절 안에서만 바꾼다. 「전역 초점 감시…」 줄처럼 #200 절에 같은 줄이 먼저 있을 수 있다."""
         self.assertIn(old, self.section)
         return self.replace(self.section, self.section.replace(old, new, 1))
+
+    def in_previous(self, old, new):
+        """#200 절 안에서만 바꾼다."""
+        self.assertIn(old, self.previous_section)
+        return self.replace(self.previous_section, self.previous_section.replace(old, new, 1))
+
+    def test_previous_sidebar_lines_are_checked(self):
+        for case, line in PREVIOUS_SIDEBAR_LINES.items():
+            with self.subTest(case=case):
+                self.assertIn(f"#200 절에 사이드바 {case} 줄이 그대로 없다.",
+                              regenerate_doc_problems(self.in_previous(line, "- 가상 글")))
+
+    def test_previous_sidebar_conditions_changed_fail(self):
+        changes = {
+            "수정 버튼 조건 삭제": ("「수정」 버튼 복원은 성공 직전 편집 폼이 초점을 품고 있을 때만 쓴다. ", ""),
+            "실패 조건 삭제": ("성공하거나(스트림, JSON 대체 응답) 최종 실패해 대화 목록", "성공해 대화 목록"),
+            "예외 연결 삭제": ("·「사이드바 예외」 줄과", " 줄과"),
+            "새 버튼 대신 사라짐": ("새 버튼으로 바뀌고, 초점은 아래 「사이드바 초점」 줄에 따라 같은 대화의 새 버튼으로 옮긴다.",
+                            "사라진다."),
+        }
+        for case, (old, new) in changes.items():
+            with self.subTest(case=case):
+                self.assertTrue(regenerate_doc_problems(self.in_previous(old, new)))
+
+    def test_previous_sidebar_lines_moved_out_fail(self):
+        # 교차 검토 재현: #200 절의 사이드바 줄을 지우고 이웃 절·하위 절·코드 블록·주석에만 둔다.
+        for case, line in PREVIOUS_SIDEBAR_LINES.items():
+            emptied = self.in_previous(line, "- 가상 글")
+            places = {
+                "#203 절": self.replace(SECTION_HEADING + "\n", f"{SECTION_HEADING}\n\n{line}\n", emptied),
+                "#200 하위 절": self.replace(SECTION_HEADING, f"#### 가상 하위 절\n\n{line}\n\n{SECTION_HEADING}", emptied),
+                "#200 코드 블록": self.replace(SECTION_HEADING, f"```text\n{line}\n```\n\n{SECTION_HEADING}", emptied),
+                "#200 주석": self.replace(SECTION_HEADING, f"<!--\n{line}\n-->\n\n{SECTION_HEADING}", emptied),
+            }
+            for place, modified in places.items():
+                with self.subTest(case=case, place=place):
+                    self.assertIn(f"#200 절에 사이드바 {case} 줄이 그대로 없다.", regenerate_doc_problems(modified))
+
+    def test_old_edit_exclusion_anywhere_fails(self):
+        # 새 규칙 줄은 모두 두고, 질문 수정을 빼던 옛 문장을 여러 자리에 남긴다.
+        for case, line in OLD_EDIT_EXCLUSIONS.items():
+            places = {
+                "#200 절 문단": self.replace(PREVIOUS_RULE, f"{PREVIOUS_RULE}\n\n{line}"),
+                "#203 절 목록 줄": self.in_section(RULE_LINES["사이드바 예외"], f"{RULE_LINES['사이드바 예외']}\n- {line}"),
+                "다음 장 코드 블록": self.replace(LATER_HEADING, f"{LATER_HEADING}\n\n```text\n{line}\n```"),
+                "주석": self.replace(LATER_HEADING, f"<!--\n{line}\n-->\n\n{LATER_HEADING}"),
+                "줄 나눈 문단": self.replace(LATER_HEADING, LATER_HEADING + "\n\n" + line.replace(" ", "\n", 1)),
+            }
+            for place, modified in places.items():
+                with self.subTest(case=case, place=place):
+                    self.assertIn(f"문서에 질문 수정을 사이드바 규칙에서 빼던 {case} 옛 문장이 남아 있다.",
+                                  regenerate_doc_problems(modified))
+
+    def test_old_edit_exception_line_restored_fails(self):
+        # 「사이드바 예외」·「남는 한계」 줄을 #215 전 문장으로 되돌린다.
+        old_exception = ("- 사이드바 예외: 정지, 늦게 도착해 버리는 응답, 대기 중에 대화를 직접 다시 여는 경우, "
+                         + OLD_EDIT_EXCLUSIONS["#203 예외"])
+        modified = self.in_section(RULE_LINES["사이드바 예외"], old_exception)
+        modified = self.replace(RULE_LINES["남는 한계"], f"{RULE_LINES['남는 한계']} {OLD_EDIT_EXCLUSIONS['#203 한계']}",
+                                modified)
+        problems = regenerate_doc_problems(modified)
+        for case in ("사이드바 예외", "남는 한계"):
+            self.assertIn(f"#203 절에 {case} 규칙 줄이 그대로 없다.", problems)
+        for case in ("#203 예외", "#203 한계"):
+            self.assertIn(f"문서에 질문 수정을 사이드바 규칙에서 빼던 {case} 옛 문장이 남아 있다.", problems)
 
     def test_section_has_rules(self):
         self.assertEqual(regenerate_doc_problems(self.notes), [])
@@ -179,11 +274,14 @@ class RegenerateFocusDocTest(unittest.TestCase):
             "실패 때 저장": ("실패하거나 정지하면 질문, 답, 선택 번호, 저장 기록을 그대로 둔다.", "실패하면 버전을 더한다."),
             "단서 추가": ("- 전역 초점 감시나 타이머는 두지 않는다.", "- 전역 초점 감시나 타이머는 두지 않는다. 단, 실패 때는 타이머를 둔다."),
             "규칙 줄 쪼갬": ("남긴다. 편집 폼의", "남긴다.\n- 편집 폼의"),
-            "사이드바 성공 조건 삭제": ("다시 답하기가 성공하거나(스트림, JSON 대체 응답) 최종 실패해", "다시 답하기가 최종 실패해"),
+            "사이드바 성공 조건 삭제": ("질문 수정이 성공하거나(스트림, JSON 대체 응답) 최종 실패해", "질문 수정이 최종 실패해"),
             "사이드바 실패 조건 삭제": ("성공하거나(스트림, JSON 대체 응답) 최종 실패해", "성공해"),
             "사이드바 JSON 대체 삭제": ("(스트림, JSON 대체 응답)", "(스트림)"),
             "사이드바 대체 이동 허용": ("입력창이나 새 대화 버튼으로 대신 옮기지 않는다.", "입력창으로 옮긴다."),
-            "사이드바 수정 흐름 포함": (", 질문 수정(#200) 흐름에서는", "에서는"),
+            "사이드바 수정 흐름 빠짐": ("다시 답하기나 질문 수정이 성공하거나", "다시 답하기가 성공하거나"),
+            "사이드바 수정 예외 되살림": ("사이드바가 숨은 경우에는", "사이드바가 숨은 경우, 질문 수정 흐름에서는"),
+            "사이드바 숨김 예외 삭제": (" 사이드바가 숨은 경우에는", "에는"),
+            "검사 문단 보관함 삭제": ("일반 목록과 펼친 보관함의", "일반 목록의"),
             "보관함 조건 삭제": (" 보관함이 펼쳐져 있으면 보관함 안 대화 열기 버튼도 같은 규칙을 따르고, "
                            "접힌 보관함은 버튼이 숨어 있어 대상이 아니다.", ""),
             "접힌 보관함 포함": ("접힌 보관함은 버튼이 숨어 있어 대상이 아니다.", "접힌 보관함도 같은 규칙을 따른다."),
