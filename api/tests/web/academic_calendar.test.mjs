@@ -16,6 +16,7 @@ const visibleText = node => typeof node === "string" ? node :
 async function openCalendar(events, today = "2028-02-27") {
   let activeElement;
   const requests = [];
+  const focusCalls = [];
   class Element {
     children = [];
     attributes = new Map();
@@ -23,14 +24,37 @@ async function openCalendar(events, today = "2028-02-27") {
     handlers = new Map();
     textContent = "";
     value = "";
+    style = { setProperty() {} };
     setAttribute(name, value) { this.attributes.set(name, String(value)); }
     removeAttribute(name) { this.attributes.delete(name); }
     addEventListener(type, handler) { this.handlers.set(type, handler); }
     querySelector() { return null; }
-    querySelectorAll() { return []; }
-    replaceChildren(...nodes) { this.children = nodes; }
-    append(...nodes) { this.children.push(...nodes); }
-    focus() { activeElement = this; }
+    querySelectorAll(tag) { return this.children.flatMap(child => all(child, node => node.tag === tag)); }
+    replaceChildren(...nodes) {
+      for (const child of [...this.children]) {
+        if (typeof child !== "string") child.remove();
+      }
+      this.children = [];
+      this.append(...nodes);
+    }
+    append(...nodes) {
+      for (const node of nodes) {
+        if (typeof node !== "string") node.parentNode = this;
+        this.children.push(node);
+      }
+    }
+    remove() {
+      if (!this.parentNode) return;
+      if (all(this, node => node === activeElement).length) activeElement = body;
+      const siblings = this.parentNode.children;
+      siblings.splice(siblings.indexOf(this), 1);
+      this.parentNode = null;
+    }
+    getBoundingClientRect() { return { top: 20, bottom: 64, right: 140, width: 120, height: 44 }; }
+    focus() {
+      focusCalls.push(this);
+      activeElement = this;
+    }
     click() { this.handlers.get("click")?.({}); }
     press(key) {
       let prevented = false;
@@ -40,17 +64,20 @@ async function openCalendar(events, today = "2028-02-27") {
       return prevented;
     }
   }
+  const body = new Element();
+  activeElement = body;
   const card = new Element();
   card.dataset.feature = "calendar";
   const panel = new Element();
   panel.dataset.panel = "calendar";
   const content = new Element();
+  panel.append(content);
   panel.querySelector = selector => selector === "[data-panel-content]" ? content : null;
   const featureList = new Element();
   const elements = new Map([["#feature-cards", featureList]]);
   const context = {
     document: {
-      body: new Element(),
+      body,
       get activeElement() { return activeElement; },
       addEventListener() {},
       querySelector(selector) {
@@ -62,7 +89,7 @@ async function openCalendar(events, today = "2028-02-27") {
       createElement: tag => Object.assign(new Element(), { tag }),
       createTextNode: text => text,
     },
-    window: {},
+    window: { localStorage: { getItem: () => null, setItem() {} } },
     Date: class extends Date {
       static now() { return Date.parse(today + "T00:00:00Z"); }
     },
@@ -89,7 +116,7 @@ async function openCalendar(events, today = "2028-02-27") {
     return stops[0];
   };
   return {
-    root, day, tabStop, requests,
+    root, day, tabStop, requests, body, focusCalls,
     tabHeader() {
       const controls = byClass(root, "acal-header")[0].children.filter(node =>
         node.tag === "button" && !node.hidden && node.tabIndex !== -1);
@@ -103,6 +130,12 @@ async function openCalendar(events, today = "2028-02-27") {
     nav: direction => all(root, node => node.dataset.acalNav === direction)[0],
     toggle: all(root, node => Object.hasOwn(node.dataset, "acalViewToggle"))[0],
     language: lang => runInNewContext(`applyLang(${JSON.stringify(lang)})`, context),
+    openLanguageMenu() {
+      const button = elements.get("#lang-button");
+      body.append(button);
+      runInNewContext('openLangMenu(document.querySelector("#lang-button"))', context);
+      return { button, menu: byClass(body, "choice-menu")[0] };
+    },
   };
 }
 
@@ -306,9 +339,11 @@ test("연도를 넘겨도 목록과 언어 전환은 달, 선택과 초점을 �
   assert.equal(page.title(), "2028년 12월");
   page.day(31).press("ArrowRight");
   page.day(1).press("Enter");
+  const oldDay = page.day(1);
   page.language("en");
   assert.equal(page.title(), "January 2029");
   assert.equal(page.active(), page.day(1));
+  assert.notEqual(page.active(), oldDay);
   assert.match(visibleText(page.list()), /Events for January 1.*가상 등록.*December 31.*January 2/);
   page.toggle.focus();
   page.toggle.click();
@@ -330,7 +365,75 @@ test("연도를 넘겨도 목록과 언어 전환은 달, 선택과 초점을 �
   assert.equal(page.title(), "2029年1月");
   assert.match(visibleText(page.list()), /1月1日的日程/);
   assert.equal(page.tabStop(), page.day(1));
-  assert.equal(page.requests.length, 1);
+  assert.deepEqual(page.requests, ["/api/v1/academic-calendar/2027/1"]);
+});
+
+for (const [view, label] of [["month", "월 보기의 고른 날 목록"], ["list", "목록 보기"]]) {
+  test(`${label}에서 언어를 바꿔도 같은 일정의 같은 출처 링크로 초점이 돌아간다`, async () => {
+    const date = "2028-02-27";
+    const source = { title: "가상 공통 출처", url: "https://example.invalid/shared", checked_on: "2028-02-01" };
+    const undated = { ...source, checked_on: undefined };
+    const target = { ...source };
+    const page = await openCalendar([
+      event("가상 일정 A", date, date, [source, source, source]),
+      event("가상 일정 B", date, date, [source, undated, target, source]),
+    ]);
+    if (view === "list") page.toggle.click();
+    assert.equal(page.root.dataset.view, view);
+    const rows = () => byClass(view === "list" ? byClass(page.root, "acal-body")[0] : page.list(), "evidence");
+    const sourceLines = () => byClass(rows()[1], "sources")[0].children;
+    const link = () => sourceLines()[2].children[0];
+
+    assert.deepEqual(rows().map(row => row.children[0].textContent), ["가상 일정 A", "가상 일정 B"]);
+    assert.deepEqual(sourceLines().slice(0, 4).map(line => line.children[0].tag), ["a", "span", "a", "a"]);
+    assert.deepEqual(all(page.root, node => node.tag === "a").map(node => [node.textContent, attr(node, "href")]),
+      Array.from({ length: 6 }, () => [source.title, source.url]));
+    assert.equal(page.title(), "2028년 2월");
+    link().focus();
+    for (const [language, title] of [["en", "February 2028"], ["zh", "2028年2月"], ["ko", "2028년 2월"]]) {
+      const previousLink = link();
+      page.language(language);
+      assert.equal(page.title(), title);
+      assert.notEqual(link(), previousLink);
+      assert.equal(page.active(), link(), language);
+    }
+
+    // 응답을 흉내 낸 객체의 확인일을 지워 다음 렌더링에서 같은 순번의 링크를 없앤다.
+    delete target.checked_on;
+    const focusCount = page.focusCalls.length;
+    page.language("en");
+    assert.equal(link().tag, "span");
+    assert.equal(sourceLines()[3].children[0].tag, "a");
+    assert.equal(page.active(), page.body);
+    assert.equal(page.focusCalls.length, focusCount);
+    assert.deepEqual(page.requests, ["/api/v1/academic-calendar/2027/1"]);
+  });
+}
+
+test("언어 메뉴에서 고르면 달력에 초점을 주지 않고 언어 버튼으로 돌아간다", async () => {
+  const source = { title: "가상 출처", url: "https://example.invalid/calendar", checked_on: "2028-02-01" };
+  const page = await openCalendar([event("가상 일정", "2028-02-27", "2028-02-27", [source])]);
+  page.nav("next").click();
+  page.nav("prev").click();
+  page.toggle.click();
+  const link = () => all(page.root, node => node.tag === "a")[0];
+  const previousLink = link();
+  previousLink.focus();
+  const { button, menu } = page.openLanguageMenu();
+  assert.equal(attr(button, "aria-expanded"), "true");
+  const item = byClass(menu, "choice-menu-item").find(node => node.dataset.choiceValue === "en");
+  item.focus();
+  assert.equal(page.active(), item);
+
+  const focusCount = page.focusCalls.length;
+  item.click();
+  assert.equal(page.title(), "February 2028");
+  assert.notEqual(link(), previousLink);
+  assert.deepEqual(page.focusCalls.slice(focusCount), [button]);
+  assert.equal(page.active(), button);
+  assert.equal(attr(button, "aria-expanded"), "false");
+  assert.deepEqual(byClass(page.body, "choice-menu"), []);
+  assert.deepEqual(page.requests, ["/api/v1/academic-calendar/2027/1"]);
 });
 
 test("목록에서 연말 일정의 원래 기간과 출처를 두 달에 한 번씩 표시하고 빈 달을 탐색한다", async () => {
@@ -396,6 +499,9 @@ test("목록에서 연말 일정의 원래 기간과 출처를 두 달에 한 �
   activate(previous, "Enter");
   assert.equal(page.title(), "2029年1月");
   assertBoundaryRow(0);
+  page.language("ko");
+  assert.equal(page.title(), "2029년 1월");
+  assert.equal(page.active(), previous);
   assert.deepEqual(page.requests, ["/api/v1/academic-calendar/2027/1"]);
 });
 
