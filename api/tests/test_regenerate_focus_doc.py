@@ -31,7 +31,8 @@ RULE_LINES = {
     "성공·실패": "- 성공·실패: 성공하면 같은 문답의 「다시 답하기」로, 최종 실패하면 「다시 시도」로 초점을 돌려준다. "
              "「다시 시도」를 눌렀을 때도 같은 규칙을 쓴다.",
     "판정 시점": "- 판정 시점: 응답 콜백이 버전을 고르거나 답을 다시 그리기 전에 한 번만 판정한다. "
-             "현재 대화가 그 문답의 대화이고, 문답이 화면에 붙어 있고, 초점이 문서 본문에 있을 때만 기록이 남는다.",
+             "현재 대화가 그 문답의 대화이고, 요청을 시작한 뒤 그 대화를 다시 열지 않았고, 문답이 화면에 붙어 있고, "
+             "초점이 문서 본문에 있을 때만 기록이 남는다.",
     "1회 제한": "- 1회 제한: 버튼이 풀린 첫 조작 줄 갱신에서 기록을 지우고 초점을 한 번 준다. 조건이 맞지 않으면 기록만 지운다. "
               "그 뒤 언어나 테마를 바꿔 조작 줄을 다시 그려도 초점을 다시 가져가지 않는다.",
     "바깥 초점": "- 바깥 초점: 대기 중에 질문 입력창처럼 응답 뒤에도 켜져 있는 요소로 옮긴 초점은 그 자리에 둔다. "
@@ -42,7 +43,8 @@ RULE_LINES = {
     "저장 규칙": "- 저장: 성공하면 질문과 답 버전 한 쌍을 더한다. 실패하거나 정지하면 질문, 답, 선택 번호, 저장 기록을 그대로 둔다.",
     "전역 감시 없음": "- 전역 초점 감시나 타이머는 두지 않는다. 서버 API, 기록 저장 형식, 스타일은 바꾸지 않는다.",
     "남는 한계": "- 남는 한계: 대기 중에 다른 이유로 문서 본문까지 떨어진 초점은 콜백 시점에 따로 구분하지 않는다. "
-             "그런 초점도 판정 때 본문에 있으면 버튼으로 돌아온다.",
+             "그런 초점도 판정 때 본문에 있으면 버튼으로 돌아온다. 반대로 대기 중에 사이드바에서 지금 대화를 다시 열면, "
+             "목록을 다시 그리며 초점이 본문으로 떨어져도 화면 전환으로 보고 버튼으로 돌려주지 않는다.",
 }
 
 # #200 절의 제외 줄. 예전 문장(OLD)은 다시 답하기 복원 전체를 막는 것으로 읽혀 남아 있으면 안 된다.
@@ -51,16 +53,20 @@ PREVIOUS_RULE = (
     "이 제외는 수정 버튼 규칙에만 해당하고, 다시 답하기 버튼의 복원은 아래 「다시 답하기 뒤 초점 복원 (#203)」 절을 따른다. "
     "새 요청을 시작하거나 실패·정지를 받으면 기록을 지운다. 실패 뒤 초안 유지 같은 기존 동작은 그대로다."
 )
-OLD_PREVIOUS_RULE = "- 실패, 정지, 「다시 답하기」에서는 돌려주지 않는다."
+# 목록 기호 없이 문단에 남아도 잡도록 문장만 둔다. 문서 어디에 남아 있어도 실패한다.
+OLD_PREVIOUS_RULE = "실패, 정지, 「다시 답하기」에서는 돌려주지 않는다."
 
 
 def section_bounds(lines, marks, heading):
-    """(시작 줄, 끝 줄) 또는 None. 제목은 숨지 않은 줄 가운데 정확히 한 번 있어야 한다."""
+    """(시작 줄, 끝 줄) 또는 None. 제목은 숨지 않은 줄 가운데 정확히 한 번 있어야 한다.
+
+    끝은 시작 제목 뒤 첫 제목이다. 단계와 상관없이 끊어야 `####` 하위 절로 옮긴 규칙을 이 절 것으로 세지 않는다.
+    """
     starts = [index for index, _ in marks if lines[index] == heading]
     if len(starts) != 1:
         return None
     start = starts[0]
-    end = next((index for index, level in marks if index > start and level <= 3), len(lines))
+    end = next((index for index, _ in marks if index > start), len(lines))
     return start, end
 
 
@@ -91,8 +97,8 @@ def regenerate_doc_problems(notes):
     previous = visible_body(lines, hidden, section_bounds(lines, marks, PREVIOUS_HEADING))
     if PREVIOUS_RULE not in previous:
         problems.append("#200 절의 제외 줄이 수정 버튼 규칙에만 해당한다는 문장이 아니다.")
-    if any(line.startswith(OLD_PREVIOUS_RULE) for line in previous):
-        problems.append("#200 절에 다시 답하기 전체를 제외하는 예전 문장이 남아 있다.")
+    if OLD_PREVIOUS_RULE in notes:
+        problems.append("문서에 다시 답하기 전체를 제외하는 #200 예전 문장이 남아 있다.")
     return problems
 
 
@@ -162,6 +168,19 @@ class RegenerateFocusDocTest(unittest.TestCase):
         for case, modified in cases.items():
             with self.subTest(case=case):
                 self.assertTrue(regenerate_doc_problems(modified))
+
+    def test_rule_moved_to_subsection_fails(self):
+        # 교차 검토 재현: 규칙 줄을 #143 직전의 `####` 하위 절로 옮긴다.
+        for case, line in RULE_LINES.items():
+            with self.subTest(case=case):
+                moved = self.in_section(line, "- 가상 글")
+                moved = self.replace("\n" + LATER_HEADING, f"\n#### 가상 하위 절\n\n{line}\n\n{LATER_HEADING}", moved)
+                self.assertTrue(regenerate_doc_problems(moved))
+
+    def test_old_exclusion_left_as_paragraph_fails(self):
+        # 교차 검토 재현: 새 제외 줄은 두고 옛 문장을 목록 기호 없는 문단으로 #200 절에 남긴다.
+        modified = self.replace(PREVIOUS_RULE, f"{PREVIOUS_RULE}\n\n{OLD_PREVIOUS_RULE}")
+        self.assertTrue(regenerate_doc_problems(modified))
 
     def test_heading_hidden_moved_or_duplicated_fails(self):
         cases = {
