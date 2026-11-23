@@ -1900,4 +1900,5 @@ node --test api/tests/web/campus_backdrop.test.mjs api/tests/web/chat_layout.tes
 
 ### 검사
 
-- `api/tests/test_mode_indicator_doc.py`가 이 절이 한 번 있는지, 늘어남·안착 ms 숫자의 합이 합계와 같고 300 미만인지, 곡선·키보드·동작 줄이기 낱말이 남았는지 본다. 이 검사는 문서만 읽는다.
+- `api/tests/test_mode_indicator_doc.py`가 이 절이 한 번 있는지, 늘어남·안착 ms 숫자의 합이 합계와 같고 300 미만인지 본다.
+  시간·곡선·연속 방향키 이동·동작 줄이기 네 하위 절에는 위 규칙 줄이 글자 그대로 제자리에 있어야 한다. 뜻을 바꾸거나 다른 하위 절로 옮기면 실패한다. 이 검사는 문서만 읽는다.
