@@ -1601,6 +1601,78 @@ test("422 뒤 긋는 손가락이 없으면 되돌리기가 오류 줄을 바로
   assert.equal(page.insert.disabled, true);
 });
 
+test("422 뒤 마지막 손가락을 취소하면 오류 줄을 바로 지우고 완성 획만 다시 보낸다", async () => {
+  const page = loadPad();
+  page.button.click();
+  page.stroke([100, 100], [160, 100]);
+  page.respond(refused(422));
+  page.insert.click();
+  await settle();
+  assert.equal(page.status.textContent, messages.unreadable);
+
+  const { left, top, bottom } = page.canvasRect;
+  let statusText = page.status.textContent;
+  Object.defineProperty(page.status, "textContent", {
+    get: () => statusText,
+    set: value => {
+      if (statusText && !value) Object.assign(page.canvasRect, { top: top + 20, bottom: bottom + 20 });
+      statusText = value;
+    },
+  });
+  const lineEnds = log => log.filter(call => call[0] === "lineTo").map(call => call.slice(1));
+  page.pointer("pointerdown", { id: 21, kind: "touch", x: 220, y: 40 });
+  page.pointer("pointermove", { id: 21, kind: "touch", x: 260, y: 40 });
+  page.pointer("pointerdown", { id: 22, kind: "touch", x: 400, y: 150 });
+  page.pointer("pointermove", { id: 22, kind: "touch", x: 460, y: 150 });
+
+  const beforeCancel = page.canvas.log.length;
+  page.pointer("pointercancel", { id: 21, kind: "touch" });
+  assert.equal(page.status.textContent, messages.unreadable);
+  assert.deepEqual([page.canvasRect.top, page.canvasRect.bottom], [top, bottom]);
+  assert.deepEqual(lineEnds(page.canvas.log.slice(beforeCancel)), [[160, 100], [460, 150]]);
+
+  const afterFirstCancel = page.canvas.log.length;
+  page.canvas.fire("pointermove", {
+    pointerId: 22, pointerType: "touch", clientX: left + 480, clientY: top + 150,
+  });
+  assert.deepEqual(lineEnds(page.canvas.log.slice(afterFirstCancel)), [[480, 150]]);
+  page.pointer("pointercancel", { id: 22, kind: "touch" });
+  assert.equal(page.status.textContent, "", "last pointercancel clears the error immediately");
+  assert.deepEqual([page.canvasRect.top, page.canvasRect.bottom], [top + 20, bottom + 20]);
+
+  const afterLastCancel = page.canvas.log.length;
+  for (const id of [21, 22]) {
+    for (const type of ["pointermove", "pointerup", "lostpointercapture", "pointercancel"]) {
+      page.pointer(type, { id, kind: "touch", x: 500, y: 170 });
+    }
+  }
+  assert.equal(page.canvas.log.length, afterLastCancel);
+
+  page.respond(ok("가상"));
+  page.insert.click();
+  await settle();
+  assert.equal(page.exports.length, 2);
+  assert.deepEqual(lineEnds(page.exports[1].canvas.log), [[160, 100]]);
+  assert.equal(page.requests.length, 2);
+  const { body } = page.requests[1].options;
+  assert.ok(body instanceof FormData);
+  assert.equal(body.get("image").type, "image/png");
+});
+
+test("422 뒤 긋는 손가락이 없을 때 모르는 포인터의 취소는 오류 줄을 유지한다", async () => {
+  const page = loadPad();
+  page.button.click();
+  page.stroke([100, 100], [160, 100]);
+  page.respond(refused(422));
+  page.insert.click();
+  await settle();
+  assert.equal(page.status.textContent, messages.unreadable);
+  const beforeCancel = page.canvas.log.length;
+  page.pointer("pointercancel", { id: 99, kind: "touch" });
+  assert.equal(page.status.textContent, messages.unreadable);
+  assert.equal(page.canvas.log.length, beforeCancel);
+});
+
 // 새 칸의 첫 점이 지금 칸으로 clip()한 채 제 굵기로 찍혔는지 본다. 좌표는 부동소수점 오차를 허용한다.
 function newAreaTip(log, x, y, radius, rect) {
   const near = (a, b) => Math.abs(a - b) < 1e-6;
