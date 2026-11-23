@@ -9,6 +9,7 @@
 - #200 절의 제외 줄이 수정 버튼 규칙에만 해당한다고 고친 문장인지도 같은 방식으로 본다.
 - 다시 답하기 성공·최종 실패 뒤 사이드바 대화 열기 버튼의 초점을 지키는 규칙(#209)도 규칙 줄로 본다.
   그 전의 「가져오지 않는다」 사이드바 문장은 문서 어디에 남아 있어도(코드 블록·주석 포함) 실패한다.
+  옛 문장은 공백과 줄바꿈을 한 칸으로 줄여 찾으므로 문단 안에서 줄을 나눠도 잡는다.
 규칙을 고칠 때는 아래 줄도 함께 고친다.
 """
 
@@ -73,6 +74,10 @@ PREVIOUS_RULE = (
 OLD_PREVIOUS_RULE = "실패, 정지, 「다시 답하기」에서는 돌려주지 않는다."
 
 
+def squeeze(text):
+    return " ".join(text.split())
+
+
 def section_bounds(lines, marks, heading):
     """(시작 줄, 끝 줄) 또는 None. 제목은 숨지 않은 줄 가운데 정확히 한 번 있어야 한다.
 
@@ -113,9 +118,11 @@ def regenerate_doc_problems(notes):
     previous = visible_body(lines, hidden, section_bounds(lines, marks, PREVIOUS_HEADING))
     if PREVIOUS_RULE not in previous:
         problems.append("#200 절의 제외 줄이 수정 버튼 규칙에만 해당한다는 문장이 아니다.")
-    if OLD_PREVIOUS_RULE in notes:
+    # 문단 안 줄바꿈은 화면에서 공백 하나로 보이므로, 공백과 줄바꿈을 한 칸으로 줄인 뒤 옛 문장을 찾는다.
+    flat = squeeze(notes)
+    if squeeze(OLD_PREVIOUS_RULE) in flat:
         problems.append("문서에 다시 답하기 전체를 제외하는 #200 예전 문장이 남아 있다.")
-    if OLD_SIDEBAR_RULE in notes:
+    if squeeze(OLD_SIDEBAR_RULE) in flat:
         problems.append("문서에 사이드바 초점을 가져오지 않는다는 #203 예전 문장이 남아 있다.")
     return problems
 
@@ -204,6 +211,8 @@ class RegenerateFocusDocTest(unittest.TestCase):
         # 교차 검토 재현: 새 제외 줄은 두고 옛 문장을 목록 기호 없는 문단으로 #200 절에 남긴다.
         modified = self.replace(PREVIOUS_RULE, f"{PREVIOUS_RULE}\n\n{OLD_PREVIOUS_RULE}")
         self.assertTrue(regenerate_doc_problems(modified))
+        split = self.replace(PREVIOUS_RULE, PREVIOUS_RULE + "\n\n" + OLD_PREVIOUS_RULE.replace(", ", ",\n", 1))
+        self.assertIn("문서에 다시 답하기 전체를 제외하는 #200 예전 문장이 남아 있다.", regenerate_doc_problems(split))
 
     def test_old_sidebar_sentence_anywhere_fails(self):
         # 새 규칙 줄은 모두 두고 #209 전 사이드바 문장만 여러 자리에 남긴다.
@@ -215,6 +224,9 @@ class RegenerateFocusDocTest(unittest.TestCase):
             "#200 절 문단": self.replace(PREVIOUS_RULE, f"{PREVIOUS_RULE}\n\n{OLD_SIDEBAR_RULE}"),
             "다음 장 코드 블록": self.replace(LATER_HEADING, f"{LATER_HEADING}\n\n```text\n{OLD_SIDEBAR_RULE}\n```"),
             "주석": self.replace(LATER_HEADING, f"<!--\n{OLD_SIDEBAR_RULE}\n-->\n\n{LATER_HEADING}"),
+            # 교차 검토 재현: #143 제목 아래 문단에서 쉼표 뒤 공백을 줄바꿈으로 바꾼다.
+            "다음 장 줄 나눈 문단": self.replace(
+                LATER_HEADING, LATER_HEADING + "\n\n" + OLD_SIDEBAR_RULE.replace(", ", ",\n", 1)),
         }
         for case, modified in cases.items():
             with self.subTest(case=case):
