@@ -603,21 +603,40 @@ test("다시 답하기로 이전 출처 링크가 사라지면 초점이 본문�
 const sidebarButtons = p => p.conversationList.querySelectorAll(".conversation-open");
 const conversationId = button => button.parentNode.dataset.conversationId;
 
-for (const [label, fallback, failed] of [
+for (const [label, fallback, failed, archived = false] of [
   ["스트림 성공", false, false],
   ["JSON 대체 성공", true, false],
   ["최종 실패", true, true],
+  ["스트림 성공", false, false, true],
+  ["JSON 대체 성공", true, false, true],
+  ["최종 실패", true, true, true],
 ]) {
-  test(`다시 답하기 ${label} 뒤 목록 순서가 바뀌어도 같은 대화에 초점이 남는다`, async () => {
+  const listName = archived ? "펼친 보관함" : "일반 목록";
+  test(`다시 답하기 ${label} 뒤 ${listName} 순서가 바뀌어도 같은 대화에 초점이 남는다`, async () => {
     const selectedId = "fictional-selected";
+    const otherId = "fictional-other";
     const otherRecords = [
-      { id: "fictional-other", time: 2, messages: [message("question", "가상 다른 질문")] },
-      { id: selectedId, time: 1, messages: [message("question", "가상 선택 대화 질문")] },
+      { id: otherId, time: 2, archived, messages: [message("question", "가상 다른 질문")] },
+      { id: selectedId, time: 1, archived, messages: [message("question", "가상 선택 대화 질문")] },
     ];
     const p = page(new Map([[historyKey, JSON.stringify([
       { id: "fictional-chat", time: 4, messages: legacy },
       ...otherRecords,
     ])]]));
+    const archiveToggle = () => p.conversationList.querySelector(".conversation-archive-toggle");
+    const archiveList = () => p.conversationList.querySelector(".conversation-archive-list");
+    if (archived) {
+      assert.equal(archiveToggle().getAttribute("aria-expanded"), "false");
+      assert.equal(archiveList().hidden, true);
+      archiveToggle().click();
+    }
+    const buttonsInList = () => {
+      if (!archived) return sidebarButtons(p);
+      assert.equal(archiveToggle().getAttribute("aria-expanded"), "true");
+      const list = archiveList();
+      assert.equal(list.hidden, false);
+      return list.querySelectorAll(".conversation-open");
+    };
     if (failed) {
       startRegenerate(p);
       await finish(p.requests[0], "가상 앞선 새 답");
@@ -625,9 +644,10 @@ for (const [label, fallback, failed] of [
     }
     startRegenerate(p);
     const original = p.raw();
-    const buttons = sidebarButtons(p);
-    const target = buttons[2];
-    assert.equal(conversationId(target), selectedId);
+    const buttons = buttonsInList();
+    const regularIds = archived ? [] : ["fictional-chat"];
+    assert.deepEqual(buttons.map(conversationId), [...regularIds, otherId, selectedId]);
+    const target = buttons.find(button => conversationId(button) === selectedId);
     target.focus();
     assert.equal(p.focus(), target);
     // 다음 목록 갱신에서 두 가상 대화의 위치를 뒤집는다.
@@ -658,8 +678,9 @@ for (const [label, fallback, failed] of [
       }
     }
     assert.equal(target.isConnected, false);
-    const replacement = sidebarButtons(p)[1];
-    assert.equal(conversationId(replacement), selectedId);
+    const updatedButtons = buttonsInList();
+    assert.deepEqual(updatedButtons.map(conversationId), [...regularIds, selectedId, otherId]);
+    const replacement = updatedButtons.find(button => conversationId(button) === selectedId);
     assert.equal(p.focus(), replacement);
   });
 }
