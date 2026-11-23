@@ -4843,13 +4843,15 @@ function isPanelDate(value) {
   const date = new Date(`${value}T00:00:00Z`);
   return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value;
 }
-function panelSources(sources) {
+function panelSources(sources, onLink) {
   const box = element("div", "sources");
-  for (const source of Array.isArray(sources) ? sources : []) {
+  for (const [index, source] of (Array.isArray(sources) ? sources : []).entries()) {
     if (!source || typeof source.title !== "string") continue;
     const line = element("p", "hint");
     const checked = isPanelDate(source.checked_on);
-    line.append((checked && sourceLink(source.url, source.title, t("출처"))) || element("span", null, source.title));
+    const link = checked && sourceLink(source.url, source.title, t("출처"));
+    if (link) onLink?.(link, index);
+    line.append(link || element("span", null, source.title));
     if (checked) line.append(document.createTextNode(t(" · 확인일 ")), calendarTime(source.checked_on));
     box.append(line);
   }
@@ -4897,12 +4899,12 @@ function shiftCalendarMonth(date, amount) {
   target.setUTCDate(Math.min(date.getUTCDate(), target.getUTCDate()));
   return target;
 }
-function calendarEventRow(event) {
+function calendarEventRow(event, onLink) {
   const row = element("section", "evidence");
   const dates = element("p");
   dates.append(calendarTime(event.starts_on));
   if (event.starts_on !== event.ends_on) dates.append(document.createTextNode(" ~ "), calendarTime(event.ends_on));
-  row.append(element("h5", null, event.audience), dates, panelSources(event.sources));
+  row.append(element("h5", null, event.audience), dates, panelSources(event.sources, onLink));
   return row;
 }
 
@@ -4925,6 +4927,8 @@ function renderCalendar(content, result, current) {
   let selected = focused;
   let listView = false;
   let days = new Map();
+  const sourceLinks = new WeakMap();
+  const eventRow = event => calendarEventRow(event, (link, index) => sourceLinks.set(link, [event, index]));
 
   const root = element("div", "acal");
   const scopeTitle = element("h5");
@@ -4957,7 +4961,7 @@ function renderCalendar(content, result, current) {
   function drawDayList() {
     const matches = eventsOnDay(selected);
     const heading = element("h5", null, calendarDateLabel(new Date(selected), "{month} {day}일 일정"));
-    const rows = matches.length ? matches.map(calendarEventRow) : [element("p", "hint", t("고른 날에 일정이 없어요."))];
+    const rows = matches.length ? matches.map(eventRow) : [element("p", "hint", t("고른 날에 일정이 없어요."))];
     dayList.replaceChildren(heading, ...rows);
   }
 
@@ -5087,7 +5091,7 @@ function renderCalendar(content, result, current) {
     if (listView) {
       const matches = events.filter(event => event.start < nextMonthStart && event.end >= first);
       dayList.replaceChildren();
-      body.replaceChildren(...(matches.length ? matches.map(calendarEventRow) :
+      body.replaceChildren(...(matches.length ? matches.map(eventRow) :
         [element("p", "hint", t("{month}에는 일정이 없어요.", { month: monthLabel }))]));
       return;
     }
@@ -5114,9 +5118,22 @@ function renderCalendar(content, result, current) {
 
   translateCalendar = () => {
     if (!current()) return;
-    const restoreDay = !listView && document.activeElement === days.get(focused)?.button;
+    const active = document.activeElement;
+    const restoreDay = !listView && active === days.get(focused)?.button;
+    const source = sourceLinks.get(active);
     draw();
-    if (restoreDay) days.get(focused).button.focus();
+    if (restoreDay) {
+      days.get(focused).button.focus();
+    } else if (source) {
+      const [event, index] = source;
+      for (const link of root.querySelectorAll("a")) {
+        const match = sourceLinks.get(link);
+        if (match?.[0] === event && match[1] === index) {
+          link.focus();
+          break;
+        }
+      }
+    }
   };
   draw();
   return remaining.length;
