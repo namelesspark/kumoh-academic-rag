@@ -37,6 +37,7 @@ const controller = [
 
 function page(values = new Map([[historyKey, JSON.stringify([{ id: "fictional-chat", time: 1, messages: legacy }])]])) {
   let focus;
+  const focusCalls = [];
   class Node {
     children = [];
     attributes = new Map();
@@ -103,7 +104,10 @@ function page(values = new Map([[historyKey, JSON.stringify([{ id: "fictional-ch
       this.attributes.delete(name);
       if (name === "data-version-state") delete this.dataset.versionState;
     }
-    focus() { if (!this.disabled && this.isConnected) focus = this; }
+    focus(options) {
+      focusCalls.push({ target: this, preventScroll: options?.preventScroll });
+      if (!this.disabled && this.isConnected) focus = this;
+    }
     select() {}
     setSelectionRange() {}
     addEventListener(name, callback) {
@@ -177,7 +181,7 @@ function page(values = new Map([[historyKey, JSON.stringify([{ id: "fictional-ch
   const run = code => runInNewContext(code, context);
   run(controller + '\nswitchHistoryAccount("browse"); openConversation(conversations[0]);');
   return {
-    run, transcript, conversationList, requests, timeouts, values,
+    run, transcript, conversationList, requests, timeouts, values, focusCalls,
     body: context.document.body, input: context.input, theme,
     raw: () => values.get(historyKey), focus: () => context.document.activeElement,
   };
@@ -600,19 +604,33 @@ test("다시 답하기로 이전 출처 링크가 사라지면 초점이 본문�
   assert.equal(p.focus(), p.body);
 });
 
+test("질문 수정으로 이전 출처 링크가 사라지면 초점은 본문에 남는다", async () => {
+  const messages = [legacy[0], message("answer", answer, [
+    { url: "https://example.invalid/fictional", title: "가상 출처" },
+  ])];
+  const p = page(new Map([[historyKey, JSON.stringify([{ id: "fictional-chat", time: 1, messages }])]]));
+  edit(p, "가상 고친 질문");
+  const target = find(p, ".test-source");
+  target.focus();
+  const focusStart = p.focusCalls.length;
+  await finish(p.requests[0], "가상 고친 답");
+  assert.equal(target.isConnected, false);
+  assert.equal(p.focus(), p.body);
+  assert.deepEqual(p.focusCalls.slice(focusStart), []);
+});
+
 const sidebarButtons = p => p.conversationList.querySelectorAll(".conversation-open");
 const conversationId = button => button.parentNode.dataset.conversationId;
 
-for (const [label, fallback, failed, archived = false] of [
-  ["스트림 성공", false, false],
-  ["JSON 대체 성공", true, false],
-  ["최종 실패", true, true],
-  ["스트림 성공", false, false, true],
-  ["JSON 대체 성공", true, false, true],
-  ["최종 실패", true, true, true],
-]) {
+const revisionCompletions = ["스트림 성공", "JSON 대체 성공", "최종 실패"];
+const sidebarCases = ["다시 답하기", "질문 수정"].flatMap(action =>
+  [false, true].flatMap(archived => revisionCompletions.map(label => ({ action, archived, label }))));
+for (const { action, archived, label } of sidebarCases) {
+  const editing = action === "질문 수정";
+  const fallback = label !== "스트림 성공";
+  const failed = label === "최종 실패";
   const listName = archived ? "펼친 보관함" : "일반 목록";
-  test(`다시 답하기 ${label} 뒤 ${listName} 순서가 바뀌어도 같은 대화에 초점이 남는다`, async () => {
+  test(`${action} ${label} 뒤 ${listName} 순서가 바뀌어도 같은 대화에 초점이 남는다`, async () => {
     const selectedId = "fictional-selected";
     const otherId = "fictional-other";
     const otherRecords = [
@@ -642,7 +660,9 @@ for (const [label, fallback, failed, archived = false] of [
       await finish(p.requests[0], "가상 앞선 새 답");
       find(p, ".version-prev", 1).click();
     }
-    startRegenerate(p);
+    const revisedQuestion = "가상 고친 두 번째 질문";
+    const field = editing ? edit(p, revisedQuestion, 1) : null;
+    if (!editing) startRegenerate(p);
     const original = p.raw();
     const buttons = buttonsInList();
     const regularIds = archived ? [] : ["fictional-chat"];
@@ -650,6 +670,7 @@ for (const [label, fallback, failed, archived = false] of [
     const target = buttons.find(button => conversationId(button) === selectedId);
     target.focus();
     assert.equal(p.focus(), target);
+    const focusStart = p.focusCalls.length;
     // 다음 목록 갱신에서 두 가상 대화의 위치를 뒤집는다.
     p.run('conversations.find(record => record.id === "fictional-selected").time = 3');
     const newAnswer = "가상 새 답";
@@ -670,8 +691,22 @@ for (const [label, fallback, failed, archived = false] of [
       assert.equal(find(p, ".question", 1).textContent, legacy[2].text);
       assert.equal(find(p, ".reply", 1).textContent, legacy[3].text);
       assert.equal(p.raw(), original);
+      if (editing) {
+        assert.equal(find(p, ".turn-editor", 1).querySelector("textarea"), field);
+        assert.equal(field.value, revisedQuestion);
+      }
     } else {
-      assertSecondAnswer(p, newAnswer);
+      if (editing) {
+        assert.equal(find(p, ".version-count", 1).textContent, "2/2");
+        assert.equal(find(p, ".question", 1).textContent, revisedQuestion);
+        assert.equal(find(p, ".reply", 1).textContent, newAnswer);
+        assert.deepEqual(savedMessages(p)[2].versions.map(({ question, answer }) => [question.text, answer.text]), [
+          [legacy[2].text, legacy[3].text],
+          [revisedQuestion, newAnswer],
+        ]);
+      } else {
+        assertSecondAnswer(p, newAnswer);
+      }
       const records = JSON.parse(p.raw());
       for (const { id, messages } of otherRecords) {
         assert.deepEqual(records.find(record => record.id === id).messages, messages);
@@ -682,10 +717,11 @@ for (const [label, fallback, failed, archived = false] of [
     assert.deepEqual(updatedButtons.map(conversationId), [...regularIds, selectedId, otherId]);
     const replacement = updatedButtons.find(button => conversationId(button) === selectedId);
     assert.equal(p.focus(), replacement);
+    assert.deepEqual(p.focusCalls.slice(focusStart), [{ target: replacement, preventScroll: true }]);
   });
 }
 
-test("질문 수정 중 옮긴 사이드바 초점은 수정 완료 뒤 본문에 남는다", async () => {
+test("질문 수정 중 옮긴 사이드바 초점은 수정 완료 뒤 같은 대화의 새 버튼에 남는다", async () => {
   const p = page();
   edit(p, "가상 수정 질문");
   const [target] = sidebarButtons(p);
@@ -694,7 +730,68 @@ test("질문 수정 중 옮긴 사이드바 초점은 수정 완료 뒤 본문�
   await finish(p.requests[0], "가상 수정 답");
   assert.equal(find(p, ".version-count").textContent, "2/2");
   assert.equal(target.isConnected, false);
+  const [replacement] = sidebarButtons(p);
+  assert.equal(conversationId(replacement), conversationId(target));
+  assert.equal(p.focus(), replacement);
+});
+
+for (const [label, beforeFocus, afterFocus] of [
+  ["다른 대화로 이동", 'openConversation(conversations.find(record => record.id === "fictional-other"))'],
+  ["같은 대화 다시 열기", "openConversation(activeConversation)"],
+  ["접힌 보관함", "", "archiveOpen = false"],
+  ["숨은 사이드바", "", "sidebar.hidden = true"],
+  ["같은 ID 없음", "", 'conversations = conversations.filter(record => record.id !== "fictional-other")'],
+  ["늦게 도착해 버리는 응답", "", "activeConversation.requestNumber++"],
+]) {
+  test(`질문 수정 응답 직전 ${label} 조건에서는 사이드바 초점을 복원하지 않는다`, async () => {
+    const archived = label === "접힌 보관함";
+    const p = page(new Map([[historyKey, JSON.stringify([
+      { id: "fictional-chat", time: 2, messages: legacy },
+      { id: "fictional-other", time: 1, archived, messages: [message("question", "가상 다른 질문")] },
+    ])]]));
+    edit(p, "가상 고친 질문");
+    if (archived) p.run("archiveToggle.click()");
+    if (beforeFocus) p.run(beforeFocus);
+    const target = sidebarButtons(p).find(button => conversationId(button) === "fictional-other");
+    target.focus();
+    assert.equal(p.focus(), target);
+    if (afterFocus) p.run(afterFocus);
+    const focusStart = p.focusCalls.length;
+    const original = p.raw();
+    await finish(p.requests[0], "가상 고친 답");
+    assert.deepEqual(p.focusCalls.slice(focusStart), []);
+    if (label === "늦게 도착해 버리는 응답") {
+      assert.equal(p.focus(), target);
+      assert.equal(p.raw(), original);
+    } else {
+      assert.equal(target.isConnected, false);
+      assert.equal(p.focus(), p.body);
+      if (archived) assert.equal(p.conversationList.querySelector(".conversation-archive-list").hidden, true);
+    }
+  });
+}
+
+test("질문 수정 응답을 정지한 뒤 늦은 완료가 사이드바 초점을 복원하지 않는다", async () => {
+  const p = page();
+  edit(p, "가상 고친 질문");
+  const original = p.raw();
+  const out = stream(p.requests[0], { honorAbort: false });
+  out.emit("meta", { answered: true });
+  await setImmediate();
+  const [target] = sidebarButtons(p);
+  target.focus();
+  assert.equal(p.focus(), target);
+  assert.equal(p.run("stopActiveAnswer()"), true);
+  assert.equal(p.focus(), p.input);
+  target.focus();
+  const focusStart = p.focusCalls.length;
+  out.emit("answer", { text: "가상 정지된 답" });
+  out.done();
+  await setImmediate();
+  assert.deepEqual(p.focusCalls.slice(focusStart), []);
+  assert.equal(target.isConnected, false);
   assert.equal(p.focus(), p.body);
+  assert.equal(p.raw(), original);
 });
 
 for (const [when, reopenBeforeAnswer] of [["답을 받기 전에", true], ["답을 받은 뒤에", false]]) {

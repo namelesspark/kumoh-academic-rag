@@ -3187,7 +3187,7 @@ function setupTurnActions(record, turn, question, answer) {
         choose(limitChatVersions(versions, versions.length - 1));
       }
       update();
-    }, { preserveConversationFocus: draft === null });
+    });
   }
   turn.updateActions = update;
   panel.append(edit);
@@ -3197,10 +3197,10 @@ function setupTurnActions(record, turn, question, answer) {
   update();
 }
 
-async function ask(question, reply, record = activeConversation, revise = null, { preserveConversationFocus = false } = {}) {
+async function ask(question, reply, record = activeConversation, revise = null) {
   if (record?.pending) return;
   const account = historyAccount;
-  const requestScreen = preserveConversationFocus ? screenSequence : null;
+  const requestScreen = revise ? screenSequence : null;
   // 대화마다 요청 하나에 취소 신호 하나를 둔다. 이 신호가 있는 동안 그 대화를 보고 있으면 보내기 버튼이 정지 버튼이 된다(#137).
   const controller = record && typeof AbortController === "function" ? new AbortController() : null;
   if (controller) record.chatAbort = controller;
@@ -3338,7 +3338,7 @@ async function ask(question, reply, record = activeConversation, revise = null, 
     }
     if (valid()) {
       let focusedConversationId;
-      if (preserveConversationFocus && !controller?.signal.aborted &&
+      if (revise && !controller?.signal.aborted &&
           requestScreen === screenSequence) {
         const focused = document.activeElement;
         for (const [id, { open }] of conversationNodes) {
