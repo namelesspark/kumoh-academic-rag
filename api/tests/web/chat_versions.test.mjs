@@ -28,6 +28,7 @@ const controller = [
   section("const sidebar =", "function storedStudentId("),
   section("function updateSend(", "function setBusy("),
   section("function isSafeSourceUrl(", "function citationCard("),
+  section("function applyLang(", "function localizeReplyAuthors("),
   section("async function readChatStream(", 'input.addEventListener("input"'),
   section("function stopActiveAnswer(", "// 보내기 버튼에 초점을 두고"),
   // #173: 입력창 제출 처리기를 그대로 돌려 새 질문을 보낸다. 사진 첨부 분기는 쓰지 않는다.
@@ -125,7 +126,8 @@ function page(values = new Map([[historyKey, JSON.stringify([{ id: "fictional-ch
   }
   const transcript = get("#transcript");
   const theme = get("#theme-button");
-  get("body").append(transcript, get("#question"), theme);
+  const conversationList = get("#conversation-list");
+  get("body").append(transcript, get("#question"), theme, conversationList);
   const requests = [], timeouts = [];
   const context = {
     window: {
@@ -139,6 +141,7 @@ function page(values = new Map([[historyKey, JSON.stringify([{ id: "fictional-ch
     },
     document: {
       body: get("body"), title: "가상 채팅", querySelector: get,
+      querySelectorAll: selector => get("body").querySelectorAll(selector),
       createTextNode: text => text,
       get activeElement() { return focus ?? this.body; },
     },
@@ -157,6 +160,7 @@ function page(values = new Map([[historyKey, JSON.stringify([{ id: "fictional-ch
     aiMode: "fast", busy: false, sessionId: null, chatRequestNumber: 0,
     setTimeout() {}, clearTimeout() {}, reducedMotion: () => true,
     techmoBubble() {}, scrollToLatest() {}, showAssistant() {}, celebrate() {}, localizeReplyAuthors() {},
+    showTitle() {}, resay() {}, translateStatic() {}, renderTitles() {}, renderLangButtons() {},
     sourceLink: (url, title) => context.element("a", "test-source", title),
     citationCard: () => new Node(),
     element(tag, className = "", text) {
@@ -173,7 +177,7 @@ function page(values = new Map([[historyKey, JSON.stringify([{ id: "fictional-ch
   const run = code => runInNewContext(code, context);
   run(controller + '\nswitchHistoryAccount("browse"); openConversation(conversations[0]);');
   return {
-    run, transcript, requests, timeouts, values,
+    run, transcript, conversationList, requests, timeouts, values,
     body: context.document.body, input: context.input, theme,
     raw: () => values.get(historyKey), focus: () => context.document.activeElement,
   };
@@ -404,12 +408,54 @@ test("시간 초과가 나면 선택과 저장 기록을 유지한다", async ()
   assert.equal(find(p, ".reply").textContent, answer);
 });
 
-test("JSON으로 받은 완료 답을 저장하고 정지 뒤 늦은 완료 답은 선택을 바꾸지 않는다", async () => {
-  const p = page();
-  const regenerate = find(p, ".turn-regenerate");
-  regenerate.focus();
-  regenerate.click();
+function startRegenerate(p) {
+  const button = find(p, ".turn-regenerate", 1);
+  button.focus();
+  assert.equal(p.focus(), button);
+  button.click();
+  assert.equal(button.disabled, true);
   assert.equal(p.focus(), p.body);
+  assert.equal(sentQuestion(p.requests.at(-1)), legacy[2].text);
+  return button;
+}
+
+function assertSecondAnswer(p, text, previousAnswers = [legacy[3].text]) {
+  const messages = savedMessages(p);
+  const total = previousAnswers.length + 1;
+  assert.equal(find(p, ".version-count", 1).textContent, `${total}/${total}`);
+  assert.equal(find(p, ".question", 1).textContent, legacy[2].text);
+  assert.equal(find(p, ".reply", 1).textContent, text);
+  assert.deepEqual(messages.slice(0, 2), legacy.slice(0, 2));
+  assert.deepEqual(messages.slice(2).map(entry => entry.text), [legacy[2].text, text]);
+  assert.equal(messages[2].selected, total - 1);
+  assert.deepEqual(messages[2].versions.map(version => [version.question.text, version.answer.text]),
+    [...previousAnswers, text].map(reply => [legacy[2].text, reply]));
+}
+
+test("스트림 답을 받으면 두 번째 문답의 버튼으로 한 번 돌아오고 언어를 바꿔도 초점을 다시 옮기지 않는다", async () => {
+  const p = page();
+  const button = startRegenerate(p);
+  const focusButton = button.focus.bind(button);
+  let focusCalls = 0;
+  button.focus = () => {
+    focusCalls++;
+    assert.equal(button.disabled, false);
+    focusButton();
+  };
+  await finish(p.requests[0], "가상 스트림 답");
+  assert.equal(p.focus(), button);
+  assert.equal(button.textContent, "다시 답하기");
+  assertSecondAnswer(p, "가상 스트림 답");
+  p.body.focus();
+  p.run('applyLang("en")');
+  assert.equal(button.textContent, "Answer again");
+  assert.equal(p.focus(), p.body);
+  assert.equal(focusCalls, 1);
+});
+
+test("JSON 대체 답 성공 뒤에도 두 번째 문답의 다시 답하기 버튼으로 초점을 돌려준다", async () => {
+  const p = page();
+  const button = startRegenerate(p);
   p.requests[0].resolve({ ok: false });
   await setImmediate();
   assert.equal(p.requests[1].path, "/api/v1/chat");
@@ -417,24 +463,115 @@ test("JSON으로 받은 완료 답을 저장하고 정지 뒤 늦은 완료 답�
     answered: true, answer: "가상 JSON 답", citations: [], session_id: "fictional-session",
   }) });
   await setImmediate();
-  assert.equal(find(p, ".version-count").textContent, "2/2");
-  assert.equal(savedMessages(p)[1].text, "가상 JSON 답");
-  assert.equal(p.focus(), p.body);
+  assertSecondAnswer(p, "가상 JSON 답");
+  assert.equal(p.focus(), button);
+});
 
-  find(p, ".version-prev").click();
+test("마지막 요청이 실패하면 같은 버튼이 다시 시도로 바뀌고 재시도 성공 뒤 같은 버튼으로 돌아온다", async () => {
+  const p = page();
+  startRegenerate(p);
+  await finish(p.requests[0], "가상 저장된 답");
+  find(p, ".version-prev", 1).click();
   const original = p.raw();
-  find(p, ".turn-regenerate").click();
-  const out = stream(p.requests[2], { honorAbort: false });
+  const button = startRegenerate(p);
+  p.requests[1].resolve({ ok: false });
+  await setImmediate();
+  assert.equal(p.focus(), p.body);
+  assert.equal(p.requests[2].path, "/api/v1/chat");
+  p.requests[2].resolve({ ok: false });
+  await setImmediate();
+  assert.equal(p.raw(), original);
+  assert.equal(find(p, ".version-count", 1).textContent, "1/2");
+  assert.equal(find(p, ".question", 1).textContent, legacy[2].text);
+  assert.equal(find(p, ".reply", 1).textContent, legacy[3].text);
+  assert.equal(turn(p, 1).dataset.versionState, "failed");
+  assert.equal(p.focus(), button);
+  assert.equal(button.textContent, "다시 시도");
+  startRegenerate(p);
+  await finish(p.requests[3], "가상 재시도 답");
+  assertSecondAnswer(p, "가상 재시도 답", [legacy[3].text, "가상 저장된 답"]);
+  assert.equal(p.focus(), button);
+  assert.equal(button.textContent, "다시 답하기");
+});
+
+test("정지와 늦은 완료 답은 두 번째 문답의 저장 기록과 선택을 유지하고 버튼에 초점을 돌려주지 않는다", async () => {
+  const p = page();
+  startRegenerate(p);
+  await finish(p.requests[0], "가상 저장된 답");
+  find(p, ".version-prev", 1).click();
+  const original = p.raw();
+  startRegenerate(p);
+  const out = stream(p.requests[1], { honorAbort: false });
   out.emit("meta", { answered: true });
   out.emit("answer", { text: "가상 정지할 답" });
   await setImmediate();
   assert.equal(p.run("stopActiveAnswer()"), true);
+  assert.equal(p.focus(), p.input);
+  p.body.focus();
   out.done();
   await setImmediate();
   assert.equal(p.raw(), original);
-  assert.equal(find(p, ".version-count").textContent, "1/2");
-  assert.equal(find(p, ".reply").textContent, answer);
+  assert.equal(find(p, ".version-count", 1).textContent, "1/2");
+  assert.equal(find(p, ".question", 1).textContent, legacy[2].text);
+  assert.equal(find(p, ".reply", 1).textContent, legacy[3].text);
+  assert.equal(p.focus(), p.body);
 });
+
+test("다시 답하기 전에 버튼에 초점이 없으면 답을 받아도 초점을 옮기지 않는다", async () => {
+  const p = page();
+  find(p, ".turn-regenerate", 1).click();
+  await finish(p.requests[0], "가상 새 답");
+  assertSecondAnswer(p, "가상 새 답");
+  assert.equal(p.focus(), p.body);
+});
+
+test("다시 답하기를 기다리며 질문 입력창으로 옮긴 초점을 유지한다", async () => {
+  const p = page();
+  startRegenerate(p);
+  p.input.focus();
+  await finish(p.requests[0], "가상 새 답");
+  assertSecondAnswer(p, "가상 새 답");
+  assert.equal(p.focus(), p.input);
+});
+
+for (const [label, getTarget] of [
+  ["대화 목록 버튼", p => p.conversationList.querySelector(".conversation-open")],
+  ["이전 답의 출처 링크", p => find(p, ".test-source", 1)],
+]) {
+  test(`다시 답하기가 끝날 때 ${label}에서 초점이 사라져도 다시 답하기 버튼으로 옮기지 않는다`, async () => {
+    const messages = [...legacy.slice(0, 3), message("answer", legacy[3].text, [
+      { url: "https://example.invalid/fictional", title: "가상 출처" },
+    ])];
+    const p = page(new Map([[historyKey, JSON.stringify([{ id: "fictional-chat", time: 1, messages }])]]));
+    startRegenerate(p);
+    const target = getTarget(p);
+    target.focus();
+    assert.equal(p.focus(), target);
+    await finish(p.requests[0], "가상 새 답");
+    assertSecondAnswer(p, "가상 새 답");
+    assert.equal(target.isConnected, false);
+    assert.equal(p.focus(), p.body);
+  });
+}
+
+for (const [when, reopenBeforeAnswer] of [["답을 받기 전에", true], ["답을 받은 뒤에", false]]) {
+  test(`다른 대화로 이동했다가 ${when} 돌아와도 초점을 가져가지 않는다`, async () => {
+    const p = page(new Map([[historyKey, JSON.stringify([
+      { id: "fictional-chat", time: 1, messages: legacy },
+      { id: "fictional-other", time: 1, messages: [message("question", "가상 다른 대화 질문")] },
+    ])]]));
+    const reopen = () => p.run('openConversation(conversations.find(record => record.id === "fictional-chat"))');
+    const button = startRegenerate(p);
+    p.run('openConversation(conversations.find(record => record.id === "fictional-other"))');
+    assert.equal(button.isConnected, false);
+    if (reopenBeforeAnswer) reopen();
+    await finish(p.requests[0], "가상 다른 화면에서 받은 답");
+    assert.equal(p.focus(), p.body);
+    if (!reopenBeforeAnswer) reopen();
+    assertSecondAnswer(p, "가상 다른 화면에서 받은 답");
+    assert.equal(p.focus(), p.body);
+  });
+}
 
 for (const [name, action] of [
   ["삭제", "removeConversation(activeConversation)"],
