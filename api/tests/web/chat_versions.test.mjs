@@ -585,25 +585,96 @@ test("두 번째 질문 수정 뒤 첫 번째 문답을 다시 답하면 각자�
   assert.equal(editCalls.count, 1);
 });
 
-for (const [label, getTarget] of [
-  ["대화 목록 버튼", p => p.conversationList.querySelector(".conversation-open")],
-  ["이전 답의 출처 링크", p => find(p, ".test-source", 1)],
+test("다시 답하기로 이전 출처 링크가 사라지면 초점이 본문에 남는다", async () => {
+  const messages = [...legacy.slice(0, 3), message("answer", legacy[3].text, [
+    { url: "https://example.invalid/fictional", title: "가상 출처" },
+  ])];
+  const p = page(new Map([[historyKey, JSON.stringify([{ id: "fictional-chat", time: 1, messages }])]]));
+  startRegenerate(p);
+  const target = find(p, ".test-source", 1);
+  target.focus();
+  assert.equal(p.focus(), target);
+  await finish(p.requests[0], "가상 새 답");
+  assertSecondAnswer(p, "가상 새 답");
+  assert.equal(target.isConnected, false);
+  assert.equal(p.focus(), p.body);
+});
+
+const sidebarButtons = p => p.conversationList.querySelectorAll(".conversation-open");
+const conversationId = button => button.parentNode.dataset.conversationId;
+
+for (const [label, fallback, failed] of [
+  ["스트림 성공", false, false],
+  ["JSON 대체 성공", true, false],
+  ["최종 실패", true, true],
 ]) {
-  test(`다시 답하기가 끝날 때 ${label}에서 초점이 사라져도 다시 답하기 버튼으로 옮기지 않는다`, async () => {
-    const messages = [...legacy.slice(0, 3), message("answer", legacy[3].text, [
-      { url: "https://example.invalid/fictional", title: "가상 출처" },
-    ])];
-    const p = page(new Map([[historyKey, JSON.stringify([{ id: "fictional-chat", time: 1, messages }])]]));
+  test(`다시 답하기 ${label} 뒤 목록 순서가 바뀌어도 같은 대화에 초점이 남는다`, async () => {
+    const selectedId = "fictional-selected";
+    const otherRecords = [
+      { id: "fictional-other", time: 2, messages: [message("question", "가상 다른 질문")] },
+      { id: selectedId, time: 1, messages: [message("question", "가상 선택 대화 질문")] },
+    ];
+    const p = page(new Map([[historyKey, JSON.stringify([
+      { id: "fictional-chat", time: 4, messages: legacy },
+      ...otherRecords,
+    ])]]));
+    if (failed) {
+      startRegenerate(p);
+      await finish(p.requests[0], "가상 앞선 새 답");
+      find(p, ".version-prev", 1).click();
+    }
     startRegenerate(p);
-    const target = getTarget(p);
+    const original = p.raw();
+    const buttons = sidebarButtons(p);
+    const target = buttons[2];
+    assert.equal(conversationId(target), selectedId);
     target.focus();
     assert.equal(p.focus(), target);
-    await finish(p.requests[0], "가상 새 답");
-    assertSecondAnswer(p, "가상 새 답");
+    // 다음 목록 갱신에서 두 가상 대화의 위치를 뒤집는다.
+    p.run('conversations.find(record => record.id === "fictional-selected").time = 3');
+    const newAnswer = "가상 새 답";
+    if (fallback) {
+      p.requests.at(-1).resolve({ ok: false });
+      await setImmediate();
+      assert.equal(p.requests.at(-1).path, "/api/v1/chat");
+      p.requests.at(-1).resolve(failed ? { ok: false } : { ok: true, json: async () => ({
+        answered: true, answer: newAnswer, citations: [], session_id: "fictional-session",
+      }) });
+      await setImmediate();
+    } else {
+      await finish(p.requests[0], newAnswer);
+    }
+    if (failed) {
+      assert.equal(turn(p, 1).dataset.versionState, "failed");
+      assert.equal(find(p, ".version-count", 1).textContent, "1/2");
+      assert.equal(find(p, ".question", 1).textContent, legacy[2].text);
+      assert.equal(find(p, ".reply", 1).textContent, legacy[3].text);
+      assert.equal(p.raw(), original);
+    } else {
+      assertSecondAnswer(p, newAnswer);
+      const records = JSON.parse(p.raw());
+      for (const { id, messages } of otherRecords) {
+        assert.deepEqual(records.find(record => record.id === id).messages, messages);
+      }
+    }
     assert.equal(target.isConnected, false);
-    assert.equal(p.focus(), p.body);
+    const replacement = sidebarButtons(p)[1];
+    assert.equal(conversationId(replacement), selectedId);
+    assert.equal(p.focus(), replacement);
   });
 }
+
+test("질문 수정 중 옮긴 사이드바 초점은 수정 완료 뒤 본문에 남는다", async () => {
+  const p = page();
+  edit(p, "가상 수정 질문");
+  const [target] = sidebarButtons(p);
+  target.focus();
+  assert.equal(p.focus(), target);
+  await finish(p.requests[0], "가상 수정 답");
+  assert.equal(find(p, ".version-count").textContent, "2/2");
+  assert.equal(target.isConnected, false);
+  assert.equal(p.focus(), p.body);
+});
 
 for (const [when, reopenBeforeAnswer] of [["답을 받기 전에", true], ["답을 받은 뒤에", false]]) {
   test(`다른 대화로 이동했다가 ${when} 돌아와도 초점을 가져가지 않는다`, async () => {
