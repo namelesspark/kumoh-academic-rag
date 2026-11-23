@@ -531,7 +531,7 @@ test("정지 버튼에서 Enter를 길게 누르면 멈춘 뒤 질문 칸으로 
 });
 
 // ── 답변 모드 선택 표시 ──────────────────────────────────────────────────────────
-function indicatorPage({ reduced = false } = {}) {
+function indicatorPage({ reduced = false, legacyMotion = false } = {}) {
   const state = { focused: null, reduced };
   const timers = new Map(), motion = [];
   let nextTimer = 0, row = 0;
@@ -543,7 +543,9 @@ function indicatorPage({ reduced = false } = {}) {
     window: { innerWidth: 1280, innerHeight: 800 },
     reducedMotion: () => state.reduced, within: () => false,
     // 동작 줄이기 설정 변화 신호를 테스트에서 직접 보낼 수 있게 처리기를 모아 둔다.
-    motionPreference: () => ({ addEventListener: (type, listener) => motion.push(listener) }),
+    motionPreference: () => legacyMotion
+      ? { addListener: listener => motion.push(listener) }
+      : { addEventListener: (type, listener) => motion.push(listener) },
     setTimeout: (callback, delay) => { timers.set(++nextTimer, { callback, delay }); return nextTimer; },
     clearTimeout: id => timers.delete(id),
     element(tag, className, text) {
@@ -613,24 +615,34 @@ test("답변 모드 메뉴의 선택 표시는 목표 쪽으로 늘어났다가 
   assert.deepEqual(spot(indicator), ["settle", "92px", "52px"]);
 });
 
-test("늘어난 선택 표시가 안착을 기다리는 사이 동작 줄이기를 켜면 예약을 버리고 목표 자리에 바로 놓는다", () => {
-  const page = indicatorPage();
+function assertReducedMotionDuringMove(page) {
   page.open(true);
   for (const [key] of arrowMoves) page.menu().fire("keydown", { key });
   assert.deepEqual(spot(page.indicator()), ["stretch", "38px", "106px"]);
   assert.equal(page.timers.size, 1);
   // 90ms가 지나기 전에 운영체제 설정을 바꾼다.
   page.state.reduced = true;
-  assert.equal(page.motion.length, 1, "one settings listener for every menu");
   for (const listener of page.motion) listener({ matches: true });
-  assert.deepEqual(spot(page.indicator()), ["rest", "92px", "52px"]);
   assert.equal(page.timers.size, 0, "the pending settle is cancelled");
+  assert.deepEqual(spot(page.indicator()), ["rest", "92px", "52px"]);
   assert.equal(page.state.focused, page.items()[1]);
   // 설정을 끄는 신호는 아무것도 옮기지 않는다.
   page.state.reduced = false;
   for (const listener of page.motion) listener({ matches: false });
   assert.equal(page.timers.size, 0);
   assert.deepEqual(spot(page.indicator()), ["rest", "92px", "52px"]);
+}
+
+test("늘어난 선택 표시가 안착을 기다리는 사이 동작 줄이기를 켜면 예약을 버리고 목표 자리에 바로 놓는다", () => {
+  const page = indicatorPage();
+  assert.equal(page.motion.length, 1, "one settings listener for every menu");
+  assertReducedMotionDuringMove(page);
+});
+
+test("addListener만 있는 환경에서도 동작 줄이기를 켜면 즉시 안착한다", {
+  todo: "chat.js의 설정 변경 처리에 addListener 지원이 필요함",
+}, () => {
+  assertReducedMotionDuringMove(indicatorPage({ legacyMotion: true }));
 });
 
 test("동작 줄이기 설정에서는 선택 표시가 늘어나지 않고 바로 목표 자리에 놓이며, 다른 메뉴에는 선택 표시가 없다", () => {
