@@ -44,7 +44,14 @@ function page(values = new Map([[historyKey, JSON.stringify([{ id: "fictional-ch
     listeners = new Map();
     text = "";
     value = "";
+    #disabled = false;
     classList = { contains: name => this.className.split(" ").includes(name) };
+    get disabled() { return this.#disabled; }
+    set disabled(value) {
+      this.#disabled = Boolean(value);
+      if (this.#disabled && focus === this) focus = null;
+    }
+    get isConnected() { return get("body").contains(this); }
     get textContent() { return this.text + this.children.map(item => item.textContent ?? item).join(""); }
     set textContent(value) { this.text = value ?? ""; this.replaceChildren(); }
     append(...children) {
@@ -64,11 +71,12 @@ function page(values = new Map([[historyKey, JSON.stringify([{ id: "fictional-ch
       child.parentNode = this;
     }
     replaceChildren(...children) {
-      for (const child of this.children) if (child instanceof Node) child.parentNode = null;
+      for (const child of this.children) if (child instanceof Node) child.remove();
       this.children = [];
       this.append(...children);
     }
     remove() {
+      if (this.contains(focus)) focus = null;
       if (this.parentNode) this.parentNode.children = this.parentNode.children.filter(child => child !== this);
       this.parentNode = null;
     }
@@ -94,7 +102,7 @@ function page(values = new Map([[historyKey, JSON.stringify([{ id: "fictional-ch
       this.attributes.delete(name);
       if (name === "data-version-state") delete this.dataset.versionState;
     }
-    focus() { if (!this.disabled) focus = this; }
+    focus() { if (!this.disabled && this.isConnected) focus = this; }
     select() {}
     setSelectionRange() {}
     addEventListener(name, callback) {
@@ -116,6 +124,8 @@ function page(values = new Map([[historyKey, JSON.stringify([{ id: "fictional-ch
     return nodes.get(selector);
   }
   const transcript = get("#transcript");
+  const theme = get("#theme-button");
+  get("body").append(transcript, get("#question"), theme);
   const requests = [], timeouts = [];
   const context = {
     window: {
@@ -130,7 +140,7 @@ function page(values = new Map([[historyKey, JSON.stringify([{ id: "fictional-ch
     document: {
       body: get("body"), title: "가상 채팅", querySelector: get,
       createTextNode: text => text,
-      get activeElement() { return focus; },
+      get activeElement() { return focus ?? this.body; },
     },
     URL, TextDecoder, AbortController,
     AbortSignal: {
@@ -162,7 +172,11 @@ function page(values = new Map([[historyKey, JSON.stringify([{ id: "fictional-ch
   };
   const run = code => runInNewContext(code, context);
   run(controller + '\nswitchHistoryAccount("browse"); openConversation(conversations[0]);');
-  return { run, transcript, requests, timeouts, values, raw: () => values.get(historyKey), focus: () => focus };
+  return {
+    run, transcript, requests, timeouts, values,
+    body: context.document.body, input: context.input, theme,
+    raw: () => values.get(historyKey), focus: () => context.document.activeElement,
+  };
 }
 
 function turn(p, index = 0) {
@@ -171,17 +185,20 @@ function turn(p, index = 0) {
   return node;
 }
 
-function find(p, selector) {
-  const node = turn(p).querySelector(selector);
+function find(p, selector, index = 0) {
+  const node = turn(p, index).querySelector(selector);
   assert.ok(node, selector);
   return node;
 }
 
-function edit(p, text) {
-  find(p, ".turn-edit").click();
-  const form = find(p, "form.turn-editor");
-  form.querySelector("textarea").value = text;
+function edit(p, text, index = 0) {
+  find(p, ".turn-edit", index).click();
+  const form = find(p, "form.turn-editor", index);
+  const field = form.querySelector("textarea");
+  field.value = text;
+  form.querySelector(".turn-editor-submit").focus();
   form.fire("submit");
+  return field;
 }
 
 function stream(request, { honorAbort = true } = {}) {
@@ -213,48 +230,101 @@ async function finish(request, text, flags = {}, citations = []) {
 const savedMessages = p => JSON.parse(p.raw())[0].messages;
 const sentQuestion = request => JSON.parse(request.options.body).message;
 
-test("질문을 수정하고 끝까지 받은 뒤 버전을 고르며 새로고침해도 고른 질문과 답을 복원한다", async () => {
+test("두 번째 질문을 수정하면 같은 수정 버튼에 한 번 초점이 돌아오고 두 버전을 복원한다", async () => {
   const p = page();
   assert.equal(turn(p).querySelector(".version-picker"), null);
   const original = p.raw();
   const revised = "가상 슬쩍 고친 질문";
   const revisedAnswer = "가상 안내 답";
-  edit(p, revised);
+  const button = find(p, ".turn-edit", 1);
+  const focusButton = button.focus.bind(button);
+  let focusCalls = 0;
+  button.focus = () => {
+    focusCalls++;
+    assert.equal(button.disabled, false);
+    focusButton();
+  };
+  const field = edit(p, revised, 1);
+  assert.equal(p.focus(), field);
+  assert.equal(field.readOnly, true);
   assert.equal(p.requests.length, 1);
   assert.equal(sentQuestion(p.requests[0]), revised);
-  assert.equal(turn(p).dataset.versionState, "pending");
+  assert.equal(turn(p, 1).dataset.versionState, "pending");
   for (const index of [0, 1]) {
     for (const selector of [".turn-edit", ".turn-regenerate"]) {
       assert.equal(turn(p, index).querySelector(selector).disabled, true);
     }
   }
-  assert.match(turn(p, 1).querySelector(".question").textContent, /가상 다음 질문/);
-  assert.equal(turn(p, 1).querySelector(".reply").textContent, "가상 다음 답");
+  assert.match(find(p, ".question").textContent, /가상 첫 질문/);
+  assert.equal(find(p, ".reply").textContent, answer);
   assert.equal(p.raw(), original);
   await finish(p.requests[0], revisedAnswer, { answered: false, guided: true });
-  assert.equal(find(p, ".version-count").textContent, "2/2");
-  assert.equal(find(p, ".version-count").getAttribute("aria-live"), "polite");
-  assert.equal(find(p, ".version-next").disabled, true);
-  assert.deepEqual(savedMessages(p).map(entry => entry.text), [revised, revisedAnswer, ...legacy.slice(2).map(entry => entry.text)]);
-  assert.equal(savedMessages(p)[1].guided, true);
-  assert.equal(savedMessages(p)[0].versions.length, 2);
-  assert.equal(Object.hasOwn(savedMessages(p)[1], "versions"), false);
+  assert.equal(p.requests.length, 1);
+  assert.equal(p.focus(), button);
+  p.body.focus();
+  p.run("updateSend()");
+  assert.equal(p.focus(), p.body);
+  assert.equal(focusCalls, 1);
+  assert.equal(find(p, ".version-count", 1).textContent, "2/2");
+  assert.equal(find(p, ".version-count", 1).getAttribute("aria-live"), "polite");
+  assert.equal(find(p, ".version-next", 1).disabled, true);
+  assert.deepEqual(savedMessages(p).map(entry => entry.text), [question, answer, revised, revisedAnswer]);
+  assert.equal(savedMessages(p)[3].guided, true);
+  assert.equal(Object.hasOwn(savedMessages(p)[3], "versions"), false);
+  const saved = savedMessages(p)[2];
+  assert.equal(saved.selected, 1);
+  assert.deepEqual(saved.versions.map(version => [version.question.text, version.answer.text]),
+    [["가상 다음 질문", "가상 다음 답"], [revised, revisedAnswer]]);
 
-  find(p, ".version-prev").click();
   const reopened = page(p.values);
-  assert.equal(find(reopened, ".version-count").textContent, "1/2");
-  assert.equal(find(reopened, ".version-prev").disabled, true);
-  assert.match(find(reopened, ".question").textContent, /가상 첫 질문/);
-  assert.equal(find(reopened, ".reply").textContent, answer);
-  find(reopened, ".turn-regenerate").click();
-  assert.equal(sentQuestion(reopened.requests[0]), question);
-  assert.equal(find(reopened, ".version-next").disabled, true);
-  assert.equal(find(reopened, ".version-prev").disabled, true);
-  assert.equal(turn(reopened, 1).querySelector(".turn-regenerate").disabled, true);
-  await finish(reopened.requests[0], "가상 보류 답", { answered: false });
-  assert.equal(find(reopened, ".version-count").textContent, "3/3");
-  assert.equal(savedMessages(reopened)[1].answered, false);
-  assert.equal(savedMessages(reopened)[0].text, question);
+  assert.equal(find(reopened, ".version-count", 1).textContent, "2/2");
+  assert.equal(find(reopened, ".question", 1).textContent, revised);
+  assert.equal(find(reopened, ".reply", 1).textContent, revisedAnswer);
+  find(reopened, ".version-prev", 1).click();
+  const older = page(p.values);
+  assert.equal(find(older, ".version-count", 1).textContent, "1/2");
+  assert.equal(find(older, ".question", 1).textContent, "가상 다음 질문");
+  assert.equal(find(older, ".reply", 1).textContent, "가상 다음 답");
+  assert.equal(find(older, ".version-prev", 1).disabled, true);
+  find(older, ".version-next", 1).click();
+  assert.equal(find(older, ".question", 1).textContent, revised);
+  assert.equal(find(older, ".reply", 1).textContent, revisedAnswer);
+  find(older, ".turn-regenerate", 1).click();
+  assert.equal(sentQuestion(older.requests[0]), revised);
+  assert.equal(find(older, ".version-next", 1).disabled, true);
+  assert.equal(find(older, ".version-prev", 1).disabled, true);
+  assert.equal(find(older, ".turn-regenerate").disabled, true);
+  await finish(older.requests[0], "가상 보류 답", { answered: false });
+  assert.equal(find(older, ".version-count", 1).textContent, "3/3");
+  assert.equal(savedMessages(older)[3].answered, false);
+  assert.equal(savedMessages(older)[2].text, revised);
+});
+
+for (const [label, target] of [["질문 입력창", "input"], ["테마 버튼", "theme"]]) {
+  test(`수정 답을 기다리며 ${label}으로 옮긴 초점을 유지한다`, async () => {
+    const p = page();
+    edit(p, "가상 고친 질문");
+    p[target].focus();
+    assert.equal(p.focus(), p[target]);
+    await finish(p.requests[0], "가상 고친 답");
+    assert.equal(find(p, ".version-count").textContent, "2/2");
+    assert.equal(p.focus(), p[target]);
+  });
+}
+
+test("다른 대화에서 수정 답을 받아도 초점을 가져가지 않고 돌아와도 그대로 둔다", async () => {
+  const p = page(new Map([[historyKey, JSON.stringify([
+    { id: "fictional-chat", messages: legacy },
+    { id: "fictional-other", messages: [message("question", "가상 다른 대화 질문")] },
+  ])]]));
+  edit(p, "가상 고친 질문");
+  p.run('openConversation(conversations.find(record => record.id === "fictional-other"))');
+  assert.equal(p.focus(), p.body);
+  await finish(p.requests[0], "가상 다른 화면에서 받은 답");
+  assert.equal(p.focus(), p.body);
+  p.run('openConversation(conversations.find(record => record.id === "fictional-chat"))');
+  assert.equal(find(p, ".version-count").textContent, "2/2");
+  assert.equal(p.focus(), p.body);
 });
 
 test("옛 기록에서 답만 남은 말풍선과 답 없는 질문을 그리고 Esc는 편집 초점을 돌려준다", () => {
@@ -296,6 +366,7 @@ test("부분 답 뒤 실패하면 초안을 보존하고 다시 시도하며, �
   assert.equal(turn(p).dataset.versionState, "failed");
   assert.ok(find(p, ".version-error").textContent);
   const form = find(p, "form.turn-editor");
+  assert.equal(p.focus(), form.querySelector("textarea"));
   assert.equal(form.querySelector("textarea").value, "가상 수정할 초안");
   assert.equal(form.querySelector(".turn-editor-submit").textContent, "다시 시도");
   form.fire("submit");
@@ -306,6 +377,7 @@ test("부분 답 뒤 실패하면 초안을 보존하고 다시 시도하며, �
   assert.equal(p.run("stopActiveAnswer()"), true);
   await setImmediate();
   assert.equal(p.requests.length, 3);
+  assert.equal(p.focus(), p.input);
   assert.equal(p.raw(), original);
   assert.equal(find(p, ".reply").textContent, answer);
   assert.equal(turn(p).querySelector(".version-picker"), null);
@@ -334,7 +406,10 @@ test("시간 초과가 나면 선택과 저장 기록을 유지한다", async ()
 
 test("JSON으로 받은 완료 답을 저장하고 정지 뒤 늦은 완료 답은 선택을 바꾸지 않는다", async () => {
   const p = page();
-  find(p, ".turn-regenerate").click();
+  const regenerate = find(p, ".turn-regenerate");
+  regenerate.focus();
+  regenerate.click();
+  assert.equal(p.focus(), p.body);
   p.requests[0].resolve({ ok: false });
   await setImmediate();
   assert.equal(p.requests[1].path, "/api/v1/chat");
@@ -344,6 +419,7 @@ test("JSON으로 받은 완료 답을 저장하고 정지 뒤 늦은 완료 답�
   await setImmediate();
   assert.equal(find(p, ".version-count").textContent, "2/2");
   assert.equal(savedMessages(p)[1].text, "가상 JSON 답");
+  assert.equal(p.focus(), p.body);
 
   find(p, ".version-prev").click();
   const original = p.raw();

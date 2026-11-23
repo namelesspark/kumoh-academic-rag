@@ -3026,6 +3026,7 @@ function setupTurnActions(record, turn, question, answer) {
   status.setAttribute("role", "status");
   const labels = [];
   let prompt = turn.children[0], editor = null, draft = null, save, field, cancel, state = "", error = "";
+  let restoreEditFocus = false;
   let versions = question.versions || [{ question, answer }], selected = question.selected ?? 0;
   function button(className, label, run, glyph) {
     const control = element("button", className, glyph);
@@ -3063,7 +3064,10 @@ function setupTurnActions(record, turn, question, answer) {
       editor.append(field, cancel, save);
       editor.addEventListener("submit", event => {
         event.preventDefault();
-        if (!locked() && field.value.trim()) run(field.value.trim());
+        const text = field.value.trim();
+        if (locked() || !text) return;
+        if (document.activeElement === save) field.focus();
+        run(text);
       });
       editor.addEventListener("keydown", event => {
         if (event.key !== "Escape" || event.isComposing || requestPending()) return;
@@ -3107,6 +3111,10 @@ function setupTurnActions(record, turn, question, answer) {
     status.hidden = !state;
     const message = state === "failed" ? t(error) : state ? t("서버에 질문을 보내는 중…") : "";
     if (status.textContent !== message) status.textContent = message;
+    if (restoreEditFocus && !edit.disabled) {
+      restoreEditFocus = false;
+      if (turn.isConnected && activeConversation === record && document.activeElement === document.body) edit.focus();
+    }
   }
   function redraw() {
     for (const child of [...turn.children]) {
@@ -3142,10 +3150,12 @@ function setupTurnActions(record, turn, question, answer) {
     (origin.disabled ? (origin === previous ? next : previous) : origin).focus();
   }
   function run(text) {
+    restoreEditFocus = false;
     if (!conversations.includes(record) || !record.messages.includes(question)) return;
     if (draft !== null) draft = text;
     state = "pending";
     void ask(text, null, record, (outcome, reply) => {
+      restoreEditFocus = false;
       state = outcome;
       error = "서버 응답을 받지 못했어요.";
       if (reply) {
@@ -3161,6 +3171,7 @@ function setupTurnActions(record, turn, question, answer) {
         versions = versions.filter(version => cleanChatMessage(version.question) &&
           (!version.answer || cleanChatMessage(version.answer)));
         versions.push({ question: revised, answer: cleanedReply });
+        restoreEditFocus = draft !== null && editor.contains(document.activeElement);
         draft = null;
         record.time = reply.time;
         choose(limitChatVersions(versions, versions.length - 1));
