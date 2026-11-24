@@ -531,7 +531,7 @@ test("정지 버튼에서 Enter를 길게 누르면 멈춘 뒤 질문 칸으로 
 });
 
 // ── 답변 모드 선택 표시 ──────────────────────────────────────────────────────────
-function indicatorPage({ reduced = false } = {}) {
+function indicatorPage({ reduced = false, legacyMotion = false } = {}) {
   const state = { focused: null, reduced };
   const timers = new Map(), motion = [];
   let nextTimer = 0, row = 0;
@@ -543,7 +543,9 @@ function indicatorPage({ reduced = false } = {}) {
     window: { innerWidth: 1280, innerHeight: 800 },
     reducedMotion: () => state.reduced, within: () => false,
     // 동작 줄이기 설정 변화 신호를 테스트에서 직접 보낼 수 있게 처리기를 모아 둔다.
-    motionPreference: () => ({ addEventListener: (type, listener) => motion.push(listener) }),
+    motionPreference: () => legacyMotion
+      ? { addListener: listener => motion.push(listener) }
+      : { addEventListener: (type, listener) => motion.push(listener) },
     setTimeout: (callback, delay) => { timers.set(++nextTimer, { callback, delay }); return nextTimer; },
     clearTimeout: id => timers.delete(id),
     element(tag, className, text) {
@@ -570,6 +572,25 @@ function indicatorPage({ reduced = false } = {}) {
   };
 }
 const spot = indicator => [indicator.getAttribute("data-phase"), indicator.styles.get("--choice-menu-indicator-y"), indicator.styles.get("--choice-menu-indicator-h")];
+const arrowMoves = [["ArrowDown", 1], ["ArrowUp", 0], ["ArrowDown", 1]];
+
+test("방향키를 아래·위·아래로 누르면 마지막 초점에만 안착하고 선택은 유지한다", () => {
+  const page = indicatorPage();
+  page.open(true);
+  const items = page.items();
+  for (const [key, index] of arrowMoves) {
+    page.menu().fire("keydown", { key });
+    assert.equal(page.state.focused, items[index]);
+    assert.deepEqual(spot(page.indicator()), ["stretch", "38px", "106px"]);
+    assert.deepEqual([...page.timers.values()].map(timer => timer.delay), [90]);
+    assert.deepEqual(items.map(item => item.getAttribute("aria-checked")), ["true", "false"]);
+  }
+  page.tick();
+  assert.deepEqual(spot(page.indicator()), ["settle", "92px", "52px"]);
+  assert.equal(page.timers.size, 0);
+  assert.equal(page.state.focused, items[1]);
+  assert.deepEqual(items.map(item => item.getAttribute("aria-checked")), ["true", "false"]);
+});
 
 test("답변 모드 메뉴의 선택 표시는 목표 쪽으로 늘어났다가 90ms 뒤 목표 자리에 안착한다", () => {
   const page = indicatorPage();
@@ -594,29 +615,44 @@ test("답변 모드 메뉴의 선택 표시는 목표 쪽으로 늘어났다가 
   assert.deepEqual(spot(indicator), ["settle", "92px", "52px"]);
 });
 
-test("늘어난 선택 표시가 안착을 기다리는 사이 동작 줄이기를 켜면 예약을 버리고 목표 자리에 바로 놓는다", () => {
-  const page = indicatorPage();
+function assertReducedMotionDuringMove(page) {
   page.open(true);
-  page.menu().fire("keydown", { key: "ArrowDown" });
+  for (const [key] of arrowMoves) page.menu().fire("keydown", { key });
   assert.deepEqual(spot(page.indicator()), ["stretch", "38px", "106px"]);
   assert.equal(page.timers.size, 1);
   // 90ms가 지나기 전에 운영체제 설정을 바꾼다.
   page.state.reduced = true;
-  assert.equal(page.motion.length, 1, "one settings listener for every menu");
   for (const listener of page.motion) listener({ matches: true });
-  assert.deepEqual(spot(page.indicator()), ["rest", "92px", "52px"]);
   assert.equal(page.timers.size, 0, "the pending settle is cancelled");
-  // 설정을 끄는 신호는 아무것도 옮기지 않는다.
-  for (const listener of page.motion) listener({ matches: false });
   assert.deepEqual(spot(page.indicator()), ["rest", "92px", "52px"]);
+  assert.equal(page.state.focused, page.items()[1]);
+  // 설정을 끄는 신호는 아무것도 옮기지 않는다.
+  page.state.reduced = false;
+  for (const listener of page.motion) listener({ matches: false });
+  assert.equal(page.timers.size, 0);
+  assert.deepEqual(spot(page.indicator()), ["rest", "92px", "52px"]);
+}
+
+test("늘어난 선택 표시가 안착을 기다리는 사이 동작 줄이기를 켜면 예약을 버리고 목표 자리에 바로 놓는다", () => {
+  const page = indicatorPage();
+  assert.equal(page.motion.length, 1, "one settings listener for every menu");
+  assertReducedMotionDuringMove(page);
+});
+
+test("addListener만 있는 환경에서도 동작 줄이기를 켜면 즉시 안착한다", () => {
+  assertReducedMotionDuringMove(indicatorPage({ legacyMotion: true }));
 });
 
 test("동작 줄이기 설정에서는 선택 표시가 늘어나지 않고 바로 목표 자리에 놓이며, 다른 메뉴에는 선택 표시가 없다", () => {
   const still = indicatorPage({ reduced: true });
   still.open(true);
-  still.menu().fire("keydown", { key: "ArrowDown" });
-  assert.deepEqual(spot(still.indicator()), ["rest", "92px", "52px"]);
-  assert.equal(still.timers.size, 0);
+  for (const [key, index] of arrowMoves) {
+    still.menu().fire("keydown", { key });
+    const item = still.items()[index];
+    assert.equal(still.state.focused, item);
+    assert.deepEqual(spot(still.indicator()), ["rest", `${item.offsetTop}px`, "52px"]);
+    assert.equal(still.timers.size, 0);
+  }
   const plain = indicatorPage();
   plain.open(false);
   assert.equal(plain.indicator(), undefined);
@@ -629,13 +665,28 @@ test("동작 줄이기 설정에서는 선택 표시가 늘어나지 않고 바�
 test("선택 표시 곡선은 기본이 cubic-bezier이고 스프링 linear()는 @supports 안에서만 쓰며 300ms 안에 끝난다", () => {
   const css = styles.replace(/\/\*[\s\S]*?\*\//g, "");
   const base = /\n\.choice-menu-indicator \{([^}]*)\}/.exec(css)[1];
-  assert.match(base, /transition: transform 90ms ease-out, height 90ms ease-out;/);
+  const stretchMatch = /transition: transform (\d+)ms ease-out, height (\d+)ms ease-out;/.exec(base);
+  assert.ok(stretchMatch, "both stretch transitions use ease-out");
+  const [, stretchTransform, stretchHeight] = stretchMatch.map(Number);
+  assert.equal(stretchTransform, 90);
+  assert.equal(stretchTransform, stretchHeight);
   assert.match(base, /pointer-events: none;/);
   const settled = /\n\.choice-menu-indicator\[data-phase="settle"\] \{([^}]*)\}/.exec(css)[1];
-  assert.match(settled, /260ms cubic-bezier\(/);
+  const settleMatch = /transition: transform (\d+)ms cubic-bezier\(\.34, 1\.4, \.64, 1\), height (\d+)ms cubic-bezier\(\.34, 1\.4, \.64, 1\);/.exec(settled);
+  assert.ok(settleMatch, "both settle transitions use the fallback curve");
+  const [, settleTransform, settleHeight] = settleMatch.map(Number);
+  assert.equal(settleTransform, 190);
+  assert.equal(settleTransform, settleHeight);
+  assert.ok(stretchTransform + settleTransform < 300);
+  const indicatorCode = between("function choiceIndicator(", "let settleChoiceIndicator");
+  const delayedSettle = /timer = setTimeout\(\(\) => \{[^}]*place\(to, "settle"\);\s*\},\s*(\d+)\);/.exec(indicatorCode);
+  assert.ok(delayedSettle, "choiceIndicator schedules the settle");
+  assert.equal(Number(delayedSettle[1]), stretchTransform);
   assert.doesNotMatch(settled, /linear\(/);
   const supported = /@supports \(transition-timing-function: linear\(0, 1\)\) \{\s*\.choice-menu-indicator\[data-phase="settle"\] \{([^}]*)\}/.exec(css)[1];
   assert.match(supported, /transition-timing-function: linear\(0, [^)]*\b1\);/);
+  const reducedMotion = /@media \(prefers-reduced-motion: reduce\) \{([\s\S]*?)\n\}/.exec(css)[1];
+  assert.match(reducedMotion, /\.choice-menu-indicator,\s*\.choice-menu-indicator\[data-phase="settle"\]\s*\{\s*transition: none !important;/);
   // 선택 표시 바탕(--tint) 위 글자는 메뉴의 기존 글자색 그대로다. 경계는 컨트롤 선(--control-line)이다.
   assert.match(base, /background: var\(--tint\);/);
   assert.match(base, /border: 1px solid var\(--control-line\);/);

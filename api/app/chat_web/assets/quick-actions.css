@@ -111,7 +111,7 @@
 .quick-ring[data-open] .quick-ring-caption { opacity: 1; }
 
 /* 답변 모드 메뉴의 선택 표시. chat.js가 초점·마우스가 가리키는 항목의 자리(--choice-menu-indicator-y·h)를 준다.
-   옮길 때는 두 항목을 함께 덮게 늘어났다가(stretch, 90ms) 목표 자리에 안착한다(settle). 기본 곡선은 cubic-bezier이고,
+   옮길 때는 두 항목을 함께 덮게 90ms 동안 늘어나고(stretch), 190ms 동안 목표 자리에 안착한다(settle). 기본 곡선은 cubic-bezier이고,
    스프링 곡선 linear()는 지원하는 브라우저에서만 쓴다. 항목 바탕은 비워 표시 한 장만 움직인다.
    고른 항목은 테두리·체크 표시·aria-checked로 계속 알린다. */
 .choice-menu[data-indicator] { isolation: isolate; }
@@ -131,7 +131,7 @@
   transition: transform 90ms ease-out, height 90ms ease-out;
 }
 .choice-menu-indicator[data-phase="rest"] { transition: none; }
-.choice-menu-indicator[data-phase="settle"] { transition: transform 260ms cubic-bezier(.34, 1.4, .64, 1), height 260ms cubic-bezier(.34, 1.4, .64, 1); }
+.choice-menu-indicator[data-phase="settle"] { transition: transform 190ms cubic-bezier(.34, 1.4, .64, 1), height 190ms cubic-bezier(.34, 1.4, .64, 1); }
 @supports (transition-timing-function: linear(0, 1)) {
   .choice-menu-indicator[data-phase="settle"] {
     transition-timing-function: linear(0, .25 8%, .66 18%, .96 30%, 1.08 42%, 1.06 52%, 1.01 64%, .99 78%, 1);
