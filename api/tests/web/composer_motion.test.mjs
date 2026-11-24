@@ -665,6 +665,32 @@ test("addListener만 있는 환경에서도 동작 줄이기를 켜면 즉시 �
   assertReducedMotionDuringMove(indicatorPage({ legacyMotion: true }));
 });
 
+test("Esc로 닫은 답변 모드 표시의 안착 예약은 다시 열고 동작 줄이기를 켜도 남지 않는다", () => {
+  const page = indicatorPage();
+  page.open(true);
+  const previousMenu = page.menu();
+  const previousIndicator = page.indicator();
+  previousMenu.fire("keydown", { key: "ArrowDown" });
+  const previousSpot = spot(previousIndicator);
+  assert.equal(previousSpot[0], "stretch");
+  assert.deepEqual([...page.timers.values()].map(timer => timer.delay), [90]);
+
+  previousMenu.fire("keydown", { key: "Escape" });
+  assert.equal(page.menu(), undefined);
+  assert.equal(page.timers.size, 0, "닫을 때 이전 안착 예약을 취소한다");
+  page.open(true);
+  assert.notEqual(page.menu(), previousMenu);
+  page.menu().fire("keydown", { key: "ArrowDown" });
+  assert.equal(page.timers.size, 1);
+
+  page.state.reduced = true;
+  for (const listener of page.motion) listener({ matches: true });
+  assert.equal(page.timers.size, 0);
+  assert.equal(spot(page.indicator())[0], "rest");
+  page.tick();
+  assert.deepEqual(spot(previousIndicator), previousSpot);
+});
+
 test("동작 줄이기 설정에서는 선택 표시가 늘어나지 않고 바로 목표 자리에 놓이며, 다른 메뉴에는 선택 표시가 없다", () => {
   const still = indicatorPage({ reduced: true });
   still.open(true);

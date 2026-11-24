@@ -2581,11 +2581,15 @@ function choiceIndicator(menu, items) {
     indicator.style.setProperty("--choice-menu-indicator-y", `${top}px`);
     indicator.style.setProperty("--choice-menu-indicator-h", `${height}px`);
   };
+  function cancel() {
+    if (timer === null) return;
+    clearTimeout(timer);
+    timer = null;
+  }
   function move(item) {
     const to = box(item), from = box(current);
     if (!to || item === current) return;
-    if (timer !== null) clearTimeout(timer);
-    timer = null;
+    cancel();
     current = item;
     if (!from || reducedMotion() || typeof setTimeout !== "function") { place(to, "rest"); return; }
     const top = Math.min(from.top, to.top);
@@ -2595,13 +2599,12 @@ function choiceIndicator(menu, items) {
   // 늘어난 채 안착을 기다리는 동안 동작 줄이기를 켜면 예약을 버리고 목표 자리에 바로 놓는다.
   settleChoiceIndicator = () => {
     if (timer === null) return;
-    clearTimeout(timer);
-    timer = null;
+    cancel();
     const to = box(current);
     if (to) place(to, "rest");
   };
   for (const item of items) item.addEventListener("pointerenter", () => move(item));
-  return { move };
+  return { move, cancel };
 }
 // 지금 열린 선택 표시 하나만 기억한다. 설정 변화 처리기는 한 번만 붙인다. 화면 조각만 떼어 도는 테스트처럼
 // 설정 읽기 함수(motionPreference)가 없는 곳에서는 붙이지 않는다.
@@ -2631,8 +2634,12 @@ function openChoiceMenu(button, title, choices, onSelect, { indicator = false } 
     menu.append(item); return item;
   });
   function close(restore = false) {
+    marker?.cancel();
     menu.remove(); button.setAttribute("aria-expanded", "false");
-    if (activeChoiceMenu?.menu === menu) activeChoiceMenu = null;
+    if (activeChoiceMenu?.menu === menu) {
+      activeChoiceMenu = null;
+      settleChoiceIndicator = null;
+    }
     if (restore) button.focus();
   }
   const marker = indicator ? choiceIndicator(menu, items) : null;
