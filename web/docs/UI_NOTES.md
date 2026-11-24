@@ -1914,7 +1914,7 @@ node --test api/tests/web/campus_backdrop.test.mjs api/tests/web/chat_layout.tes
 
 ## 공용 선택 메뉴 Tab 닫기 규칙
 
-버튼으로 여는 선택 메뉴는 모두 `chat.js`의 `openChoiceMenu` 하나로 연다(#224). keydown에서 메뉴를 바로 지우면 초점을 가진 항목이 먼저 사라져 브라우저의 Tab 이동이 문서 처음으로 간다. 그래서 닫기는 Tab 기본 동작 뒤로 미루고, 그 예약의 효력만 정리한다.
+버튼으로 여는 선택 메뉴는 모두 `chat.js`의 `openChoiceMenu` 하나로 연다(#224). keydown에서 메뉴를 바로 지우면 브라우저가 초점을 옮기기 전에 지금 항목이 사라질 수 있다. 그래서 닫기는 Tab 기본 동작 뒤로 미루고, 그 예약의 효력만 정리한다.
 
 - 적용 대상: 답변 모드, 테마, 머리글 언어, 로그인 언어 메뉴가 모두 이 규칙을 따른다.
 - Tab·Shift+Tab: 기본 동작을 막지 않으므로 초점은 브라우저의 기본 Tab 이동을 따르고, 메뉴는 예약한 닫기로 닫힌다. 닫을 때 초점을 버튼으로 돌리지 않고 버튼의 `aria-expanded`만 `false`로 바꾼다.
