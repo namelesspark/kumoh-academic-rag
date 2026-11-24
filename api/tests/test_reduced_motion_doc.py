@@ -22,6 +22,20 @@ SECTION_BOUNDARY = re.compile(r"#{1,4}(?=[ \t]|$)")
 # 백틱 펜스 뒤 정보 문자열에 백틱이 있으면(「```example```」) 인라인 코드이므로 블록을 열지 않는다. 물결 펜스는 연다.
 FENCE = re.compile(r" {0,3}(`{3,}(?=[^`]*$)|~{3,})")
 CLOSING_FENCE = re.compile(r" {0,3}(`{3,}|~{3,})[ \t]*")
+# 인용 표식 하나. 공백 0~3칸 뒤 `>`와 그 뒤 공백 한 칸까지를 표식으로 본다.
+QUOTE_MARKER = re.compile(r" {0,3}> ?")
+
+
+def unquote(line, limit=None):
+    """줄 앞 인용 표식을 `limit`개까지(없으면 모두) 벗겨 (벗긴 개수, 남은 글)을 돌려준다."""
+    depth = 0
+    while limit is None or depth < limit:
+        marker = QUOTE_MARKER.match(line)
+        if not marker:
+            break
+        line = line[marker.end() :]
+        depth += 1
+    return depth, line
 
 # 낱말만 보면 「한 번만」을 「여러 번」으로 바꿔도 통과하므로 줄 전체를 비교한다.
 RULE_LINES = (
@@ -46,21 +60,29 @@ def visible_lines(text):
     공백 세 칸 이하로 시작하고 여는 펜스와 같은 글자로만 된 줄(길이는 같거나 길게)이 블록을 닫는다.
     블록 안의 「```text」 줄이나 네 칸 이상 들여쓴 펜스 줄은 글로 본다.
     여러 줄 주석은 여는 표식 앞 글과 닫는 표식 뒤 글을 한 줄로 잇는다.
+    펜스는 인용 표식(`>`)을 벗긴 줄에서 찾고, 인용문 안에서 연 블록은 그 인용 단계가 끝나는 줄에서 닫힌다.
     """
     lines = []
     fence = None
+    fence_depth = 0
     in_comment = False
     pending = ""
     for raw in text.splitlines():
         if fence is not None:
-            closing = CLOSING_FENCE.fullmatch(raw)
-            if closing and closing.group(1)[0] == fence[0] and len(closing.group(1)) >= len(fence):
-                fence = None
-            continue
+            depth, content = unquote(raw, fence_depth)
+            if depth == fence_depth:
+                closing = CLOSING_FENCE.fullmatch(content)
+                if closing and closing.group(1)[0] == fence[0] and len(closing.group(1)) >= len(fence):
+                    fence = None
+                continue
+            # 인용 단계가 줄면 인용문과 함께 블록도 끝나므로 이 줄은 블록 밖 글로 읽는다.
+            fence = None
         if not in_comment:
-            opened = FENCE.match(raw)
+            depth, content = unquote(raw)
+            opened = FENCE.match(content)
             if opened:
                 fence = opened.group(1)
+                fence_depth = depth
                 continue
         out = pending if in_comment else ""
         rest = raw
@@ -298,6 +320,38 @@ class ReducedMotionDocTest(unittest.TestCase):
             for case, modified in cases.items():
                 with self.subTest(line=line, case=case):
                     self.assertEqual(reduced_motion_doc_problems(modified), [])
+
+    def test_comment_marker_in_quoted_code_block_is_example(self):
+        # 교차 검토 재현: 인용문 안 코드 블록의 `<!--`를 주석으로 읽으면 뒤의 접근성 절 제목까지 숨는다.
+        for fence in ("```", "~~~"):
+            examples = {
+                "인용문": f"> {fence}html\n> <!-- example\n> {fence}\n",
+                "표식 뒤 공백 없음": f">{fence}html\n><!-- example\n>{fence}\n",
+                "겹친 인용문": f"> > {fence}html\n> > <!-- example\n> > {fence}\n",
+                # 인용문이 끝나면 닫는 펜스가 없어도 블록이 끝난다.
+                "인용문과 함께 끝나는 블록": f"> {fence}html\n> <!-- example\n",
+            }
+            for case, example in examples.items():
+                places = {
+                    "문서 맨 앞": f"{example}\n{self.notes}",
+                    "상위 절 앞": self.replaced(f"{PARENT_HEADING}\n", f"{example}\n{PARENT_HEADING}\n"),
+                    "하위 절 안": self.replaced(f"{SECTION_HEADING}\n", f"{SECTION_HEADING}\n\n{example}\n"),
+                }
+                for place, modified in places.items():
+                    with self.subTest(fence=fence, case=case, place=place):
+                        self.assertEqual(reduced_motion_doc_problems(modified), [])
+
+    def test_rule_still_hidden_after_quoted_code_block(self):
+        # 인용문 안 예문을 보이게 고쳐도 그 뒤의 실제 주석이나 블록에 둔 규칙은 계속 숨는다.
+        for rule in RULE_LINES:
+            for fence in ("```", "~~~"):
+                cases = {
+                    "뒤 주석": f"> {fence}\n> <!--\n> {fence}\n\n<!-- {rule} -->\n",
+                    "뒤 코드 블록": f"> {fence}\n> <!--\n\n{fence}\n{rule}\n{fence}\n",
+                }
+                for case, wrapped in cases.items():
+                    with self.subTest(rule=rule[:12], fence=fence, case=case):
+                        self.assertTrue(reduced_motion_doc_problems(self.replaced(f"{rule}\n", wrapped)))
 
     def test_tilde_fence_with_backticks_in_info_still_opens_block(self):
         # 물결 펜스의 정보 문자열에는 백틱·물결이 와도 되므로 블록을 연다.
