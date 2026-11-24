@@ -15,7 +15,7 @@ function deferred() {
   return { promise, resolve, reject };
 }
 
-function loadPage({ transition, reduced = false, legacy = false, now = "2027-02-10T03:00:00Z" } = {}) {
+function loadPage({ transition, reduced = false, legacy = false, legacyMotion = false, now = "2027-02-10T03:00:00Z" } = {}) {
   let focused;
   let calm = reduced;
   // 브라우저처럼 처리기를 여러 개 받는다. 보내기 버튼 모핑(#137)도 같은 설정 변화를 듣는다.
@@ -103,12 +103,18 @@ function loadPage({ transition, reduced = false, legacy = false, now = "2027-02-
   if (transition !== undefined) document.startViewTransition = transition;
   const context = {
     document,
-    window: { matchMedia: query => ({
-      matches: query.includes("reduced-motion") && calm,
-      addEventListener(type, listener) {
-        if (query.includes("reduced-motion") && type === "change") motionChanges.push(listener);
-      },
-    }) },
+    window: { matchMedia(query) {
+      const isMotion = query.includes("reduced-motion");
+      if (isMotion && legacyMotion) {
+        return { matches: calm, addListener(listener) { motionChanges.push(listener); } };
+      }
+      return {
+        matches: isMotion && calm,
+        addEventListener(type, listener) {
+          if (isMotion && type === "change") motionChanges.push(listener);
+        },
+      };
+    } },
     fetch: (...args) => {
       if (args[0] === "/api/v1/demo-login") return Promise.resolve({ ok: true, status: 200, json: async () => ({ student: { id: "demo-d02", label: "가상 학생 D02", scenario: "졸업 요건에 가까움", is_fictional: true } }) });
       if (args[0] === "/api/v1/demo-students") return Promise.resolve({ ok: true, json: async () => ({ students: [
@@ -322,6 +328,22 @@ test("전환 중 움직임 줄이기를 켜면 진행 중 전환을 건너뛴다
   page.reduce(true);
   assert.equal(queue.pending[0].skipped, true);
   queue.pending[0].finish();
+  await setImmediate();
+  assertState(page, 0);
+  assert.equal(page.cards[0].attributes.has("data-morph"), false);
+});
+
+test("addListener만 있어도 동작 줄이기를 켜면 진행 중 패널 전환을 건너뛴다", async () => {
+  const queue = transitions();
+  const page = loadPage({ transition: queue.start, legacyMotion: true });
+  page.cards[0].click();
+  const [transition] = queue.pending;
+  transition.apply();
+  page.reduce(false);
+  assert.equal(transition.skipped, undefined);
+  page.reduce(true);
+  assert.equal(transition.skipped, true);
+  transition.finish();
   await setImmediate();
   assertState(page, 0);
   assert.equal(page.cards[0].attributes.has("data-morph"), false);

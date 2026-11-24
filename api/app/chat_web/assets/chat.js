@@ -1625,9 +1625,12 @@ function reducedMotion() {
   return motionPreference()?.matches === true;
 }
 
-motionPreference()?.addEventListener?.("change", event => {
-  if (event.matches) panelTransition?.skipTransition?.();
-});
+{
+  const media = motionPreference();
+  const changed = event => { if (event.matches) panelTransition?.skipTransition?.(); };
+  if (typeof media?.addEventListener === "function") media.addEventListener("change", changed);
+  else if (typeof media?.addListener === "function") media.addListener(changed);
+}
 
 // 이전 전환의 늦은 콜백이 새 조작을 되돌리지 않게 순서를 확인한다.
 function changeFeature(card, { animate = true, focus = true } = {}) {
@@ -2694,9 +2697,10 @@ function setupAiMode() {
   }
   render();
   if (typeof motionPreference === "function") {
-    motionPreference()?.addEventListener?.("change", event => {
-      if (event.matches) stopEffect();
-    });
+    const media = motionPreference();
+    const changed = event => { if (event.matches) stopEffect(); };
+    if (typeof media?.addEventListener === "function") media.addEventListener("change", changed);
+    else if (typeof media?.addListener === "function") media.addListener(changed);
   }
   // 언어를 바꾸면 효과 없이 이름만 다시 그린다.
   onLangChange(() => render());
@@ -3610,7 +3614,12 @@ send?.addEventListener?.("click", event => {
   event.preventDefault?.();
   stopActiveAnswer();
 });
-motionPreference()?.addEventListener?.("change", event => { if (event.matches) settleSendGlyph(); });
+{
+  const media = motionPreference();
+  const changed = event => { if (event.matches) settleSendGlyph(); };
+  if (typeof media?.addEventListener === "function") media.addEventListener("change", changed);
+  else if (typeof media?.addListener === "function") media.addListener(changed);
+}
 setupSendGlyph();
 // 보내기↔정지 모핑 끝.
 
@@ -5473,9 +5482,10 @@ void main(){ vec2 uv=v; vec2 off=vec2(0.0); float light=0.0;
     window.addEventListener("resize", () => {
       if (paused && !stopped && !document.hidden && readyIndices().length) draw(0);
     });
-    motionPreference()?.addEventListener?.("change", event => {
-      if (event.matches) fail();
-    });
+    const media = motionPreference();
+    const changed = event => { if (event.matches) fail(); };
+    if (typeof media?.addEventListener === "function") media.addEventListener("change", changed);
+    else if (typeof media?.addListener === "function") media.addListener(changed);
     const showBackdrop = () => {
       if (stopped || document.hidden || frame !== null || !readyIndices().length || reducedMotion()) return;
       if (!paused) frame = window.requestAnimationFrame(draw);

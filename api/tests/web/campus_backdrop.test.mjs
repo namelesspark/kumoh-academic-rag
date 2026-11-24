@@ -47,12 +47,19 @@ test("셰이더 핵심의 물결·합성 수식과 uniform을 유지한다", () 
   assert.doesNotMatch(script, /generateMipmap\s*\(/);
 });
 
-async function backdrop({ unavailable = false, reduced = false, brokenPhoto = false, brokenShader = false, delayedPhoto = null, failures = {}, storedMotion = null, storageFailure = false, initiallyHidden = false } = {}) {
+async function backdrop({ unavailable = false, reduced = false, brokenPhoto = false, brokenShader = false, delayedPhoto = null, failures = {}, storedMotion = null, storageFailure = false, initiallyHidden = false, legacyMedia = false } = {}) {
   const listeners = new Map(), pending = new Map(), uniforms = new Map(), requests = [], parameters = [];
   const windowListeners = new Map();
   let finishPhoto;
   const delayed = new Promise(resolve => { finishPhoto = resolve; });
-  let next = 0, draws = 0, now = 0, mediaListener;
+  let next = 0, draws = 0, now = 0;
+  const mediaListeners = [];
+  const media = { get matches() { return reduced; } };
+  if (legacyMedia) media.addListener = listener => { mediaListeners.push(listener); };
+  else media.addEventListener = (name, listener) => {
+    assert.equal(name, "change");
+    mediaListeners.push(listener);
+  };
   const storage = new Map([["kumoh-campus-motion:v1", storedMotion]]);
   const localStorage = {
     getItem(key) { if (storageFailure) throw new Error("fictional storage failure"); return storage.get(key) ?? null; },
@@ -84,12 +91,12 @@ async function backdrop({ unavailable = false, reduced = false, brokenPhoto = fa
     addEventListener: (name, fn) => listeners.set(name, fn),
   };
   const context = { document, reducedMotion: () => reduced, localStorage,
-    motionPreference: () => ({ addEventListener: (_name, fn) => { mediaListener = fn; } }),
+    motionPreference: () => media,
     t: text => text, onLangChange() {}, performance: { now: () => now },
     window: { innerWidth: 1280, innerHeight: 800, devicePixelRatio: 3,
       localStorage, performance: { now: () => now },
       matchMedia: query => query === "(prefers-reduced-motion: reduce)"
-        ? { get matches() { return reduced; }, addEventListener: (_name, fn) => { mediaListener = fn; } }
+        ? media
         : { matches: false, addEventListener() {} },
       requestAnimationFrame: fn => { pending.set(++next, fn); return next; },
       cancelAnimationFrame: id => pending.delete(id),
@@ -115,7 +122,11 @@ async function backdrop({ unavailable = false, reduced = false, brokenPhoto = fa
   return { canvas, caption, uniforms, requests, parameters, pending, document, label, toggle, storage,
     window: context.window,
     clickToggle() { toggleListeners.get("click")?.(); },
-    setReduced(value) { reduced = value; mediaListener?.({ matches: value }); },
+    setReduced(value) {
+      reduced = value;
+      for (const listener of mediaListeners) listener({ matches: value });
+    },
+    get mediaSubscriptions() { return mediaListeners.length; },
     get steps() { return progress.children; }, draws: () => draws,
     async finishPhoto() { finishPhoto(); await setImmediate(); },
     tick(time) { now = time; const callbacks = [...pending.values()]; pending.clear(); for (const fn of callbacks) fn(time); },
@@ -205,6 +216,26 @@ test("다음 사진이 늦으면 그 주기를 건너뛰고 다음 주기까지 
 });
 
 const photoFiles = ["campus-aerial.jpg", "campus-hill.jpg", "campus-gate.jpg", "campus-field.jpg"];
+
+test("addListener만 있어도 동작 줄이기를 켜면 캠퍼스 배경 재생을 멈추고 정적 배경을 표시한다", async () => {
+  const page = await backdrop({ legacyMedia: true });
+  page.tick(0);
+  page.tick(1000);
+  assert.equal(page.canvas.hidden, false);
+  assert.equal(page.caption.hidden, false);
+  assert.equal(page.pending.size, 1);
+
+  page.setReduced(false);
+  assert.equal(page.pending.size, 1);
+  page.setReduced(true);
+  assert.equal(page.mediaSubscriptions, 1);
+  assert.equal(page.pending.size, 0);
+  assert.equal(page.canvas.hidden, true);
+  assert.equal(page.caption.hidden, true);
+  const draws = page.draws();
+  page.tick(2000);
+  assert.equal(page.draws(), draws);
+});
 const photoLabels = ["양호동 캠퍼스", "디지털관과 금오산 자락", "정문의 밤", "대운동장의 저녁"];
 
 test("첫 사진을 포함해 어느 한 장이 404여도 성공한 세 장과 진행 칸으로 계속 그린다", async () => {

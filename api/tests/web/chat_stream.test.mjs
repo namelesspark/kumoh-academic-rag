@@ -83,12 +83,15 @@ test("응답 본문이나 글자 해독기가 없으면 실패한다", async () 
   await assert.rejects(read(responseFor([bytes(event("done", {}))]), () => {}));
 });
 
-function modePage(storage, reduced = false) {
+function modePage(storage, reduced = false, { legacyMotion = false } = {}) {
   let focus = null;
   const timers = new Map(), events = new Map(), nodes = new Map();
   let nextTimer = 0, now = 0;
   const motionListeners = new Set();
-  const motion = {
+  const motion = legacyMotion ? {
+    matches: reduced,
+    addListener(callback) { motionListeners.add(callback); },
+  } : {
     matches: reduced,
     addEventListener(name, callback) {
       if (name === "change") motionListeners.add(callback);
@@ -309,6 +312,18 @@ test("동작 줄이기를 켜면 즉시 정리하고 다시 꺼도 효과를 재
   assert.equal(p.button.classList.contains("is-flowing"), false);
   assert.equal(p.timers.size, 0);
   assert.equal(p.row.classList.contains("is-deep"), true);
+});
+
+test("addListener만 있어도 동작 줄이기를 켜면 깊이 생각 반짝임과 타이머를 정리한다", () => {
+  const p = modePage({ getItem: () => null, setItem() {} }, false, { legacyMotion: true });
+  p.select("deep");
+  p.setReducedMotion(false);
+  assert.equal(p.button.classList.contains("is-flowing"), true);
+  assert.equal(p.timers.size, 1);
+  p.setReducedMotion(true);
+  assert.equal(p.button.classList.contains("is-flowing"), false);
+  assert.equal(p.timers.size, 0);
+  assert.equal(p.mode(), "deep");
 });
 
 test("깊이 생각을 다시 선택하거나 언어를 바꿀 때 효과를 재생하지 않는다", () => {

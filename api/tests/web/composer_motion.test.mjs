@@ -56,7 +56,7 @@ class El {
 }
 
 // ── 보내기↔정지 모양 ─────────────────────────────────────────────────────────────
-function morphPage({ reduced = false, frames = true } = {}) {
+function morphPage({ reduced = false, frames = true, legacyMotion = false } = {}) {
   const state = { focused: null, reduced };
   const queue = new Map(), cancelled = [], motion = [];
   let nextFrame = 0;
@@ -71,7 +71,9 @@ function morphPage({ reduced = false, frames = true } = {}) {
     } : {},
     send, input, requestedChatView: true, activeConversation: null,
     reducedMotion: () => state.reduced,
-    motionPreference: () => ({ addEventListener: (type, listener) => motion.push(listener) }),
+    motionPreference: () => legacyMotion
+      ? { addListener: listener => motion.push(listener) }
+      : { addEventListener: (type, listener) => motion.push(listener) },
     element(tag, className, text) { const node = new El(tag, state); node.className = className || ""; if (text !== undefined) node.textContent = text; return node; },
   };
   runInNewContext(langBlock + morphBlock, context);
@@ -158,7 +160,11 @@ test("동작 줄이기 설정이거나 화면 갱신 함수가 없으면 최종 
   const bare = morphPage({ frames: false });
   bare.run("renderSendMode(true)");
   assert.equal(bare.path(), square);
-  const page = morphPage();
+  assertReducedMotionDuringMorph(morphPage());
+});
+
+function assertReducedMotionDuringMorph(page) {
+  assert.equal(page.motion.length, 1);
   page.run("renderSendMode(true)");
   page.frame(0); page.frame(60);
   assert.notEqual(page.path(), square);
@@ -167,6 +173,22 @@ test("동작 줄이기 설정이거나 화면 갱신 함수가 없으면 최종 
   assert.equal(page.path(), square);
   assert.equal(page.queue.size, 0);
   assert.equal(page.cancelled.length, 1);
+}
+
+test("addListener만 있어도 진행 중인 전송 아이콘의 다음 화면 갱신을 취소하고 목표 모양을 그린다", () => {
+  assertReducedMotionDuringMorph(morphPage({ legacyMotion: true }));
+});
+
+test("chat.js의 동작 줄이기 구독 다섯 곳은 각각 한 가지 등록 방식만 쓴다", () => {
+  const subscription = /const media = motionPreference\(\);\s+const changed = event => \{ if \(event\.matches\) (.*?)\(\); \};\s+if \(typeof media\?\.addEventListener === "function"\) media\.addEventListener\("change", changed\);\s+else if \(typeof media\?\.addListener === "function"\) media\.addListener\(changed\);/g;
+  assert.deepEqual([...script.matchAll(subscription)].map(match => match[1]), [
+    "panelTransition?.skipTransition?.",
+    "settleChoiceIndicator?.",
+    "stopEffect",
+    "settleSendGlyph",
+    "fail",
+  ]);
+  assert.doesNotMatch(script, /addEventListener\s*\?\.\s*\(\s*["']change["']/);
 });
 
 test("정지 버튼은 보고 있는 대화의 요청만 끊고 보내기(submit)를 막으며 질문 칸으로 초점을 옮긴다", () => {
