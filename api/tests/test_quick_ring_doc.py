@@ -45,14 +45,16 @@ REDUCED_RULES = {
     "등록 순서": "- 바뀜 처리기는 `addEventListener`가 함수일 때 그것으로 한 번 등록하고, 아니면 `addListener`가 함수일 때 그것으로 한 번 등록하며, 둘 다 없으면 등록하지 않고 열 때 `matches`를 따른다. 처리기는 받은 값의 `matches`만 읽는다(옛 Safari는 이벤트 대신 미디어 쿼리를 넘긴다).",
     "단계별 예약 정리": "- 열기 콜백을 기다리는 중이나 펼침 중에 `prefers-reduced-motion`을 켜면 열기 콜백과 누름 허용 타이머를 지우고 그 자리에서 `data-open`과 `data-settled`를 붙이며, 닫히는 중에 켜면 숨김 타이머를 지우고 곧바로 `hidden`을 붙인다.",
     "숨길 때 초점": "- 펼친 채 정리할 때는 초점과 `aria-expanded=\"true\"`를 그대로 두고, 닫히는 중에 곧바로 숨길 때는 초점이 링 안에 있으면 + 버튼으로 옮기고 링 밖에 있으면 그대로 둔다.",
-    # quick-actions.js의 place()는 방울 자리가 바뀔 때만 resettle()을 부르고, 그 안에서만 설정을 읽는다.
-    "재배치 콜백": "- 본문이 바뀌어 걸어 둔 재배치 콜백은 설정이 바뀌어도 지우지 않는다. 도착했을 때 방울 자리가 바뀐 경우에만 그때의 설정을 읽어, 켜져 있으면 바로 `data-settled`를 붙이고 꺼져 있으면 누름 허용 290ms 동안 누름을 막는다. 자리가 그대로면 `data-settled`와 걸어 둔 누름 허용 타이머를 건드리지 않는다.",
+    # quick-actions.js의 place()는 layoutKey(+ 가운데 좌표, 반올림한 방울 좌표, 좁은 배치)가 바뀔 때만
+    # resettle()을 부르고, 그 안에서만 설정을 읽는다.
+    "재배치 콜백": "- 본문이 바뀌어 걸어 둔 재배치 콜백은 설정이 바뀌어도 지우지 않는다. 도착했을 때 배치 기준(+ 버튼 가운데 좌표, 1px 단위로 반올림한 방울 좌표, 좁은 배치 여부)이 바뀐 경우에만 그때의 설정을 읽어, 켜져 있으면 바로 `data-settled`를 붙이고 꺼져 있으면 누름 허용 290ms 동안 누름을 막는다. 방울이 1px 미만으로만 움직이는 등 기준이 그대로면 `data-settled`와 걸어 둔 누름 허용 타이머를 건드리지 않는다.",
 }
 # 실제 동작과 어긋나 바꾼 옛 줄. 링 절 어디에도 보이는 줄로 남으면 안 된다.
 STALE_RULES = (
     "- 열기 콜백을 기다리는 중이나 펼침 중에 `prefers-reduced-motion`을 켜면 곧바로 `data-open`과 `data-settled`가 붙는다.",
     "- 닫히는 중에 켜면 숨김 타이머를 기다리지 않고 곧바로 `hidden`이 된다.",
     "- 본문이 바뀌어 걸어 둔 재배치 콜백은 설정이 바뀌어도 지우지 않고 도착한 때의 설정을 따른다. 켜져 있으면 바로 `data-settled`를 붙이고, 꺼져 있으면 자리가 바뀐 경우에만 누름 허용 290ms 동안 누름을 막는다.",
+    "- 본문이 바뀌어 걸어 둔 재배치 콜백은 설정이 바뀌어도 지우지 않는다. 도착했을 때 방울 자리가 바뀐 경우에만 그때의 설정을 읽어, 켜져 있으면 바로 `data-settled`를 붙이고 꺼져 있으면 누름 허용 290ms 동안 누름을 막는다. 자리가 그대로면 `data-settled`와 걸어 둔 누름 허용 타이머를 건드리지 않는다.",
 )
 CLOSING_FENCE = re.compile(r" {0,3}(`{3,}|~{3,})[ \t]*")
 
@@ -74,7 +76,8 @@ def visible_lines(text):
             if closing and closing.group(1)[0] == fence[0] and len(closing.group(1)) >= len(fence):
                 fence = None
         else:
-            lines.append(line)
+            # 줄 끝 공백은 화면에 보이지 않으므로 걷어 내고 비교한다.
+            lines.append(line.rstrip(" \t"))
     return lines
 
 
@@ -257,7 +260,7 @@ class QuickRingReducedRuleDocTest(unittest.TestCase):
             "등록 순서": ("아니면 `addListener`가", "그리고 `addListener`도"),
             "단계별 예약 정리": ("숨김 타이머를 지우고", "숨김 타이머를 기다리고"),
             "숨길 때 초점": ("링 밖에 있으면 그대로 둔다", "링 밖에 있어도 + 버튼으로 옮긴다"),
-            "재배치 콜백": ("방울 자리가 바뀐 경우에만 그때의 설정을 읽어", "언제나 그때의 설정을 읽어"),
+            "재배치 콜백": ("1px 단위로 반올림한 방울 좌표", "소수 둘째 자리까지 잰 방울 좌표"),
         }
         for name, rule in REDUCED_RULES.items():
             old, new = flips[name]
@@ -265,6 +268,8 @@ class QuickRingReducedRuleDocTest(unittest.TestCase):
             cases = {
                 "삭제": self.without(rule),
                 "중복": self.replaced(self.notes, f"{rule}\n", f"{rule}\n{rule}\n"),
+                # 교차 검토 재현: 줄 끝 공백은 보이지 않으므로 같은 줄을 한 번 더 쓴 것으로 본다.
+                "끝 공백 붙인 중복": self.replaced(self.notes, f"{rule}\n", f"{rule}\n{rule} \n"),
                 "뜻 바꿈": self.replaced(self.notes, f"{rule}\n", f"{rule.replace(old, new)}\n"),
             }
             for case, modified in cases.items():
@@ -333,6 +338,7 @@ class QuickRingReducedRuleDocTest(unittest.TestCase):
             cases = {
                 "새 줄 옆": self.insert_after(self.notes, heading, True, stale),
                 "`### 초점`": self.insert_after(self.notes, self.notes.index("### 초점\n", start), True, stale),
+                "끝 공백 붙임": self.insert_after(self.notes, heading, True, f"{stale} "),
             }
             for case, modified in cases.items():
                 with self.subTest(stale=stale[:20], case=case):

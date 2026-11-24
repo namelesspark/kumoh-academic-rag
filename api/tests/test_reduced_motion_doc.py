@@ -54,7 +54,8 @@ def visible_lines(text):
             if closing and closing.group(1)[0] == fence[0] and len(closing.group(1)) >= len(fence):
                 fence = None
         else:
-            lines.append(line)
+            # 줄 끝 공백은 화면에 보이지 않으므로 걷어 내고 비교한다.
+            lines.append(line.rstrip(" \t"))
     return lines
 
 
@@ -121,6 +122,8 @@ class ReducedMotionDocTest(unittest.TestCase):
                 self.assertTrue(reduced_motion_doc_problems(self.replaced(f"{rule}\n", "")))
             with self.subTest(duplicated=rule):
                 self.assertTrue(reduced_motion_doc_problems(self.replaced(f"{rule}\n", f"{rule}\n{rule}\n")))
+            with self.subTest(duplicated_with_trailing_space=rule):
+                self.assertTrue(reduced_motion_doc_problems(self.replaced(f"{rule}\n", f"{rule}\n{rule} \n")))
 
     def test_flipped_rule_fails(self):
         flips = {
