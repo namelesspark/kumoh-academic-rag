@@ -1,8 +1,8 @@
 """빠른 실행 링 예약 규칙 절(#164)의 ms 숫자가 quick-actions.js 상수와 같은지 본다.
 
 표준 라이브러리만 쓰고 `web/docs/UI_NOTES.md`와 `quick-actions.js` 두 파일만 읽는다.
-절 경계는 줄 맨 앞 `## ` 제목만 본다. HTML 주석 안 글은 화면에 보이지 않으므로 걷어 내고 읽는다.
-코드 블록 안의 `<!--`는 예문이므로 주석으로 치지 않는다(#230).
+절 경계는 줄 맨 앞 `## ` 제목만 본다. HTML 주석과 코드 블록 안 글은 규칙이 아니므로 걷어 내고 읽는다.
+코드 블록 안의 `<!--`는 예문이므로 주석을 열지 않는다(#230).
 
 `### 동작 줄이기` 규칙 줄 네 개(#227)는 줄 전체로 비교한다. 이 검사는 HTML 주석과 코드 블록을 걷어 낸 줄만 보고,
 링 절은 줄 맨 앞 `#`·`##` 제목에서, 하위 절은 `#`~`####` 제목에서 끝난다. `####` 아래로 옮긴 줄은 다른 절로 친다.
@@ -63,16 +63,16 @@ STALE_RULES = (
 CLOSING_FENCE = re.compile(r" {0,3}(`{3,}|~{3,})[ \t]*")
 
 
-def scan_lines(text):
-    """(줄, 코드 여부) 목록. 펜스 밖의 HTML 주석만 걷어 내고, 펜스 줄과 코드 블록 안 줄은 원문 그대로 코드로 표시한다.
+def visible_lines(text):
+    """HTML 주석과 코드 블록을 걷어 낸 줄 목록. 닫히지 않은 주석·코드 블록은 문서 끝까지 숨은 것으로 본다.
 
     한 줄씩 읽으며 펜스 상태와 주석 상태를 함께 따진다(#230). 코드 블록 안의 `<!--`는 예문이라 주석을 열지 않고,
     주석 안의 펜스 모양 줄은 블록을 열지 않는다. 펜스는 주석 밖에서 시작하는 줄에서만 연다.
     공백 세 칸 이하로 시작하고 여는 펜스와 같은 글자로만 된 줄(길이는 같거나 길게)이 블록을 닫는다.
     블록 안의 「```text」 줄이나 네 칸 이상 들여쓴 펜스 줄은 글로 본다.
-    여러 줄 주석은 여는 표식 앞 글과 닫는 표식 뒤 글을 한 줄로 잇는다. 닫히지 않은 주석·코드 블록은 문서 끝까지 숨는다.
+    여러 줄 주석은 여는 표식 앞 글과 닫는 표식 뒤 글을 한 줄로 잇는다.
     """
-    result = []
+    lines = []
     fence = None
     in_comment = False
     pending = ""
@@ -81,13 +81,11 @@ def scan_lines(text):
             closing = CLOSING_FENCE.fullmatch(raw)
             if closing and closing.group(1)[0] == fence[0] and len(closing.group(1)) >= len(fence):
                 fence = None
-            result.append((raw, True))
             continue
         if not in_comment:
             opened = FENCE.match(raw)
             if opened:
                 fence = opened.group(1)
-                result.append((raw, True))
                 continue
         out = pending if in_comment else ""
         rest = raw
@@ -109,16 +107,11 @@ def scan_lines(text):
             pending = out
             continue
         pending = ""
-        result.append((out, False))
+        # 줄 끝 공백은 화면에 보이지 않으므로 걷어 내고 비교한다.
+        lines.append(out.rstrip(" \t"))
     if in_comment and pending:
-        result.append((pending, False))
-    return result
-
-
-def visible_lines(text):
-    """HTML 주석과 코드 블록을 걷어 낸 줄 목록. 닫히지 않은 주석·코드 블록은 문서 끝까지 숨은 것으로 본다."""
-    # 줄 끝 공백은 화면에 보이지 않으므로 걷어 내고 비교한다.
-    return [line.rstrip(" \t") for line, code in scan_lines(text) if not code]
+        lines.append(pending.rstrip(" \t"))
+    return lines
 
 
 def block_after(lines, heading, boundary):
@@ -149,8 +142,11 @@ def reduced_rule_problems(notes):
 
 
 def visible_text(text):
-    """펜스 밖의 HTML 주석을 걷어 낸 글. 코드 블록은 그대로 두고, 닫히지 않은 주석은 문서 끝까지 숨은 것으로 본다."""
-    return "\n".join(line for line, _ in scan_lines(text))
+    """HTML 주석과 코드 블록을 걷어 낸 글(`visible_lines()`와 같은 줄).
+
+    코드 블록 안 `## ` 예문이 링 절을 끊거나 블록에만 적은 숫자·글자가 검사를 통과하지 않게 블록도 걷어 낸다.
+    """
+    return "\n".join(visible_lines(text))
 
 
 def script_constants(script):
@@ -443,6 +439,25 @@ class QuickRingCommentInCodeBlockTest(unittest.TestCase):
                 with self.subTest(fence=fence, case=case):
                     self.assertNotEqual(modified, self.notes)
                     self.assertEqual(self.problems(modified), [])
+
+    def test_heading_example_in_code_block_does_not_cut_ring_section(self):
+        # 교차 검토 재현: 블록 안 `## Example` 예문을 링 절 제목으로 읽으면 절이 끊겨 맞는 문서도 실패한다.
+        heading = f"{SECTION_HEADING}\n"
+        for fence in ("```", "~~~"):
+            example = f"{fence}html\n<!--\n## Example\n-->\n{fence}\n"
+            with self.subTest(fence=fence):
+                self.assertEqual(self.problems(self.replaced(heading, f"{heading}\n{example}")), [])
+
+    def test_ring_numbers_only_in_code_block_fail(self):
+        # 교차 검토 재현: 실제 절 본문을 블록 안으로 옮기면 숫자·필수 글자가 예문에만 남으므로 실패해야 한다.
+        section = ring_section(self.notes)
+        for fence in ("```", "~~~"):
+            for case, wrapped in {
+                "본문만": f"\n{fence}text\n{section}\n{fence}\n",
+                "주석 표식과 함께": f"\n{fence}text\n<!--\n{section}\n-->\n{fence}\n",
+            }.items():
+                with self.subTest(fence=fence, case=case):
+                    self.assertTrue(ring_doc_problems(self.replaced(section, wrapped), self.script))
 
     def test_fence_like_line_inside_comment_does_not_open_block(self):
         # 주석 안 펜스 모양 줄이 블록을 열면 주석이 끝난 뒤의 실제 규칙까지 숨는다.
