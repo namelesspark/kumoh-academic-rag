@@ -5,6 +5,8 @@
 `## 접근성` 절은 줄 맨 앞 `#`·`##` 제목에서 끝나고, 하위 절은 줄 맨 앞 `#`~`####` 제목에서 끝난다.
 규칙 줄을 `####` 아래로 옮기면 다른 절로 옮긴 것으로 보고 누락으로 친다.
 HTML 주석과 코드 블록 안 글은 규칙이 아니라 예문이므로 걷어 내고 읽는다. 코드 블록 안의 `<!--`는 주석을 열지 않는다(#230).
+프로젝트에 마크다운 해석기가 없어 `visible_lines()`가 CommonMark 블록 해석 첫 단계(인용문·목록 항목 맞추기,
+탭 4칸 정지, 게으른 이어 쓰기) 뒤에 펜스와 주석을 판정한다. `discover -s api/tests`에서 모듈 경로가 달라지므로 도우미는 다른 테스트 모듈에서 가져오지 않는다.
 빠른 실행 링·답변 모드 절의 `### 동작 줄이기`는 제목 줄 전체를 비교하므로 이 절로 잘못 잡지 않는다.
 """
 
@@ -22,20 +24,12 @@ SECTION_BOUNDARY = re.compile(r"#{1,4}(?=[ \t]|$)")
 # 백틱 펜스 뒤 정보 문자열에 백틱이 있으면(「```example```」) 인라인 코드이므로 블록을 열지 않는다. 물결 펜스는 연다.
 FENCE = re.compile(r" {0,3}(`{3,}(?=[^`]*$)|~{3,})")
 CLOSING_FENCE = re.compile(r" {0,3}(`{3,}|~{3,})[ \t]*")
-# 인용 표식 하나. 공백 0~3칸 뒤 `>`와 그 뒤 공백 한 칸까지를 표식으로 본다.
-QUOTE_MARKER = re.compile(r" {0,3}> ?")
-
-
-def unquote(line, limit=None):
-    """줄 앞 인용 표식을 `limit`개까지(없으면 모두) 벗겨 (벗긴 개수, 남은 글)을 돌려준다."""
-    depth = 0
-    while limit is None or depth < limit:
-        marker = QUOTE_MARKER.match(line)
-        if not marker:
-            break
-        line = line[marker.end() :]
-        depth += 1
-    return depth, line
+# 컨테이너와 블록 시작(#230). 탭을 4칸 탭 정지로 펼친 줄에서 보므로 공백만 따진다.
+QUOTE_START = re.compile(r" {0,3}>")
+LIST_START = re.compile(r"( {0,3})([-+*]|(\d{1,9})[.)])( +|$)")
+THEMATIC_BREAK = re.compile(r" {0,3}(?:(?:\* *){3,}|(?:- *){3,}|(?:_ *){3,})$")
+ATX_HEADING = re.compile(r" {0,3}#{1,6}(?: |$)")
+COMMENT_START = re.compile(r" {0,3}<!--")
 
 # 낱말만 보면 「한 번만」을 「여러 번」으로 바꿔도 통과하므로 줄 전체를 비교한다.
 RULE_LINES = (
@@ -52,40 +46,127 @@ TARGET_LINE = (
 )
 
 
+def leading_spaces(text):
+    return len(text) - len(text.lstrip(" "))
+
+
+def list_item_start(rest, interrupting):
+    """`rest`가 목록 항목을 열면 (내용 들여쓰기 칸 수, 이 줄에서 넘길 칸 수), 아니면 None.
+
+    문단을 끊는 자리(`interrupting`)에서는 빈 항목과 1이 아닌 번호 항목을 열지 못한다.
+    표식 뒤 공백이 5칸 이상이면 한 칸만 표식 몫이고 나머지는 항목 안 들여쓴 코드다.
+    """
+    found = LIST_START.match(rest)
+    if not found or THEMATIC_BREAK.match(rest):
+        return None
+    width = len(found.group(1)) + len(found.group(2))
+    empty = not rest[found.end() :].strip(" ")
+    if interrupting and (empty or (found.group(3) is not None and int(found.group(3)) != 1)):
+        return None
+    gap = len(found.group(4))
+    if empty or gap > 4:
+        return width + 1, min(width + 1, len(rest))
+    return width + gap, width + gap
+
+
+def starts_block(rest):
+    """컨테이너가 다 맞지 않은 줄의 남은 글이 새 블록을 열면 참(게으른 이어 쓰기가 아니다). 빈 줄도 참이다."""
+    if not rest.strip(" "):
+        return True
+    if leading_spaces(rest) >= 4:
+        return False
+    return bool(
+        FENCE.match(rest)
+        or ATX_HEADING.match(rest)
+        or THEMATIC_BREAK.match(rest)
+        or COMMENT_START.match(rest)
+        or QUOTE_START.match(rest)
+        or list_item_start(rest, False)
+    )
+
+
 def visible_lines(text):
     """HTML 주석과 코드 블록을 걷어 낸 줄 목록. 닫히지 않은 주석·코드 블록은 문서 끝까지 숨은 것으로 본다.
 
-    한 줄씩 읽으며 펜스 상태와 주석 상태를 함께 따진다(#230). 코드 블록 안의 `<!--`는 예문이라 주석을 열지 않고,
-    주석 안의 펜스 모양 줄은 블록을 열지 않는다. 펜스는 주석 밖에서 시작하는 줄에서만 연다.
-    공백 세 칸 이하로 시작하고 여는 펜스와 같은 글자로만 된 줄(길이는 같거나 길게)이 블록을 닫는다.
-    블록 안의 「```text」 줄이나 네 칸 이상 들여쓴 펜스 줄은 글로 본다.
-    여러 줄 주석은 여는 표식 앞 글과 닫는 표식 뒤 글을 한 줄로 잇는다.
-    펜스는 인용 표식(`>`)을 벗긴 줄에서 찾고, 인용문 안에서 연 블록은 그 인용 단계가 끝나는 줄에서 닫힌다.
+    CommonMark 블록 해석의 첫 단계를 필요한 만큼만 따른다(#230). 탭은 4칸 탭 정지로 펼쳐 구조를 본다.
+    1. 줄마다 열린 인용문(`>`)·목록 항목(내용 들여쓰기 칸 수 이상 또는 빈 줄)을 바깥부터 맞춘다.
+       다 맞지 않으면 문단과 문단 안에서 연 주석만 게으른 이어 쓰기로 남고, 나머지는 컨테이너와 함께 끝난다.
+       그래서 인용문·목록 항목 안에서 연 코드 블록과 줄 첫머리 주석(HTML 블록)은 그 컨테이너가 끝나면 닫힌다.
+    2. 남은 글에서 새 인용문·목록 항목을 열고, 펜스(공백 0~3칸 뒤 백틱·물결 세 개 이상, 백틱 펜스는 뒤에 백틱이
+       없을 때)와 들여쓴 코드(문단 밖에서 4칸 이상)를 판정한다. 코드 블록 안의 `<!--`는 예문이라 주석을 열지 않는다.
+    3. 코드 밖 줄에서 `<!--`~`-->`를 지운다. 주석 안에서는 컨테이너·펜스를 새로 열지 않는다.
+       여러 줄 주석은 여는 표식 앞 글과 닫는 표식 뒤 글을 한 줄로 잇는다.
+    공백 0~3칸 뒤 여는 펜스와 같은 글자로만 된 줄(길이는 같거나 길게)이 블록을 닫는다.
+    블록 안의 「```text」 줄이나 네 칸 이상 들여쓴 펜스 줄은 글로 본다. 주석 밖 HTML 블록과 인라인 코드는 따지지 않는다.
     """
     lines = []
+    stack = []  # 열린 컨테이너. None은 인용문, 정수는 목록 항목의 내용 들여쓰기 칸 수.
+    leaf = None  # 맨 안쪽 컨테이너에 열린 블록: None, "paragraph", "fence", "comment"
     fence = None
-    fence_depth = 0
-    in_comment = False
+    comment_lazy = False
     pending = ""
     for raw in text.splitlines():
-        if fence is not None:
-            depth, content = unquote(raw, fence_depth)
-            if depth == fence_depth:
-                closing = CLOSING_FENCE.fullmatch(content)
-                if closing and closing.group(1)[0] == fence[0] and len(closing.group(1)) >= len(fence):
-                    fence = None
-                continue
-            # 인용 단계가 줄면 인용문과 함께 블록도 끝나므로 이 줄은 블록 밖 글로 읽는다.
-            fence = None
-        if not in_comment:
-            depth, content = unquote(raw)
-            opened = FENCE.match(content)
-            if opened:
-                fence = opened.group(1)
-                fence_depth = depth
-                continue
+        line = raw.expandtabs(4)
+        pos = matched = 0
+        for indent in stack:
+            rest = line[pos:]
+            if indent is None:
+                quote = QUOTE_START.match(rest)
+                if not quote:
+                    break
+                pos += quote.end() + (line[pos + quote.end() : pos + quote.end() + 1] == " ")
+            elif not rest.strip(" "):
+                pos = len(line)
+            elif leading_spaces(rest) >= indent:
+                pos += indent
+            else:
+                break
+            matched += 1
+        if matched < len(stack):
+            lazy = leaf == "paragraph" or (leaf == "comment" and comment_lazy)
+            if not lazy or starts_block(line[pos:]):
+                del stack[matched:]
+                if leaf == "comment" and pending:
+                    lines.append(pending.rstrip(" \t"))
+                leaf, pending = None, ""
+        if leaf == "fence":
+            closing = CLOSING_FENCE.fullmatch(line[pos:])
+            if closing and closing.group(1)[0] == fence[0] and len(closing.group(1)) >= len(fence):
+                leaf = None
+            continue
+        block_comment = False
+        if leaf != "comment":
+            interrupting = leaf == "paragraph"
+            while leading_spaces(line[pos:]) < 4:
+                rest = line[pos:]
+                quote = QUOTE_START.match(rest)
+                item = None if quote else list_item_start(rest, interrupting)
+                if quote:
+                    pos += quote.end() + (line[pos + quote.end() : pos + quote.end() + 1] == " ")
+                    stack.append(None)
+                elif item:
+                    pos += item[1]
+                    stack.append(item[0])
+                else:
+                    break
+                leaf, interrupting = None, False
+            rest = line[pos:]
+            if not rest.strip(" "):
+                leaf = None
+            elif leaf != "paragraph" and leading_spaces(rest) >= 4:
+                continue  # 들여쓴 코드 블록 줄
+            else:
+                opened = FENCE.match(rest)
+                if opened:
+                    fence, leaf = opened.group(1), "fence"
+                    continue
+                block_comment = bool(COMMENT_START.match(rest))
+                heading_like = ATX_HEADING.match(rest) or THEMATIC_BREAK.match(rest)
+                leaf = None if block_comment or heading_like else "paragraph"
+        in_comment = leaf == "comment"
         out = pending if in_comment else ""
         rest = raw
+        openings = 0
         while True:
             if in_comment:
                 end = rest.find("-->")
@@ -100,13 +181,19 @@ def visible_lines(text):
             out += rest[:start]
             rest = rest[start + 4 :]
             in_comment = True
+            openings += 1
         if in_comment:
-            pending = out
+            if openings:
+                # 줄 첫머리에서 연 주석은 HTML 블록이라 게으른 이어 쓰기 없이 컨테이너와 함께 끝난다.
+                comment_lazy = not (block_comment and openings == 1)
+            leaf, pending = "comment", out
             continue
+        if leaf == "comment":
+            leaf = "paragraph" if comment_lazy else None
         pending = ""
         # 줄 끝 공백은 화면에 보이지 않으므로 걷어 내고 비교한다.
         lines.append(out.rstrip(" \t"))
-    if in_comment and pending:
+    if leaf == "comment" and pending:
         lines.append(pending.rstrip(" \t"))
     return lines
 
@@ -348,6 +435,48 @@ class ReducedMotionDocTest(unittest.TestCase):
                 cases = {
                     "뒤 주석": f"> {fence}\n> <!--\n> {fence}\n\n<!-- {rule} -->\n",
                     "뒤 코드 블록": f"> {fence}\n> <!--\n\n{fence}\n{rule}\n{fence}\n",
+                }
+                for case, wrapped in cases.items():
+                    with self.subTest(rule=rule[:12], fence=fence, case=case):
+                        self.assertTrue(reduced_motion_doc_problems(self.replaced(f"{rule}\n", wrapped)))
+
+    def test_comment_marker_in_container_code_block_is_example(self):
+        # 교차 검토 재현: 목록 항목 첫 줄의 코드 블록과 `>` 뒤에 탭을 둔 인용문 안 코드 블록을 놓치면
+        # 예문 `<!--`부터 문서 끝까지 숨는다. 컨테이너를 맞춘 뒤 펜스를 보므로 같은 원인의 모양을 함께 둔다.
+        for fence in ("```", "~~~"):
+            examples = {
+                "목록 항목": f"- {fence}html\n  <!-- example\n  {fence}\n",
+                "번호 목록 항목": f"1. {fence}html\n   <!-- example\n   {fence}\n",
+                "목록 표식 뒤 탭": f"-\t{fence}html\n\t<!-- example\n\t{fence}\n",
+                "인용문 표식 뒤 탭": f">\t{fence}html\n>\t<!-- example\n>\t{fence}\n",
+                "인용문 안 목록 항목": f"> - {fence}html\n>   <!-- example\n>   {fence}\n",
+                "목록 항목과 함께 끝나는 블록": f"- {fence}html\n  <!-- example\n",
+            }
+            for case, example in examples.items():
+                places = {
+                    "문서 맨 앞": f"{example}\n{self.notes}",
+                    "상위 절 앞": self.replaced(f"{PARENT_HEADING}\n", f"{example}\n{PARENT_HEADING}\n"),
+                    "하위 절 안": self.replaced(f"{SECTION_HEADING}\n", f"{SECTION_HEADING}\n\n{example}\n"),
+                }
+                for place, modified in places.items():
+                    with self.subTest(fence=fence, case=case, place=place):
+                        self.assertEqual(reduced_motion_doc_problems(modified), [])
+
+    def test_comment_block_in_container_ends_with_container(self):
+        # 인용문·목록 항목 안에서 줄 첫머리로 연 주석(HTML 블록)은 그 컨테이너가 끝나면 함께 끝난다.
+        for case, opener in {"인용문": "> <!-- 메모\n", "목록 항목": "- <!-- 메모\n"}.items():
+            with self.subTest(case=case):
+                modified = self.replaced(f"{PARENT_HEADING}\n", f"{opener}\n{PARENT_HEADING}\n")
+                self.assertEqual(reduced_motion_doc_problems(modified), [])
+
+    def test_rule_still_hidden_after_container_code_block(self):
+        # 컨테이너 안 예문을 보이게 고쳐도 그 뒤의 실제 주석이나 코드 블록에 둔 규칙은 계속 숨는다.
+        for rule in RULE_LINES:
+            for fence in ("```", "~~~"):
+                cases = {
+                    "목록 예문 뒤 주석": f"- {fence}\n  <!--\n  {fence}\n\n<!-- {rule} -->\n",
+                    "목록 예문 뒤 코드 블록": f"- {fence}\n  <!--\n\n{fence}\n{rule}\n{fence}\n",
+                    "인용문 탭 예문 뒤 주석": f">\t{fence}\n>\t<!--\n>\t{fence}\n\n<!-- {rule} -->\n",
                 }
                 for case, wrapped in cases.items():
                     with self.subTest(rule=rule[:12], fence=fence, case=case):
