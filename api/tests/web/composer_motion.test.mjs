@@ -56,7 +56,7 @@ class El {
 }
 
 // ── 보내기↔정지 모양 ─────────────────────────────────────────────────────────────
-function morphPage({ reduced = false, frames = true } = {}) {
+function morphPage({ reduced = false, frames = true, legacyMotion = false } = {}) {
   const state = { focused: null, reduced };
   const queue = new Map(), cancelled = [], motion = [];
   let nextFrame = 0;
@@ -71,7 +71,9 @@ function morphPage({ reduced = false, frames = true } = {}) {
     } : {},
     send, input, requestedChatView: true, activeConversation: null,
     reducedMotion: () => state.reduced,
-    motionPreference: () => ({ addEventListener: (type, listener) => motion.push(listener) }),
+    motionPreference: () => legacyMotion
+      ? { addListener: listener => motion.push(listener) }
+      : { addEventListener: (type, listener) => motion.push(listener) },
     element(tag, className, text) { const node = new El(tag, state); node.className = className || ""; if (text !== undefined) node.textContent = text; return node; },
   };
   runInNewContext(langBlock + morphBlock, context);
@@ -158,7 +160,11 @@ test("동작 줄이기 설정이거나 화면 갱신 함수가 없으면 최종 
   const bare = morphPage({ frames: false });
   bare.run("renderSendMode(true)");
   assert.equal(bare.path(), square);
-  const page = morphPage();
+  assertReducedMotionDuringMorph(morphPage());
+});
+
+function assertReducedMotionDuringMorph(page) {
+  assert.equal(page.motion.length, 1);
   page.run("renderSendMode(true)");
   page.frame(0); page.frame(60);
   assert.notEqual(page.path(), square);
@@ -167,6 +173,22 @@ test("동작 줄이기 설정이거나 화면 갱신 함수가 없으면 최종 
   assert.equal(page.path(), square);
   assert.equal(page.queue.size, 0);
   assert.equal(page.cancelled.length, 1);
+}
+
+test("addListener만 있어도 진행 중인 전송 아이콘의 다음 화면 갱신을 취소하고 목표 모양을 그린다", () => {
+  assertReducedMotionDuringMorph(morphPage({ legacyMotion: true }));
+});
+
+test("chat.js의 동작 줄이기 구독 다섯 곳은 각각 한 가지 등록 방식만 쓴다", () => {
+  const subscription = /const media = motionPreference\(\);\s+const changed = event => \{ if \(event\.matches\) (.*?)\(\); \};\s+if \(typeof media\?\.addEventListener === "function"\) media\.addEventListener\("change", changed\);\s+else if \(typeof media\?\.addListener === "function"\) media\.addListener\(changed\);/g;
+  assert.deepEqual([...script.matchAll(subscription)].map(match => match[1]), [
+    "panelTransition?.skipTransition?.",
+    "settleChoiceIndicator?.",
+    "stopEffect",
+    "settleSendGlyph",
+    "fail",
+  ]);
+  assert.doesNotMatch(script, /addEventListener\s*\?\.\s*\(\s*["']change["']/);
 });
 
 test("정지 버튼은 보고 있는 대화의 요청만 끊고 보내기(submit)를 막으며 질문 칸으로 초점을 옮긴다", () => {
@@ -641,6 +663,32 @@ test("늘어난 선택 표시가 안착을 기다리는 사이 동작 줄이기�
 
 test("addListener만 있는 환경에서도 동작 줄이기를 켜면 즉시 안착한다", () => {
   assertReducedMotionDuringMove(indicatorPage({ legacyMotion: true }));
+});
+
+test("Esc로 닫은 답변 모드 표시의 안착 예약은 다시 열고 동작 줄이기를 켜도 남지 않는다", () => {
+  const page = indicatorPage();
+  page.open(true);
+  const previousMenu = page.menu();
+  const previousIndicator = page.indicator();
+  previousMenu.fire("keydown", { key: "ArrowDown" });
+  const previousSpot = spot(previousIndicator);
+  assert.equal(previousSpot[0], "stretch");
+  assert.deepEqual([...page.timers.values()].map(timer => timer.delay), [90]);
+
+  previousMenu.fire("keydown", { key: "Escape" });
+  assert.equal(page.menu(), undefined);
+  assert.equal(page.timers.size, 0, "닫을 때 이전 안착 예약을 취소한다");
+  page.open(true);
+  assert.notEqual(page.menu(), previousMenu);
+  page.menu().fire("keydown", { key: "ArrowDown" });
+  assert.equal(page.timers.size, 1);
+
+  page.state.reduced = true;
+  for (const listener of page.motion) listener({ matches: true });
+  assert.equal(page.timers.size, 0);
+  assert.equal(spot(page.indicator())[0], "rest");
+  page.tick();
+  assert.deepEqual(spot(previousIndicator), previousSpot);
 });
 
 test("동작 줄이기 설정에서는 선택 표시가 늘어나지 않고 바로 목표 자리에 놓이며, 다른 메뉴에는 선택 표시가 없다", () => {
