@@ -1,8 +1,8 @@
 """`## 접근성` 안 「동작 줄이기 설정 변경」 절(#221)이 합의한 규칙 줄 세 개를 지키는지 본다.
 
 표준 라이브러리만 쓰고 `web/docs/UI_NOTES.md` 하나만 읽는다. 스크립트의 실제 등록 모양은 웹 테스트가 따로 본다.
-`## 접근성` 절은 줄 맨 앞 `#`·`##` 제목에서 끝나고, 하위 절은 줄 맨 앞 `#`·`##`·`###` 제목에서 끝난다.
-`####` 이하 제목은 하위 절 안의 작은 제목으로 보고 절을 닫지 않는다.
+`## 접근성` 절은 줄 맨 앞 `#`·`##` 제목에서 끝나고, 하위 절은 줄 맨 앞 `#`~`####` 제목에서 끝난다.
+규칙 줄을 `####` 아래로 옮기면 다른 절로 옮긴 것으로 보고 누락으로 친다.
 HTML 주석과 코드 블록 안 글은 규칙이 아니라 예문이므로 걷어 내고 읽는다.
 빠른 실행 링·답변 모드 절의 `### 동작 줄이기`는 제목 줄 전체를 비교하므로 이 절로 잘못 잡지 않는다.
 """
@@ -16,7 +16,7 @@ UI_NOTES = Path(__file__).resolve().parents[2] / "web" / "docs" / "UI_NOTES.md"
 PARENT_HEADING = "## 접근성"
 SECTION_HEADING = "### 동작 줄이기 설정 변경"
 PARENT_BOUNDARY = re.compile(r"#{1,2}(?=[ \t]|$)")
-SECTION_BOUNDARY = re.compile(r"#{1,3}(?=[ \t]|$)")
+SECTION_BOUNDARY = re.compile(r"#{1,4}(?=[ \t]|$)")
 FENCE = re.compile(r"[ \t]{0,3}(```|~~~)")
 
 # 낱말만 보면 「한 번만」을 「여러 번」으로 바꿔도 통과하므로 줄 전체를 비교한다.
@@ -87,10 +87,16 @@ class ReducedMotionDocTest(unittest.TestCase):
     def test_section_follows_agreed_rules(self):
         self.assertEqual(reduced_motion_doc_problems(self.notes), [])
 
-    def test_small_heading_inside_section_keeps_rules(self):
-        # `####` 제목은 하위 절을 닫지 않는다.
-        modified = self.replaced(f"{SECTION_HEADING}\n", f"{SECTION_HEADING}\n\n#### 적용 대상\n")
-        self.assertEqual(reduced_motion_doc_problems(modified), [])
+    def test_rule_moved_under_level_four_heading_fails(self):
+        # 교차 검토 재현: 규칙 한 줄을 잘라 같은 절 끝에 새로 단 `#### 별도 규칙` 아래에 붙인다.
+        for rule in RULE_LINES:
+            removed = self.replaced(f"{rule}\n", "")
+            moved = removed.replace(
+                "\n## 시연 화면 검증 기록", f"\n#### 별도 규칙\n\n{rule}\n\n## 시연 화면 검증 기록", 1
+            )
+            with self.subTest(rule=rule):
+                self.assertNotEqual(moved, removed)
+                self.assertTrue(reduced_motion_doc_problems(moved))
 
     def test_missing_or_duplicated_rule_fails(self):
         for rule in RULE_LINES:
