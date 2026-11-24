@@ -639,9 +639,7 @@ test("늘어난 선택 표시가 안착을 기다리는 사이 동작 줄이기�
   assertReducedMotionDuringMove(page);
 });
 
-test("addListener만 있는 환경에서도 동작 줄이기를 켜면 즉시 안착한다", {
-  todo: "chat.js의 설정 변경 처리에 addListener 지원이 필요함",
-}, () => {
+test("addListener만 있는 환경에서도 동작 줄이기를 켜면 즉시 안착한다", () => {
   assertReducedMotionDuringMove(indicatorPage({ legacyMotion: true }));
 });
 

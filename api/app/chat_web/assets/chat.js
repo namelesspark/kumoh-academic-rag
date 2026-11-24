@@ -2604,7 +2604,10 @@ function choiceIndicator(menu, items) {
 // 설정 읽기 함수(motionPreference)가 없는 곳에서는 붙이지 않는다.
 let settleChoiceIndicator = null;
 if (typeof motionPreference === "function") {
-  motionPreference()?.addEventListener?.("change", event => { if (event.matches) settleChoiceIndicator?.(); });
+  const media = motionPreference();
+  const changed = event => { if (event.matches) settleChoiceIndicator?.(); };
+  if (typeof media?.addEventListener === "function") media.addEventListener("change", changed);
+  else if (typeof media?.addListener === "function") media.addListener(changed);
 }
 function openChoiceMenu(button, title, choices, onSelect, { indicator = false } = {}) {
   activeChoiceMenu?.close();
