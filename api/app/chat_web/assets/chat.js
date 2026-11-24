@@ -2633,7 +2633,15 @@ function openChoiceMenu(button, title, choices, onSelect, { indicator = false } 
     item.addEventListener("click", () => { onSelect(choice.value); close(true); });
     menu.append(item); return item;
   });
+  let closed = false;
+  let tabCloseTimer;
   function close(restore = false) {
+    if (closed) return;
+    closed = true;
+    if (tabCloseTimer !== undefined) {
+      clearTimeout(tabCloseTimer);
+      tabCloseTimer = undefined;
+    }
     marker?.cancel();
     menu.remove(); button.setAttribute("aria-expanded", "false");
     if (activeChoiceMenu?.menu === menu) {
@@ -2653,7 +2661,12 @@ function openChoiceMenu(button, title, choices, onSelect, { indicator = false } 
       event.preventDefault(); items[index].click();
     } else if (event.key === "Escape") {
       event.preventDefault(); event.stopPropagation?.(); close(true);
-    } else if (event.key === "Tab") setTimeout(() => close(), 0);
+    } else if (event.key === "Tab" && !closed && tabCloseTimer === undefined) {
+      tabCloseTimer = setTimeout(() => {
+        tabCloseTimer = undefined;
+        close();
+      }, 0);
+    }
   });
   document.body.append(menu); button.setAttribute("aria-expanded", "true");
   const anchor = button.getBoundingClientRect(), box = menu.getBoundingClientRect();
