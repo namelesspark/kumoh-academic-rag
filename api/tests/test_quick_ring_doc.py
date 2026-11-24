@@ -42,7 +42,8 @@ REDUCED_HEADING = "### 동작 줄이기"
 SECTION_BOUNDARY = re.compile(r"#{1,2}(?=[ \t]|$)")
 SUBSECTION_BOUNDARY = re.compile(r"#{1,4}(?=[ \t]|$)")
 # 여는 펜스 앞은 공백 0~3칸만 받는다. 탭은 4칸 탭 정지까지 펼쳐지므로 탭으로 들여쓴 줄은 펜스가 아니다(#230).
-FENCE = re.compile(r" {0,3}(`{3,}|~{3,})")
+# 백틱 펜스 뒤 정보 문자열에 백틱이 있으면(「```example```」) 인라인 코드이므로 블록을 열지 않는다. 물결 펜스는 연다.
+FENCE = re.compile(r" {0,3}(`{3,}(?=[^`]*$)|~{3,})")
 REDUCED_RULES = {
     "등록 순서": "- 바뀜 처리기는 `addEventListener`가 함수일 때 그것으로 한 번 등록하고, 아니면 `addListener`가 함수일 때 그것으로 한 번 등록하며, 둘 다 없으면 등록하지 않고 열 때 `matches`를 따른다. 처리기는 받은 값의 `matches`만 읽는다(옛 Safari는 이벤트 대신 미디어 쿼리를 넘긴다).",
     "단계별 예약 정리": "- 열기 콜백을 기다리는 중이나 펼침 중에 `prefers-reduced-motion`을 켜면 열기 콜백과 누름 허용 타이머를 지우고 그 자리에서 `data-open`과 `data-settled`를 붙이며, 닫히는 중에 켜면 숨김 타이머를 지우고 곧바로 `hidden`을 붙인다.",
@@ -457,6 +458,24 @@ class QuickRingCommentInCodeBlockTest(unittest.TestCase):
                 modified = self.replaced(heading, f"{prefix}{fence}html\n\n{heading}")
                 with self.subTest(prefix=repr(prefix), fence=fence):
                     self.assertEqual(self.problems(modified), [])
+
+    def test_inline_code_with_backticks_does_not_open_block(self):
+        # 교차 검토 재현: 백틱 펜스 정보 문자열에는 백틱이 올 수 없으므로 「```example```」은 인라인 코드다.
+        heading = f"{SECTION_HEADING}\n"
+        for line in ("```example```", "````example````", "   ```a`b", "```js `x`"):
+            for case, modified in {
+                "문서 맨 앞": f"{line}\n\n{self.notes}",
+                "링 절 앞": self.replaced(heading, f"{line}\n\n{heading}"),
+            }.items():
+                with self.subTest(line=line, case=case):
+                    self.assertEqual(self.problems(modified), [])
+
+    def test_tilde_fence_with_backticks_in_info_still_opens_block(self):
+        # 물결 펜스의 정보 문자열에는 백틱·물결이 와도 되므로 블록을 연다.
+        for name, rule in REDUCED_RULES.items():
+            for opener in ("~~~a~~~", "~~~js `x`"):
+                with self.subTest(rule=name, opener=opener):
+                    self.assertTrue(reduced_rule_problems(self.replaced(f"{rule}\n", f"{opener}\n{rule}\n~~~\n")))
 
     def test_tab_indented_fence_line_does_not_close_block(self):
         # 블록 안 탭 들여쓴 펜스 줄은 블록을 닫지 않으므로 그 뒤의 규칙은 계속 블록 안에 있다.
