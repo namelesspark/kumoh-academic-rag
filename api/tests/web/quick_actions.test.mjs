@@ -14,7 +14,7 @@ const code = source.replace(/^\s*\/\/.*$/gm, "");
 const css = styles.replace(/\/\*[\s\S]*?\*\//g, "");
 
 function ringPage({ width = 1280, height = 800, view = "home", reduced = false, lang = "ko", missing = [], locked = [],
-  animationFrame = true, cancelFrame = true,
+  animationFrame = true, cancelFrame = true, mediaMode = "modern",
   toggleRect = { left: 300, top: 700, width: 44, height: 44 }, visual = null, pressables = [] } = {}) {
   const state = { focused: null, reduced };
   const frames = new Map();
@@ -97,13 +97,27 @@ function ringPage({ width = 1280, height = 800, view = "home", reduced = false, 
     createElementNS: (ns, tag) => new El(tag, ns),
     addEventListener: (type, listener, capture) => documentListeners.push({ type, listener, capture }),
   };
+  const motionQuery = {
+    get matches() { return state.reduced; },
+  };
+  const mediaRegistrations = { modern: 0, legacy: 0 };
+  if (mediaMode === "modern" || mediaMode === "both") {
+    motionQuery.addEventListener = (type, listener) => {
+      assert.equal(type, "change");
+      mediaRegistrations.modern++;
+      mediaListeners.push(() => listener({ matches: motionQuery.matches }));
+    };
+  }
+  if (mediaMode === "legacy" || mediaMode === "both") {
+    motionQuery.addListener = listener => {
+      mediaRegistrations.legacy++;
+      mediaListeners.push(() => listener(motionQuery));
+    };
+  }
   const window = {
     innerWidth: width, innerHeight: height,
     // 동작 줄이기 설정은 테스트 도중 바꿀 수 있다(state.reduced). 바뀜 신호 처리기는 모아 두었다가 직접 보낸다.
-    matchMedia: query => ({
-      get matches() { return state.reduced && query.includes("prefers-reduced-motion"); },
-      addEventListener: (type, listener) => { if (query.includes("prefers-reduced-motion") && type === "change") mediaListeners.push(listener); },
-    }),
+    matchMedia: query => query === "(prefers-reduced-motion: reduce)" ? motionQuery : { matches: false },
     requestAnimationFrame: animationFrame ? callback => { frames.set(++nextFrame, callback); return nextFrame; } : undefined,
     cancelAnimationFrame: animationFrame && cancelFrame ? id => frames.delete(id) : undefined,
     addEventListener: (type, listener) => windowListeners.push({ type, listener }),
@@ -125,7 +139,8 @@ function ringPage({ width = 1280, height = 800, view = "home", reduced = false, 
     state, row, photo, pen, cards, home, body, root, toggle, ring, menu, items, timers, observers, pendingFrames: frames,
     item: id => items.find(item => item.dataset.quickAction === id),
     screen, window, pet, pad, toast, composer, pressed,
-    reduce: (matches = true) => { state.reduced = matches; for (const listener of mediaListeners) listener({ matches }); },
+    mediaRegistrations,
+    reduce: (matches = true) => { state.reduced = matches; for (const listener of mediaListeners) listener(); },
     blobs: () => ring.all().filter(node => (node.getAttribute("class") ?? "").split(/\s+/).includes("quick-ring-blob")),
     frame: (id = frames.keys().next().value) => runOne(frames, id, callback => callback(16)),
     timer: (id = timers.keys().next().value) => runOne(timers, id, timer => timer.callback()),
@@ -723,55 +738,93 @@ test("화면 갱신 API가 없으면 닫을 때 16ms 예약을 지우고 이전 
   assert.equal(page.ring.getAttribute("data-settled"), "");
 });
 
-for (const [phase, label] of [["waiting", "화면 갱신 대기 중"], ["opening", "펼침 중"], ["closing", "닫힘 중"]]) {
-  test(`동작 줄이기를 ${label} 켜면 전환을 마치고 다시 꺼도 재개하지 않는다`, () => {
-    const page = ringPage();
-    page.toggle.click();
-    if (phase !== "waiting") page.frame();
-    if (phase === "closing") page.key("Escape");
-    const pendingFrame = page.pendingFrames.values().next().value;
-    const pendingTimer = page.timers.values().next().value;
+for (const [mediaMode, modern, legacy] of [["modern", 1, 0], ["legacy", 0, 1], ["both", 1, 0], ["none", 0, 0]]) {
+  test(`동작 줄이기 처리기를 한 방식으로만 등록한다 (${mediaMode})`, () => {
+    const page = ringPage({ mediaMode });
+    assert.deepEqual(page.mediaRegistrations, { modern, legacy });
     page.reduce();
-    const closed = phase === "closing";
-    assert.equal(page.ring.hidden, closed, phase);
-    assert.equal(page.ring.getAttribute("data-open"), closed ? null : "true", phase);
-    assert.equal(page.ring.getAttribute("data-settled"), closed ? null : "", phase);
-    assert.deepEqual(timerDelays(page), [], phase);
-    assert.equal(page.pendingFrames.size, 0, phase);
-    page.reduce(false);
-    pendingFrame?.(16);
-    pendingTimer?.callback();
-    assert.deepEqual(timerDelays(page), [], phase);
-    assert.equal(page.ring.hidden, closed, phase);
-    assert.equal(page.ring.getAttribute("data-open"), closed ? null : "true");
-    assert.equal(page.ring.getAttribute("data-settled"), closed ? null : "");
+    page.toggle.click();
+    assert.equal(page.ring.getAttribute("data-open"), "true");
+    assert.equal(page.ring.getAttribute("data-settled"), "");
+    assert.equal(page.pendingFrames.size, 0);
+    assert.deepEqual(timerDelays(page), []);
   });
 }
 
-test("굴림 없이 본문에 링크가 붙어 방울 밑에 들어와도 다음 화면 갱신에서 다시 놓는다", () => {
-  const page = ringPage({ width: 390, height: 700, view: "chat", toggleRect: { left: 21, top: 640, width: 44, height: 44 },
-    pressables: [{ left: 0, top: 2000, width: 120, height: 24 }] });
-  page.row.rect = { left: 13, top: 632, width: 364, height: 60 };
-  page.toggle.click();
-  page.frames();
-  page.tick();
-  const content = page.observers.at(-1);
-  // 링 자체의 변화는 세지 않는다.
-  content([{ target: page.ring }]);
-  assert.equal(page.frames(), 0);
-  const center = item => { const spot = page.position(item); return { x: 43 + spot.x, y: 662 + spot.y }; };
-  const biskit = center(page.item("biskit"));
-  const [link] = page.pressed;
-  // 이어 나오는 답에 인용 링크가 붙어 BISKIT 방울 한가운데에 놓인다. 신호가 여러 번 와도 한 번만 다시 놓는다.
-  link.rect = { left: biskit.x - 60, top: biskit.y - 12, width: 120, height: 24 };
-  content([{ target: page.screen }]);
-  content([{ target: page.screen }]);
-  assert.equal(page.frames(), 1);
-  assert.equal(page.toggle.getAttribute("aria-expanded"), "true");
-  const size = page.ring.getAttribute("data-compact") === "" ? 22 : 26;
-  for (const item of page.items) assert.ok(gapTo(link.rect, center(item)) >= size, `${item.dataset.quickAction} covers the new link`);
-  assert.equal(page.ring.getAttribute("data-settled"), null, "no presses while the bubbles move");
-});
+const motionPhases = [["waiting", "화면 갱신 대기 중"], ["opening", "펼침 중"],
+  ["closing-inside", "닫힘 중 링 안에 초점이 있을 때"], ["closing-outside", "닫힘 중 링 밖에 초점이 있을 때"]];
+for (const [phase, label] of motionPhases) {
+  for (const mediaMode of ["modern", "legacy"]) {
+    test(`동작 줄이기를 ${label} 켜면 전환을 마치고 다시 꺼도 재개하지 않는다 (${mediaMode})`, () => {
+      const page = ringPage({ mediaMode });
+      page.toggle.click();
+      if (phase !== "waiting") page.frame();
+      const closed = phase.startsWith("closing");
+      if (phase === "closing-outside") page.photo.focus();
+      const focused = page.state.focused;
+      if (closed) page.outside(page.screen);
+      assert.equal(page.state.focused, focused);
+      const expectedFocus = phase === "closing-inside" ? page.toggle : focused;
+      const pendingFrame = page.pendingFrames.values().next().value;
+      const pendingTimer = page.timers.values().next().value;
+      page.reduce();
+      assert.equal(page.state.focused, expectedFocus);
+      assert.equal(page.toggle.getAttribute("aria-expanded"), String(!closed));
+      assert.equal(page.ring.hidden, closed, phase);
+      assert.equal(page.ring.getAttribute("data-open"), closed ? null : "true", phase);
+      assert.equal(page.ring.getAttribute("data-settled"), closed ? null : "", phase);
+      assert.deepEqual(timerDelays(page), [], phase);
+      assert.equal(page.pendingFrames.size, 0, phase);
+      page.reduce(false);
+      pendingFrame?.(16);
+      pendingTimer?.callback();
+      assert.equal(page.state.focused, expectedFocus);
+      assert.equal(page.toggle.getAttribute("aria-expanded"), String(!closed));
+      assert.deepEqual(timerDelays(page), [], phase);
+      assert.equal(page.ring.hidden, closed, phase);
+      assert.equal(page.ring.getAttribute("data-open"), closed ? null : "true");
+      assert.equal(page.ring.getAttribute("data-settled"), closed ? null : "");
+    });
+  }
+}
+
+for (const [mediaMode, settingAtFrame, relocate] of [
+  ["modern", false, true], ["legacy", true, true], ["legacy", false, true], ["legacy", false, false],
+]) {
+  test(`본문이 바뀌면 다음 화면 갱신에서 다시 놓고 도착 시점의 동작 줄이기 설정을 따른다 (${mediaMode}, ${settingAtFrame}, ${relocate})`, () => {
+    const page = ringPage({ width: 390, height: 700, view: "chat", toggleRect: { left: 21, top: 640, width: 44, height: 44 },
+      mediaMode, pressables: [{ left: 0, top: 2000, width: 120, height: 24 }] });
+    page.row.rect = { left: 13, top: 632, width: 364, height: 60 };
+    page.toggle.click();
+    page.frames();
+    page.tick();
+    const content = page.observers.at(-1);
+    // 링 자체의 변화는 세지 않는다.
+    content([{ target: page.ring }]);
+    assert.equal(page.frames(), 0);
+    const center = item => { const spot = page.position(item); return { x: 43 + spot.x, y: 662 + spot.y }; };
+    const biskit = center(page.item("biskit"));
+    const [link] = page.pressed;
+    // 이어 나오는 답에 인용 링크가 붙어 BISKIT 방울 한가운데에 놓인다. 신호가 여러 번 와도 한 번만 다시 놓는다.
+    if (relocate) link.rect = { left: biskit.x - 60, top: biskit.y - 12, width: 120, height: 24 };
+    content([{ target: page.screen }]);
+    content([{ target: page.screen }]);
+    const [frameId] = page.pendingFrames.keys();
+    if (mediaMode === "legacy") {
+      page.reduce();
+      if (!settingAtFrame) page.reduce(false);
+    }
+    assert.deepEqual([...page.pendingFrames.keys()], [frameId]);
+    assert.equal(page.frames(), 1);
+    assert.equal(page.toggle.getAttribute("aria-expanded"), "true");
+    const size = page.ring.getAttribute("data-compact") === "" ? 22 : 26;
+    for (const item of page.items) assert.ok(gapTo(link.rect, center(item)) >= size, `${item.dataset.quickAction} covers the new link`);
+    assert.equal(relocate, gapTo(link.rect, biskit) < size);
+    const moving = relocate && !settingAtFrame;
+    assert.equal(page.ring.getAttribute("data-settled"), moving ? null : "");
+    assert.deepEqual(timerDelays(page), moving ? [290] : []);
+  });
+}
 
 test("대화 칸만 굴러 인용 링크가 방울 밑에 들어오면 +가 제자리여도 방울을 다시 놓아 링크를 누를 수 있다", () => {
   // 390×700 채팅 화면. 처음에는 링크가 화면 밖(대화 칸 아래쪽)에 있다.

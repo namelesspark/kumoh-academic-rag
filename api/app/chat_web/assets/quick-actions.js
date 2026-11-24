@@ -584,8 +584,9 @@
   const scrolled = () => { if (moved() === false && !place()) closeRing(false); };
   doc.addEventListener("scroll", scrolled, true);
   // 동작 줄이기를 켜는 순간: 닫히던 링은 바로 숨기고, 펼쳐지던 링은 바로 펼친 상태로 두고 누름도 받게 한다.
-  window.matchMedia?.("(prefers-reduced-motion: reduce)")?.addEventListener?.("change", event => {
-    if (!event.matches) return;
+  const motionQuery = window.matchMedia?.("(prefers-reduced-motion: reduce)");
+  function onMotionChange(change) {
+    if (!change.matches) return;
     if (!open && hideTimer !== null) { cancelHide(); finishHide(); }
     if (open) {
       cancelOpenFrame?.();
@@ -594,7 +595,12 @@
       ring.setAttribute("data-open", "true");
       ring.setAttribute("data-settled", "");
     }
-  });
+  }
+  if (typeof motionQuery?.addEventListener === "function") {
+    motionQuery.addEventListener("change", onMotionChange);
+  } else if (typeof motionQuery?.addListener === "function") {
+    motionQuery.addListener(onMotionChange);
+  }
   if (typeof MutationObserver === "function" && doc.documentElement) {
     new MutationObserver(label).observe(doc.documentElement, { attributes: true, attributeFilter: ["lang"] });
     // 링을 연 채 답이 끝나 사진 버튼이 다시 켜지는 것처럼, 대상의 잠금·숨김이 바뀌면 열린 링의 방울도 바로 따라간다.
