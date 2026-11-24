@@ -4,7 +4,7 @@
 표준 라이브러리만 쓰고 `web/docs/UI_NOTES.md` 하나만 읽는다. 스크립트의 실제 등록 모양은 웹 테스트가 따로 본다.
 `## 접근성` 절은 줄 맨 앞 `#`·`##` 제목에서 끝나고, 하위 절은 줄 맨 앞 `#`~`####` 제목에서 끝난다.
 규칙 줄을 `####` 아래로 옮기면 다른 절로 옮긴 것으로 보고 누락으로 친다.
-HTML 주석과 코드 블록 안 글은 규칙이 아니라 예문이므로 걷어 내고 읽는다.
+HTML 주석과 코드 블록 안 글은 규칙이 아니라 예문이므로 걷어 내고 읽는다. 코드 블록 안의 `<!--`는 주석을 열지 않는다(#230).
 빠른 실행 링·답변 모드 절의 `### 동작 줄이기`는 제목 줄 전체를 비교하므로 이 절로 잘못 잡지 않는다.
 """
 
@@ -39,23 +39,51 @@ TARGET_LINE = (
 def visible_lines(text):
     """HTML 주석과 코드 블록을 걷어 낸 줄 목록. 닫히지 않은 주석·코드 블록은 문서 끝까지 숨은 것으로 본다.
 
+    한 줄씩 읽으며 펜스 상태와 주석 상태를 함께 따진다(#230). 코드 블록 안의 `<!--`는 예문이라 주석을 열지 않고,
+    주석 안의 펜스 모양 줄은 블록을 열지 않는다. 펜스는 주석 밖에서 시작하는 줄에서만 연다.
     공백 세 칸 이하로 시작하고 여는 펜스와 같은 글자로만 된 줄(길이는 같거나 길게)이 블록을 닫는다.
     블록 안의 「```text」 줄이나 네 칸 이상 들여쓴 펜스 줄은 글로 본다.
+    여러 줄 주석은 여는 표식 앞 글과 닫는 표식 뒤 글을 한 줄로 잇는다.
     """
-    text = re.sub(r"<!--.*?(?:-->|\Z)", "", text, flags=re.DOTALL)
     lines = []
     fence = None
-    for line in text.splitlines():
-        opened = FENCE.match(line)
-        if fence is None and opened:
-            fence = opened.group(1)
-        elif fence is not None:
-            closing = CLOSING_FENCE.fullmatch(line)
+    in_comment = False
+    pending = ""
+    for raw in text.splitlines():
+        if fence is not None:
+            closing = CLOSING_FENCE.fullmatch(raw)
             if closing and closing.group(1)[0] == fence[0] and len(closing.group(1)) >= len(fence):
                 fence = None
-        else:
-            # 줄 끝 공백은 화면에 보이지 않으므로 걷어 내고 비교한다.
-            lines.append(line.rstrip(" \t"))
+            continue
+        if not in_comment:
+            opened = FENCE.match(raw)
+            if opened:
+                fence = opened.group(1)
+                continue
+        out = pending if in_comment else ""
+        rest = raw
+        while True:
+            if in_comment:
+                end = rest.find("-->")
+                if end < 0:
+                    break
+                rest = rest[end + 3 :]
+                in_comment = False
+            start = rest.find("<!--")
+            if start < 0:
+                out += rest
+                break
+            out += rest[:start]
+            rest = rest[start + 4 :]
+            in_comment = True
+        if in_comment:
+            pending = out
+            continue
+        pending = ""
+        # 줄 끝 공백은 화면에 보이지 않으므로 걷어 내고 비교한다.
+        lines.append(out.rstrip(" \t"))
+    if in_comment and pending:
+        lines.append(pending.rstrip(" \t"))
     return lines
 
 
@@ -230,6 +258,46 @@ class ReducedMotionDocTest(unittest.TestCase):
         example = "```text\n## 예문 제목\n```\n"
         modified = self.replaced(f"{SECTION_HEADING}\n", f"{SECTION_HEADING}\n\n{example}")
         self.assertEqual(reduced_motion_doc_problems(modified), [])
+
+    def test_comment_marker_inside_code_block_is_example(self):
+        # 교차 검토 재현(#230): 예전에는 블록 안 `<!--`부터 문서 끝까지 숨어 맞는 문서도 실패했다.
+        examples = {
+            "백틱": "```html\n<!-- 여는 표식만 있는 예문\n```\n",
+            "물결": "~~~html\n<!-- 여는 표식만 있는 예문\n~~~\n",
+        }
+        for fence, example in examples.items():
+            cases = {
+                "상위 절 앞": self.replaced(f"{PARENT_HEADING}\n", f"{example}\n{PARENT_HEADING}\n"),
+                "하위 절 안": self.replaced(f"{SECTION_HEADING}\n", f"{SECTION_HEADING}\n\n{example}"),
+            }
+            for case, modified in cases.items():
+                with self.subTest(fence=fence, case=case):
+                    self.assertEqual(reduced_motion_doc_problems(modified), [])
+
+    def test_fence_like_line_inside_comment_does_not_open_block(self):
+        # 주석 안 펜스 모양 줄이 블록을 열면 주석이 끝난 뒤의 실제 규칙까지 숨는다.
+        for fence in ("```", "~~~"):
+            cases = {
+                "펜스 줄만": f"<!--\n{fence}\n-->\n",
+                "펜스 줄과 메모": f"<!-- 메모\n{fence}text\n예문\n-->\n",
+            }
+            for case, comment in cases.items():
+                modified = self.replaced(f"{SECTION_HEADING}\n", f"{comment}\n{SECTION_HEADING}\n")
+                with self.subTest(fence=fence, case=case):
+                    self.assertEqual(reduced_motion_doc_problems(modified), [])
+
+    def test_rule_still_hidden_around_code_block_example(self):
+        # 블록 안 예문을 보이게 고쳐도 블록 밖 주석과 주석 안 펜스 뒤 규칙은 계속 숨는다.
+        for rule in RULE_LINES:
+            cases = {
+                "예문 블록 뒤 한 줄 주석": f"```html\n<!--\n```\n<!-- {rule} -->\n",
+                "예문 블록 뒤 닫히지 않은 주석": f"~~~\n<!--\n~~~\n<!--\n{rule}\n",
+                "주석 안 펜스 뒤 규칙": f"<!--\n```\n{rule}\n-->\n",
+                "주석 뒤 닫히지 않은 코드 블록": f"<!--\n~~~\n-->\n```\n{rule}\n",
+            }
+            for case, wrapped in cases.items():
+                with self.subTest(rule=rule[:12], case=case):
+                    self.assertTrue(reduced_motion_doc_problems(self.replaced(f"{rule}\n", wrapped)))
 
 
 if __name__ == "__main__":
