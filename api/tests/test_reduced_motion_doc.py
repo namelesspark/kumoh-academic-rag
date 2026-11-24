@@ -18,7 +18,7 @@ PARENT_HEADING = "## 접근성"
 SECTION_HEADING = "### 동작 줄이기 설정 변경"
 PARENT_BOUNDARY = re.compile(r"#{1,2}(?=[ \t]|$)")
 SECTION_BOUNDARY = re.compile(r"#{1,4}(?=[ \t]|$)")
-FENCE = re.compile(r"[ \t]{0,3}(```|~~~)")
+FENCE = re.compile(r"[ \t]{0,3}(`{3,}|~{3,})")
 
 # 낱말만 보면 「한 번만」을 「여러 번」으로 바꿔도 통과하므로 줄 전체를 비교한다.
 RULE_LINES = (
@@ -36,7 +36,10 @@ TARGET_LINE = (
 
 
 def visible_lines(text):
-    """HTML 주석과 코드 블록을 걷어 낸 줄 목록. 닫히지 않은 주석·코드 블록은 문서 끝까지 숨은 것으로 본다."""
+    """HTML 주석과 코드 블록을 걷어 낸 줄 목록. 닫히지 않은 주석·코드 블록은 문서 끝까지 숨은 것으로 본다.
+
+    블록을 여는 펜스와 같은 글자로만 된 줄(길이는 같거나 길게)이 블록을 닫는다. 블록 안의 「```text」 같은 줄은 글로 본다.
+    """
     text = re.sub(r"<!--.*?(?:-->|\Z)", "", text, flags=re.DOTALL)
     lines = []
     fence = None
@@ -45,7 +48,8 @@ def visible_lines(text):
         if fence is None and opened:
             fence = opened.group(1)
         elif fence is not None:
-            if line.lstrip(" \t").startswith(fence):
+            closing = line.strip(" \t")
+            if len(closing) >= len(fence) and closing == fence[0] * len(closing):
                 fence = None
         else:
             lines.append(line)
@@ -186,6 +190,11 @@ class ReducedMotionDocTest(unittest.TestCase):
         for rule in RULE_LINES:
             cases[f"한 줄 주석 {rule[:12]}"] = self.replaced(f"{rule}\n", f"<!-- {rule} -->\n")
             cases[f"한 줄 코드 블록 {rule[:12]}"] = self.replaced(f"{rule}\n", f"```\n{rule}\n```\n")
+            # 교차 검토 재현(#227): 블록 안 「```text」 줄은 블록을 닫지 않는다.
+            cases[f"블록 안 여는 펜스 모양 줄 {rule[:12]}"] = self.replaced(f"{rule}\n", f"```text\n```text\n{rule}\n```\n")
+        cases["적용 대상 문장 블록 안 여는 펜스 모양 줄"] = self.replaced(
+            f"{TARGET_LINE}\n", f"```text\n```text\n{TARGET_LINE}\n```\n"
+        )
         for case, modified in cases.items():
             with self.subTest(case=case):
                 self.assertTrue(reduced_motion_doc_problems(modified))

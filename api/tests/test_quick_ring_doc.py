@@ -40,7 +40,7 @@ REQUIRED = (
 REDUCED_HEADING = "### 동작 줄이기"
 SECTION_BOUNDARY = re.compile(r"#{1,2}(?=[ \t]|$)")
 SUBSECTION_BOUNDARY = re.compile(r"#{1,4}(?=[ \t]|$)")
-FENCE = re.compile(r"[ \t]{0,3}(```|~~~)")
+FENCE = re.compile(r"[ \t]{0,3}(`{3,}|~{3,})")
 REDUCED_RULES = {
     "등록 순서": "- 바뀜 처리기는 `addEventListener`가 함수일 때 그것으로 한 번 등록하고, 아니면 `addListener`가 함수일 때 그것으로 한 번 등록하며, 둘 다 없으면 등록하지 않고 열 때 `matches`를 따른다. 처리기는 받은 값의 `matches`만 읽는다(옛 Safari는 이벤트 대신 미디어 쿼리를 넘긴다).",
     "단계별 예약 정리": "- 열기 콜백을 기다리는 중이나 펼침 중에 `prefers-reduced-motion`을 켜면 열기 콜백과 누름 허용 타이머를 지우고 그 자리에서 `data-open`과 `data-settled`를 붙이며, 닫히는 중에 켜면 숨김 타이머를 지우고 곧바로 `hidden`을 붙인다.",
@@ -50,7 +50,10 @@ REDUCED_RULES = {
 
 
 def visible_lines(text):
-    """HTML 주석과 코드 블록을 걷어 낸 줄 목록. 닫히지 않은 주석·코드 블록은 문서 끝까지 숨은 것으로 본다."""
+    """HTML 주석과 코드 블록을 걷어 낸 줄 목록. 닫히지 않은 주석·코드 블록은 문서 끝까지 숨은 것으로 본다.
+
+    블록을 여는 펜스와 같은 글자로만 된 줄(길이는 같거나 길게)이 블록을 닫는다. 블록 안의 「```text」 같은 줄은 글로 본다.
+    """
     lines = []
     fence = None
     for line in visible_text(text).splitlines():
@@ -58,7 +61,8 @@ def visible_lines(text):
         if fence is None and opened:
             fence = opened.group(1)
         elif fence is not None:
-            if line.lstrip(" \t").startswith(fence):
+            closing = line.strip(" \t")
+            if len(closing) >= len(fence) and closing == fence[0] * len(closing):
                 fence = None
         else:
             lines.append(line)
@@ -285,6 +289,8 @@ class QuickRingReducedRuleDocTest(unittest.TestCase):
                 "백틱 코드 블록": f"```text\n{rule}\n```\n",
                 "물결 코드 블록": f"~~~\n{rule}\n~~~\n",
                 "닫히지 않은 코드 블록": f"```\n{rule}\n",
+                # 교차 검토 재현: 블록 안 「```text」 줄은 블록을 닫지 않으므로 규칙도 블록 안에 있다.
+                "블록 안 여는 펜스 모양 줄": f"```text\n```text\n{rule}\n```\n",
             }
             for case, wrapped in cases.items():
                 with self.subTest(rule=name, case=case):
