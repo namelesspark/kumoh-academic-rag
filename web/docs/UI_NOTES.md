@@ -1869,7 +1869,7 @@ node --test api/tests/web/campus_backdrop.test.mjs api/tests/web/chat_layout.tes
 - 바뀜 처리기는 `addEventListener`가 함수일 때 그것으로 한 번 등록하고, 아니면 `addListener`가 함수일 때 그것으로 한 번 등록하며, 둘 다 없으면 등록하지 않고 열 때 `matches`를 따른다. 처리기는 받은 값의 `matches`만 읽는다(옛 Safari는 이벤트 대신 미디어 쿼리를 넘긴다).
 - 열기 콜백을 기다리는 중이나 펼침 중에 `prefers-reduced-motion`을 켜면 열기 콜백과 누름 허용 타이머를 지우고 그 자리에서 `data-open`과 `data-settled`를 붙이며, 닫히는 중에 켜면 숨김 타이머를 지우고 곧바로 `hidden`을 붙인다.
 - 펼친 채 정리할 때는 초점과 `aria-expanded="true"`를 그대로 두고, 닫히는 중에 곧바로 숨길 때는 초점이 링 안에 있으면 + 버튼으로 옮기고 링 밖에 있으면 그대로 둔다.
-- 본문이 바뀌어 걸어 둔 재배치 콜백은 설정이 바뀌어도 지우지 않고 도착한 때의 설정을 따른다. 켜져 있으면 바로 `data-settled`를 붙이고, 꺼져 있으면 자리가 바뀐 경우에만 누름 허용 290ms 동안 누름을 막는다.
+- 본문이 바뀌어 걸어 둔 재배치 콜백은 설정이 바뀌어도 지우지 않는다. 도착했을 때 방울 자리가 바뀐 경우에만 그때의 설정을 읽어, 켜져 있으면 바로 `data-settled`를 붙이고 꺼져 있으면 누름 허용 290ms 동안 누름을 막는다. 자리가 그대로면 `data-settled`와 걸어 둔 누름 허용 타이머를 건드리지 않는다.
 - 설정을 다시 꺼도 이미 끝난 전환은 다시 돌지 않는다. 지운 콜백·타이머가 늦게 불려도 `data-open`·`data-settled`·`hidden`은 되돌아가지 않는다.
 
 ### 초점
@@ -1879,7 +1879,7 @@ node --test api/tests/web/campus_backdrop.test.mjs api/tests/web/chat_layout.tes
 ### 검사
 
 - `api/tests/test_quick_ring_doc.py`가 이 절이 한 번 있는지, 절 안의 누름 허용·숨김 ms 숫자가 `quick-actions.js`의 `settleMs`·`closeMs`와 같은지 본다. 숫자 하나만 바꿔도 실패한다.
-- 같은 검사가 `### 동작 줄이기`의 등록 순서·단계별 예약 정리·숨길 때 초점·재배치 콜백 네 규칙 줄을 줄 전체로 비교한다. 줄을 지우거나 겹치거나, 다른 하위 절·다른 절·HTML 주석·코드 블록으로 옮기면 실패한다.
+- 같은 검사가 `### 동작 줄이기`의 등록 순서·단계별 예약 정리·숨길 때 초점·재배치 콜백 네 규칙 줄을 줄 전체로 비교한다. 줄을 지우거나 겹치거나, 다른 하위 절·다른 절·HTML 주석·코드 블록으로 옮기면 실패한다. 실제 동작과 어긋나 바꾼 옛 줄이 링 절에 다시 보여도 실패한다.
 - 예약 순서 자체는 `api/tests/web/quick_actions.test.mjs`가 콜백과 타이머를 하나씩 실행하며 확인한다.
 
 ## 답변 모드 선택 표시 시간 규칙

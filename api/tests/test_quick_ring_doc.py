@@ -45,14 +45,23 @@ REDUCED_RULES = {
     "등록 순서": "- 바뀜 처리기는 `addEventListener`가 함수일 때 그것으로 한 번 등록하고, 아니면 `addListener`가 함수일 때 그것으로 한 번 등록하며, 둘 다 없으면 등록하지 않고 열 때 `matches`를 따른다. 처리기는 받은 값의 `matches`만 읽는다(옛 Safari는 이벤트 대신 미디어 쿼리를 넘긴다).",
     "단계별 예약 정리": "- 열기 콜백을 기다리는 중이나 펼침 중에 `prefers-reduced-motion`을 켜면 열기 콜백과 누름 허용 타이머를 지우고 그 자리에서 `data-open`과 `data-settled`를 붙이며, 닫히는 중에 켜면 숨김 타이머를 지우고 곧바로 `hidden`을 붙인다.",
     "숨길 때 초점": "- 펼친 채 정리할 때는 초점과 `aria-expanded=\"true\"`를 그대로 두고, 닫히는 중에 곧바로 숨길 때는 초점이 링 안에 있으면 + 버튼으로 옮기고 링 밖에 있으면 그대로 둔다.",
-    "재배치 콜백": "- 본문이 바뀌어 걸어 둔 재배치 콜백은 설정이 바뀌어도 지우지 않고 도착한 때의 설정을 따른다. 켜져 있으면 바로 `data-settled`를 붙이고, 꺼져 있으면 자리가 바뀐 경우에만 누름 허용 290ms 동안 누름을 막는다.",
+    # quick-actions.js의 place()는 방울 자리가 바뀔 때만 resettle()을 부르고, 그 안에서만 설정을 읽는다.
+    "재배치 콜백": "- 본문이 바뀌어 걸어 둔 재배치 콜백은 설정이 바뀌어도 지우지 않는다. 도착했을 때 방울 자리가 바뀐 경우에만 그때의 설정을 읽어, 켜져 있으면 바로 `data-settled`를 붙이고 꺼져 있으면 누름 허용 290ms 동안 누름을 막는다. 자리가 그대로면 `data-settled`와 걸어 둔 누름 허용 타이머를 건드리지 않는다.",
 }
+# 실제 동작과 어긋나 바꾼 옛 줄. 링 절 어디에도 보이는 줄로 남으면 안 된다.
+STALE_RULES = (
+    "- 열기 콜백을 기다리는 중이나 펼침 중에 `prefers-reduced-motion`을 켜면 곧바로 `data-open`과 `data-settled`가 붙는다.",
+    "- 닫히는 중에 켜면 숨김 타이머를 기다리지 않고 곧바로 `hidden`이 된다.",
+    "- 본문이 바뀌어 걸어 둔 재배치 콜백은 설정이 바뀌어도 지우지 않고 도착한 때의 설정을 따른다. 켜져 있으면 바로 `data-settled`를 붙이고, 꺼져 있으면 자리가 바뀐 경우에만 누름 허용 290ms 동안 누름을 막는다.",
+)
+CLOSING_FENCE = re.compile(r" {0,3}(`{3,}|~{3,})[ \t]*")
 
 
 def visible_lines(text):
     """HTML 주석과 코드 블록을 걷어 낸 줄 목록. 닫히지 않은 주석·코드 블록은 문서 끝까지 숨은 것으로 본다.
 
-    블록을 여는 펜스와 같은 글자로만 된 줄(길이는 같거나 길게)이 블록을 닫는다. 블록 안의 「```text」 같은 줄은 글로 본다.
+    공백 세 칸 이하로 시작하고 여는 펜스와 같은 글자로만 된 줄(길이는 같거나 길게)이 블록을 닫는다.
+    블록 안의 「```text」 줄이나 네 칸 이상 들여쓴 펜스 줄은 글로 본다.
     """
     lines = []
     fence = None
@@ -61,8 +70,8 @@ def visible_lines(text):
         if fence is None and opened:
             fence = opened.group(1)
         elif fence is not None:
-            closing = line.strip(" \t")
-            if len(closing) >= len(fence) and closing == fence[0] * len(closing):
+            closing = CLOSING_FENCE.fullmatch(line)
+            if closing and closing.group(1)[0] == fence[0] and len(closing.group(1)) >= len(fence):
                 fence = None
         else:
             lines.append(line)
@@ -87,11 +96,13 @@ def reduced_rule_problems(notes):
     block = block_after(section, REDUCED_HEADING, SUBSECTION_BOUNDARY)
     if block is None:
         return [f"{SECTION_HEADING!r} 안에 {REDUCED_HEADING!r} 제목이 한 번 있어야 한다."]
-    return [
+    problems = [
         f"{REDUCED_HEADING!r}에 {name} 규칙 줄이 한 번 있어야 한다."
         for name, rule in REDUCED_RULES.items()
         if block.count(rule) != 1
     ]
+    problems.extend(f"링 절에 옛 줄 {stale!r}이(가) 남아 있다." for stale in STALE_RULES if stale in section)
+    return problems
 
 
 def visible_text(text):
@@ -246,7 +257,7 @@ class QuickRingReducedRuleDocTest(unittest.TestCase):
             "등록 순서": ("아니면 `addListener`가", "그리고 `addListener`도"),
             "단계별 예약 정리": ("숨김 타이머를 지우고", "숨김 타이머를 기다리고"),
             "숨길 때 초점": ("링 밖에 있으면 그대로 둔다", "링 밖에 있어도 + 버튼으로 옮긴다"),
-            "재배치 콜백": ("설정이 바뀌어도 지우지 않고", "설정이 바뀌면 지우고"),
+            "재배치 콜백": ("방울 자리가 바뀐 경우에만 그때의 설정을 읽어", "언제나 그때의 설정을 읽어"),
         }
         for name, rule in REDUCED_RULES.items():
             old, new = flips[name]
@@ -291,6 +302,8 @@ class QuickRingReducedRuleDocTest(unittest.TestCase):
                 "닫히지 않은 코드 블록": f"```\n{rule}\n",
                 # 교차 검토 재현: 블록 안 「```text」 줄은 블록을 닫지 않으므로 규칙도 블록 안에 있다.
                 "블록 안 여는 펜스 모양 줄": f"```text\n```text\n{rule}\n```\n",
+                # 교차 검토 재현: 네 칸 들여쓴 펜스 줄은 블록 안의 글이므로 블록을 닫지 않는다.
+                "블록 안 들여쓴 펜스 줄": f"```text\n    ```\n{rule}\n```\n",
             }
             for case, wrapped in cases.items():
                 with self.subTest(rule=name, case=case):
@@ -310,6 +323,20 @@ class QuickRingReducedRuleDocTest(unittest.TestCase):
             with self.subTest(case=case):
                 self.assertNotEqual(modified, self.notes)
                 self.assertTrue(reduced_rule_problems(modified))
+
+    def test_stale_rule_left_in_ring_section_fails(self):
+        # 실제 동작과 어긋난 옛 줄을 새 줄 옆이나 같은 절의 다른 하위 절에 되살린다.
+        heading = self.ring_reduced_heading(self.notes)
+        start = self.notes.index(f"{SECTION_HEADING}\n")
+        for stale in STALE_RULES:
+            self.assertNotIn(stale, self.notes)
+            cases = {
+                "새 줄 옆": self.insert_after(self.notes, heading, True, stale),
+                "`### 초점`": self.insert_after(self.notes, self.notes.index("### 초점\n", start), True, stale),
+            }
+            for case, modified in cases.items():
+                with self.subTest(stale=stale[:20], case=case):
+                    self.assertTrue(reduced_rule_problems(modified))
 
     def test_heading_inside_code_block_does_not_close_subsection(self):
         # 코드 블록 안 `### ` 예문은 제목이 아니므로 하위 절을 닫지 않는다.
