@@ -1,4 +1,5 @@
 """`## 접근성` 안 「동작 줄이기 설정 변경」 절(#221)이 합의한 규칙 줄 세 개를 지키는지 본다.
+빠른 실행 링을 넣은 적용 대상 문장(#227)도 줄 전체로 비교해, 대상 하나만 빠져도 실패하게 한다.
 
 표준 라이브러리만 쓰고 `web/docs/UI_NOTES.md` 하나만 읽는다. 스크립트의 실제 등록 모양은 웹 테스트가 따로 본다.
 `## 접근성` 절은 줄 맨 앞 `#`·`##` 제목에서 끝나고, 하위 절은 줄 맨 앞 `#`~`####` 제목에서 끝난다.
@@ -17,7 +18,8 @@ PARENT_HEADING = "## 접근성"
 SECTION_HEADING = "### 동작 줄이기 설정 변경"
 PARENT_BOUNDARY = re.compile(r"#{1,2}(?=[ \t]|$)")
 SECTION_BOUNDARY = re.compile(r"#{1,4}(?=[ \t]|$)")
-FENCE = re.compile(r"[ \t]{0,3}(```|~~~)")
+FENCE = re.compile(r"[ \t]{0,3}(`{3,}|~{3,})")
+CLOSING_FENCE = re.compile(r" {0,3}(`{3,}|~{3,})[ \t]*")
 
 # 낱말만 보면 「한 번만」을 「여러 번」으로 바꿔도 통과하므로 줄 전체를 비교한다.
 RULE_LINES = (
@@ -26,9 +28,20 @@ RULE_LINES = (
     "- 바뀜 처리기는 `addEventListener`가 함수면 그것으로, 아니면 옛 방식 `addListener`로 한 번만 등록하고, 둘 다 없으면 등록을 건너뛴다.",
 )
 
+# 적용 대상 문장(#227). 대상 하나를 빼도 걸리도록 줄 전체를 비교한다.
+TARGET_LINE = (
+    "화면을 연 채로 운영체제의 동작 줄이기(`prefers-reduced-motion`)를 켜는 경우를 다룬다. "
+    "기능 패널, 깊이 생각 반짝임, 전송 아이콘, 캠퍼스 배경, 답변 모드 선택 표시, 빠른 실행 링이 같은 규칙을 따른다. "
+    "빠른 실행 링의 단계별 정리는 「빠른 실행 링 예약 규칙」 절의 `### 동작 줄이기`에 적는다."
+)
+
 
 def visible_lines(text):
-    """HTML 주석과 코드 블록을 걷어 낸 줄 목록. 닫히지 않은 주석·코드 블록은 문서 끝까지 숨은 것으로 본다."""
+    """HTML 주석과 코드 블록을 걷어 낸 줄 목록. 닫히지 않은 주석·코드 블록은 문서 끝까지 숨은 것으로 본다.
+
+    공백 세 칸 이하로 시작하고 여는 펜스와 같은 글자로만 된 줄(길이는 같거나 길게)이 블록을 닫는다.
+    블록 안의 「```text」 줄이나 네 칸 이상 들여쓴 펜스 줄은 글로 본다.
+    """
     text = re.sub(r"<!--.*?(?:-->|\Z)", "", text, flags=re.DOTALL)
     lines = []
     fence = None
@@ -37,10 +50,12 @@ def visible_lines(text):
         if fence is None and opened:
             fence = opened.group(1)
         elif fence is not None:
-            if line.lstrip(" \t").startswith(fence):
+            closing = CLOSING_FENCE.fullmatch(line)
+            if closing and closing.group(1)[0] == fence[0] and len(closing.group(1)) >= len(fence):
                 fence = None
         else:
-            lines.append(line)
+            # 줄 끝 공백은 화면에 보이지 않으므로 걷어 내고 비교한다.
+            lines.append(line.rstrip(" \t"))
     return lines
 
 
@@ -65,7 +80,10 @@ def reduced_motion_doc_problems(notes):
     section = block_after(parent, SECTION_HEADING, SECTION_BOUNDARY)
     if section is None:
         return [f"{SECTION_HEADING!r} 절이 {PARENT_HEADING!r} 안에 있어야 한다."]
-    return [f"{SECTION_HEADING!r}에 규칙 줄 {rule!r}이(가) 한 번 있어야 한다." for rule in RULE_LINES if section.count(rule) != 1]
+    problems = [f"{SECTION_HEADING!r}에 규칙 줄 {rule!r}이(가) 한 번 있어야 한다." for rule in RULE_LINES if section.count(rule) != 1]
+    if section.count(TARGET_LINE) != 1:
+        problems.append(f"{SECTION_HEADING!r}에 적용 대상 문장이 한 번 있어야 한다.")
+    return problems
 
 
 class ReducedMotionDocTest(unittest.TestCase):
@@ -104,6 +122,8 @@ class ReducedMotionDocTest(unittest.TestCase):
                 self.assertTrue(reduced_motion_doc_problems(self.replaced(f"{rule}\n", "")))
             with self.subTest(duplicated=rule):
                 self.assertTrue(reduced_motion_doc_problems(self.replaced(f"{rule}\n", f"{rule}\n{rule}\n")))
+            with self.subTest(duplicated_with_trailing_space=rule):
+                self.assertTrue(reduced_motion_doc_problems(self.replaced(f"{rule}\n", f"{rule}\n{rule} \n")))
 
     def test_flipped_rule_fails(self):
         flips = {
@@ -175,8 +195,34 @@ class ReducedMotionDocTest(unittest.TestCase):
         for rule in RULE_LINES:
             cases[f"한 줄 주석 {rule[:12]}"] = self.replaced(f"{rule}\n", f"<!-- {rule} -->\n")
             cases[f"한 줄 코드 블록 {rule[:12]}"] = self.replaced(f"{rule}\n", f"```\n{rule}\n```\n")
+            # 교차 검토 재현(#227): 블록 안 「```text」 줄은 블록을 닫지 않는다.
+            cases[f"블록 안 여는 펜스 모양 줄 {rule[:12]}"] = self.replaced(f"{rule}\n", f"```text\n```text\n{rule}\n```\n")
+            # 교차 검토 재현(#227): 네 칸 들여쓴 펜스 줄은 블록을 닫지 않는다.
+            cases[f"블록 안 들여쓴 펜스 줄 {rule[:12]}"] = self.replaced(f"{rule}\n", f"```text\n    ```\n{rule}\n```\n")
+        cases["적용 대상 문장 블록 안 여는 펜스 모양 줄"] = self.replaced(
+            f"{TARGET_LINE}\n", f"```text\n```text\n{TARGET_LINE}\n```\n"
+        )
         for case, modified in cases.items():
             with self.subTest(case=case):
+                self.assertTrue(reduced_motion_doc_problems(modified))
+
+    def test_target_line_without_quick_ring_fails(self):
+        # 교차 검토 재현(#227): 적용 대상에서 빠른 실행 링을 빼고, 링 안내 문장까지 지운다.
+        reverted = TARGET_LINE.replace(", 빠른 실행 링이 같은", "가 같은").split(" 빠른 실행 링의 단계별")[0]
+        self.assertNotIn("빠른 실행 링", reverted)
+        cases = {
+            "링만 뺌": self.replaced(", 빠른 실행 링이 같은 규칙을", "가 같은 규칙을"),
+            "#221 문장으로 되돌림": self.replaced(f"{TARGET_LINE}\n", f"{reverted}\n"),
+            "문장 삭제": self.replaced(f"{TARGET_LINE}\n", ""),
+            "문장 중복": self.replaced(f"{TARGET_LINE}\n", f"{TARGET_LINE}\n{TARGET_LINE}\n"),
+            "주석": self.replaced(f"{TARGET_LINE}\n", f"<!-- {TARGET_LINE} -->\n"),
+            "링 절로 이동": self.replaced(f"{TARGET_LINE}\n", "").replace(
+                "## 빠른 실행 링 예약 규칙 (#137)\n", f"## 빠른 실행 링 예약 규칙 (#137)\n\n{TARGET_LINE}\n", 1
+            ),
+        }
+        for case, modified in cases.items():
+            with self.subTest(case=case):
+                self.assertNotEqual(modified, self.notes)
                 self.assertTrue(reduced_motion_doc_problems(modified))
 
     def test_heading_inside_code_block_does_not_close_section(self):
