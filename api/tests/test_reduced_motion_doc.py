@@ -18,7 +18,8 @@ PARENT_HEADING = "## 접근성"
 SECTION_HEADING = "### 동작 줄이기 설정 변경"
 PARENT_BOUNDARY = re.compile(r"#{1,2}(?=[ \t]|$)")
 SECTION_BOUNDARY = re.compile(r"#{1,4}(?=[ \t]|$)")
-FENCE = re.compile(r"[ \t]{0,3}(`{3,}|~{3,})")
+# 여는 펜스 앞은 공백 0~3칸만 받는다. 탭은 4칸 탭 정지까지 펼쳐지므로 탭으로 들여쓴 줄은 펜스가 아니다(#230).
+FENCE = re.compile(r" {0,3}(`{3,}|~{3,})")
 CLOSING_FENCE = re.compile(r" {0,3}(`{3,}|~{3,})[ \t]*")
 
 # 낱말만 보면 「한 번만」을 「여러 번」으로 바꿔도 통과하므로 줄 전체를 비교한다.
@@ -273,6 +274,26 @@ class ReducedMotionDocTest(unittest.TestCase):
             for case, modified in cases.items():
                 with self.subTest(fence=fence, case=case):
                     self.assertEqual(reduced_motion_doc_problems(modified), [])
+
+    def test_tab_indented_fence_line_does_not_open_block(self):
+        # 교차 검토 재현: 탭은 4칸 탭 정지까지 펼쳐지므로 탭으로 들여쓴 펜스 모양 줄은 블록을 열지 않는다.
+        for prefix in ("\t", " \t", "   \t"):
+            for fence in ("```", "~~~"):
+                cases = {
+                    "상위 절 앞": self.replaced(f"{PARENT_HEADING}\n", f"{prefix}{fence}html\n\n{PARENT_HEADING}\n"),
+                    "하위 절 안": self.replaced(f"{SECTION_HEADING}\n", f"{SECTION_HEADING}\n\n{prefix}{fence}html\n"),
+                }
+                for case, modified in cases.items():
+                    with self.subTest(prefix=repr(prefix), fence=fence, case=case):
+                        self.assertEqual(reduced_motion_doc_problems(modified), [])
+
+    def test_tab_indented_fence_line_does_not_close_block(self):
+        # 블록 안 탭 들여쓴 펜스 줄은 블록을 닫지 않으므로 그 뒤의 규칙은 계속 블록 안에 있다.
+        for rule in RULE_LINES:
+            for fence in ("```", "~~~"):
+                wrapped = f"{fence}text\n\t{fence}\n{rule}\n{fence}\n"
+                with self.subTest(rule=rule[:12], fence=fence):
+                    self.assertTrue(reduced_motion_doc_problems(self.replaced(f"{rule}\n", wrapped)))
 
     def test_fence_like_line_inside_comment_does_not_open_block(self):
         # 주석 안 펜스 모양 줄이 블록을 열면 주석이 끝난 뒤의 실제 규칙까지 숨는다.

@@ -41,7 +41,8 @@ REQUIRED = (
 REDUCED_HEADING = "### 동작 줄이기"
 SECTION_BOUNDARY = re.compile(r"#{1,2}(?=[ \t]|$)")
 SUBSECTION_BOUNDARY = re.compile(r"#{1,4}(?=[ \t]|$)")
-FENCE = re.compile(r"[ \t]{0,3}(`{3,}|~{3,})")
+# 여는 펜스 앞은 공백 0~3칸만 받는다. 탭은 4칸 탭 정지까지 펼쳐지므로 탭으로 들여쓴 줄은 펜스가 아니다(#230).
+FENCE = re.compile(r" {0,3}(`{3,}|~{3,})")
 REDUCED_RULES = {
     "등록 순서": "- 바뀜 처리기는 `addEventListener`가 함수일 때 그것으로 한 번 등록하고, 아니면 `addListener`가 함수일 때 그것으로 한 번 등록하며, 둘 다 없으면 등록하지 않고 열 때 `matches`를 따른다. 처리기는 받은 값의 `matches`만 읽는다(옛 Safari는 이벤트 대신 미디어 쿼리를 넘긴다).",
     "단계별 예약 정리": "- 열기 콜백을 기다리는 중이나 펼침 중에 `prefers-reduced-motion`을 켜면 열기 콜백과 누름 허용 타이머를 지우고 그 자리에서 `data-open`과 `data-settled`를 붙이며, 닫히는 중에 켜면 숨김 타이머를 지우고 곧바로 `hidden`을 붙인다.",
@@ -447,6 +448,23 @@ class QuickRingCommentInCodeBlockTest(unittest.TestCase):
             example = f"{fence}html\n<!--\n## Example\n-->\n{fence}\n"
             with self.subTest(fence=fence):
                 self.assertEqual(self.problems(self.replaced(heading, f"{heading}\n{example}")), [])
+
+    def test_tab_indented_fence_line_does_not_open_block(self):
+        # 교차 검토 재현: 탭은 4칸 탭 정지까지 펼쳐지므로 탭으로 들여쓴 펜스 모양 줄은 블록을 열지 않는다.
+        heading = f"{SECTION_HEADING}\n"
+        for prefix in ("\t", " \t", "   \t"):
+            for fence in ("```", "~~~"):
+                modified = self.replaced(heading, f"{prefix}{fence}html\n\n{heading}")
+                with self.subTest(prefix=repr(prefix), fence=fence):
+                    self.assertEqual(self.problems(modified), [])
+
+    def test_tab_indented_fence_line_does_not_close_block(self):
+        # 블록 안 탭 들여쓴 펜스 줄은 블록을 닫지 않으므로 그 뒤의 규칙은 계속 블록 안에 있다.
+        for name, rule in REDUCED_RULES.items():
+            for fence in ("```", "~~~"):
+                wrapped = f"{fence}text\n\t{fence}\n{rule}\n{fence}\n"
+                with self.subTest(rule=name, fence=fence):
+                    self.assertTrue(reduced_rule_problems(self.replaced(f"{rule}\n", wrapped)))
 
     def test_ring_numbers_only_in_code_block_fail(self):
         # 교차 검토 재현: 실제 절 본문을 블록 안으로 옮기면 숫자·필수 글자가 예문에만 남으므로 실패해야 한다.
