@@ -115,7 +115,7 @@ function modePage(storage, reduced = false, { legacyMotion = false } = {}) {
     addEventListener(name, callback) { this.listeners.set(name, callback); }
     focus() { focus = this; }
     contains(node) { return node === this || this.children.some(child => child.contains(node)); }
-    fire(name, values = {}) { const event = { target: this, preventDefault() {}, stopPropagation() {}, stopImmediatePropagation() {}, ...values }; this.listeners.get(name)?.(event); return event; }
+    fire(name, values = {}) { const event = { target: this, prevented: false, preventDefault() { this.prevented = true; }, stopPropagation() {}, stopImmediatePropagation() {}, ...values }; this.listeners.get(name)?.(event); return event; }
     click() { this.fire("click"); }
     querySelector(selector) { return this.children.find(node => node.dataset.icon && selector.includes(node.dataset.icon)) || this.children.find(node => node.className.split(" ").includes(selector.slice(1))) || null; }
     cloneNode() { const node = new Node(); node.className = this.className; node.dataset = { ...this.dataset }; return node; }
@@ -238,18 +238,52 @@ test("화살표는 끝에서 돌고 Enter·Space는 선택하며 Esc는 버튼�
   }
 });
 
-test("바깥 누르기와 Tab은 초점을 빼앗지 않고 메뉴를 닫는다", () => {
+test("바깥 누르기는 초점을 버튼으로 돌리지 않고 메뉴를 닫는다", () => {
   const p = modePage({ getItem: () => null, setItem() {} });
   p.button.click();
-  const focused = p.focus();
+  p.body.focus();
   p.events.get("pointerdown")({ target: p.body });
   assert.equal(p.menu(), undefined);
-  assert.equal(p.focus(), focused);
+  assert.equal(p.focus(), p.body);
+});
+
+for (const shiftKey of [false, true]) {
+  test(`${shiftKey ? "Shift+Tab" : "Tab"}은 메뉴 밖으로 옮긴 초점을 유지한다`, () => {
+    const p = modePage({ getItem: () => null, setItem() {} });
+    const send = p.document.querySelector("#send");
+    p.body.append(send);
+    p.button.click();
+    const menu = p.menu();
+    assert.equal(menu.fire("keydown", { key: "Tab", shiftKey }).prevented, false);
+    assert.equal(p.menu(), menu);
+    send.focus();
+    p.tick(0);
+    assert.equal(p.menu(), undefined);
+    assert.equal(p.button.getAttribute("aria-expanded"), "false");
+    assert.equal(p.focus(), send);
+  });
+}
+
+test("Tab을 두 번 눌러도 닫기 예약은 한 건이고 같은 메뉴를 다시 열면 취소된다", () => {
+  const p = modePage({ getItem: () => null, setItem() {} });
   p.button.click();
-  const nextFocus = p.focus();
-  p.menu().fire("keydown", { key: "Tab" });
-  p.tick(0);
+  const previous = p.menu();
+  previous.fire("keydown", { key: "Tab" });
+  previous.fire("keydown", { key: "Tab" });
+  assert.equal(p.timers.size, 1);
+  const [{ callback: dismissPrevious }] = p.timers.values();
+  p.button.click();
   assert.equal(p.menu(), undefined);
+  p.button.click();
+  const next = p.menu();
+  const nextFocus = p.focus();
+  assert.notEqual(next, previous);
+  assert.ok(next.children.includes(nextFocus));
+  assert.equal(p.timers.size, 0);
+  p.tick(0);
+  dismissPrevious();
+  assert.equal(p.menu(), next);
+  assert.equal(p.button.getAttribute("aria-expanded"), "true");
   assert.equal(p.focus(), nextFocus);
 });
 
@@ -670,7 +704,7 @@ test("언어 메뉴는 머리글을 고정하고 각 언어 이름·보조 이�
   assert.equal(p.headerButton.getAttribute("aria-expanded"), "false");
 });
 
-test("방향키는 끝에서 돌고 Enter·Space로 고르며 Esc는 버튼으로, Tab은 초점을 두고 닫는다", () => {
+test("방향키는 끝에서 돌고 Enter·Space로 고르며 Esc는 버튼으로 초점을 돌린다", () => {
   const p = langPage();
   p.headerButton.click();
   p.menu().fire("keydown", { key: "ArrowDown" });
@@ -698,13 +732,24 @@ test("방향키는 끝에서 돌고 Enter·Space로 고르며 Esc는 버튼으�
   assert.equal(stopped, true);
   assert.equal(p.menu(), undefined);
   assert.equal(p.focus(), p.loginButton);
-  p.loginButton.click();
-  const inside = p.focus();
-  p.menu().fire("keydown", { key: "Tab" });
-  p.tick();
-  assert.equal(p.menu(), undefined);
-  assert.equal(p.focus(), inside);
   assert.equal(p.run("uiLang"), "zh");
+});
+
+test("로그인 언어 메뉴의 Tab 예약은 머리글 언어 메뉴의 펼침과 초점에 영향을 주지 않는다", () => {
+  const p = langPage();
+  p.loginButton.click();
+  const previous = p.menu();
+  previous.fire("keydown", { key: "Tab" });
+  p.headerButton.click();
+  const next = p.menu();
+  const nextFocus = p.focus();
+  assert.notEqual(next, previous);
+  assert.ok(p.items().includes(nextFocus));
+  p.tick();
+  assert.equal(p.menu(), next);
+  assert.equal(p.headerButton.getAttribute("aria-expanded"), "true");
+  assert.equal(p.loginButton.getAttribute("aria-expanded"), "false");
+  assert.equal(p.focus(), nextFocus);
 });
 
 test("고르면 새로고침 없이 html lang·탭 제목·두 버튼·고정 문구가 바뀌고 대화·사용자 글은 그대로다", () => {
