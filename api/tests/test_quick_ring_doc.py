@@ -67,9 +67,11 @@ SUBSECTION_RULES = {
     "### 초점": ("- Esc로 닫으면 초점이 + 버튼으로 돌아오고 `aria-expanded`는 `false`가 된다.",),
 }
 # 실제로 쓰는 `nextFrame` 선언에 묶어 대체 타이머 값을 읽는다. 같은 모양의 다른 함수 값은 읽지 않는다(#230 교차 검토).
+# 주석을 걷어 낸 코드(script_code)에서 찾고, 기호 사이 공백 수는 가리지 않는다.
 FALLBACK_TIMER = re.compile(
-    r"(?<![\w.$])nextFrame\s*=\s*callback\s*=>\s*\(\s*typeof window\.requestAnimationFrame === \"function\"\s*"
-    r"\?\s*window\.requestAnimationFrame\(callback\)\s*:\s*setTimeout\(\(\) => callback\(Date\.now\(\)\), (\d+)\)\s*\)"
+    r"(?<![\w.$])nextFrame\s*=\s*callback\s*=>\s*\(\s*typeof\s+window\.requestAnimationFrame\s*===\s*\"function\"\s*"
+    r"\?\s*window\.requestAnimationFrame\(\s*callback\s*\)\s*:\s*"
+    r"setTimeout\(\s*\(\s*\)\s*=>\s*callback\(\s*Date\.now\(\s*\)\s*\)\s*,\s*(\d+)\s*\)\s*\)"
 )
 FENCE = re.compile(r"[ \t]{0,3}(`{3,}|~{3,})")
 REDUCED_RULES = {
@@ -178,11 +180,21 @@ def visible_text(text):
     return "\n".join(visible_lines(text))
 
 
+def script_code(script):
+    """JS 주석(`/* … */`, `//` 뒤 줄 끝까지)을 걷어 낸 코드. 주석 속 옛 선언의 값을 읽지 않으려고 쓴다(#230 교차 검토).
+
+    `https://`처럼 `:` 바로 뒤의 `//`는 주석으로 보지 않는다. 문자열 안의 주석 모양 글자는 따지지 않는다.
+    """
+    code = re.sub(r"/\*.*?\*/", " ", script, flags=re.DOTALL)
+    return re.sub(r"(?<!:)//[^\n]*", "", code)
+
+
 def script_constants(script):
-    """`const` 선언 안의 settleMs·closeMs 값. 선언이 정확히 하나가 아니면 None."""
+    """`const` 선언 안의 settleMs·closeMs 값. 주석은 걷어 내고 보며, 선언이 정확히 하나가 아니면 None."""
+    code = script_code(script)
     values = {}
     for name in LABELS.values():
-        found = re.findall(rf"(?<![\w.$]){name}\s*=\s*(\d+)(?=\s*[,;])", script)
+        found = re.findall(rf"(?<![\w.$]){name}\s*=\s*(\d+)(?=\s*[,;])", code)
         values[name] = int(found[0]) if len(found) == 1 else None
     return values
 
@@ -232,7 +244,7 @@ def ring_doc_problems(notes, script):
             for value in written
             if value != str(expected)
         )
-    fallback = FALLBACK_TIMER.findall(script)
+    fallback = FALLBACK_TIMER.findall(script_code(script))
     if len(fallback) != 1:
         problems.append("quick-actions.js의 nextFrame에 대체 타이머 setTimeout(…, ms)이 한 번 있어야 한다.")
     elif time_block is not None:
@@ -376,6 +388,30 @@ class QuickRingDocTest(unittest.TestCase):
         self.assertTrue(ring_doc_problems(self.notes, decoy))
         # `nextFrame` 선언을 찾지 못해도 실패한다.
         self.assertTrue(ring_doc_problems(self.notes, renamed))
+        # 교차 검토 재현: 옛 16ms 선언을 주석으로 감싸 남기고, 실제 선언은 공백을 더 넣어 새 값으로 쓴다.
+        start = self.script.index("const nextFrame = ")
+        end = self.script.index(";", start) + 1
+        old_decl = self.script[start:end]
+        new_decl = (
+            "const nextFrame = callback => (typeof window.requestAnimationFrame === \"function\"\n"
+            f"    ? window.requestAnimationFrame(callback) : setTimeout(()  => callback(Date.now()), {new_ms}));"
+        )
+        for case, wrapped in {"블록 주석": f"/* {old_decl} */", "줄 주석": f"// {old_decl.replace(chr(10), ' ')}"}.items():
+            hidden = f"{self.script[:start]}{wrapped}\n  {new_decl}{self.script[end:]}"
+            with self.subTest(case=case):
+                self.assertEqual(FALLBACK_TIMER.findall(script_code(hidden)), [new_ms])
+                self.assertTrue(ring_doc_problems(self.notes, hidden))
+                # 문서 규칙 줄도 새 값으로 고치면 통과한다.
+                self.assertEqual(ring_doc_problems(both, hidden), [])
+
+    def test_constants_in_js_comments_are_ignored(self):
+        # 주석 속 옛 상수 선언을 실제 값으로 읽지 않는다. 실제 값이 문서와 다르면 실패한다.
+        for name, value in self.constants.items():
+            with self.subTest(name=name):
+                changed = re.sub(rf"(?<![\w.$]){name}\s*=\s*{value}", f"{name} = {value + 10}", self.script)
+                commented = f"/* const {name} = {value}; */\n{changed}"
+                self.assertEqual(script_constants(commented)[name], value + 10)
+                self.assertTrue(ring_doc_problems(self.notes, commented))
 
     def test_subsection_rule_lines_are_checked(self):
         # 교차 검토 재현: `회차`·`cancelAnimationFrame`·`aria-expanded` 낱말은 남긴 채 뜻을 바꾸거나 `### 검사`로 옮긴다.
