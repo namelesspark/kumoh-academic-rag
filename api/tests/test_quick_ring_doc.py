@@ -5,7 +5,7 @@
 코드 블록 안의 `<!--`는 예문이므로 주석을 열지 않는다(#230). 펜스와 주석만 줄 단위로 따지고,
 목록·인용문 같은 다른 마크다운 구조는 해석하지 않는다.
 
-`### 동작 줄이기` 규칙 줄 네 개(#227)는 줄 전체로 비교한다. 이 검사는 HTML 주석과 코드 블록을 걷어 낸 줄만 보고,
+`### 동작 줄이기` 규칙 줄 다섯 개(#227·#230)는 줄 전체로 비교한다. 이 검사는 HTML 주석과 코드 블록을 걷어 낸 줄만 보고,
 링 절은 줄 맨 앞 `#`·`##` 제목에서, 하위 절은 `#`~`####` 제목에서 끝난다. `####` 아래로 옮긴 줄은 다른 절로 친다.
 `discover -s api/tests`에서 모듈 경로가 달라지므로 보조 함수는 다른 테스트 모듈에서 가져오지 않고 이 파일에 둔다.
 """
@@ -67,11 +67,14 @@ SUBSECTION_RULES = {
     "### 초점": ("- Esc로 닫으면 초점이 + 버튼으로 돌아오고 `aria-expanded`는 `false`가 된다.",),
 }
 # 실제로 쓰는 `nextFrame` 선언에 묶어 대체 타이머 값을 읽는다. 같은 모양의 다른 함수 값은 읽지 않는다(#230 교차 검토).
-# 주석을 걷어 낸 코드(script_code)에서 찾고, 기호 사이 공백 수는 가리지 않는다.
+# 주석·문자열을 걷어 낸 코드(script_code)에서 찾고, 기호 사이 공백 수와 `callback`·`(callback)` 모양은 가리지 않는다.
 FALLBACK_TIMER = re.compile(
-    r"(?<![\w.$])nextFrame\s*=\s*callback\s*=>\s*\(\s*typeof\s+window\.requestAnimationFrame\s*===\s*\"function\"\s*"
+    r"(?<![\w.$])nextFrame\s*=\s*(?:callback|\(\s*callback\s*\))\s*=>\s*\(\s*typeof\s+window\.requestAnimationFrame\s*===\s*\"function\"\s*"
     r"\?\s*window\.requestAnimationFrame\(\s*callback\s*\)\s*:\s*"
     r"setTimeout\(\s*\(\s*\)\s*=>\s*callback\(\s*Date\.now\(\s*\)\s*\)\s*,\s*(\d+)\s*\)\s*\)"
+)
+SCRIPT_TOKEN = re.compile(
+    r"/\*.*?\*/|//[^\n]*|\"(?:\\.|[^\"\\\n])*\"|'(?:\\.|[^'\\\n])*'|`(?:\\.|[^`\\])*`", re.DOTALL
 )
 FENCE = re.compile(r"[ \t]{0,3}(`{3,}|~{3,})")
 REDUCED_RULES = {
@@ -81,6 +84,8 @@ REDUCED_RULES = {
     # quick-actions.js의 재배치 콜백은 moved()로 + 버튼이 1px 넘게 옮겨 갔는지 먼저 보고, 옮겨 갔으면 closeRing()이 설정을 읽는다.
     # 아니면 place()가 자리를 찾고, 자리가 없으면 layoutKey 전에 false를 돌려줘 역시 closeRing()이 닫는다.
     # 자리가 있으면 layoutKey(+ 가운데 좌표, 반올림한 방울 좌표, 좁은 배치)가 바뀔 때만 resettle()이 설정을 읽는다.
+    # 교차 검토 재현(#230): 이 줄이 표에 없어 지워도 통과했다.
+    "다시 끌 때": "- 설정을 다시 꺼도 이미 끝난 전환은 다시 돌지 않는다. 지운 콜백·타이머가 늦게 불려도 `data-open`·`data-settled`·`hidden`은 되돌아가지 않는다.",
     "재배치 콜백": "- 본문이 바뀌어 걸어 둔 재배치 콜백은 설정이 바뀌어도 지우지 않는다. 도착하면 먼저 + 버튼의 왼쪽·위쪽 좌표가 열었을 때보다 1px 넘게 움직였는지 보고, 움직였거나 방울을 놓을 자리가 없으면 배치 기준을 비교하지 않고 링을 닫는다. 닫을 때 그때의 설정이 켜져 있으면 숨김 타이머 없이 바로 숨기고, 꺼져 있으면 숨김 300ms 뒤에 숨긴다. 링을 계속 열어 두면 배치 기준(+ 버튼 가운데 좌표, 1px 단위로 반올림한 방울 좌표, 좁은 배치 여부)이 바뀐 경우에만 그때의 설정을 읽어, 켜져 있으면 바로 `data-settled`를 붙이고 꺼져 있으면 누름 허용 290ms 동안 누름을 막는다. 방울이 1px 미만으로만 움직이는 등 기준이 그대로면 `data-settled`와 걸어 둔 누름 허용 타이머를 건드리지 않는다.",
 }
 # 실제 동작과 어긋나 바꾼 옛 줄. 링 절 어디에도 보이는 줄로 남으면 안 된다.
@@ -181,12 +186,19 @@ def visible_text(text):
 
 
 def script_code(script):
-    """JS 주석(`/* … */`, `//` 뒤 줄 끝까지)을 걷어 낸 코드. 주석 속 옛 선언의 값을 읽지 않으려고 쓴다(#230 교차 검토).
+    """JS 주석과 문자열을 걷어 낸 코드. 주석·문자열 속 옛 선언의 값을 읽지 않으려고 쓴다(#230 교차 검토).
 
-    `https://`처럼 `:` 바로 뒤의 `//`는 주석으로 보지 않는다. 문자열 안의 주석 모양 글자는 따지지 않는다.
+    앞에서부터 주석(`/* … */`, `//` 뒤 줄 끝까지)과 문자열(`"…"`, `'…'`, `` `…` ``)을 한 덩이씩 찾는다.
+    주석은 공백으로, 문자열은 `""`로 바꾼다. `nextFrame` 선언이 비교하는 `"function"`만 그대로 둔다.
+    quick-actions.js에는 정규식 리터럴이 없고 템플릿 문자열은 한 줄 안에서 닫혀 이 순서로 충분하다.
     """
-    code = re.sub(r"/\*.*?\*/", " ", script, flags=re.DOTALL)
-    return re.sub(r"(?<!:)//[^\n]*", "", code)
+    def replace(found):
+        token = found.group(0)
+        if token.startswith("/"):
+            return " "
+        return token if token in ('"function"', "'function'") else '""'
+
+    return SCRIPT_TOKEN.sub(replace, script)
 
 
 def script_constants(script):
@@ -349,7 +361,8 @@ class QuickRingDocTest(unittest.TestCase):
 
     def test_fallback_timer_rule_is_checked(self):
         # 교차 검토 재현: 「16ms」 글자는 남긴 채 뜻을 바꾸거나 `### 초점`으로 옮겨도 실패해야 한다.
-        found = FALLBACK_TIMER.findall(self.script)
+        # 검사 함수와 같은 판정으로 센다. 원문으로 세면 주석 속 복제본 때문에 검사와 결과가 어긋난다.
+        found = FALLBACK_TIMER.findall(script_code(self.script))
         self.assertEqual(len(found), 1)
         line = FALLBACK_RULE.format(ms=found[0])
         self.assertEqual(self.notes.count(f"{line}\n"), 1, line)
@@ -384,7 +397,7 @@ class QuickRingDocTest(unittest.TestCase):
             "  const obsoleteFrame = ",
             1,
         )
-        self.assertEqual(FALLBACK_TIMER.findall(decoy), [new_ms])
+        self.assertEqual(FALLBACK_TIMER.findall(script_code(decoy)), [new_ms])
         self.assertTrue(ring_doc_problems(self.notes, decoy))
         # `nextFrame` 선언을 찾지 못해도 실패한다.
         self.assertTrue(ring_doc_problems(self.notes, renamed))
@@ -403,6 +416,16 @@ class QuickRingDocTest(unittest.TestCase):
                 self.assertTrue(ring_doc_problems(self.notes, hidden))
                 # 문서 규칙 줄도 새 값으로 고치면 통과한다.
                 self.assertEqual(ring_doc_problems(both, hidden), [])
+        # 교차 검토 재현: 옛 선언을 여러 줄 문자열에 넣어 두고, 실제 선언은 `(callback) =>`와 새 값으로 쓴다.
+        in_string = new_decl.replace("callback => (", "(callback) => (", 1)
+        quoted = f"{self.script[:start]}const legacy = `{old_decl}`;\n  {in_string}{self.script[end:]}"
+        self.assertEqual(FALLBACK_TIMER.findall(script_code(quoted)), [new_ms])
+        self.assertTrue(ring_doc_problems(self.notes, quoted))
+        self.assertEqual(ring_doc_problems(both, quoted), [])
+        # 교차 검토 재현: 지금 선언을 바로 위 블록 주석에 복제해도 검사와 이 메서드가 같은 값 하나를 읽는다.
+        duplicated = f"{self.script[:start]}/* {old_decl} */\n  {self.script[start:]}"
+        self.assertEqual(FALLBACK_TIMER.findall(script_code(duplicated)), found)
+        self.assertEqual(ring_doc_problems(self.notes, duplicated), [])
 
     def test_constants_in_js_comments_are_ignored(self):
         # 주석 속 옛 상수 선언을 실제 값으로 읽지 않는다. 실제 값이 문서와 다르면 실패한다.
@@ -483,6 +506,7 @@ class QuickRingReducedRuleDocTest(unittest.TestCase):
             "등록 순서": ("아니면 `addListener`가", "그리고 `addListener`도"),
             "단계별 예약 정리": ("숨김 타이머를 지우고", "숨김 타이머를 기다리고"),
             "숨길 때 초점": ("링 밖에 있으면 그대로 둔다", "링 밖에 있어도 + 버튼으로 옮긴다"),
+            "다시 끌 때": ("다시 돌지 않는다", "처음부터 다시 돈다"),
             "재배치 콜백": ("1px 단위로 반올림한 방울 좌표", "소수 둘째 자리까지 잰 방울 좌표"),
         }
         for name, rule in REDUCED_RULES.items():
