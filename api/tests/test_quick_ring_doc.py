@@ -1,9 +1,11 @@
 """빠른 실행 링 예약 규칙 절(#164)의 ms 숫자가 quick-actions.js 상수와 같은지 본다.
 
 표준 라이브러리만 쓰고 `web/docs/UI_NOTES.md`와 `quick-actions.js` 두 파일만 읽는다.
-절 경계는 줄 맨 앞 `## ` 제목만 본다. HTML 주석 안 글은 화면에 보이지 않으므로 걷어 내고 읽는다.
+절 경계는 줄 맨 앞 `## ` 제목만 본다. HTML 주석과 코드 블록 안 글은 규칙이 아니므로 걷어 내고 읽는다.
+코드 블록 안의 `<!--`는 예문이므로 주석을 열지 않는다(#230). 펜스와 주석만 줄 단위로 따지고,
+목록·인용문 같은 다른 마크다운 구조는 해석하지 않는다.
 
-`### 동작 줄이기` 규칙 줄 네 개(#227)는 줄 전체로 비교한다. 이 검사는 HTML 주석과 코드 블록을 걷어 낸 줄만 보고,
+`### 동작 줄이기` 규칙 줄 다섯 개(#227·#230)는 줄 전체로 비교한다. 이 검사는 HTML 주석과 코드 블록을 걷어 낸 줄만 보고,
 링 절은 줄 맨 앞 `#`·`##` 제목에서, 하위 절은 `#`~`####` 제목에서 끝난다. `####` 아래로 옮긴 줄은 다른 절로 친다.
 `discover -s api/tests`에서 모듈 경로가 달라지므로 보조 함수는 다른 테스트 모듈에서 가져오지 않고 이 파일에 둔다.
 """
@@ -23,9 +25,9 @@ LEVEL_TWO = re.compile(r"##(?=[ \t]|$)")
 LABELS = {"누름 허용": "settleMs", "숨김": "closeMs"}
 
 # 절에 꼭 남아야 하는 글자. 회차 규칙, 대체 타이머, 동작 줄이기 세 시점, Esc 뒤 초점.
+# 대체 타이머 ms는 코드 값이 바뀌면 함께 바뀌므로 여기 고정하지 않고 FALLBACK_RULE 줄 비교로 확인한다(#230).
 REQUIRED = (
     "회차",
-    "16ms",
     "requestAnimationFrame",
     "cancelAnimationFrame",
     "prefers-reduced-motion",
@@ -40,6 +42,40 @@ REQUIRED = (
 REDUCED_HEADING = "### 동작 줄이기"
 SECTION_BOUNDARY = re.compile(r"#{1,2}(?=[ \t]|$)")
 SUBSECTION_BOUNDARY = re.compile(r"#{1,4}(?=[ \t]|$)")
+# 누름 허용·숨김 ms 규칙 줄이 있어야 하는 하위 절(#230 교차 검토). 줄 시작만 보면 뒤 설명의 뜻을 바꿔도
+# 통과하므로 「- 이름표 숫자ms: 」 뒤 설명까지 줄 전체로 비교한다. 숫자는 코드 상수에서 채운다.
+TIME_HEADING = "### 시간"
+TIME_RULES = {
+    "누름 허용": "방울이 + 가운데에서 출발해 다 펼쳐질 때까지 `data-settled`를 붙이지 않는다. 값은 `settleMs`다.",
+    "숨김": "닫힘 전환이 끝난 뒤 `hidden`을 붙인다. 값은 `closeMs`다.",
+}
+# `requestAnimationFrame`이 없을 때 쓰는 대체 타이머 규칙 줄(#230 교차 검토). 「16ms」 글자만 찾으면 뜻을 바꾸거나
+# 다른 하위 절로 옮겨도 통과하므로 `### 시간`에서 줄 전체로 비교한다. 숫자는 quick-actions.js의 nextFrame에서 읽는다.
+FALLBACK_RULE = "- `requestAnimationFrame`이 없는 브라우저에서는 {ms}ms 대체 타이머로 열기 콜백을 부른다. 이 타이머도 회차를 확인하고, 닫을 때 지운다."
+# 숫자가 없는 링 절 규칙 줄(#230 교차 검토). `REQUIRED` 낱말만 찾으면 「있을 때만」을 「없을 때만」으로 바꾸거나
+# `### 검사`로 옮겨도 통과하므로 하위 절마다 줄 전체로 비교한다. 숫자가 든 `### 시간` 줄은 위 표가 코드 값으로 채운다.
+SUBSECTION_RULES = {
+    "### 회차": (
+        "- 링을 열 때마다 회차 번호를 하나 올린다. 열기 콜백, 본문이 바뀔 때 거는 재배치 콜백, 누름 허용 타이머, 숨김 타이머는 건 때의 회차를 기억한다.",
+        "- 도착했을 때 회차가 지금과 다르면 아무 상태도 바꾸지 않는다. 지난 회차의 콜백이 `data-open`·`data-settled`·`hidden`을 건드리지 못한다.",
+        "- 닫을 때는 걸어 둔 열기 콜백·재배치 콜백·누름 허용 타이머를 지운다. `cancelAnimationFrame`은 있을 때만 부른다.",
+        "- 채팅 화면에서 홈 전환을 기다리는 실행의 `waiting` 번호 규칙은 따로 두며 이 회차와 섞지 않는다.",
+    ),
+    "### 시간": (
+        "- 누름 허용 타이머는 함수 하나에서만 건다. 열기 콜백과 `resettle()`이 같은 함수를 쓰고, 새로 걸기 전에 앞 타이머를 지운다.",
+    ),
+    "### 초점": ("- Esc로 닫으면 초점이 + 버튼으로 돌아오고 `aria-expanded`는 `false`가 된다.",),
+}
+# 실제로 쓰는 `nextFrame` 선언에 묶어 대체 타이머 값을 읽는다. 같은 모양의 다른 함수 값은 읽지 않는다(#230 교차 검토).
+# 주석·문자열을 걷어 낸 코드(script_code)에서 찾고, 기호 사이 공백 수와 `callback`·`(callback)` 모양은 가리지 않는다.
+FALLBACK_TIMER = re.compile(
+    r"(?<![\w.$])nextFrame\s*=\s*(?:callback|\(\s*callback\s*\))\s*=>\s*\(\s*typeof\s+window\.requestAnimationFrame\s*===\s*\"function\"\s*"
+    r"\?\s*window\.requestAnimationFrame\(\s*callback\s*\)\s*:\s*"
+    r"setTimeout\(\s*\(\s*\)\s*=>\s*callback\(\s*Date\.now\(\s*\)\s*\)\s*,\s*(\d+)\s*\)\s*\)"
+)
+SCRIPT_TOKEN = re.compile(
+    r"/\*.*?\*/|//[^\n]*|\"(?:\\.|[^\"\\\n])*\"|'(?:\\.|[^'\\\n])*'|`(?:\\.|[^`\\])*`", re.DOTALL
+)
 FENCE = re.compile(r"[ \t]{0,3}(`{3,}|~{3,})")
 REDUCED_RULES = {
     "등록 순서": "- 바뀜 처리기는 `addEventListener`가 함수일 때 그것으로 한 번 등록하고, 아니면 `addListener`가 함수일 때 그것으로 한 번 등록하며, 둘 다 없으면 등록하지 않고 열 때 `matches`를 따른다. 처리기는 받은 값의 `matches`만 읽는다(옛 Safari는 이벤트 대신 미디어 쿼리를 넘긴다).",
@@ -48,6 +84,8 @@ REDUCED_RULES = {
     # quick-actions.js의 재배치 콜백은 moved()로 + 버튼이 1px 넘게 옮겨 갔는지 먼저 보고, 옮겨 갔으면 closeRing()이 설정을 읽는다.
     # 아니면 place()가 자리를 찾고, 자리가 없으면 layoutKey 전에 false를 돌려줘 역시 closeRing()이 닫는다.
     # 자리가 있으면 layoutKey(+ 가운데 좌표, 반올림한 방울 좌표, 좁은 배치)가 바뀔 때만 resettle()이 설정을 읽는다.
+    # 교차 검토 재현(#230): 이 줄이 표에 없어 지워도 통과했다.
+    "다시 끌 때": "- 설정을 다시 꺼도 이미 끝난 전환은 다시 돌지 않는다. 지운 콜백·타이머가 늦게 불려도 `data-open`·`data-settled`·`hidden`은 되돌아가지 않는다.",
     "재배치 콜백": "- 본문이 바뀌어 걸어 둔 재배치 콜백은 설정이 바뀌어도 지우지 않는다. 도착하면 먼저 + 버튼의 왼쪽·위쪽 좌표가 열었을 때보다 1px 넘게 움직였는지 보고, 움직였거나 방울을 놓을 자리가 없으면 배치 기준을 비교하지 않고 링을 닫는다. 닫을 때 그때의 설정이 켜져 있으면 숨김 타이머 없이 바로 숨기고, 꺼져 있으면 숨김 300ms 뒤에 숨긴다. 링을 계속 열어 두면 배치 기준(+ 버튼 가운데 좌표, 1px 단위로 반올림한 방울 좌표, 좁은 배치 여부)이 바뀐 경우에만 그때의 설정을 읽어, 켜져 있으면 바로 `data-settled`를 붙이고 꺼져 있으면 누름 허용 290ms 동안 누름을 막는다. 방울이 1px 미만으로만 움직이는 등 기준이 그대로면 `data-settled`와 걸어 둔 누름 허용 타이머를 건드리지 않는다.",
 }
 # 실제 동작과 어긋나 바꾼 옛 줄. 링 절 어디에도 보이는 줄로 남으면 안 된다.
@@ -60,27 +98,55 @@ STALE_RULES = (
     "- 본문이 바뀌어 걸어 둔 재배치 콜백은 설정이 바뀌어도 지우지 않는다. 도착했을 때 방울을 놓을 자리가 있으면 배치 기준(+ 버튼 가운데 좌표, 1px 단위로 반올림한 방울 좌표, 좁은 배치 여부)이 바뀐 경우에만 그때의 설정을 읽어, 켜져 있으면 바로 `data-settled`를 붙이고 꺼져 있으면 누름 허용 290ms 동안 누름을 막는다. 방울이 1px 미만으로만 움직이는 등 기준이 그대로면 `data-settled`와 걸어 둔 누름 허용 타이머를 건드리지 않는다. 놓을 자리가 없으면 배치 기준을 비교하지 않고 링을 닫으며, 그때의 설정이 켜져 있으면 숨김 타이머 없이 바로 숨기고 꺼져 있으면 숨김 300ms 뒤에 숨긴다.",
 )
 CLOSING_FENCE = re.compile(r" {0,3}(`{3,}|~{3,})[ \t]*")
-
-
 def visible_lines(text):
     """HTML 주석과 코드 블록을 걷어 낸 줄 목록. 닫히지 않은 주석·코드 블록은 문서 끝까지 숨은 것으로 본다.
 
+    한 줄씩 읽으며 펜스 상태와 주석 상태를 함께 따진다(#230). 코드 블록 안의 `<!--`는 예문이라 주석을 열지 않고,
+    주석 안의 펜스 모양 줄은 블록을 열지 않는다. 펜스는 주석 밖에서 시작하는 줄에서만 연다.
     공백 세 칸 이하로 시작하고 여는 펜스와 같은 글자로만 된 줄(길이는 같거나 길게)이 블록을 닫는다.
     블록 안의 「```text」 줄이나 네 칸 이상 들여쓴 펜스 줄은 글로 본다.
+    여러 줄 주석은 여는 표식 앞 글과 닫는 표식 뒤 글을 한 줄로 잇는다.
+    목록·인용문 같은 다른 마크다운 구조는 따지지 않는다.
     """
     lines = []
     fence = None
-    for line in visible_text(text).splitlines():
-        opened = FENCE.match(line)
-        if fence is None and opened:
-            fence = opened.group(1)
-        elif fence is not None:
-            closing = CLOSING_FENCE.fullmatch(line)
+    in_comment = False
+    pending = ""
+    for raw in text.splitlines():
+        if fence is not None:
+            closing = CLOSING_FENCE.fullmatch(raw)
             if closing and closing.group(1)[0] == fence[0] and len(closing.group(1)) >= len(fence):
                 fence = None
-        else:
-            # 줄 끝 공백은 화면에 보이지 않으므로 걷어 내고 비교한다.
-            lines.append(line.rstrip(" \t"))
+            continue
+        if not in_comment:
+            opened = FENCE.match(raw)
+            if opened:
+                fence = opened.group(1)
+                continue
+        out = pending if in_comment else ""
+        rest = raw
+        while True:
+            if in_comment:
+                end = rest.find("-->")
+                if end < 0:
+                    break
+                rest = rest[end + 3 :]
+                in_comment = False
+            start = rest.find("<!--")
+            if start < 0:
+                out += rest
+                break
+            out += rest[:start]
+            rest = rest[start + 4 :]
+            in_comment = True
+        if in_comment:
+            pending = out
+            continue
+        pending = ""
+        # 줄 끝 공백은 화면에 보이지 않으므로 걷어 내고 비교한다.
+        lines.append(out.rstrip(" \t"))
+    if in_comment and pending:
+        lines.append(pending.rstrip(" \t"))
     return lines
 
 
@@ -112,15 +178,41 @@ def reduced_rule_problems(notes):
 
 
 def visible_text(text):
-    """HTML 주석을 걷어 낸 글. 닫히지 않은 주석은 문서 끝까지 숨은 것으로 본다."""
-    return re.sub(r"<!--.*?(?:-->|\Z)", "", text, flags=re.DOTALL)
+    """HTML 주석과 코드 블록을 걷어 낸 글(`visible_lines()`와 같은 줄).
+
+    코드 블록 안 `## ` 예문이 링 절을 끊거나 블록에만 적은 숫자·글자가 검사를 통과하지 않게 블록도 걷어 낸다.
+    """
+    return "\n".join(visible_lines(text))
+
+
+def script_code(script):
+    """JS 주석과 문자열을 걷어 낸 코드. 주석·문자열 속 옛 선언의 값을 읽지 않으려고 쓴다(#230 교차 검토).
+
+    앞에서부터 주석(`/* … */`, `//` 뒤 줄 끝까지)과 문자열(`"…"`, `'…'`, `` `…` ``)을 한 덩이씩 찾는다.
+    주석은 통째로, 문자열은 따옴표 안쪽만 같은 길이의 공백으로 가리고 줄바꿈은 남긴다. 그래서 돌려준 글의 위치가
+    원문 위치와 같아, 찾은 선언의 자리를 원문에 그대로 쓸 수 있다. `nextFrame` 선언이 비교하는 `"function"`만 그대로 둔다.
+    quick-actions.js에는 정규식 리터럴이 없고 템플릿 문자열은 한 줄 안에서 닫혀 이 순서로 충분하다.
+    """
+    def blank(text):
+        return re.sub(r"[^\n]", " ", text)
+
+    def replace(found):
+        token = found.group(0)
+        if token in ('"function"', "'function'"):
+            return token
+        if token.startswith("/"):
+            return blank(token)
+        return f"{token[0]}{blank(token[1:-1])}{token[-1]}"
+
+    return SCRIPT_TOKEN.sub(replace, script)
 
 
 def script_constants(script):
-    """`const` 선언 안의 settleMs·closeMs 값. 선언이 정확히 하나가 아니면 None."""
+    """`const` 선언 안의 settleMs·closeMs 값. 주석은 걷어 내고 보며, 선언이 정확히 하나가 아니면 None."""
+    code = script_code(script)
     values = {}
     for name in LABELS.values():
-        found = re.findall(rf"(?<![\w.$]){name}\s*=\s*(\d+)(?=\s*[,;])", script)
+        found = re.findall(rf"(?<![\w.$]){name}\s*=\s*(\d+)(?=\s*[,;])", code)
         values[name] = int(found[0]) if len(found) == 1 else None
     return values
 
@@ -139,13 +231,20 @@ def ring_section(text):
     return "\n".join(lines[start + 1 : end])
 
 
+def time_rule(label, value):
+    """`### 시간`에 있어야 하는 규칙 줄 전체."""
+    return f"- {label} {value}ms: {TIME_RULES[label]}"
+
+
 def ring_doc_problems(notes, script):
     """절이 없거나, 이름표 ms가 상수와 다르거나, 꼭 있어야 할 글자가 빠지면 문제를 돌려준다."""
     section = ring_section(visible_text(notes))
     if section is None:
         return [f"{SECTION_HEADING!r} 제목이 문서에 한 번 있어야 한다."]
     constants = script_constants(script)
-    problems = []
+    # 교차 검토 재현: 재배치 문장에도 같은 숫자가 있어 절 전체만 보면 `### 시간` 규칙 줄이 빠져도 통과한다.
+    time_block = block_after(section.splitlines(), TIME_HEADING, SUBSECTION_BOUNDARY)
+    problems = [] if time_block is not None else [f"링 절 안에 {TIME_HEADING!r} 제목이 한 번 있어야 한다."]
     for label, name in LABELS.items():
         expected = constants[name]
         if expected is None:
@@ -155,10 +254,28 @@ def ring_doc_problems(notes, script):
         written = re.findall(rf"{label} (\d+)ms", section)
         if str(expected) not in written:
             problems.append(f"절에 '{label} {expected}ms'가 없다.")
+        rule = time_rule(label, expected)
+        if time_block is not None and time_block.count(rule) != 1:
+            problems.append(f"{TIME_HEADING!r}에 규칙 줄 {rule!r}이(가) 한 번 있어야 한다.")
         problems.extend(
             f"절의 '{label} {value}ms'가 {name} {expected}와 다르다."
             for value in written
             if value != str(expected)
+        )
+    fallback = FALLBACK_TIMER.findall(script_code(script))
+    if len(fallback) != 1:
+        problems.append("quick-actions.js의 nextFrame에 대체 타이머 setTimeout(…, ms)이 한 번 있어야 한다.")
+    elif time_block is not None:
+        rule = FALLBACK_RULE.format(ms=fallback[0])
+        if time_block.count(rule) != 1:
+            problems.append(f"{TIME_HEADING!r}에 규칙 줄 {rule!r}이(가) 한 번 있어야 한다.")
+    for heading, rules in SUBSECTION_RULES.items():
+        block = block_after(section.splitlines(), heading, SUBSECTION_BOUNDARY)
+        if block is None:
+            problems.append(f"링 절 안에 {heading!r} 제목이 한 번 있어야 한다.")
+            continue
+        problems.extend(
+            f"{heading!r}에 규칙 줄 {rule!r}이(가) 한 번 있어야 한다." for rule in rules if block.count(rule) != 1
         )
     problems.extend(f"절에 {phrase!r}이(가) 없다." for phrase in REQUIRED if phrase not in section)
     return problems
@@ -220,6 +337,160 @@ class QuickRingDocTest(unittest.TestCase):
             with self.subTest(case=case):
                 self.assertTrue(ring_doc_problems(modified, self.script))
 
+    def test_time_rule_lines_are_checked(self):
+        # 교차 검토 재현: `### 동작 줄이기` 재배치 문장에 같은 숫자가 남아도 `### 시간` 규칙 줄이 빠지면 실패한다.
+        lines = {label: time_rule(label, self.constants[name]) for label, name in LABELS.items()}
+        for line in lines.values():
+            self.assertEqual(self.notes.count(f"{line}\n"), 1, line)
+        both_removed = self.notes
+        for line in lines.values():
+            both_removed = both_removed.replace(f"{line}\n", "", 1)
+        cases = {"두 줄 삭제": both_removed}
+        for label, line in lines.items():
+            removed = self.notes.replace(f"{line}\n", "", 1)
+            cases[f"{label} 삭제"] = removed
+            cases[f"{label} 중복"] = self.notes.replace(f"{line}\n", f"{line}\n{line}\n", 1)
+            # 같은 절의 다른 실제 하위 절로 옮긴다.
+            cases[f"{label} `### 초점`으로 이동"] = removed.replace("### 초점\n", f"### 초점\n\n{line}\n", 1)
+        # 교차 검토 재현: 줄 시작(「- 누름 허용 290ms: 」)은 두고 뒤 설명의 뜻만 바꾼다.
+        flips = {
+            "누름 허용": ("다 펼쳐질 때까지 `data-settled`를 붙이지 않는다", "290ms가 지나기 전에도 누름을 허용한다"),
+            "숨김": ("닫힘 전환이 끝난 뒤", "닫힘 전환이 시작될 때"),
+        }
+        for label, (old, new) in flips.items():
+            self.assertIn(old, lines[label])
+            cases[f"{label} 뜻 바꿈"] = self.notes.replace(lines[label], lines[label].replace(old, new), 1)
+        for case, modified in cases.items():
+            with self.subTest(case=case):
+                self.assertNotEqual(modified, self.notes)
+                self.assertTrue(ring_doc_problems(modified, self.script))
+
+    def fallback_match(self, script):
+        """검사 함수와 같은 판정(script_code)으로 찾은 실제 `nextFrame` 선언 하나. 위치는 원문 위치와 같다."""
+        matches = list(FALLBACK_TIMER.finditer(script_code(script)))
+        self.assertEqual(len(matches), 1)
+        return matches[0]
+
+    def assert_fallback_code_is_checked(self, script):
+        """`script`의 실제 선언 자리만 바꿔 가며 코드 값 검사를 본다. 원문 글자를 찾아 바꾸지 않아
+        주석 속 복제본이나 공백 차이에도 같은 자리를 고친다(#230 교차 검토)."""
+        code = script_code(script)
+        match = self.fallback_match(script)
+        found = match.group(1)
+        line = FALLBACK_RULE.format(ms=found)
+        self.assertEqual(self.notes.count(f"{line}\n"), 1, line)
+        self.assertEqual(ring_doc_problems(self.notes, script), [])
+        new_ms = str(int(found) + 16)
+        both = self.notes.replace(line, FALLBACK_RULE.format(ms=new_ms), 1)
+        # 문서는 그대로 두고 코드의 대체 타이머 값만 바꾸면 실패하고, 문서 규칙 줄도 함께 바꾸면 통과한다.
+        value_start, value_end = match.span(1)
+        changed = f"{script[:value_start]}{new_ms}{script[value_end:]}"
+        self.assertEqual(self.fallback_match(changed).group(1), new_ms)
+        self.assertTrue(ring_doc_problems(self.notes, changed))
+        self.assertEqual(ring_doc_problems(both, changed), [])
+        # 선언 줄 전체(줄 첫머리부터 `;`까지)를 다른 모양으로 바꿔 본다.
+        line_start = script.rfind("\n", 0, match.start()) + 1
+        end = match.end() + code[match.end() :].index(";") + 1
+        region = script[line_start:end]
+        indent = region[: len(region) - len(region.lstrip(" "))]
+        old_decl = region.strip()
+        new_decl = (
+            f"{indent}const nextFrame = (callback) => (typeof window.requestAnimationFrame === \"function\"\n"
+            f"{indent}  ? window.requestAnimationFrame(callback) : setTimeout(()  => callback(Date.now()),  {new_ms}));"
+        )
+        renamed = region.replace("nextFrame", "obsoleteFrame", 1)
+        head, tail = script[:line_start], script[end:]
+        replaced = {
+            # 옛 함수 이름만 바꿔 남기고 실제 `nextFrame`은 새 값으로 정의한다.
+            "이름 바꾼 옛 선언": f"{head}{new_decl}\n{renamed}{tail}",
+            # 옛 선언을 주석·여러 줄 문자열에 남기고 실제 선언은 `(callback) =>`, 공백 두 칸, 새 값으로 쓴다.
+            "블록 주석": f"{head}{indent}/* {old_decl} */\n{new_decl}{tail}",
+            "줄 주석": f"{head}{indent}// {old_decl.replace(chr(10), ' ')}\n{new_decl}{tail}",
+            "여러 줄 문자열": f"{head}{indent}const legacy = `{old_decl}`;\n{new_decl}{tail}",
+        }
+        for case, modified in replaced.items():
+            with self.subTest(case=case):
+                self.assertEqual(self.fallback_match(modified).group(1), new_ms)
+                self.assertTrue(ring_doc_problems(self.notes, modified))
+                self.assertEqual(ring_doc_problems(both, modified), [])
+        # `nextFrame` 선언을 찾지 못해도 실패한다.
+        missing = f"{head}{renamed}{tail}"
+        self.assertEqual(FALLBACK_TIMER.findall(script_code(missing)), [])
+        self.assertTrue(ring_doc_problems(self.notes, missing))
+
+    def test_fallback_code_value_is_checked(self):
+        # 교차 검토 재현: 지금 선언을 바로 위 블록 주석에 복제하거나 숫자 앞 공백을 두 칸으로 바꾼 코드에서도
+        # 검사와 이 메서드가 같은 선언 하나를 읽고 같은 자리를 고친다.
+        match = self.fallback_match(self.script)
+        line_start = self.script.rfind("\n", 0, match.start()) + 1
+        end = match.end() + script_code(self.script)[match.end() :].index(";") + 1
+        value_start = match.start(1)
+        variants = {
+            "원문": self.script,
+            "주석 속 복제본": f"{self.script[:line_start]}  /* {self.script[line_start:end].strip()} */\n{self.script[line_start:]}",
+            "숫자 앞 공백 두 칸": f"{self.script[:value_start]} {self.script[value_start:]}",
+        }
+        for case, script in variants.items():
+            with self.subTest(variant=case):
+                if case != "원문":
+                    self.assertNotEqual(script, self.script)
+                self.assert_fallback_code_is_checked(script)
+
+    def test_fallback_timer_rule_is_checked(self):
+        # 교차 검토 재현: 「16ms」 글자는 남긴 채 뜻을 바꾸거나 `### 초점`으로 옮겨도 실패해야 한다.
+        found = [self.fallback_match(self.script).group(1)]
+        line = FALLBACK_RULE.format(ms=found[0])
+        self.assertEqual(self.notes.count(f"{line}\n"), 1, line)
+        removed = self.notes.replace(f"{line}\n", "", 1)
+        cases = {
+            "뜻 바꿈": self.notes.replace(line, line.replace(f"{found[0]}ms 대체", f"{found[0]}ms 대신 99ms 대체"), 1),
+            "삭제": removed,
+            "중복": self.notes.replace(f"{line}\n", f"{line}\n{line}\n", 1),
+            "`### 초점`으로 이동": removed.replace(
+                "### 초점\n", f"### 초점\n\n{line}\n", removed.count("### 초점\n")
+            ),
+        }
+        for case, modified in cases.items():
+            with self.subTest(case=case):
+                self.assertNotEqual(modified, self.notes)
+                self.assertTrue(ring_doc_problems(modified, self.script))
+
+    def test_constants_in_js_comments_are_ignored(self):
+        # 주석 속 옛 상수 선언을 실제 값으로 읽지 않는다. 실제 값이 문서와 다르면 실패한다.
+        for name, value in self.constants.items():
+            with self.subTest(name=name):
+                changed = re.sub(rf"(?<![\w.$]){name}\s*=\s*{value}", f"{name} = {value + 10}", self.script)
+                commented = f"/* const {name} = {value}; */\n{changed}"
+                self.assertEqual(script_constants(commented)[name], value + 10)
+                self.assertTrue(ring_doc_problems(self.notes, commented))
+
+    def test_subsection_rule_lines_are_checked(self):
+        # 교차 검토 재현: `회차`·`cancelAnimationFrame`·`aria-expanded` 낱말은 남긴 채 뜻을 바꾸거나 `### 검사`로 옮긴다.
+        flips = {
+            SUBSECTION_RULES["### 회차"][1]: ("아무 상태도 바꾸지 않는다", "지금 상태를 바꾼다"),
+            SUBSECTION_RULES["### 회차"][2]: ("있을 때만", "없을 때만"),
+            SUBSECTION_RULES["### 초점"][0]: ("`false`", "`true`"),
+        }
+        for rules in SUBSECTION_RULES.values():
+            for rule in rules:
+                self.assertEqual(self.notes.count(f"{rule}\n"), 1, rule)
+                removed = self.notes.replace(f"{rule}\n", "", 1)
+                start = removed.index(f"{SECTION_HEADING}\n")
+                check = removed.index("### 검사\n", start)
+                cases = {
+                    "삭제": removed,
+                    "중복": self.notes.replace(f"{rule}\n", f"{rule}\n{rule}\n", 1),
+                    "`### 검사`로 이동": f"{removed[:check]}### 검사\n\n{rule}\n{removed[check + len('### 검사') + 1:]}",
+                }
+                if rule in flips:
+                    old, new = flips[rule]
+                    self.assertIn(old, rule)
+                    cases["뜻 바꿈"] = self.notes.replace(rule, rule.replace(old, new), 1)
+                for case, modified in cases.items():
+                    with self.subTest(rule=rule[:20], case=case):
+                        self.assertNotEqual(modified, self.notes)
+                        self.assertTrue(ring_doc_problems(modified, self.script))
+
     def test_required_phrases_are_checked(self):
         section = ring_section(self.notes)
         for phrase in REQUIRED:
@@ -263,6 +534,7 @@ class QuickRingReducedRuleDocTest(unittest.TestCase):
             "등록 순서": ("아니면 `addListener`가", "그리고 `addListener`도"),
             "단계별 예약 정리": ("숨김 타이머를 지우고", "숨김 타이머를 기다리고"),
             "숨길 때 초점": ("링 밖에 있으면 그대로 둔다", "링 밖에 있어도 + 버튼으로 옮긴다"),
+            "다시 끌 때": ("다시 돌지 않는다", "처음부터 다시 돈다"),
             "재배치 콜백": ("1px 단위로 반올림한 방울 좌표", "소수 둘째 자리까지 잰 방울 좌표"),
         }
         for name, rule in REDUCED_RULES.items():
@@ -370,6 +642,87 @@ class QuickRingReducedRuleDocTest(unittest.TestCase):
         heading = self.ring_reduced_heading(self.notes)
         modified = self.insert_after(self.notes, heading, True, "```text\n### 예문 제목\n```")
         self.assertEqual(reduced_rule_problems(modified), [])
+
+
+class QuickRingCommentInCodeBlockTest(unittest.TestCase):
+    """코드 블록 안 `<!--` 예문과 주석 안 펜스 모양 줄(#230). 사례 문서는 실제 문서를 메모리에서 고쳐 만든다."""
+
+    EXAMPLES = {
+        "백틱": "```html\n<!-- 여는 표식만 있는 예문\n```\n",
+        "물결": "~~~html\n<!-- 여는 표식만 있는 예문\n~~~\n",
+    }
+
+    @classmethod
+    def setUpClass(cls):
+        cls.notes = UI_NOTES.read_text(encoding="utf-8")
+        cls.script = SCRIPT.read_text(encoding="utf-8")
+
+    def replaced(self, old, new):
+        self.assertEqual(self.notes.count(old), 1, old)
+        return self.notes.replace(old, new, 1)
+
+    def problems(self, notes):
+        return ring_doc_problems(notes, self.script) + reduced_rule_problems(notes)
+
+    def test_comment_marker_inside_code_block_is_example(self):
+        # 교차 검토 재현: 예전에는 블록 안 `<!--`부터 문서 끝까지 숨어 링 절 제목과 규칙 줄을 못 찾았다.
+        heading = f"{SECTION_HEADING}\n"
+        reduced = self.notes.index(f"\n{REDUCED_HEADING}\n", self.notes.index(heading)) + 1
+        for fence, example in self.EXAMPLES.items():
+            cases = {
+                "링 절 앞": self.replaced(heading, f"{example}\n{heading}"),
+                "링 절 머리말": self.replaced(heading, f"{heading}\n{example}"),
+                "`### 동작 줄이기` 안": f"{self.notes[:reduced]}{REDUCED_HEADING}\n\n{example}{self.notes[reduced + len(REDUCED_HEADING) + 1:]}",
+            }
+            for case, modified in cases.items():
+                with self.subTest(fence=fence, case=case):
+                    self.assertNotEqual(modified, self.notes)
+                    self.assertEqual(self.problems(modified), [])
+
+    def test_heading_example_in_code_block_does_not_cut_ring_section(self):
+        # 교차 검토 재현: 블록 안 `## Example` 예문을 링 절 제목으로 읽으면 절이 끊겨 맞는 문서도 실패한다.
+        heading = f"{SECTION_HEADING}\n"
+        for fence in ("```", "~~~"):
+            example = f"{fence}html\n<!--\n## Example\n-->\n{fence}\n"
+            with self.subTest(fence=fence):
+                self.assertEqual(self.problems(self.replaced(heading, f"{heading}\n{example}")), [])
+
+    def test_ring_numbers_only_in_code_block_fail(self):
+        # 교차 검토 재현: 실제 절 본문을 블록 안으로 옮기면 숫자·필수 글자가 예문에만 남으므로 실패해야 한다.
+        section = ring_section(self.notes)
+        for fence in ("```", "~~~"):
+            for case, wrapped in {
+                "본문만": f"\n{fence}text\n{section}\n{fence}\n",
+                "주석 표식과 함께": f"\n{fence}text\n<!--\n{section}\n-->\n{fence}\n",
+            }.items():
+                with self.subTest(fence=fence, case=case):
+                    self.assertTrue(ring_doc_problems(self.replaced(section, wrapped), self.script))
+
+    def test_fence_like_line_inside_comment_does_not_open_block(self):
+        # 주석 안 펜스 모양 줄이 블록을 열면 주석이 끝난 뒤의 실제 규칙까지 숨는다.
+        heading = f"{SECTION_HEADING}\n"
+        for fence in ("```", "~~~"):
+            cases = {
+                "펜스 줄만": f"<!--\n{fence}\n-->\n",
+                "펜스 줄과 메모": f"<!-- 메모\n{fence}text\n예문\n-->\n",
+            }
+            for case, comment in cases.items():
+                modified = self.replaced(heading, f"{comment}\n{heading}")
+                with self.subTest(fence=fence, case=case):
+                    self.assertEqual(self.problems(modified), [])
+
+    def test_rule_still_hidden_around_code_block_example(self):
+        # 블록 안 예문을 보이게 고쳐도 블록 밖 주석과 주석 안 펜스 뒤 규칙은 계속 숨는다.
+        for name, rule in REDUCED_RULES.items():
+            cases = {
+                "예문 블록 뒤 한 줄 주석": f"```html\n<!--\n```\n<!-- {rule} -->\n",
+                "예문 블록 뒤 닫히지 않은 주석": f"~~~\n<!--\n~~~\n<!--\n{rule}\n",
+                "주석 안 펜스 뒤 규칙": f"<!--\n```\n{rule}\n-->\n",
+                "주석 뒤 닫히지 않은 코드 블록": f"<!--\n~~~\n-->\n```\n{rule}\n",
+            }
+            for case, wrapped in cases.items():
+                with self.subTest(rule=name, case=case):
+                    self.assertTrue(reduced_rule_problems(self.replaced(f"{rule}\n", wrapped)))
 
 
 if __name__ == "__main__":
