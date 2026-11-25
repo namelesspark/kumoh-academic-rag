@@ -790,6 +790,7 @@ for (const [phase, label] of motionPhases) {
 
 for (const [mediaMode, settingAtFrame, relocate] of [
   ["modern", false, true], ["legacy", true, true], ["legacy", false, true], ["legacy", false, false],
+  ["modern", true, true], ["modern", true, false],
 ]) {
   test(`본문이 바뀌면 다음 화면 갱신에서 다시 놓고 도착 시점의 동작 줄이기 설정을 따른다 (${mediaMode}, ${settingAtFrame}, ${relocate})`, () => {
     const page = ringPage({ width: 390, height: 700, view: "chat", toggleRect: { left: 21, top: 640, width: 44, height: 44 },
@@ -814,8 +815,28 @@ for (const [mediaMode, settingAtFrame, relocate] of [
       page.reduce();
       if (!settingAtFrame) page.reduce(false);
     }
+    const checkSettledChanges = mediaMode === "modern" && settingAtFrame;
+    const settledChanges = [];
+    const previousPositions = checkSettledChanges && !relocate ? page.items.map(center) : null;
+    if (checkSettledChanges) {
+      page.reduce();
+      const { ring } = page;
+      const { setAttribute, removeAttribute } = ring;
+      ring.setAttribute = function (name, value) {
+        if (name === "data-settled") settledChanges.push("set");
+        return setAttribute.call(this, name, value);
+      };
+      ring.removeAttribute = function (name) {
+        if (name === "data-settled") settledChanges.push("remove");
+        return removeAttribute.call(this, name);
+      };
+    }
     assert.deepEqual([...page.pendingFrames.keys()], [frameId]);
     assert.equal(page.frames(), 1);
+    if (checkSettledChanges) {
+      assert.deepEqual(settledChanges, relocate ? ["set"] : []);
+      if (previousPositions) assert.deepEqual(page.items.map(center), previousPositions);
+    }
     assert.equal(page.toggle.getAttribute("aria-expanded"), "true");
     const size = page.ring.getAttribute("data-compact") === "" ? 22 : 26;
     for (const item of page.items) assert.ok(gapTo(link.rect, center(item)) >= size, `${item.dataset.quickAction} covers the new link`);
