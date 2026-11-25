@@ -52,6 +52,20 @@ TIME_RULES = {
 # `requestAnimationFrame`이 없을 때 쓰는 대체 타이머 규칙 줄(#230 교차 검토). 「16ms」 글자만 찾으면 뜻을 바꾸거나
 # 다른 하위 절로 옮겨도 통과하므로 `### 시간`에서 줄 전체로 비교한다. 숫자는 quick-actions.js의 nextFrame에서 읽는다.
 FALLBACK_RULE = "- `requestAnimationFrame`이 없는 브라우저에서는 {ms}ms 대체 타이머로 열기 콜백을 부른다. 이 타이머도 회차를 확인하고, 닫을 때 지운다."
+# 숫자가 없는 링 절 규칙 줄(#230 교차 검토). `REQUIRED` 낱말만 찾으면 「있을 때만」을 「없을 때만」으로 바꾸거나
+# `### 검사`로 옮겨도 통과하므로 하위 절마다 줄 전체로 비교한다. 숫자가 든 `### 시간` 줄은 위 표가 코드 값으로 채운다.
+SUBSECTION_RULES = {
+    "### 회차": (
+        "- 링을 열 때마다 회차 번호를 하나 올린다. 열기 콜백, 본문이 바뀔 때 거는 재배치 콜백, 누름 허용 타이머, 숨김 타이머는 건 때의 회차를 기억한다.",
+        "- 도착했을 때 회차가 지금과 다르면 아무 상태도 바꾸지 않는다. 지난 회차의 콜백이 `data-open`·`data-settled`·`hidden`을 건드리지 못한다.",
+        "- 닫을 때는 걸어 둔 열기 콜백·재배치 콜백·누름 허용 타이머를 지운다. `cancelAnimationFrame`은 있을 때만 부른다.",
+        "- 채팅 화면에서 홈 전환을 기다리는 실행의 `waiting` 번호 규칙은 따로 두며 이 회차와 섞지 않는다.",
+    ),
+    "### 시간": (
+        "- 누름 허용 타이머는 함수 하나에서만 건다. 열기 콜백과 `resettle()`이 같은 함수를 쓰고, 새로 걸기 전에 앞 타이머를 지운다.",
+    ),
+    "### 초점": ("- Esc로 닫으면 초점이 + 버튼으로 돌아오고 `aria-expanded`는 `false`가 된다.",),
+}
 FALLBACK_TIMER = re.compile(r"requestAnimationFrame\(callback\)\s*:\s*setTimeout\(\(\) => callback\(Date\.now\(\)\), (\d+)\)")
 FENCE = re.compile(r"[ \t]{0,3}(`{3,}|~{3,})")
 REDUCED_RULES = {
@@ -221,6 +235,14 @@ def ring_doc_problems(notes, script):
         rule = FALLBACK_RULE.format(ms=fallback[0])
         if time_block.count(rule) != 1:
             problems.append(f"{TIME_HEADING!r}에 규칙 줄 {rule!r}이(가) 한 번 있어야 한다.")
+    for heading, rules in SUBSECTION_RULES.items():
+        block = block_after(section.splitlines(), heading, SUBSECTION_BOUNDARY)
+        if block is None:
+            problems.append(f"링 절 안에 {heading!r} 제목이 한 번 있어야 한다.")
+            continue
+        problems.extend(
+            f"{heading!r}에 규칙 줄 {rule!r}이(가) 한 번 있어야 한다." for rule in rules if block.count(rule) != 1
+        )
     problems.extend(f"절에 {phrase!r}이(가) 없다." for phrase in REQUIRED if phrase not in section)
     return problems
 
@@ -332,6 +354,33 @@ class QuickRingDocTest(unittest.TestCase):
         changed = FALLBACK_TIMER.sub(lambda m: m.group(0).replace(f", {found[0]})", f", {int(found[0]) + 16})"), self.script)
         self.assertNotEqual(changed, self.script)
         self.assertTrue(ring_doc_problems(self.notes, changed))
+
+    def test_subsection_rule_lines_are_checked(self):
+        # 교차 검토 재현: `회차`·`cancelAnimationFrame`·`aria-expanded` 낱말은 남긴 채 뜻을 바꾸거나 `### 검사`로 옮긴다.
+        flips = {
+            SUBSECTION_RULES["### 회차"][1]: ("아무 상태도 바꾸지 않는다", "지금 상태를 바꾼다"),
+            SUBSECTION_RULES["### 회차"][2]: ("있을 때만", "없을 때만"),
+            SUBSECTION_RULES["### 초점"][0]: ("`false`", "`true`"),
+        }
+        for rules in SUBSECTION_RULES.values():
+            for rule in rules:
+                self.assertEqual(self.notes.count(f"{rule}\n"), 1, rule)
+                removed = self.notes.replace(f"{rule}\n", "", 1)
+                start = removed.index(f"{SECTION_HEADING}\n")
+                check = removed.index("### 검사\n", start)
+                cases = {
+                    "삭제": removed,
+                    "중복": self.notes.replace(f"{rule}\n", f"{rule}\n{rule}\n", 1),
+                    "`### 검사`로 이동": f"{removed[:check]}### 검사\n\n{rule}\n{removed[check + len('### 검사') + 1:]}",
+                }
+                if rule in flips:
+                    old, new = flips[rule]
+                    self.assertIn(old, rule)
+                    cases["뜻 바꿈"] = self.notes.replace(rule, rule.replace(old, new), 1)
+                for case, modified in cases.items():
+                    with self.subTest(rule=rule[:20], case=case):
+                        self.assertNotEqual(modified, self.notes)
+                        self.assertTrue(ring_doc_problems(modified, self.script))
 
     def test_required_phrases_are_checked(self):
         section = ring_section(self.notes)
