@@ -49,6 +49,10 @@ TIME_RULES = {
     "누름 허용": "방울이 + 가운데에서 출발해 다 펼쳐질 때까지 `data-settled`를 붙이지 않는다. 값은 `settleMs`다.",
     "숨김": "닫힘 전환이 끝난 뒤 `hidden`을 붙인다. 값은 `closeMs`다.",
 }
+# `requestAnimationFrame`이 없을 때 쓰는 대체 타이머 규칙 줄(#230 교차 검토). 「16ms」 글자만 찾으면 뜻을 바꾸거나
+# 다른 하위 절로 옮겨도 통과하므로 `### 시간`에서 줄 전체로 비교한다. 숫자는 quick-actions.js의 nextFrame에서 읽는다.
+FALLBACK_RULE = "- `requestAnimationFrame`이 없는 브라우저에서는 {ms}ms 대체 타이머로 열기 콜백을 부른다. 이 타이머도 회차를 확인하고, 닫을 때 지운다."
+FALLBACK_TIMER = re.compile(r"requestAnimationFrame\(callback\)\s*:\s*setTimeout\(\(\) => callback\(Date\.now\(\)\), (\d+)\)")
 FENCE = re.compile(r"[ \t]{0,3}(`{3,}|~{3,})")
 REDUCED_RULES = {
     "등록 순서": "- 바뀜 처리기는 `addEventListener`가 함수일 때 그것으로 한 번 등록하고, 아니면 `addListener`가 함수일 때 그것으로 한 번 등록하며, 둘 다 없으면 등록하지 않고 열 때 `matches`를 따른다. 처리기는 받은 값의 `matches`만 읽는다(옛 Safari는 이벤트 대신 미디어 쿼리를 넘긴다).",
@@ -210,6 +214,13 @@ def ring_doc_problems(notes, script):
             for value in written
             if value != str(expected)
         )
+    fallback = FALLBACK_TIMER.findall(script)
+    if len(fallback) != 1:
+        problems.append("quick-actions.js의 nextFrame에 대체 타이머 setTimeout(…, ms)이 한 번 있어야 한다.")
+    elif time_block is not None:
+        rule = FALLBACK_RULE.format(ms=fallback[0])
+        if time_block.count(rule) != 1:
+            problems.append(f"{TIME_HEADING!r}에 규칙 줄 {rule!r}이(가) 한 번 있어야 한다.")
     problems.extend(f"절에 {phrase!r}이(가) 없다." for phrase in REQUIRED if phrase not in section)
     return problems
 
@@ -297,6 +308,30 @@ class QuickRingDocTest(unittest.TestCase):
             with self.subTest(case=case):
                 self.assertNotEqual(modified, self.notes)
                 self.assertTrue(ring_doc_problems(modified, self.script))
+
+    def test_fallback_timer_rule_is_checked(self):
+        # 교차 검토 재현: 「16ms」 글자는 남긴 채 뜻을 바꾸거나 `### 초점`으로 옮겨도 실패해야 한다.
+        found = FALLBACK_TIMER.findall(self.script)
+        self.assertEqual(len(found), 1)
+        line = FALLBACK_RULE.format(ms=found[0])
+        self.assertEqual(self.notes.count(f"{line}\n"), 1, line)
+        removed = self.notes.replace(f"{line}\n", "", 1)
+        cases = {
+            "뜻 바꿈": self.notes.replace(line, line.replace("16ms 대체", "16ms 대신 99ms 대체"), 1),
+            "삭제": removed,
+            "중복": self.notes.replace(f"{line}\n", f"{line}\n{line}\n", 1),
+            "`### 초점`으로 이동": removed.replace(
+                "### 초점\n", f"### 초점\n\n{line}\n", removed.count("### 초점\n")
+            ),
+        }
+        for case, modified in cases.items():
+            with self.subTest(case=case):
+                self.assertNotEqual(modified, self.notes)
+                self.assertTrue(ring_doc_problems(modified, self.script))
+        # 문서는 그대로 두고 코드의 대체 타이머 값만 바꿔도 실패한다.
+        changed = FALLBACK_TIMER.sub(lambda m: m.group(0).replace(f", {found[0]})", f", {int(found[0]) + 16})"), self.script)
+        self.assertNotEqual(changed, self.script)
+        self.assertTrue(ring_doc_problems(self.notes, changed))
 
     def test_required_phrases_are_checked(self):
         section = ring_section(self.notes)
