@@ -25,9 +25,9 @@ LEVEL_TWO = re.compile(r"##(?=[ \t]|$)")
 LABELS = {"누름 허용": "settleMs", "숨김": "closeMs"}
 
 # 절에 꼭 남아야 하는 글자. 회차 규칙, 대체 타이머, 동작 줄이기 세 시점, Esc 뒤 초점.
+# 대체 타이머 ms는 코드 값이 바뀌면 함께 바뀌므로 여기 고정하지 않고 FALLBACK_RULE 줄 비교로 확인한다(#230).
 REQUIRED = (
     "회차",
-    "16ms",
     "requestAnimationFrame",
     "cancelAnimationFrame",
     "prefers-reduced-motion",
@@ -66,7 +66,11 @@ SUBSECTION_RULES = {
     ),
     "### 초점": ("- Esc로 닫으면 초점이 + 버튼으로 돌아오고 `aria-expanded`는 `false`가 된다.",),
 }
-FALLBACK_TIMER = re.compile(r"requestAnimationFrame\(callback\)\s*:\s*setTimeout\(\(\) => callback\(Date\.now\(\)\), (\d+)\)")
+# 실제로 쓰는 `nextFrame` 선언에 묶어 대체 타이머 값을 읽는다. 같은 모양의 다른 함수 값은 읽지 않는다(#230 교차 검토).
+FALLBACK_TIMER = re.compile(
+    r"(?<![\w.$])nextFrame\s*=\s*callback\s*=>\s*\(\s*typeof window\.requestAnimationFrame === \"function\"\s*"
+    r"\?\s*window\.requestAnimationFrame\(callback\)\s*:\s*setTimeout\(\(\) => callback\(Date\.now\(\)\), (\d+)\)\s*\)"
+)
 FENCE = re.compile(r"[ \t]{0,3}(`{3,}|~{3,})")
 REDUCED_RULES = {
     "등록 순서": "- 바뀜 처리기는 `addEventListener`가 함수일 때 그것으로 한 번 등록하고, 아니면 `addListener`가 함수일 때 그것으로 한 번 등록하며, 둘 다 없으면 등록하지 않고 열 때 `matches`를 따른다. 처리기는 받은 값의 `matches`만 읽는다(옛 Safari는 이벤트 대신 미디어 쿼리를 넘긴다).",
@@ -339,7 +343,7 @@ class QuickRingDocTest(unittest.TestCase):
         self.assertEqual(self.notes.count(f"{line}\n"), 1, line)
         removed = self.notes.replace(f"{line}\n", "", 1)
         cases = {
-            "뜻 바꿈": self.notes.replace(line, line.replace("16ms 대체", "16ms 대신 99ms 대체"), 1),
+            "뜻 바꿈": self.notes.replace(line, line.replace(f"{found[0]}ms 대체", f"{found[0]}ms 대신 99ms 대체"), 1),
             "삭제": removed,
             "중복": self.notes.replace(f"{line}\n", f"{line}\n{line}\n", 1),
             "`### 초점`으로 이동": removed.replace(
@@ -351,9 +355,27 @@ class QuickRingDocTest(unittest.TestCase):
                 self.assertNotEqual(modified, self.notes)
                 self.assertTrue(ring_doc_problems(modified, self.script))
         # 문서는 그대로 두고 코드의 대체 타이머 값만 바꿔도 실패한다.
-        changed = FALLBACK_TIMER.sub(lambda m: m.group(0).replace(f", {found[0]})", f", {int(found[0]) + 16})"), self.script)
+        new_ms = str(int(found[0]) + 16)
+        changed = FALLBACK_TIMER.sub(lambda m: m.group(0).replace(f", {found[0]})", f", {new_ms})"), self.script)
         self.assertNotEqual(changed, self.script)
         self.assertTrue(ring_doc_problems(self.notes, changed))
+        # 코드와 문서 규칙 줄을 함께 바꾸면 통과한다. 바꿀 줄은 코드에서 읽은 값으로 만든다.
+        both = self.notes.replace(line, FALLBACK_RULE.format(ms=new_ms), 1)
+        self.assertEqual(ring_doc_problems(both, changed), [])
+        # 교차 검토 재현: 옛 함수 이름을 바꿔 남기고 실제 `nextFrame`만 다른 값으로 정의하면 실패한다.
+        renamed = self.script.replace("const nextFrame = ", "const obsoleteFrame = ", 1)
+        self.assertNotEqual(renamed, self.script)
+        decoy = renamed.replace(
+            "const obsoleteFrame = ",
+            "const nextFrame = callback => (typeof window.requestAnimationFrame === \"function\"\n"
+            f"    ? window.requestAnimationFrame(callback) : setTimeout(() => callback(Date.now()), {new_ms}));\n"
+            "  const obsoleteFrame = ",
+            1,
+        )
+        self.assertEqual(FALLBACK_TIMER.findall(decoy), [new_ms])
+        self.assertTrue(ring_doc_problems(self.notes, decoy))
+        # `nextFrame` 선언을 찾지 못해도 실패한다.
+        self.assertTrue(ring_doc_problems(self.notes, renamed))
 
     def test_subsection_rule_lines_are_checked(self):
         # 교차 검토 재현: `회차`·`cancelAnimationFrame`·`aria-expanded` 낱말은 남긴 채 뜻을 바꾸거나 `### 검사`로 옮긴다.
