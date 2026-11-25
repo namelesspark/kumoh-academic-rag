@@ -189,14 +189,20 @@ def script_code(script):
     """JS 주석과 문자열을 걷어 낸 코드. 주석·문자열 속 옛 선언의 값을 읽지 않으려고 쓴다(#230 교차 검토).
 
     앞에서부터 주석(`/* … */`, `//` 뒤 줄 끝까지)과 문자열(`"…"`, `'…'`, `` `…` ``)을 한 덩이씩 찾는다.
-    주석은 공백으로, 문자열은 `""`로 바꾼다. `nextFrame` 선언이 비교하는 `"function"`만 그대로 둔다.
+    주석은 통째로, 문자열은 따옴표 안쪽만 같은 길이의 공백으로 가리고 줄바꿈은 남긴다. 그래서 돌려준 글의 위치가
+    원문 위치와 같아, 찾은 선언의 자리를 원문에 그대로 쓸 수 있다. `nextFrame` 선언이 비교하는 `"function"`만 그대로 둔다.
     quick-actions.js에는 정규식 리터럴이 없고 템플릿 문자열은 한 줄 안에서 닫혀 이 순서로 충분하다.
     """
+    def blank(text):
+        return re.sub(r"[^\n]", " ", text)
+
     def replace(found):
         token = found.group(0)
+        if token in ('"function"', "'function'"):
+            return token
         if token.startswith("/"):
-            return " "
-        return token if token in ('"function"', "'function'") else '""'
+            return blank(token)
+        return f"{token[0]}{blank(token[1:-1])}{token[-1]}"
 
     return SCRIPT_TOKEN.sub(replace, script)
 
@@ -359,11 +365,80 @@ class QuickRingDocTest(unittest.TestCase):
                 self.assertNotEqual(modified, self.notes)
                 self.assertTrue(ring_doc_problems(modified, self.script))
 
+    def fallback_match(self, script):
+        """검사 함수와 같은 판정(script_code)으로 찾은 실제 `nextFrame` 선언 하나. 위치는 원문 위치와 같다."""
+        matches = list(FALLBACK_TIMER.finditer(script_code(script)))
+        self.assertEqual(len(matches), 1)
+        return matches[0]
+
+    def assert_fallback_code_is_checked(self, script):
+        """`script`의 실제 선언 자리만 바꿔 가며 코드 값 검사를 본다. 원문 글자를 찾아 바꾸지 않아
+        주석 속 복제본이나 공백 차이에도 같은 자리를 고친다(#230 교차 검토)."""
+        code = script_code(script)
+        match = self.fallback_match(script)
+        found = match.group(1)
+        line = FALLBACK_RULE.format(ms=found)
+        self.assertEqual(self.notes.count(f"{line}\n"), 1, line)
+        self.assertEqual(ring_doc_problems(self.notes, script), [])
+        new_ms = str(int(found) + 16)
+        both = self.notes.replace(line, FALLBACK_RULE.format(ms=new_ms), 1)
+        # 문서는 그대로 두고 코드의 대체 타이머 값만 바꾸면 실패하고, 문서 규칙 줄도 함께 바꾸면 통과한다.
+        value_start, value_end = match.span(1)
+        changed = f"{script[:value_start]}{new_ms}{script[value_end:]}"
+        self.assertEqual(self.fallback_match(changed).group(1), new_ms)
+        self.assertTrue(ring_doc_problems(self.notes, changed))
+        self.assertEqual(ring_doc_problems(both, changed), [])
+        # 선언 줄 전체(줄 첫머리부터 `;`까지)를 다른 모양으로 바꿔 본다.
+        line_start = script.rfind("\n", 0, match.start()) + 1
+        end = match.end() + code[match.end() :].index(";") + 1
+        region = script[line_start:end]
+        indent = region[: len(region) - len(region.lstrip(" "))]
+        old_decl = region.strip()
+        new_decl = (
+            f"{indent}const nextFrame = (callback) => (typeof window.requestAnimationFrame === \"function\"\n"
+            f"{indent}  ? window.requestAnimationFrame(callback) : setTimeout(()  => callback(Date.now()),  {new_ms}));"
+        )
+        renamed = region.replace("nextFrame", "obsoleteFrame", 1)
+        head, tail = script[:line_start], script[end:]
+        replaced = {
+            # 옛 함수 이름만 바꿔 남기고 실제 `nextFrame`은 새 값으로 정의한다.
+            "이름 바꾼 옛 선언": f"{head}{new_decl}\n{renamed}{tail}",
+            # 옛 선언을 주석·여러 줄 문자열에 남기고 실제 선언은 `(callback) =>`, 공백 두 칸, 새 값으로 쓴다.
+            "블록 주석": f"{head}{indent}/* {old_decl} */\n{new_decl}{tail}",
+            "줄 주석": f"{head}{indent}// {old_decl.replace(chr(10), ' ')}\n{new_decl}{tail}",
+            "여러 줄 문자열": f"{head}{indent}const legacy = `{old_decl}`;\n{new_decl}{tail}",
+        }
+        for case, modified in replaced.items():
+            with self.subTest(case=case):
+                self.assertEqual(self.fallback_match(modified).group(1), new_ms)
+                self.assertTrue(ring_doc_problems(self.notes, modified))
+                self.assertEqual(ring_doc_problems(both, modified), [])
+        # `nextFrame` 선언을 찾지 못해도 실패한다.
+        missing = f"{head}{renamed}{tail}"
+        self.assertEqual(FALLBACK_TIMER.findall(script_code(missing)), [])
+        self.assertTrue(ring_doc_problems(self.notes, missing))
+
+    def test_fallback_code_value_is_checked(self):
+        # 교차 검토 재현: 지금 선언을 바로 위 블록 주석에 복제하거나 숫자 앞 공백을 두 칸으로 바꾼 코드에서도
+        # 검사와 이 메서드가 같은 선언 하나를 읽고 같은 자리를 고친다.
+        match = self.fallback_match(self.script)
+        line_start = self.script.rfind("\n", 0, match.start()) + 1
+        end = match.end() + script_code(self.script)[match.end() :].index(";") + 1
+        value_start = match.start(1)
+        variants = {
+            "원문": self.script,
+            "주석 속 복제본": f"{self.script[:line_start]}  /* {self.script[line_start:end].strip()} */\n{self.script[line_start:]}",
+            "숫자 앞 공백 두 칸": f"{self.script[:value_start]} {self.script[value_start:]}",
+        }
+        for case, script in variants.items():
+            with self.subTest(variant=case):
+                if case != "원문":
+                    self.assertNotEqual(script, self.script)
+                self.assert_fallback_code_is_checked(script)
+
     def test_fallback_timer_rule_is_checked(self):
         # 교차 검토 재현: 「16ms」 글자는 남긴 채 뜻을 바꾸거나 `### 초점`으로 옮겨도 실패해야 한다.
-        # 검사 함수와 같은 판정으로 센다. 원문으로 세면 주석 속 복제본 때문에 검사와 결과가 어긋난다.
-        found = FALLBACK_TIMER.findall(script_code(self.script))
-        self.assertEqual(len(found), 1)
+        found = [self.fallback_match(self.script).group(1)]
         line = FALLBACK_RULE.format(ms=found[0])
         self.assertEqual(self.notes.count(f"{line}\n"), 1, line)
         removed = self.notes.replace(f"{line}\n", "", 1)
@@ -379,53 +454,6 @@ class QuickRingDocTest(unittest.TestCase):
             with self.subTest(case=case):
                 self.assertNotEqual(modified, self.notes)
                 self.assertTrue(ring_doc_problems(modified, self.script))
-        # 문서는 그대로 두고 코드의 대체 타이머 값만 바꿔도 실패한다.
-        new_ms = str(int(found[0]) + 16)
-        changed = FALLBACK_TIMER.sub(lambda m: m.group(0).replace(f", {found[0]})", f", {new_ms})"), self.script)
-        self.assertNotEqual(changed, self.script)
-        self.assertTrue(ring_doc_problems(self.notes, changed))
-        # 코드와 문서 규칙 줄을 함께 바꾸면 통과한다. 바꿀 줄은 코드에서 읽은 값으로 만든다.
-        both = self.notes.replace(line, FALLBACK_RULE.format(ms=new_ms), 1)
-        self.assertEqual(ring_doc_problems(both, changed), [])
-        # 교차 검토 재현: 옛 함수 이름을 바꿔 남기고 실제 `nextFrame`만 다른 값으로 정의하면 실패한다.
-        renamed = self.script.replace("const nextFrame = ", "const obsoleteFrame = ", 1)
-        self.assertNotEqual(renamed, self.script)
-        decoy = renamed.replace(
-            "const obsoleteFrame = ",
-            "const nextFrame = callback => (typeof window.requestAnimationFrame === \"function\"\n"
-            f"    ? window.requestAnimationFrame(callback) : setTimeout(() => callback(Date.now()), {new_ms}));\n"
-            "  const obsoleteFrame = ",
-            1,
-        )
-        self.assertEqual(FALLBACK_TIMER.findall(script_code(decoy)), [new_ms])
-        self.assertTrue(ring_doc_problems(self.notes, decoy))
-        # `nextFrame` 선언을 찾지 못해도 실패한다.
-        self.assertTrue(ring_doc_problems(self.notes, renamed))
-        # 교차 검토 재현: 옛 16ms 선언을 주석으로 감싸 남기고, 실제 선언은 공백을 더 넣어 새 값으로 쓴다.
-        start = self.script.index("const nextFrame = ")
-        end = self.script.index(";", start) + 1
-        old_decl = self.script[start:end]
-        new_decl = (
-            "const nextFrame = callback => (typeof window.requestAnimationFrame === \"function\"\n"
-            f"    ? window.requestAnimationFrame(callback) : setTimeout(()  => callback(Date.now()), {new_ms}));"
-        )
-        for case, wrapped in {"블록 주석": f"/* {old_decl} */", "줄 주석": f"// {old_decl.replace(chr(10), ' ')}"}.items():
-            hidden = f"{self.script[:start]}{wrapped}\n  {new_decl}{self.script[end:]}"
-            with self.subTest(case=case):
-                self.assertEqual(FALLBACK_TIMER.findall(script_code(hidden)), [new_ms])
-                self.assertTrue(ring_doc_problems(self.notes, hidden))
-                # 문서 규칙 줄도 새 값으로 고치면 통과한다.
-                self.assertEqual(ring_doc_problems(both, hidden), [])
-        # 교차 검토 재현: 옛 선언을 여러 줄 문자열에 넣어 두고, 실제 선언은 `(callback) =>`와 새 값으로 쓴다.
-        in_string = new_decl.replace("callback => (", "(callback) => (", 1)
-        quoted = f"{self.script[:start]}const legacy = `{old_decl}`;\n  {in_string}{self.script[end:]}"
-        self.assertEqual(FALLBACK_TIMER.findall(script_code(quoted)), [new_ms])
-        self.assertTrue(ring_doc_problems(self.notes, quoted))
-        self.assertEqual(ring_doc_problems(both, quoted), [])
-        # 교차 검토 재현: 지금 선언을 바로 위 블록 주석에 복제해도 검사와 이 메서드가 같은 값 하나를 읽는다.
-        duplicated = f"{self.script[:start]}/* {old_decl} */\n  {self.script[start:]}"
-        self.assertEqual(FALLBACK_TIMER.findall(script_code(duplicated)), found)
-        self.assertEqual(ring_doc_problems(self.notes, duplicated), [])
 
     def test_constants_in_js_comments_are_ignored(self):
         # 주석 속 옛 상수 선언을 실제 값으로 읽지 않는다. 실제 값이 문서와 다르면 실패한다.
