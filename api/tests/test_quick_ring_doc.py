@@ -42,6 +42,8 @@ REQUIRED = (
 REDUCED_HEADING = "### 동작 줄이기"
 SECTION_BOUNDARY = re.compile(r"#{1,2}(?=[ \t]|$)")
 SUBSECTION_BOUNDARY = re.compile(r"#{1,4}(?=[ \t]|$)")
+# 누름 허용·숨김 ms 규칙 줄이 있어야 하는 하위 절(#230 교차 검토).
+TIME_HEADING = "### 시간"
 # 여는 펜스 앞은 공백 0~3칸만 받는다. 탭은 4칸 탭 정지까지 펼쳐지므로 탭으로 들여쓴 줄은 펜스가 아니다(#230).
 # 백틱 펜스 뒤 정보 문자열에 백틱이 있으면(「```example```」) 인라인 코드이므로 블록을 열지 않는다. 물결 펜스는 연다.
 FENCE = re.compile(r" {0,3}(`{3,}(?=[^`]*$)|~{3,})")
@@ -288,7 +290,9 @@ def ring_doc_problems(notes, script):
     if section is None:
         return [f"{SECTION_HEADING!r} 제목이 문서에 한 번 있어야 한다."]
     constants = script_constants(script)
-    problems = []
+    # 교차 검토 재현: 재배치 문장에도 같은 숫자가 있어 절 전체만 보면 `### 시간` 규칙 줄이 빠져도 통과한다.
+    time_block = block_after(section.splitlines(), TIME_HEADING, SUBSECTION_BOUNDARY)
+    problems = [] if time_block is not None else [f"링 절 안에 {TIME_HEADING!r} 제목이 한 번 있어야 한다."]
     for label, name in LABELS.items():
         expected = constants[name]
         if expected is None:
@@ -298,6 +302,9 @@ def ring_doc_problems(notes, script):
         written = re.findall(rf"{label} (\d+)ms", section)
         if str(expected) not in written:
             problems.append(f"절에 '{label} {expected}ms'가 없다.")
+        rule_start = f"- {label} {expected}ms: "
+        if time_block is not None and sum(line.startswith(rule_start) for line in time_block) != 1:
+            problems.append(f"{TIME_HEADING!r}에 {rule_start.strip()!r}로 시작하는 규칙 줄이 한 번 있어야 한다.")
         problems.extend(
             f"절의 '{label} {value}ms'가 {name} {expected}와 다르다."
             for value in written
@@ -361,6 +368,27 @@ class QuickRingDocTest(unittest.TestCase):
         moved = self.notes.replace(section, f"\n## 다른 절\n{section}", 1)
         for case, modified in {"주석": hidden, "다른 절": moved}.items():
             with self.subTest(case=case):
+                self.assertTrue(ring_doc_problems(modified, self.script))
+
+    def test_time_rule_lines_are_checked(self):
+        # 교차 검토 재현: `### 동작 줄이기` 재배치 문장에 같은 숫자가 남아도 `### 시간` 규칙 줄이 빠지면 실패한다.
+        lines = {
+            label: next(line for line in self.notes.splitlines() if line.startswith(f"- {label} {self.constants[name]}ms: "))
+            for label, name in LABELS.items()
+        }
+        both_removed = self.notes
+        for line in lines.values():
+            both_removed = both_removed.replace(f"{line}\n", "", 1)
+        cases = {"두 줄 삭제": both_removed}
+        for label, line in lines.items():
+            removed = self.notes.replace(f"{line}\n", "", 1)
+            cases[f"{label} 삭제"] = removed
+            cases[f"{label} 중복"] = self.notes.replace(f"{line}\n", f"{line}\n{line}\n", 1)
+            # 같은 절의 다른 실제 하위 절로 옮긴다.
+            cases[f"{label} `### 초점`으로 이동"] = removed.replace("### 초점\n", f"### 초점\n\n{line}\n", 1)
+        for case, modified in cases.items():
+            with self.subTest(case=case):
+                self.assertNotEqual(modified, self.notes)
                 self.assertTrue(ring_doc_problems(modified, self.script))
 
     def test_required_phrases_are_checked(self):
